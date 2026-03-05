@@ -11,15 +11,19 @@ At any moment:  len(RESOLVING) + len(QUEUED_DOWNLOAD) + len(DOWNLOADING) ≤ max
 
 This ensures download URLs are never resolved too early and expire before use.
 """
+
 from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 import uuid
-from datetime import datetime
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -122,7 +126,9 @@ class DownloadManager:
             elif kind == "user":
                 signal_bus.log_message.emit(f"[识别] 用户链接 → username={value}")
             elif kind == "playlist":
-                signal_bus.log_message.emit(f"[识别] 播放列表链接 → playlist_id={value}")
+                signal_bus.log_message.emit(
+                    f"[识别] 播放列表链接 → playlist_id={value}"
+                )
             if kind == "video":
                 self._enqueue_video_id(value, url)
                 return
@@ -261,7 +267,9 @@ class DownloadManager:
         with self._lock:
             active = self._count_active()
             limit = app_config.max_concurrent
-            queued = [t for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META]
+            queued = [
+                t for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META
+            ]
             while active < limit and queued:
                 task = queued.pop(0)
                 task.status = TaskStatus.RESOLVING
@@ -288,10 +296,15 @@ class DownloadManager:
             return
 
         # Re-try with login if private
-        if not video_info.get("fileUrl") and video_info.get("message") == "errors.privateVideo":
+        if (
+            not video_info.get("fileUrl")
+            and video_info.get("message") == "errors.privateVideo"
+        ):
             if not self.api.token:
                 self._fail_task(task_id, "私有视频，请先登录后重试")
-                signal_bus.log_message.emit(f"[跳过] {task.video_id} 为私有视频，请先登录")
+                signal_bus.log_message.emit(
+                    f"[跳过] {task.video_id} 为私有视频，请先登录"
+                )
                 return
             self._fail_task(task_id, "私有视频（已登录但无权限）")
             signal_bus.log_message.emit(f"[跳过] {task.video_id} 私有视频，无权限")
@@ -303,7 +316,9 @@ class DownloadManager:
 
         # Pass quality preference and a logging callback
         pref_quality = app_config.preferred_quality
-        signal_bus.log_message.emit(f"[解析] 首选画质: {pref_quality}，开始获取文件列表…")
+        signal_bus.log_message.emit(
+            f"[解析] 首选画质: {pref_quality}，开始获取文件列表…"
+        )
 
         def _log(msg: str):
             signal_bus.log_message.emit(msg)
@@ -324,7 +339,11 @@ class DownloadManager:
         save_dir = os.path.join(app_config.download_dir, author or "unknown")
         file_path = os.path.join(save_dir, filename)
 
-        if app_config.skip_existing_files and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        if (
+            app_config.skip_existing_files
+            and os.path.exists(file_path)
+            and os.path.getsize(file_path) > 0
+        ):
             with self._lock:
                 task.title = title
                 task.author = author
@@ -372,10 +391,146 @@ class DownloadManager:
         with self._lock:
             task.file_path = file_path
 
-        signal_bus.log_message.emit(
-            f"[下载] 《{task.title}》 [画质:{task.quality}]"
-        )
+        signal_bus.log_message.emit(f"[下载] 《{task.title}》 [画质:{task.quality}]")
         signal_bus.log_message.emit(f"  保存至: {file_path}")
+
+        aria2_path = shutil.which("aria2c")
+        if aria2_path:
+            self._download_task_aria2(
+                task_id, file_path=file_path, aria2_path=aria2_path
+            )
+            return
+
+        signal_bus.log_message.emit("  未找到 aria2c，回退到内置下载器")
+        self._download_task_native(task_id, file_path=file_path)
+
+    def _download_task_aria2(self, task_id: str, file_path: str, aria2_path: str):
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+
+        save_dir = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+
+        cmd = [
+            aria2_path,
+            "--continue=true",
+            "--max-connection-per-server=16",
+            "--split=16",
+            "--min-split-size=1M",
+            "--summary-interval=1",
+            "--download-result=hide",
+            "--console-log-level=warn",
+            "--auto-file-renaming=false",
+            "--allow-overwrite=false",
+            "--file-allocation=none",
+            "--timeout=60",
+            "--max-tries=5",
+            "--retry-wait=2",
+            "--dir",
+            save_dir,
+            "--out",
+            filename,
+            task.download_url,
+        ]
+        if self.api.token:
+            cmd.insert(-1, f"--header=Authorization: Bearer {self.api.token}")
+        if app_config.proxy_enabled and app_config.proxy_url:
+            cmd.insert(-1, f"--all-proxy={app_config.proxy_url}")
+
+        signal_bus.log_message.emit("  使用 aria2c 多连接下载")
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+        except Exception as exc:
+            signal_bus.log_message.emit(f"  aria2c 启动失败，回退到内置下载器: {exc}")
+            self._download_task_native(task_id, file_path=file_path)
+            return
+
+        progress_re = re.compile(
+            r"(?P<done>\d+(?:\.\d+)?[KMGT]?i?B)/(?P<total>\d+(?:\.\d+)?[KMGT]?i?B)\((?P<pct>\d+)%\)"
+        )
+        speed_re = re.compile(r"DL:(?P<speed>\d+(?:\.\d+)?[KMGT]?i?B)")
+        tail = deque(maxlen=8)
+        last_emit = 0.0
+
+        if proc.stdout:
+            for line in proc.stdout:
+                text = line.strip()
+                if not text:
+                    continue
+                tail.append(text)
+
+                done_bytes = None
+                total_bytes = None
+                speed_str = ""
+
+                m_prog = progress_re.search(text)
+                if m_prog:
+                    done_bytes = _parse_aria2_size(m_prog.group("done"))
+                    total_bytes = _parse_aria2_size(m_prog.group("total"))
+
+                m_speed = speed_re.search(text)
+                if m_speed:
+                    speed_bps = _parse_aria2_size(m_speed.group("speed"))
+                    if speed_bps is not None:
+                        speed_str = _fmt_speed(float(speed_bps))
+
+                now = time.monotonic()
+                if now - last_emit >= 0.5:
+                    if done_bytes is None:
+                        done_bytes = (
+                            os.path.getsize(file_path)
+                            if os.path.exists(file_path)
+                            else 0
+                        )
+                    if total_bytes is None:
+                        total_bytes = done_bytes
+                    if total_bytes < done_bytes:
+                        total_bytes = done_bytes
+
+                    with self._lock:
+                        task.downloaded_bytes = done_bytes
+                        task.total_bytes = total_bytes
+                        task.speed_str = speed_str
+
+                    signal_bus.task_progress_updated.emit(
+                        task_id, done_bytes, total_bytes, speed_str
+                    )
+                    last_emit = now
+
+        rc = proc.wait()
+        if rc != 0:
+            reason = f"aria2c 退出码 {rc}"
+            if tail:
+                reason = f"{reason}: {tail[-1]}"
+            self._fail_task(task_id, reason)
+            return
+
+        downloaded = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        total = downloaded
+        with self._lock:
+            task.downloaded_bytes = downloaded
+            task.total_bytes = total
+            task.speed_str = ""
+        signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
+        signal_bus.log_message.emit(
+            f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}"
+        )
+        self._complete_task(task_id)
+
+    def _download_task_native(self, task_id: str, file_path: str):
+        task = self._tasks.get(task_id)
+        if not task:
+            return
 
         try:
             headers: dict[str, str] = {}
@@ -405,10 +560,7 @@ class DownloadManager:
                 return
 
             if resp.status_code not in (200, 206):
-                self._fail_task(
-                    task_id,
-                    f"HTTP {resp.status_code}: {resp.text[:200]}"
-                )
+                self._fail_task(task_id, f"HTTP {resp.status_code}: {resp.text[:200]}")
                 return
 
             # Compute total size
@@ -487,7 +639,9 @@ class DownloadManager:
         return None
 
     def _build_filename(self, title: str, video_id: str) -> str:
-        template = (app_config.filename_template or "").strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
+        template = (
+            app_config.filename_template or ""
+        ).strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
         date_text = datetime.now().strftime("%Y-%m-%d")
         mapping = {
             "{YYYY-MM-DD}": date_text,
@@ -540,19 +694,42 @@ download_manager = DownloadManager()
 
 # ── Utility ──────────────────────────────────────────────────────────────────
 
+
 def _fmt_speed(bps: float) -> str:
-    if bps >= 1024 ** 2:
-        return f"{bps / 1024 ** 2:.1f} MB/s"
+    if bps >= 1024**2:
+        return f"{bps / 1024**2:.1f} MB/s"
     if bps >= 1024:
         return f"{bps / 1024:.1f} KB/s"
     return f"{bps:.0f} B/s"
 
 
 def _fmt_bytes(n: int) -> str:
-    if n >= 1024 ** 3:
-        return f"{n / 1024 ** 3:.1f} GB"
-    if n >= 1024 ** 2:
-        return f"{n / 1024 ** 2:.1f} MB"
+    if n >= 1024**3:
+        return f"{n / 1024**3:.1f} GB"
+    if n >= 1024**2:
+        return f"{n / 1024**2:.1f} MB"
     if n >= 1024:
         return f"{n / 1024:.1f} KB"
     return f"{n} B"
+
+
+def _parse_aria2_size(text: str) -> int | None:
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)([KMGT]?i?B)\s*", text)
+    if not m:
+        return None
+    value = float(m.group(1))
+    unit = m.group(2).upper()
+    scale = {
+        "B": 1,
+        "KIB": 1024,
+        "MIB": 1024**2,
+        "GIB": 1024**3,
+        "TIB": 1024**4,
+        "KB": 1024,
+        "MB": 1024**2,
+        "GB": 1024**3,
+        "TB": 1024**4,
+    }.get(unit)
+    if scale is None:
+        return None
+    return int(value * scale)
