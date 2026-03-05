@@ -1,0 +1,83 @@
+name: Build Desktop Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip wheel
+          python -m pip install \
+            "pyside6==6.6.2" \
+            "requests>=2.32.5,<3" \
+            "cloudscraper>=1.2.71" \
+            "pyside6-fluent-widgets>=1.10.2,<2" \
+            "nuitka>=2.8.9,<3" \
+            "zstandard>=0.25.0,<0.26"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python -m nuitka \
+            --standalone \
+            --onefile \
+            --enable-plugin=pyside6 \
+            --windows-console-mode=disable \
+            --include-package-data=cloudscraper \
+            --windows-icon-from-ico=app/icon.ico \
+            --include-data-file=app/icon.ico=app/icon.ico \
+            --output-filename=IwaraTool.exe \
+            --output-dir=dist \
+            --remove-output \
+            main.py
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m nuitka \
+            --standalone \
+            --onefile \
+            --enable-plugin=pyside6 \
+            --include-package-data=cloudscraper \
+            --include-data-file=app/icon.ico=app/icon.ico \
+            --output-filename=IwaraTool \
+            --output-dir=dist \
+            --remove-output \
+            main.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: IwaraTool-${{ runner.os }}
+          path: |
+            dist/*
+          if-no-files-found: error

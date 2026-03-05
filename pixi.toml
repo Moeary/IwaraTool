@@ -1,0 +1,35 @@
+[workspace]
+authors = ["Moeary"]
+channels = ["conda-forge"]
+name = "IwaraTool"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+start = "python main.py"
+build = """
+nuitka 
+--standalone 
+--onefile 
+--enable-plugin=pyside6 
+--windows-console-mode=disable 
+--include-package-data=cloudscraper 
+--windows-icon-from-ico=app/icon.ico 
+--include-data-file=app/icon.ico=app/icon.ico 
+--output-filename=IwaraTool.exe 
+--output-dir=dist 
+--remove-output
+main.py
+"""
+
+[dependencies]
+python = "3.11.*"
+pyside6 = "==6.6.2"
+requests = ">=2.32.5,<3"
+#下面是编译要用的 Following are for build dependencies
+zstandard = ">=0.25.0,<0.26" 
+nuitka = ">=2.8.9,<3"
+
+[pypi-dependencies]
+pyside6-fluent-widgets = ">=1.10.2, <2"
+cloudscraper = ">=1.2.71"

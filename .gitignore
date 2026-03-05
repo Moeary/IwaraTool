@@ -1,0 +1,16 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+tmp_iwara_dl_ref/*
+download/*
+downloads/*
+dist/*
+data/*
+.vscode/*
+
+*.pyd
+*.pyc
+
+plan.md
+test.md
