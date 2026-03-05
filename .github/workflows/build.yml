@@ -47,6 +47,7 @@ jobs:
         shell: bash
         run: |
           python -m nuitka \
+            --assume-yes-for-downloads \
             --standalone \
             --onefile \
             --enable-plugin=pyside6 \
