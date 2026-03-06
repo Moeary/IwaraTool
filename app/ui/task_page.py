@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from shiboken6 import isValid
 
 from qfluentwidgets import (
     BodyLabel,
@@ -11,6 +12,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     PrimaryPushButton,
     ScrollArea,
+    SwitchButton,
     SubtitleLabel,
     TitleLabel,
 )
@@ -65,7 +67,8 @@ class TaskListWidget(QWidget):
 
     def remove_card(self, task_id: str):
         card = self._cards.pop(task_id, None)
-        if card:
+        if card and isValid(card):
+            self._v_layout.removeWidget(card)
             card.setParent(None)
             card.deleteLater()
         self._empty_lbl.setVisible(len(self._cards) == 0)
@@ -97,6 +100,16 @@ class TaskCenterInterface(QWidget):
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Task Center", "任务中心"), self))
         title_row.addStretch()
+
+        self._exclude_downloaded_switch = SwitchButton(self)
+        self._exclude_downloaded_switch.setChecked(True)
+        title_row.addWidget(BodyLabel("排除已下载", self))
+        title_row.addWidget(self._exclude_downloaded_switch)
+
+        retry_all_btn = PrimaryPushButton("全部重试", self, FluentIcon.SYNC)
+        retry_all_btn.clicked.connect(self._retry_all_failed)
+        title_row.addWidget(retry_all_btn)
+
         clear_btn = PrimaryPushButton(tr("Clear Completed", "清除已完成"), self, FluentIcon.BROOM)
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
@@ -137,6 +150,7 @@ class TaskCenterInterface(QWidget):
     def _connect_signals(self):
         signal_bus.task_added.connect(self._on_task_added)
         signal_bus.task_status_changed.connect(self._on_status_changed)
+        signal_bus.task_removed.connect(self._on_task_removed)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -199,8 +213,6 @@ class TaskCenterInterface(QWidget):
 
     def _clear_done(self):
         download_manager.clear_completed()
-        for tid in list(self._done_list._cards.keys()):
-            self._done_list.remove_card(tid)
         InfoBar.success(
             title=tr("Cleared", "已清除"),
             content=tr("All completed/failed tasks were removed", "已移除所有已完成和失败的任务"),
@@ -208,5 +220,24 @@ class TaskCenterInterface(QWidget):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2500,
+            parent=self,
+        )
+
+    def _on_task_removed(self, task_id: str):
+        for lst in (self._queued_list, self._active_list, self._done_list):
+            if lst.contains(task_id):
+                lst.remove_card(task_id)
+
+    def _retry_all_failed(self):
+        retried, skipped = download_manager.retry_all_failed(
+            exclude_downloaded=self._exclude_downloaded_switch.isChecked()
+        )
+        InfoBar.success(
+            title=tr("Retry Triggered", "批量重试已触发"),
+            content=f"重试 {retried} 个，排除并标记完成 {skipped} 个",
+            orient=0,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2800,
             parent=self,
         )

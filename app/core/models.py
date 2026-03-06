@@ -45,3 +45,16 @@ class DownloadTask:
     speed_str: str = ""
     error_msg: str = ""
     quality: str = ""         # 实际选择的画质
+    published_at: str = ""    # API createdAt
+    likes: int = 0
+    views: int = 0
+    slug: str = ""
+    rating: str = ""
+    duration: int = 0
+    comments: int = 0
+    tags_json: str = ""
+    raw_json: str = ""
+    file_url: str = ""
+    file_id: str = ""
+    thumbnail_index: int = 0
+    thumbnail_path: str = ""

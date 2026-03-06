@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -124,7 +124,7 @@ class SettingsInterface(ScrollArea):
 
         login_layout.addWidget(
             BodyLabel(
-                "登录后可下载私有视频；账号密码在本地持久化保存，下次启动自动登录",
+                "登录后可下载私有视频；账号密码在本地持久化保存，下次启动自动登录,请使用用户名+密码登录,邮箱登录可能会遇到其他问题导致登录失败",
                 login_card,
             )
         )
@@ -135,7 +135,7 @@ class SettingsInterface(ScrollArea):
         cred_layout.setSpacing(8)
 
         self._user_edit = LineEdit(self._cred_widget)
-        self._user_edit.setPlaceholderText("用户名或邮箱（支持两种格式）")
+        self._user_edit.setPlaceholderText("用户名")
         self._user_edit.setClearButtonEnabled(True)
 
         self._pass_edit = PasswordLineEdit(self._cred_widget)
@@ -210,6 +210,15 @@ class SettingsInterface(ScrollArea):
         dir_row.addWidget(self._dir_edit, stretch=1)
         dir_row.addWidget(browse_btn)
         dir_layout.addLayout(dir_row)
+
+        cleanup_row = QHBoxLayout()
+        cleanup_row.addWidget(BodyLabel("清理下载目录中残留的 *_temp 临时文件", dir_card))
+        cleanup_row.addStretch()
+        cleanup_btn = PrimaryPushButton("一键清理 _temp", dir_card, FluentIcon.DELETE)
+        cleanup_btn.setFixedWidth(140)
+        cleanup_btn.clicked.connect(self._confirm_clear_temp_files)
+        cleanup_row.addWidget(cleanup_btn)
+        dir_layout.addLayout(cleanup_row)
         layout.addWidget(dir_card)
 
         # ── Filename template & de-dup ───────────────────────────────────────
@@ -232,11 +241,27 @@ class SettingsInterface(ScrollArea):
         name_layout.addWidget(self._name_tpl_edit)
 
         skip_row = QHBoxLayout()
-        skip_row.addWidget(BodyLabel("批量下载时跳过下载目录中已存在的文件（按视频ID匹配）", name_card))
+        skip_row.addWidget(BodyLabel("批量下载时跳过下载目录中已存在的完整文件", name_card))
         skip_row.addStretch()
         self._skip_existing_switch = SwitchButton(name_card)
         skip_row.addWidget(self._skip_existing_switch)
         name_layout.addLayout(skip_row)
+
+        cover_row = QHBoxLayout()
+        cover_row.addWidget(BodyLabel("下载成功后同时保存视频封面（同名 .jpg）", name_card))
+        cover_row.addStretch()
+        self._download_thumb_switch = SwitchButton(name_card)
+        cover_row.addWidget(self._download_thumb_switch)
+        name_layout.addLayout(cover_row)
+
+        click_row = QHBoxLayout()
+        click_row.addWidget(BodyLabel("已完成任务卡片单击行为", name_card))
+        click_row.addStretch()
+        self._completed_click_combo = ComboBox(name_card)
+        self._completed_click_combo.addItems(["打开文件夹", "打开视频播放器"])
+        self._completed_click_combo.setFixedWidth(180)
+        click_row.addWidget(self._completed_click_combo)
+        name_layout.addLayout(click_row)
 
         layout.addWidget(name_card)
 
@@ -298,6 +323,38 @@ class SettingsInterface(ScrollArea):
         proxy_layout.addWidget(self._proxy_widget)
         layout.addWidget(proxy_card)
 
+        # ── Aria2 RPC ───────────────────────────────────────────────────────
+        aria2_card = CardWidget(self._content)
+        aria2_layout = QVBoxLayout(aria2_card)
+        aria2_layout.setContentsMargins(20, 16, 20, 16)
+        aria2_layout.setSpacing(10)
+
+        aria2_header = QHBoxLayout()
+        aria2_header.addWidget(SubtitleLabel("Aria2 RPC", aria2_card))
+        aria2_header.addStretch()
+        self._aria2_switch = SwitchButton(aria2_card)
+        self._aria2_switch.checkedChanged.connect(self._on_aria2_toggle)
+        aria2_header.addWidget(self._aria2_switch)
+        aria2_layout.addLayout(aria2_header)
+
+        aria2_layout.addWidget(BodyLabel("启用后下载任务交由 aria2 RPC 代理处理", aria2_card))
+
+        self._aria2_widget = QWidget(aria2_card)
+        aria2_inner = QVBoxLayout(self._aria2_widget)
+        aria2_inner.setContentsMargins(0, 0, 0, 0)
+        aria2_inner.setSpacing(8)
+
+        self._aria2_url_edit = LineEdit(self._aria2_widget)
+        self._aria2_url_edit.setPlaceholderText("http://127.0.0.1:6800/jsonrpc")
+        aria2_inner.addWidget(self._aria2_url_edit)
+
+        self._aria2_token_edit = PasswordLineEdit(self._aria2_widget)
+        self._aria2_token_edit.setPlaceholderText("RPC token（可留空）")
+        aria2_inner.addWidget(self._aria2_token_edit)
+
+        aria2_layout.addWidget(self._aria2_widget)
+        layout.addWidget(aria2_card)
+
         # ── Save button ───────────────────────────────────────────────────────
         save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置"), self._content, FluentIcon.SAVE)
         save_btn.setFixedWidth(140)
@@ -315,8 +372,15 @@ class SettingsInterface(ScrollArea):
         self._proxy_switch.setChecked(app_config.proxy_enabled)
         self._proxy_edit.setText(app_config.proxy_url)
         self._proxy_widget.setVisible(app_config.proxy_enabled)
+        self._aria2_switch.setChecked(app_config.aria2_rpc_enabled)
+        self._aria2_url_edit.setText(app_config.aria2_rpc_url)
+        self._aria2_token_edit.setText(app_config.aria2_rpc_token)
+        self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
         self._name_tpl_edit.setText(app_config.filename_template)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
+        self._download_thumb_switch.setChecked(app_config.download_thumbnail)
+        action = str(app_config.completed_task_click_action or "folder").lower()
+        self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
         self._lang_combo.setCurrentIndex(1 if app_config.ui_language.lower().startswith("en") else 0)
 
         # Auth
@@ -445,6 +509,10 @@ class SettingsInterface(ScrollArea):
     def _on_proxy_url_changed(self, text: str):
         app_config.proxy_url = text
 
+    def _on_aria2_toggle(self, checked: bool):
+        app_config.aria2_rpc_enabled = checked
+        self._aria2_widget.setVisible(checked)
+
     def _apply_proxy(self):
         if app_config.proxy_enabled:
             download_manager.apply_config()
@@ -463,8 +531,15 @@ class SettingsInterface(ScrollArea):
         app_config.max_concurrent = self._conc_slider.value()
         app_config.proxy_enabled = self._proxy_switch.isChecked()
         app_config.proxy_url = self._proxy_edit.text()
+        app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
+        app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
+        app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
         app_config.filename_template = self._name_tpl_edit.text().strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
+        app_config.download_thumbnail = self._download_thumb_switch.isChecked()
+        app_config.completed_task_click_action = (
+            "player" if self._completed_click_combo.currentIndex() == 1 else "folder"
+        )
         if app_config.proxy_enabled:
             download_manager.apply_config()
         InfoBar.success(
@@ -474,5 +549,45 @@ class SettingsInterface(ScrollArea):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2500,
+            parent=self,
+        )
+
+    def _confirm_clear_temp_files(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("确认清理")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText("将删除下载目录下所有 *_temp 文件（含对应 .aria2 临时索引）。")
+        box.setInformativeText("此操作不可撤销，是否继续？")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        removed, failed = download_manager.clear_temp_files()
+        signal_bus.log_message.emit(
+            f"[清理] 临时文件清理完成，删除 {removed} 个，失败 {failed} 个"
+        )
+
+        if failed:
+            InfoBar.warning(
+                title="清理完成（部分失败）",
+                content=f"已删除 {removed} 个，失败 {failed} 个",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self,
+            )
+            return
+
+        InfoBar.success(
+            title="清理完成",
+            content=f"已删除 {removed} 个 *_temp 文件",
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
             parent=self,
         )

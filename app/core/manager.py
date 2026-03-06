@@ -11,15 +11,19 @@ At any moment:  len(RESOLVING) + len(QUEUED_DOWNLOAD) + len(DOWNLOADING) ≤ max
 
 This ensures download URLs are never resolved too early and expire before use.
 """
+
 from __future__ import annotations
 
 import os
+import json
 import re
+import shutil
+import subprocess
 import threading
 import time
 import uuid
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -79,11 +83,52 @@ class DownloadManager:
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
         self._try_activate()
 
+    def retry_all_failed(self, exclude_downloaded: bool = True) -> tuple[int, int]:
+        """Retry all failed tasks.
+
+        Args:
+            exclude_downloaded: if True, failed tasks that already have local
+                completed files are marked completed instead of retried.
+
+        Returns:
+            (retried_count, skipped_as_completed_count)
+        """
+        to_retry: list[str] = []
+        to_complete: list[str] = []
+
+        with self._lock:
+            failed_tasks = [
+                t for t in self._tasks.values() if t.status == TaskStatus.FAILED
+            ]
+
+            for task in failed_tasks:
+                if exclude_downloaded and self._find_existing_local_file(task.video_id):
+                    to_complete.append(task.task_id)
+                    continue
+
+                task.status = TaskStatus.QUEUED_META
+                task.error_msg = ""
+                task.downloaded_bytes = 0
+                task.total_bytes = 0
+                task.download_url = ""
+                to_retry.append(task.task_id)
+
+        for tid in to_complete:
+            self._complete_task(tid)
+        for tid in to_retry:
+            signal_bus.task_status_changed.emit(tid, TaskStatus.QUEUED_META.value)
+
+        self._try_activate()
+        return len(to_retry), len(to_complete)
+
     def remove_task(self, task_id: str):
         with self._lock:
-            self._tasks.pop(task_id, None)
+            removed = self._tasks.pop(task_id, None)
+        if removed:
+            signal_bus.task_removed.emit(task_id)
 
     def clear_completed(self):
+        removed_ids: list[str] = []
         with self._lock:
             to_remove = [
                 tid
@@ -92,6 +137,44 @@ class DownloadManager:
             ]
             for tid in to_remove:
                 del self._tasks[tid]
+                removed_ids.append(tid)
+        for tid in removed_ids:
+            signal_bus.task_removed.emit(tid)
+
+    def open_task_output(self, task_id: str) -> tuple[bool, str]:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False, "任务不存在"
+            status = task.status
+            file_path = task.file_path
+            title = task.title or task.video_id
+
+        if status != TaskStatus.COMPLETED:
+            return False, "仅支持已完成任务"
+        if not file_path or not os.path.exists(file_path):
+            return False, "文件不存在"
+
+        action = str(app_config.completed_task_click_action or "folder").lower()
+        target = file_path if action == "player" else os.path.dirname(file_path)
+        if not target:
+            return False, "无可打开路径"
+
+        try:
+            if os.name == "nt":
+                os.startfile(target)
+            elif shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", target])
+            elif shutil.which("open"):
+                subprocess.Popen(["open", target])
+            else:
+                return False, "系统不支持自动打开"
+        except Exception as exc:
+            return False, str(exc)
+
+        action_text = "播放器" if action == "player" else "文件夹"
+        signal_bus.log_message.emit(f"[打开] 《{title}》 → {action_text}")
+        return True, ""
 
     def set_login(self, logged_in: bool, token: str | None = None):
         if logged_in and token:
@@ -122,7 +205,9 @@ class DownloadManager:
             elif kind == "user":
                 signal_bus.log_message.emit(f"[识别] 用户链接 → username={value}")
             elif kind == "playlist":
-                signal_bus.log_message.emit(f"[识别] 播放列表链接 → playlist_id={value}")
+                signal_bus.log_message.emit(
+                    f"[识别] 播放列表链接 → playlist_id={value}"
+                )
             if kind == "video":
                 self._enqueue_video_id(value, url)
                 return
@@ -181,16 +266,10 @@ class DownloadManager:
         return None
 
     def _enqueue_video_id(self, video_id: str, original_url: str):
-        # Dedup: skip if already in history
-        if self.history.is_downloaded(video_id):
-            signal_bus.log_message.emit(f"[跳过] {video_id} 已在下载记录中")
-            return
-
-        # Optional: skip if same ID appears in local download directory
+        # Only local files are authoritative for skip-existing checks.
         if app_config.skip_existing_files:
             existing_path = self._find_existing_local_file(video_id)
             if existing_path:
-                self.history.add_downloaded(video_id)
                 signal_bus.log_message.emit(
                     f"[跳过] {video_id} 已存在本地文件: {existing_path}"
                 )
@@ -261,7 +340,9 @@ class DownloadManager:
         with self._lock:
             active = self._count_active()
             limit = app_config.max_concurrent
-            queued = [t for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META]
+            queued = [
+                t for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META
+            ]
             while active < limit and queued:
                 task = queued.pop(0)
                 task.status = TaskStatus.RESOLVING
@@ -288,10 +369,15 @@ class DownloadManager:
             return
 
         # Re-try with login if private
-        if not video_info.get("fileUrl") and video_info.get("message") == "errors.privateVideo":
+        if (
+            not video_info.get("fileUrl")
+            and video_info.get("message") == "errors.privateVideo"
+        ):
             if not self.api.token:
                 self._fail_task(task_id, "私有视频，请先登录后重试")
-                signal_bus.log_message.emit(f"[跳过] {task.video_id} 为私有视频，请先登录")
+                signal_bus.log_message.emit(
+                    f"[跳过] {task.video_id} 为私有视频，请先登录"
+                )
                 return
             self._fail_task(task_id, "私有视频（已登录但无权限）")
             signal_bus.log_message.emit(f"[跳过] {task.video_id} 私有视频，无权限")
@@ -299,11 +385,54 @@ class DownloadManager:
 
         title: str = video_info.get("title", task.video_id) or task.video_id
         author: str = video_info.get("user", {}).get("username", "") or ""
+        published_at = str(video_info.get("createdAt", "") or "")
+        likes = int(video_info.get("numLikes", 0) or 0)
+        views = int(video_info.get("numViews", 0) or 0)
+        slug = str(video_info.get("slug", "") or "")
+        rating = str(video_info.get("rating", "") or "")
+        duration = int(video_info.get("file", {}).get("duration", 0) or 0)
+        comments = int(video_info.get("numComments", 0) or 0)
+        tags_json = json.dumps(video_info.get("tags", []), ensure_ascii=False)
+        raw_json = json.dumps(video_info, ensure_ascii=False)
+        file_url = str(video_info.get("fileUrl", "") or "")
+        file_id = str(video_info.get("file", {}).get("id", "") or "")
+        thumbnail_index = int(video_info.get("thumbnail", 0) or 0)
+
+        with self._lock:
+            self._apply_task_metadata(
+                task,
+                title=title,
+                author=author,
+                published_at=published_at,
+                likes=likes,
+                views=views,
+                slug=slug,
+                rating=rating,
+                duration=duration,
+                comments=comments,
+                tags_json=tags_json,
+                raw_json=raw_json,
+                file_url=file_url,
+                file_id=file_id,
+                thumbnail_index=thumbnail_index,
+            )
+
+        passed_filter, filter_reason = self._passes_filters(
+            likes=likes,
+            views=views,
+            published_at=published_at,
+        )
+        if not passed_filter:
+            self._skip_task(task_id, f"筛选不通过: {filter_reason}")
+            return
+
         signal_bus.log_message.emit(f"[解析] 《{title}》 by {author}")
 
         # Pass quality preference and a logging callback
         pref_quality = app_config.preferred_quality
-        signal_bus.log_message.emit(f"[解析] 首选画质: {pref_quality}，开始获取文件列表…")
+        signal_bus.log_message.emit(
+            f"[解析] 首选画质: {pref_quality}，开始获取文件列表…"
+        )
 
         def _log(msg: str):
             signal_bus.log_message.emit(msg)
@@ -320,14 +449,20 @@ class DownloadManager:
 
         signal_bus.log_message.emit(f"[解析完成] 《{title}》 画质={quality}")
 
-        filename = self._build_filename(title=title, video_id=task.video_id)
+        filename = self._build_filename(
+            title=title,
+            video_id=task.video_id,
+            published_at=published_at,
+        )
         save_dir = os.path.join(app_config.download_dir, author or "unknown")
         file_path = os.path.join(save_dir, filename)
 
-        if app_config.skip_existing_files and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        if (
+            app_config.skip_existing_files
+            and os.path.exists(file_path)
+            and os.path.getsize(file_path) > 0
+        ):
             with self._lock:
-                task.title = title
-                task.author = author
                 task.download_url = dl_url
                 task.quality = quality or ""
                 task.filename = filename
@@ -337,11 +472,10 @@ class DownloadManager:
             return
 
         with self._lock:
-            task.title = title
-            task.author = author
             task.download_url = dl_url
             task.quality = quality or ""
             task.filename = filename
+            task.file_path = file_path
             task.status = TaskStatus.QUEUED_DOWNLOAD
 
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_DOWNLOAD.value)
@@ -367,15 +501,123 @@ class DownloadManager:
         # Determine save path
         save_dir = os.path.join(app_config.download_dir, task.author or "unknown")
         os.makedirs(save_dir, exist_ok=True)
-        file_path = os.path.join(save_dir, task.filename)
+        final_path = os.path.join(save_dir, task.filename)
+        temp_path = f"{final_path}_temp"
 
         with self._lock:
-            task.file_path = file_path
+            task.file_path = final_path
 
-        signal_bus.log_message.emit(
-            f"[下载] 《{task.title}》 [画质:{task.quality}]"
-        )
-        signal_bus.log_message.emit(f"  保存至: {file_path}")
+        signal_bus.log_message.emit(f"[下载] 《{task.title}》 [画质:{task.quality}]")
+        signal_bus.log_message.emit(f"  保存至: {final_path}")
+        signal_bus.log_message.emit(f"  临时文件: {temp_path}")
+
+        if app_config.aria2_rpc_enabled:
+            self._download_task_aria2(
+                task_id,
+                final_path=final_path,
+                temp_path=temp_path,
+            )
+            return
+
+        signal_bus.log_message.emit("  aria2 未启用，使用内置下载器")
+        self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+
+    def _download_task_aria2(
+        self,
+        task_id: str,
+        final_path: str,
+        temp_path: str,
+    ):
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+
+        rpc_url = app_config.aria2_rpc_url.strip()
+        if not rpc_url:
+            signal_bus.log_message.emit("  aria2 RPC 地址为空，回退到内置下载器")
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+            return
+
+        save_dir = os.path.dirname(temp_path)
+        filename = os.path.basename(temp_path)
+        headers: list[str] = []
+        if self.api.token:
+            headers.append(f"Authorization: Bearer {self.api.token}")
+
+        options: dict[str, str | list[str]] = {
+            "dir": save_dir,
+            "out": filename,
+            "continue": "true",
+            "max-connection-per-server": "16",
+            "split": "16",
+            "min-split-size": "1M",
+            "timeout": "60",
+            "max-tries": "5",
+            "retry-wait": "2",
+            "auto-file-renaming": "false",
+            "allow-overwrite": "false",
+            "file-allocation": "none",
+        }
+        if headers:
+            options["header"] = headers
+        if app_config.proxy_enabled and app_config.proxy_url:
+            options["all-proxy"] = app_config.proxy_url
+
+        signal_bus.log_message.emit(f"  使用 aria2 RPC 下载: {rpc_url}")
+        gid, add_err = self._aria2_rpc_add_uri(task.download_url, options)
+        if not gid:
+            signal_bus.log_message.emit(f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}")
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+            return
+
+        last_emit = 0.0
+        while True:
+            status_info, err = self._aria2_rpc_tell_status(gid)
+            if not status_info:
+                self._fail_task(task_id, f"aria2 RPC 查询失败: {err}")
+                return
+
+            status = str(status_info.get("status", ""))
+            done = int(status_info.get("completedLength", "0") or 0)
+            total = int(status_info.get("totalLength", "0") or 0)
+            speed = int(status_info.get("downloadSpeed", "0") or 0)
+            speed_str = _fmt_speed(float(speed)) if speed > 0 else ""
+
+            now = time.monotonic()
+            if now - last_emit >= 0.5:
+                with self._lock:
+                    task.downloaded_bytes = done
+                    task.total_bytes = total
+                    task.speed_str = speed_str
+                signal_bus.task_progress_updated.emit(task_id, done, total, speed_str)
+                last_emit = now
+
+            if status == "complete":
+                downloaded = os.path.getsize(temp_path) if os.path.exists(temp_path) else done
+                if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
+                    return
+                with self._lock:
+                    task.downloaded_bytes = downloaded
+                    task.total_bytes = max(total, downloaded)
+                    task.speed_str = ""
+                signal_bus.task_progress_updated.emit(task_id, downloaded, max(total, downloaded), "")
+                signal_bus.log_message.emit(f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}")
+                self._complete_task(task_id)
+                self._aria2_rpc_remove_result(gid)
+                return
+
+            if status in ("error", "removed"):
+                err_msg = str(status_info.get("errorMessage", "aria2 未知错误") or "aria2 未知错误")
+                self._fail_task(task_id, f"aria2 {status}: {err_msg}")
+                self._aria2_rpc_remove_result(gid)
+                return
+
+            time.sleep(0.5)
+
+    def _download_task_native(self, task_id: str, final_path: str, temp_path: str):
+        task = self._tasks.get(task_id)
+        if not task:
+            return
 
         try:
             headers: dict[str, str] = {}
@@ -384,8 +626,8 @@ class DownloadManager:
 
             # Resume support
             existing_size = 0
-            if os.path.exists(file_path):
-                existing_size = os.path.getsize(file_path)
+            if os.path.exists(temp_path):
+                existing_size = os.path.getsize(temp_path)
                 if existing_size > 0:
                     headers["Range"] = f"bytes={existing_size}-"
                     signal_bus.log_message.emit(
@@ -401,14 +643,17 @@ class DownloadManager:
 
             if resp.status_code == 416:
                 signal_bus.log_message.emit("  文件已完整，标记完成")
+                if not self._finalize_temp_file(
+                    task_id,
+                    temp_path=temp_path,
+                    final_path=final_path,
+                ):
+                    return
                 self._complete_task(task_id)
                 return
 
             if resp.status_code not in (200, 206):
-                self._fail_task(
-                    task_id,
-                    f"HTTP {resp.status_code}: {resp.text[:200]}"
-                )
+                self._fail_task(task_id, f"HTTP {resp.status_code}: {resp.text[:200]}")
                 return
 
             # Compute total size
@@ -430,7 +675,7 @@ class DownloadManager:
             last_time = time.monotonic()
             last_bytes = downloaded
 
-            with open(file_path, mode) as fh:
+            with open(temp_path, mode) as fh:
                 for chunk in resp.iter_content(chunk_size=65536):
                     if not chunk:
                         continue
@@ -457,6 +702,10 @@ class DownloadManager:
             with self._lock:
                 task.downloaded_bytes = downloaded
             signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
+
+            if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
+                return
+
             signal_bus.log_message.emit(
                 f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}"
             )
@@ -478,6 +727,8 @@ class DownloadManager:
             for dirpath, _, filenames in os.walk(root):
                 for name in filenames:
                     lower_name = name.lower()
+                    if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
+                        continue
                     if needle in lower_name and lower_name.endswith(".mp4"):
                         full = os.path.join(dirpath, name)
                         if os.path.getsize(full) > 0:
@@ -486,9 +737,11 @@ class DownloadManager:
             return None
         return None
 
-    def _build_filename(self, title: str, video_id: str) -> str:
-        template = (app_config.filename_template or "").strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
-        date_text = datetime.now().strftime("%Y-%m-%d")
+    def _build_filename(self, title: str, video_id: str, published_at: str = "") -> str:
+        template = (
+            app_config.filename_template or ""
+        ).strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
+        date_text = _extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
         mapping = {
             "{YYYY-MM-DD}": date_text,
             "{title}": title,
@@ -521,13 +774,246 @@ class DownloadManager:
         # Free concurrency slot
         self._try_activate()
 
+    def _finalize_temp_file(self, task_id: str, temp_path: str, final_path: str) -> bool:
+        if not os.path.exists(temp_path):
+            self._fail_task(task_id, "临时文件不存在，无法完成重命名")
+            return False
+        size = os.path.getsize(temp_path)
+        if size <= 0:
+            self._fail_task(task_id, "临时文件为空，下载不完整")
+            return False
+        try:
+            os.replace(temp_path, final_path)
+            sidecar = f"{temp_path}.aria2"
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+            return True
+        except Exception as exc:
+            self._fail_task(task_id, f"重命名临时文件失败: {exc}")
+            return False
+
+    def clear_temp_files(self) -> tuple[int, int]:
+        """Delete all *_temp files under download directory.
+
+        Returns:
+            (removed_count, failed_count)
+        """
+        root = app_config.download_dir
+        if not os.path.isdir(root):
+            return 0, 0
+
+        removed = 0
+        failed = 0
+        for dirpath, _, filenames in os.walk(root):
+            for name in filenames:
+                if not name.endswith("_temp"):
+                    continue
+                temp_file = os.path.join(dirpath, name)
+                try:
+                    os.remove(temp_file)
+                    removed += 1
+                except Exception:
+                    failed += 1
+                    continue
+                sidecar = f"{temp_file}.aria2"
+                if os.path.exists(sidecar):
+                    try:
+                        os.remove(sidecar)
+                    except Exception:
+                        failed += 1
+        return removed, failed
+
+    def _apply_task_metadata(
+        self,
+        task: DownloadTask,
+        *,
+        title: str,
+        author: str,
+        published_at: str,
+        likes: int,
+        views: int,
+        slug: str,
+        rating: str,
+        duration: int,
+        comments: int,
+        tags_json: str,
+        raw_json: str,
+        file_url: str,
+        file_id: str,
+        thumbnail_index: int,
+    ):
+        task.title = title
+        task.author = author
+        task.published_at = published_at
+        task.likes = likes
+        task.views = views
+        task.slug = slug
+        task.rating = rating
+        task.duration = duration
+        task.comments = comments
+        task.tags_json = tags_json
+        task.raw_json = raw_json
+        task.file_url = file_url
+        task.file_id = file_id
+        task.thumbnail_index = thumbnail_index
+
+    def _passes_filters(self, likes: int, views: int, published_at: str) -> tuple[bool, str]:
+        if not app_config.filter_enabled:
+            return True, ""
+
+        if app_config.filter_min_likes_enabled and likes < app_config.filter_min_likes:
+            return False, f"点赞 {likes} < {app_config.filter_min_likes}"
+
+        if app_config.filter_min_views_enabled and views < app_config.filter_min_views:
+            return False, f"播放 {views} < {app_config.filter_min_views}"
+
+        if app_config.filter_date_enabled:
+            date_text = _extract_date_text(published_at)
+            if not date_text:
+                return False, "无有效发布日期"
+            start = app_config.filter_start_date or "1970-01-01"
+            end = app_config.filter_end_date or datetime.now().strftime("%Y-%m-%d")
+            if date_text < start or date_text > end:
+                return False, f"日期 {date_text} 不在 {start} ~ {end}"
+
+        return True, ""
+
+    def _skip_task(self, task_id: str, reason: str):
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task:
+                task.status = TaskStatus.COMPLETED
+                task.error_msg = reason
+        signal_bus.log_message.emit(f"[筛选跳过] {task_id} → {reason}")
+        signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
+        self._try_activate()
+
+    def _aria2_rpc_call(self, method: str, params: list) -> tuple[dict | None, str]:
+        rpc_url = app_config.aria2_rpc_url.strip()
+        if not rpc_url:
+            return None, "aria2 RPC URL 为空"
+
+        payload_params = list(params)
+        token = app_config.aria2_rpc_token.strip()
+        if token:
+            payload_params.insert(0, f"token:{token}")
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid.uuid4()),
+            "method": method,
+            "params": payload_params,
+        }
+
+        try:
+            resp = self.api.scraper.post(rpc_url, json=payload, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return None, str(exc)
+
+        if data.get("error"):
+            return None, str(data.get("error"))
+        return data, ""
+
+    def _aria2_rpc_add_uri(self, uri: str, options: dict) -> tuple[str | None, str]:
+        data, err = self._aria2_rpc_call("aria2.addUri", [[uri], options])
+        if not data:
+            return None, err
+        gid = str(data.get("result", "") or "")
+        if not gid:
+            return None, "aria2 未返回 gid"
+        return gid, ""
+
+    def _aria2_rpc_tell_status(self, gid: str) -> tuple[dict | None, str]:
+        keys = ["status", "completedLength", "totalLength", "downloadSpeed", "errorMessage"]
+        data, err = self._aria2_rpc_call("aria2.tellStatus", [gid, keys])
+        if not data:
+            return None, err
+        result = data.get("result")
+        if not isinstance(result, dict):
+            return None, f"aria2 tellStatus 返回异常: {result!r}"
+        return result, ""
+
+    def _aria2_rpc_remove_result(self, gid: str):
+        self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
+
+    def _download_thumbnail(self, task: DownloadTask):
+        if not task.file_path or not os.path.exists(task.file_path):
+            return
+        if os.path.getsize(task.file_path) <= 0:
+            return
+        if not task.file_id or not task.file_url:
+            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过")
+            return
+
+        host = urlparse(task.file_url).netloc
+        if not host:
+            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 无效 file_url，跳过")
+            return
+
+        thumbnail_path = os.path.splitext(task.file_path)[0] + ".jpg"
+        temp_path = f"{thumbnail_path}_temp"
+        if os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 0:
+            task.thumbnail_path = thumbnail_path
+            return
+
+        index = max(0, int(task.thumbnail_index))
+        thumb_url = f"https://{host}/image/original/{task.file_id}/thumbnail-{index:02d}.jpg"
+        try:
+            resp = self.api.scraper.get(thumb_url, stream=True, timeout=60)
+            if resp.status_code != 200:
+                signal_bus.log_message.emit(
+                    f"  [封面] 《{task.title}》 下载失败 HTTP {resp.status_code}"
+                )
+                return
+            with open(temp_path, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        fh.write(chunk)
+
+            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                os.replace(temp_path, thumbnail_path)
+                task.thumbnail_path = thumbnail_path
+                signal_bus.log_message.emit(f"  [封面] 已保存: {thumbnail_path}")
+                return
+
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception as exc:
+            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 下载异常: {exc}")
+
     def _complete_task(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
             return
         with self._lock:
             task.status = TaskStatus.COMPLETED
-        self.history.add_downloaded(task.video_id)
+        if app_config.download_thumbnail:
+            self._download_thumbnail(task)
+        try:
+            self.history.upsert_downloaded(
+                {
+                    "video_id": task.video_id,
+                    "title": task.title,
+                    "author": task.author,
+                    "published_at": task.published_at,
+                    "likes": task.likes,
+                    "views": task.views,
+                    "slug": task.slug,
+                    "rating": task.rating,
+                    "duration": task.duration,
+                    "comments": task.comments,
+                    "tags_json": task.tags_json,
+                    "raw_json": task.raw_json,
+                    "source_url": task.url,
+                    "file_path": task.file_path,
+                    "thumbnail_path": task.thumbnail_path,
+                    "quality": task.quality,
+                }
+            )
+        except Exception as exc:
+            signal_bus.log_message.emit(f"[警告] 写入历史库失败（不影响文件下载）: {exc}")
         signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
         # Free concurrency slot
         self._try_activate()
@@ -540,19 +1026,36 @@ download_manager = DownloadManager()
 
 # ── Utility ──────────────────────────────────────────────────────────────────
 
+
 def _fmt_speed(bps: float) -> str:
-    if bps >= 1024 ** 2:
-        return f"{bps / 1024 ** 2:.1f} MB/s"
+    if bps >= 1024**2:
+        return f"{bps / 1024**2:.1f} MB/s"
     if bps >= 1024:
         return f"{bps / 1024:.1f} KB/s"
     return f"{bps:.0f} B/s"
 
 
 def _fmt_bytes(n: int) -> str:
-    if n >= 1024 ** 3:
-        return f"{n / 1024 ** 3:.1f} GB"
-    if n >= 1024 ** 2:
-        return f"{n / 1024 ** 2:.1f} MB"
+    if n >= 1024**3:
+        return f"{n / 1024**3:.1f} GB"
+    if n >= 1024**2:
+        return f"{n / 1024**2:.1f} MB"
     if n >= 1024:
         return f"{n / 1024:.1f} KB"
     return f"{n} B"
+
+
+def _extract_date_text(published_at: str) -> str:
+    if not published_at:
+        return ""
+    text = published_at.strip()
+    if not text:
+        return ""
+    # Iwara often returns ISO 8601 with trailing Z.
+    iso_text = text.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(iso_text)
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
+        return m.group(1) if m else ""
