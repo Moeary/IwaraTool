@@ -1,8 +1,10 @@
 """Download Interface — URL input + operation log."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -14,13 +16,121 @@ from qfluentwidgets import (
     PrimaryPushButton,
     ScrollArea,
     SubtitleLabel,
+    SwitchButton,
     TextEdit,
     TitleLabel,
 )
 
+from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+
+
+class FilterDialog(QDialog):
+    """Simple filter configuration dialog for likes/date/views."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("筛选条件")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        likes_row = QHBoxLayout()
+        likes_row.addWidget(BodyLabel("启用点赞筛选", self))
+        self._likes_switch = SwitchButton(self)
+        likes_row.addWidget(self._likes_switch)
+        likes_row.addWidget(BodyLabel("点赞数 >=", self))
+        self._likes_edit = LineEdit(self)
+        self._likes_edit.setPlaceholderText("0")
+        likes_row.addWidget(self._likes_edit)
+        layout.addLayout(likes_row)
+
+        views_row = QHBoxLayout()
+        views_row.addWidget(BodyLabel("启用播放筛选", self))
+        self._views_switch = SwitchButton(self)
+        views_row.addWidget(self._views_switch)
+        views_row.addWidget(BodyLabel("播放数 >=", self))
+        self._views_edit = LineEdit(self)
+        self._views_edit.setPlaceholderText("0")
+        views_row.addWidget(self._views_edit)
+        layout.addLayout(views_row)
+
+        date_row = QHBoxLayout()
+        date_row.addWidget(BodyLabel("启用日期筛选", self))
+        self._date_switch = SwitchButton(self)
+        date_row.addWidget(self._date_switch)
+        date_row.addWidget(BodyLabel("起始 YYYY-MM-DD", self))
+        self._start_edit = LineEdit(self)
+        self._start_edit.setPlaceholderText("1970-01-01")
+        date_row.addWidget(self._start_edit)
+        date_row.addWidget(BodyLabel("结束 YYYY-MM-DD", self))
+        self._end_edit = LineEdit(self)
+        self._end_edit.setPlaceholderText(datetime.now().strftime("%Y-%m-%d"))
+        date_row.addWidget(self._end_edit)
+        layout.addLayout(date_row)
+
+        tips = BodyLabel("筛选项可单独启用。结束日期留空表示今天。", self)
+        layout.addWidget(tips)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = PrimaryPushButton("取消", self)
+        save_btn = PrimaryPushButton("保存", self)
+        cancel_btn.clicked.connect(self.reject)
+        save_btn.clicked.connect(self._save_and_accept)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
+
+    def _load(self):
+        self._likes_switch.setChecked(app_config.filter_min_likes_enabled)
+        self._views_switch.setChecked(app_config.filter_min_views_enabled)
+        self._date_switch.setChecked(app_config.filter_date_enabled)
+        self._likes_edit.setText(str(app_config.filter_min_likes))
+        self._views_edit.setText(str(app_config.filter_min_views))
+        self._start_edit.setText(app_config.filter_start_date or "1970-01-01")
+        self._end_edit.setText(app_config.filter_end_date or datetime.now().strftime("%Y-%m-%d"))
+
+    def _save_and_accept(self):
+        try:
+            likes = int((self._likes_edit.text() or "0").strip())
+            views = int((self._views_edit.text() or "0").strip())
+            if likes < 0 or views < 0:
+                raise ValueError("点赞/播放不能为负数")
+
+            start = (self._start_edit.text() or "1970-01-01").strip()
+            end = (self._end_edit.text() or "").strip()
+            datetime.strptime(start, "%Y-%m-%d")
+            if end:
+                datetime.strptime(end, "%Y-%m-%d")
+        except Exception as exc:
+            InfoBar.error(
+                title="筛选参数无效",
+                content=str(exc),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+            return
+
+        app_config.filter_min_likes_enabled = self._likes_switch.isChecked()
+        app_config.filter_min_views_enabled = self._views_switch.isChecked()
+        app_config.filter_date_enabled = self._date_switch.isChecked()
+        app_config.filter_min_likes = likes
+        app_config.filter_min_views = views
+        app_config.filter_start_date = start
+        app_config.filter_end_date = end
+        self.accept()
 
 
 # ── Download Interface ────────────────────────────────────────────────────────
@@ -48,7 +158,18 @@ class DownloadInterface(ScrollArea):
         layout.setContentsMargins(36, 24, 36, 24)
         layout.setSpacing(16)
 
-        layout.addWidget(TitleLabel(tr("New Download", "新建下载"), self._content))
+        title_row = QHBoxLayout()
+        title_row.addWidget(TitleLabel(tr("New Download", "新建下载"), self._content))
+        title_row.addStretch()
+        title_row.addWidget(BodyLabel("启用筛选", self._content))
+        self._filter_switch = SwitchButton(self._content)
+        self._filter_switch.setChecked(app_config.filter_enabled)
+        self._filter_switch.checkedChanged.connect(self._on_filter_toggle)
+        title_row.addWidget(self._filter_switch)
+        self._filter_btn = PrimaryPushButton("筛选项", self._content)
+        self._filter_btn.clicked.connect(self._open_filter_dialog)
+        title_row.addWidget(self._filter_btn)
+        layout.addLayout(title_row)
 
         # ── Login status banner ───────────────────────────────────────────────
         self._login_banner = CardWidget(self._content)
@@ -160,7 +281,6 @@ class DownloadInterface(ScrollArea):
 
     def _on_login_state(self, logged_in: bool):
         if logged_in:
-            from ..config import app_config
             user = app_config.username
             self._login_status_lbl.setText(tr("✓ Signed in as: ", "✓ 已登录账号：") + user)
         else:
@@ -178,3 +298,21 @@ class DownloadInterface(ScrollArea):
 
     def _clear_log(self):
         self._log_edit.clear()
+
+    def _on_filter_toggle(self, checked: bool):
+        app_config.filter_enabled = checked
+        state = "启用" if app_config.filter_enabled else "关闭"
+        signal_bus.log_message.emit(f"[筛选] 已{state}")
+
+    def _open_filter_dialog(self):
+        dlg = FilterDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            InfoBar.success(
+                title="筛选条件已保存",
+                content="新提交任务将按当前筛选规则解析后决定是否下载",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )

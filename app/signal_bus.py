@@ -15,6 +15,9 @@ class TaskSignalBus(QObject):
     # task_id, error_message
     task_error = Signal(str, str)
 
+    # task_id
+    task_removed = Signal(str)
+
     # General log / info message for the UI
     log_message = Signal(str)
 

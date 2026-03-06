@@ -32,6 +32,19 @@ class AppConfig:
         "skip_existing_files": True,
         "filename_template": "{YYYY-MM-DD}_{title}_{id}.mp4",
         "ui_language": "zh_CN",
+        "filter_enabled": False,
+        "filter_min_likes_enabled": False,
+        "filter_min_likes": 0,
+        "filter_min_views_enabled": False,
+        "filter_min_views": 0,
+        "filter_date_enabled": False,
+        "filter_start_date": "1970-01-01",
+        "filter_end_date": "",
+        "aria2_rpc_enabled": False,
+        "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
+        "aria2_rpc_token": "",
+        "download_thumbnail": False,
+        "completed_task_click_action": "folder",
     }
 
     def __init__(self):
@@ -66,6 +79,19 @@ class AppConfig:
             "skip_existing_files",
             "filename_template",
             "ui_language",
+            "filter_enabled",
+            "filter_min_likes_enabled",
+            "filter_min_likes",
+            "filter_min_views_enabled",
+            "filter_min_views",
+            "filter_date_enabled",
+            "filter_start_date",
+            "filter_end_date",
+            "aria2_rpc_enabled",
+            "aria2_rpc_url",
+            "aria2_rpc_token",
+            "download_thumbnail",
+            "completed_task_click_action",
         }
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
@@ -228,6 +254,110 @@ class AppConfig:
     @ui_language.setter
     def ui_language(self, v: str):
         self._set("ui_language", v)
+
+    @property
+    def filter_enabled(self) -> bool:
+        return self._get("filter_enabled")
+
+    @filter_enabled.setter
+    def filter_enabled(self, v: bool):
+        self._set("filter_enabled", v)
+
+    @property
+    def filter_min_likes_enabled(self) -> bool:
+        return self._get("filter_min_likes_enabled")
+
+    @filter_min_likes_enabled.setter
+    def filter_min_likes_enabled(self, v: bool):
+        self._set("filter_min_likes_enabled", v)
+
+    @property
+    def filter_min_likes(self) -> int:
+        return self._get("filter_min_likes")
+
+    @filter_min_likes.setter
+    def filter_min_likes(self, v: int):
+        self._set("filter_min_likes", v)
+
+    @property
+    def filter_min_views_enabled(self) -> bool:
+        return self._get("filter_min_views_enabled")
+
+    @filter_min_views_enabled.setter
+    def filter_min_views_enabled(self, v: bool):
+        self._set("filter_min_views_enabled", v)
+
+    @property
+    def filter_min_views(self) -> int:
+        return self._get("filter_min_views")
+
+    @filter_min_views.setter
+    def filter_min_views(self, v: int):
+        self._set("filter_min_views", v)
+
+    @property
+    def filter_date_enabled(self) -> bool:
+        return self._get("filter_date_enabled")
+
+    @filter_date_enabled.setter
+    def filter_date_enabled(self, v: bool):
+        self._set("filter_date_enabled", v)
+
+    @property
+    def filter_start_date(self) -> str:
+        return self._get("filter_start_date")
+
+    @filter_start_date.setter
+    def filter_start_date(self, v: str):
+        self._set("filter_start_date", v)
+
+    @property
+    def filter_end_date(self) -> str:
+        return self._get("filter_end_date")
+
+    @filter_end_date.setter
+    def filter_end_date(self, v: str):
+        self._set("filter_end_date", v)
+
+    @property
+    def aria2_rpc_enabled(self) -> bool:
+        return self._get("aria2_rpc_enabled")
+
+    @aria2_rpc_enabled.setter
+    def aria2_rpc_enabled(self, v: bool):
+        self._set("aria2_rpc_enabled", v)
+
+    @property
+    def aria2_rpc_url(self) -> str:
+        return self._get("aria2_rpc_url")
+
+    @aria2_rpc_url.setter
+    def aria2_rpc_url(self, v: str):
+        self._set("aria2_rpc_url", v)
+
+    @property
+    def aria2_rpc_token(self) -> str:
+        return self._get("aria2_rpc_token")
+
+    @aria2_rpc_token.setter
+    def aria2_rpc_token(self, v: str):
+        self._set("aria2_rpc_token", v)
+
+    @property
+    def download_thumbnail(self) -> bool:
+        return self._get("download_thumbnail")
+
+    @download_thumbnail.setter
+    def download_thumbnail(self, v: bool):
+        self._set("download_thumbnail", v)
+
+    @property
+    def completed_task_click_action(self) -> str:
+        return self._get("completed_task_click_action")
+
+    @completed_task_click_action.setter
+    def completed_task_click_action(self, v: str):
+        self._set("completed_task_click_action", v)
 
 
 # Module-level singleton

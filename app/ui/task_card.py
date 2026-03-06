@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
     CaptionLabel,
-    IconWidget,
     ProgressBar,
     ToolButton,
     FluentIcon,
@@ -52,11 +52,6 @@ class TaskCard(CardWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(12, 8, 12, 8)
         root.setSpacing(12)
-
-        # ── Left: thumbnail placeholder ──────────────────────────────────────
-        self._thumb = IconWidget(FluentIcon.VIDEO, self)
-        self._thumb.setFixedSize(54, 54)
-        root.addWidget(self._thumb)
 
         # ── Center: title / author / status / progress ───────────────────────
         center = QVBoxLayout()
@@ -180,8 +175,20 @@ class TaskCard(CardWidget):
             download_manager.retry_task(self.task_id)
         else:
             download_manager.remove_task(self.task_id)
-            self.setParent(None)
-            self.deleteLater()
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._action_btn.geometry().contains(event.pos()):
+                super().mouseReleaseEvent(event)
+                return
+            task = next(
+                (t for t in download_manager.get_tasks() if t.task_id == self.task_id),
+                None,
+            )
+            if task and task.status == TaskStatus.COMPLETED:
+                download_manager.open_task_output(self.task_id)
+
+        super().mouseReleaseEvent(event)
 
 
 # ── Utility ──────────────────────────────────────────────────────────────────

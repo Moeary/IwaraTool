@@ -10,14 +10,18 @@
 - X-Version 签名计算，确保下载请求正常通行
 - 画质自动回退机制（Source -> 540 -> 360）
 - 防 URL 过期处理，多阶段状态机控制并发下载
-- 本地 SQLite 历史记录，自动跳过已经下过的视频防止重复下载
+- 本地文件去重 + SQLite 历史元数据存储（点赞/日期/播放等）
 - 支持输入用户主页或播放列表链接，自动分页解析所有视频并排队下载
+- 可选筛选下载（点赞、播放、发布日期区间）
+- 可选 Aria2 RPC 下载与封面下载
 
 ## 怎么用
 去[release](https://github.com/Moeary/IwaraTool/releases)里面下载你操作系统的文件,然后保存到本地运行即可
 
 **重点：先登录！** 不登录下个锤子。
-请先在设置页面里把账号登录好(网页，确认登录成功了，再去粘贴你想下载的视频、用户或者播放列表链接。
+请先在设置页面里把账号登录好，确认登录成功了，再去粘贴你想下载的视频、用户或者播放列表链接。
+
+更完整的使用说明请见 [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 运行与构建
 项目依赖使用 pixi 管理。
@@ -59,13 +63,17 @@ A Python and Pyside6 based video downloader for Iwara. It is especially good at 
 - Valid X-Version signature calculation for API requests
 - Automatic video quality fallback (Source -> 540 -> 360)
 - Anti-expiration link handling with a multi-stage state machine
-- Duplicate prevention using a local SQLite history database
+- Local-file dedup + SQLite metadata history (likes/date/views, etc.)
 - Resumable downloads
 - Batch downloading for user profiles and playlists with automatic pagination
+- Optional filters (likes, views, publish date range)
+- Optional aria2 RPC mode and thumbnail download
 
 ## How to Use
 **Important: Log in first!** You won't be able to download anything without an account.
 Please log in using the built-in browser/login page first. Once logged in, you can paste video, user, or playlist URLs to start downloading.
+
+For a practical quick guide, see [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## Run and Build
 This project uses pixi for package management.
