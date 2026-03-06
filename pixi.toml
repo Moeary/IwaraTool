@@ -2,7 +2,7 @@
 authors = ["Moeary"]
 channels = ["conda-forge"]
 name = "IwaraTool"
-platforms = ["win-64"]
+platforms = ["win-64", "osx-arm64"]
 version = "0.1.0"
 
 [tasks]
