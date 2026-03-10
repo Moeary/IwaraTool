@@ -44,6 +44,7 @@ class AppConfig:
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
         "download_thumbnail": False,
+        "collect_nfo_info": False,
         "completed_task_click_action": "folder",
     }
 
@@ -91,6 +92,7 @@ class AppConfig:
             "aria2_rpc_url",
             "aria2_rpc_token",
             "download_thumbnail",
+            "collect_nfo_info",
             "completed_task_click_action",
         }
         for key, default in self._DEFAULTS.items():
@@ -350,6 +352,14 @@ class AppConfig:
     @download_thumbnail.setter
     def download_thumbnail(self, v: bool):
         self._set("download_thumbnail", v)
+
+    @property
+    def collect_nfo_info(self) -> bool:
+        return self._get("collect_nfo_info")
+
+    @collect_nfo_info.setter
+    def collect_nfo_info(self, v: bool):
+        self._set("collect_nfo_info", v)
 
     @property
     def completed_task_click_action(self) -> str:

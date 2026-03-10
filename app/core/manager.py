@@ -22,6 +22,7 @@ import subprocess
 import threading
 import time
 import uuid
+from xml.sax.saxutils import escape
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -983,6 +984,30 @@ class DownloadManager:
         except Exception as exc:
             signal_bus.log_message.emit(f"  [封面] 《{task.title}》 下载异常: {exc}")
 
+    def _write_nfo(self, task: DownloadTask):
+        if not task.file_path or not os.path.exists(task.file_path):
+            return
+        if os.path.getsize(task.file_path) <= 0:
+            return
+
+        nfo_path = os.path.splitext(task.file_path)[0] + ".nfo"
+        tags = _parse_tags(task.tags_json)
+        nfo_text = _build_nfo_text(task, tags)
+
+        temp_path = f"{nfo_path}_temp"
+        try:
+            with open(temp_path, "w", encoding="utf-8") as fh:
+                fh.write(nfo_text)
+            os.replace(temp_path, nfo_path)
+            signal_bus.log_message.emit(f"  [NFO] 已保存: {nfo_path}")
+        except Exception as exc:
+            signal_bus.log_message.emit(f"  [NFO] 《{task.title}》 写入失败: {exc}")
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
     def _complete_task(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
@@ -991,6 +1016,8 @@ class DownloadManager:
             task.status = TaskStatus.COMPLETED
         if app_config.download_thumbnail:
             self._download_thumbnail(task)
+        if app_config.collect_nfo_info:
+            self._write_nfo(task)
         try:
             self.history.upsert_downloaded(
                 {
@@ -1059,3 +1086,115 @@ def _extract_date_text(published_at: str) -> str:
     except ValueError:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
         return m.group(1) if m else ""
+
+
+def _xml_text(value: str) -> str:
+    return escape(value or "", {'"': "&quot;", "'": "&apos;"})
+
+
+def _parse_tags(tags_json: str) -> list[str]:
+    if not tags_json:
+        return []
+    try:
+        data = json.loads(tags_json)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    tags: list[str] = []
+    for item in data:
+        if isinstance(item, dict):
+            tag_text = str(item.get("id") or item.get("type") or "").strip()
+            if tag_text:
+                tags.append(tag_text)
+            continue
+        text = str(item).strip()
+        if text:
+            tags.append(text)
+    return tags
+
+
+def _build_nfo_text(task: DownloadTask, tags: list[str]) -> str:
+    author_message = _extract_author_message(task.raw_json)
+    tags_json_text = task.tags_json or json.dumps(tags, ensure_ascii=False)
+    date_only = _extract_date_text(task.published_at)
+
+    tag_lines = "\n".join(f"  <tag>{_xml_text(t)}</tag>" for t in tags)
+    genre_lines = "\n".join(f"  <genre>{_xml_text(t)}</genre>" for t in tags)
+    if tag_lines:
+        tag_lines = f"\n{tag_lines}"
+    if genre_lines:
+        genre_lines = f"\n{genre_lines}"
+
+    # Use movie-style XML for better media-library compatibility.
+    return (
+        "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n"
+        "<movie>\n"
+        f"  <title>{_xml_text(task.title or task.video_id)}</title>\n"
+        f"  <originaltitle>{_xml_text(task.title or task.video_id)}</originaltitle>\n"
+        f"  <author>{_xml_text(task.author)}</author>\n"
+        f"  <director>{_xml_text(task.author)}</director>\n"
+        f"  <studio>{_xml_text(task.author)}</studio>\n"
+        f"  <video_id>{_xml_text(task.video_id)}</video_id>\n"
+        f"  <id>{_xml_text(task.video_id)}</id>\n"
+        f"  <uniqueid type=\"iwara\" default=\"true\">{_xml_text(task.video_id)}</uniqueid>\n"
+        f"  <source_url>{_xml_text(task.url)}</source_url>\n"
+        f"  <slug>{_xml_text(task.slug)}</slug>\n"
+        f"  <rating>{_xml_text(task.rating)}</rating>\n"
+        f"  <duration>{task.duration}</duration>\n"
+        f"  <published_at>{_xml_text(task.published_at)}</published_at>\n"
+        f"  <premiered>{_xml_text(date_only)}</premiered>\n"
+        f"  <releasedate>{_xml_text(date_only)}</releasedate>\n"
+        f"  <likes>{task.likes}</likes>\n"
+        f"  <views>{task.views}</views>\n"
+        f"  <comments>{task.comments}</comments>\n"
+        f"  <plot>{_xml_text(author_message)}</plot>\n"
+        f"  <tags_json>{_xml_text(tags_json_text)}</tags_json>\n"
+        f"  <author_message>{_xml_text(author_message)}</author_message>{genre_lines}{tag_lines}\n"
+        "</movie>\n"
+    )
+
+
+def _extract_author_message(raw_json: str) -> str:
+    if not raw_json:
+        return ""
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+
+    # Iwara API schemas are not perfectly stable; try common text fields.
+    candidates = [
+        data.get("body"),
+        data.get("description"),
+        data.get("message"),
+    ]
+
+    user = data.get("user")
+    if isinstance(user, dict):
+        candidates.extend(
+            [
+                user.get("body"),
+                user.get("description"),
+                user.get("bio"),
+                user.get("about"),
+            ]
+        )
+        profile = user.get("profile")
+        if isinstance(profile, dict):
+            candidates.extend(
+                [
+                    profile.get("body"),
+                    profile.get("description"),
+                    profile.get("bio"),
+                    profile.get("about"),
+                ]
+            )
+
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""

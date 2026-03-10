@@ -14,6 +14,7 @@
 - 支持输入用户主页或播放列表链接，自动分页解析所有视频并排队下载
 - 可选筛选下载（点赞、播放、发布日期区间）
 - 可选 Aria2 RPC 下载与封面下载
+- 可选生成同名 `.nfo` 元数据文件（可在设置页开关）
 
 ## 怎么用
 去[release](https://github.com/Moeary/IwaraTool/releases)里面下载你操作系统的文件,然后保存到本地运行即可
@@ -68,6 +69,7 @@ A Python and Pyside6 based video downloader for Iwara. It is especially good at 
 - Batch downloading for user profiles and playlists with automatic pagination
 - Optional filters (likes, views, publish date range)
 - Optional aria2 RPC mode and thumbnail download
+- Optional generation of sidecar `.nfo` metadata files (toggle in Settings)
 
 ## How to Use
 **Important: Log in first!** You won't be able to download anything without an account.

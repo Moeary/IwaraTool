@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -254,6 +255,13 @@ class SettingsInterface(ScrollArea):
         cover_row.addWidget(self._download_thumb_switch)
         name_layout.addLayout(cover_row)
 
+        nfo_row = QHBoxLayout()
+        nfo_row.addWidget(BodyLabel("下载成功后生成同名 .nfo 元数据文件", name_card))
+        nfo_row.addStretch()
+        self._collect_nfo_switch = SwitchButton(name_card)
+        nfo_row.addWidget(self._collect_nfo_switch)
+        name_layout.addLayout(nfo_row)
+
         click_row = QHBoxLayout()
         click_row.addWidget(BodyLabel("已完成任务卡片单击行为", name_card))
         click_row.addStretch()
@@ -277,17 +285,20 @@ class SettingsInterface(ScrollArea):
         conc_row = QHBoxLayout()
         self._conc_slider = Slider(Qt.Orientation.Horizontal, conc_card)
         self._conc_slider.setRange(1, 10)
-        self._conc_slider.setFixedWidth(320)
         self._conc_slider.valueChanged.connect(self._on_concurrency_changed)
+        self._conc_slider.setMinimumWidth(420)
+        self._conc_slider.setMaximumWidth(10000)
 
-        self._conc_value_lbl = BodyLabel("1", conc_card)
-        self._conc_value_lbl.setFixedWidth(36)
-        self._conc_value_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._conc_input = LineEdit(conc_card)
+        self._conc_input.setFixedWidth(72)
+        self._conc_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._conc_input.setValidator(QIntValidator(1, 10, self._conc_input))
+        self._conc_input.setPlaceholderText("1-10")
+        self._conc_input.editingFinished.connect(self._on_concurrency_input_finished)
 
-        conc_row.addWidget(self._conc_slider)
+        conc_row.addWidget(self._conc_slider, 8)
         conc_row.addSpacing(12)
-        conc_row.addWidget(self._conc_value_lbl)
-        conc_row.addStretch()
+        conc_row.addWidget(self._conc_input, 2)
         conc_layout.addLayout(conc_row)
         layout.addWidget(conc_card)
 
@@ -368,7 +379,7 @@ class SettingsInterface(ScrollArea):
     def _load_settings(self):
         self._dir_edit.setText(app_config.download_dir)
         self._conc_slider.setValue(app_config.max_concurrent)
-        self._conc_value_lbl.setText(str(app_config.max_concurrent))
+        self._conc_input.setText(str(app_config.max_concurrent))
         self._proxy_switch.setChecked(app_config.proxy_enabled)
         self._proxy_edit.setText(app_config.proxy_url)
         self._proxy_widget.setVisible(app_config.proxy_enabled)
@@ -379,6 +390,7 @@ class SettingsInterface(ScrollArea):
         self._name_tpl_edit.setText(app_config.filename_template)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
         self._download_thumb_switch.setChecked(app_config.download_thumbnail)
+        self._collect_nfo_switch.setChecked(app_config.collect_nfo_info)
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
         self._lang_combo.setCurrentIndex(1 if app_config.ui_language.lower().startswith("en") else 0)
@@ -497,8 +509,22 @@ class SettingsInterface(ScrollArea):
             app_config.download_dir = chosen
 
     def _on_concurrency_changed(self, value: int):
-        self._conc_value_lbl.setText(str(value))
+        self._conc_input.setText(str(value))
         app_config.max_concurrent = value
+
+    def _on_concurrency_input_finished(self):
+        text = self._conc_input.text().strip()
+        if not text:
+            self._conc_input.setText(str(self._conc_slider.value()))
+            return
+        try:
+            value = int(text)
+        except ValueError:
+            self._conc_input.setText(str(self._conc_slider.value()))
+            return
+        value = max(1, min(10, value))
+        self._conc_slider.setValue(value)
+        self._conc_input.setText(str(value))
 
     def _on_proxy_toggle(self, checked: bool):
         app_config.proxy_enabled = checked
@@ -527,6 +553,7 @@ class SettingsInterface(ScrollArea):
             )
 
     def _save_settings(self):
+        self._on_concurrency_input_finished()
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
         app_config.proxy_enabled = self._proxy_switch.isChecked()
@@ -537,6 +564,7 @@ class SettingsInterface(ScrollArea):
         app_config.filename_template = self._name_tpl_edit.text().strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
         app_config.download_thumbnail = self._download_thumb_switch.isChecked()
+        app_config.collect_nfo_info = self._collect_nfo_switch.isChecked()
         app_config.completed_task_click_action = (
             "player" if self._completed_click_combo.currentIndex() == 1 else "folder"
         )
