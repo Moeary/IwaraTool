@@ -18,7 +18,7 @@ A Python + PySide6 downloader for Iwara, optimized for batch downloads.
 - Search-only result cap.
 - Token cache in `data/config.ini` for faster startup sign-in.
 - Runtime language switching (`zh/en/ja`) without restarting.
-- Filename template placeholders with alias support.
+- Filename template placeholders for flexible naming and directory layout.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
 
 ## Quick Start

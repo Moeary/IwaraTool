@@ -254,7 +254,7 @@ class SettingsInterface(ScrollArea):
             )
         )
         cleanup_row.addStretch()
-        cleanup_btn = PrimaryPushButton(tr("Clean *_temp", "一键清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
+        cleanup_btn = PrimaryPushButton(tr("Clean *_temp", "清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
         cleanup_btn.setFixedWidth(140)
         cleanup_btn.clicked.connect(self._confirm_clear_temp_files)
         cleanup_row.addWidget(cleanup_btn)
@@ -271,9 +271,19 @@ class SettingsInterface(ScrollArea):
         name_layout.addWidget(
             BodyLabel(
                 tr(
-                    "Placeholders: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}; aliases: {user}={username}, {like}={likes}, {view}={views}, {comment}={comments}; default {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}；别名：{user}={username}、{like}={likes}、{view}={views}、{comment}={comments}；默认 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "使用可能プレースホルダー: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}; 別名: {user}={username}, {like}={likes}, {view}={views}, {comment}={comments}; 既定値 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+                    "Placeholders: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}; ",
+                    "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
+                    "使用可能プレースホルダー: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
+                ),
+                name_card,
+            )
+        )
+        name_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "default {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+                    "默认 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+                    "既定値 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
                 ),
                 name_card,
             )

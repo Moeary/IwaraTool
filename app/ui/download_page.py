@@ -285,7 +285,7 @@ class DownloadInterface(ScrollArea):
         self._url_edit.returnPressed.connect(self._submit)
 
         self._submit_btn = PrimaryPushButton(
-            tr("Parse & Download", "解析并下载", "解析してダウンロード"),
+            tr("Download", "解析并下载", "解析してダウンロード"),
             url_card,
             FluentIcon.DOWNLOAD,
         )

@@ -1,10 +1,12 @@
-﻿# IwaraTool（简体中文）
+﻿# IwaraTool
+
+![](./docs/iwaratool_logo.png)
 
 [English](./readme.md) | [日本語](./readme.ja.md)
 
-一个基于 Python + PySide6 的 Iwara 下载器，适合批量下载。
+告别繁琐的命令行！拥有现代化 Win11 风格界面的 Iwara 批量下载器，小白也能一键下载作者全视频
 
-![](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202603051905789.png)
+
 
 ## 核心功能
 - 支持 `X-Version` 签名计算。
@@ -16,7 +18,7 @@
 - 搜索下载上限可单独配置。
 - 登录 token 缓存在 `data/config.ini`，提升启动速度。
 - 中/英/日实时切换，不需要重启。
-- 下载命名模板支持多占位符和别名。
+- 下载命名模板支持多占位符与目录层级控制。
 - 可选 aria2 RPC、封面下载、`.nfo` 生成。
 
 ## 快速开始

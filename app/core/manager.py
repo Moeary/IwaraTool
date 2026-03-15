@@ -1145,7 +1145,6 @@ class DownloadManager:
         raw_template = (
             app_config.filename_template or ""
         ).strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
-        has_path_sep = "/" in raw_template or "\\" in raw_template
         template = raw_template.replace("\\", "/")
 
         date_text = _extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
@@ -1171,25 +1170,12 @@ class DownloadManager:
             "{slug}": safe(slug),
             "{rating}": safe(rating),
         }
-        # Common aliases for convenience.
-        alias_mapping = {
-            "{user}": mapping["{username}"],
-            "{like}": mapping["{likes}"],
-            "{view}": mapping["{views}"],
-            "{comment}": mapping["{comments}"],
-        }
-
-        for token, value in {**mapping, **alias_mapping}.items():
+        for token, value in mapping.items():
             template = template.replace(token, str(value))
 
         parts = [p for p in template.split("/") if p.strip()]
         if not parts:
             parts = [f"{date_text}_{title}_{video_id}.mp4"]
-
-        # Backward compatibility:
-        # old templates without path separators still go under username folder.
-        if not has_path_sep:
-            parts = [username, parts[0]]
 
         parts = [self._sanitize_path_segment(p) for p in parts]
         if not parts[-1].lower().endswith(".mp4"):
