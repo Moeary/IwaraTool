@@ -53,7 +53,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
-            text=tr("New Download", "新建下载", "新規ダウンロード"),
+            text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),
         )
         self.addSubInterface(
             self._task_page,

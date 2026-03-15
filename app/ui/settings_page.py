@@ -601,9 +601,9 @@ class SettingsInterface(ScrollArea):
         self._login_status_lbl.setText(tr("Signing in...", "登录中…", "ログイン中..."))
         signal_bus.log_message.emit(
             tr(
-                f"[Login] Signing in: {credential} ...",
-                f"[登录] 正在登录账号 {credential}…",
-                f"[ログイン] サインイン中: {credential} ...",
+                "[Login] Signing in ...",
+                "[登录] 正在登录…",
+                "[ログイン] サインイン中...",
             )
         )
 
@@ -624,15 +624,15 @@ class SettingsInterface(ScrollArea):
             signal_bus.login_state_changed.emit(True)
             signal_bus.log_message.emit(
                 tr(
-                    f"[Login] Success. Token cached (user: {app_config.username})",
-                    f"[登录] 成功！已获取并缓存 Token（用户: {app_config.username}）",
-                    f"[ログイン] 成功。Token を保存しました（ユーザー: {app_config.username}）",
+                    "[Login] Success. Token cached",
+                    "[登录] 成功！已获取并缓存 Token",
+                    "[ログイン] 成功。Token を保存しました",
                 )
             )
             if not silent:
                 InfoBar.success(
                     title=tr("Login successful", "登录成功", "ログイン成功"),
-                    content=tr("Signed in as: ", "已登录账号：", "ログインユーザー: ") + app_config.username,
+                    content=tr("Signed in", "已登录", "ログイン済み"),
                     orient=Qt.Orientation.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,

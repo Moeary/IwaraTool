@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget, QSizePolicy
 
 from qfluentwidgets import (
     BodyLabel,
@@ -226,7 +226,7 @@ class DownloadInterface(ScrollArea):
         layout.setSpacing(16)
 
         title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("New Download", "新建下载", "新規ダウンロード"), self._content))
+        title_row.addWidget(TitleLabel(tr("Download Hub", "下载工作台", "ダウンロードハブ"), self._content))
         title_row.addStretch()
         title_row.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), self._content))
         self._filter_switch = SwitchButton(self._content)
@@ -299,6 +299,7 @@ class DownloadInterface(ScrollArea):
 
         # ── Operation log card ────────────────────────────────────────────────
         log_card = CardWidget(self._content)
+        log_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         log_layout = QVBoxLayout(log_card)
         log_layout.setContentsMargins(20, 16, 20, 16)
         log_layout.setSpacing(8)
@@ -319,14 +320,13 @@ class DownloadInterface(ScrollArea):
         if not mono.exactMatch():
             mono = QFont("Courier New", 9)
         self._log_edit.setFont(mono)
-        self._log_edit.setMinimumHeight(300)
+        self._log_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._log_edit.setMinimumHeight(180)
         self._log_edit.setPlaceholderText(
             tr("Logs will appear here…", "操作日志将显示在此…", "ログはここに表示されます…")
         )
         log_layout.addWidget(self._log_edit)
-        layout.addWidget(log_card)
-
-        layout.addStretch()
+        layout.addWidget(log_card, 1)
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
@@ -358,9 +358,8 @@ class DownloadInterface(ScrollArea):
 
     def _on_login_state(self, logged_in: bool):
         if logged_in:
-            user = app_config.username or tr("cached token", "本地 Token", "ローカルトークン")
             self._login_status_lbl.setText(
-                tr("✓ Signed in as: ", "✓ 已登录账号：", "✓ ログイン中: ") + user
+                tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み")
             )
         else:
             self._login_status_lbl.setText(
