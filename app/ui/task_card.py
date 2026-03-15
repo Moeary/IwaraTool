@@ -15,6 +15,7 @@ from qfluentwidgets import (
 )
 
 from ..core.models import DownloadTask, TaskStatus, STATUS_LABELS
+from ..i18n import tr
 from ..signal_bus import signal_bus
 from ..core.manager import download_manager
 
@@ -25,6 +26,7 @@ _STATUS_COLORS: dict[TaskStatus, str] = {
     TaskStatus.RESOLVING: "#0078d4",
     TaskStatus.QUEUED_DOWNLOAD: "#8764b8",
     TaskStatus.DOWNLOADING: "#0f7b0f",
+    TaskStatus.SKIPPED: "#c17d00",
     TaskStatus.COMPLETED: "#107c10",
     TaskStatus.FAILED: "#c42b1c",
 }
@@ -83,7 +85,7 @@ class TaskCard(CardWidget):
 
         # ── Right: action button ──────────────────────────────────────────────
         self._action_btn = ToolButton(FluentIcon.DELETE, self)
-        self._action_btn.setToolTip("移除任务")
+        self._action_btn.setToolTip(tr("Remove task", "移除任务", "タスクを削除"))
         self._action_btn.clicked.connect(self._on_action)
         root.addWidget(self._action_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -91,7 +93,11 @@ class TaskCard(CardWidget):
 
     def _update_from_task(self, task: DownloadTask):
         self._title_lbl.setText(task.title or task.video_id)
-        self._author_lbl.setText(f"作者: {task.author}" if task.author else "")
+        self._author_lbl.setText(
+            tr(f"Author: {task.author}", f"作者: {task.author}", f"作者: {task.author}")
+            if task.author
+            else ""
+        )
         self._set_status(task.status)
 
         if task.status == TaskStatus.DOWNLOADING and task.total_bytes > 0:
@@ -102,10 +108,21 @@ class TaskCard(CardWidget):
             )
         elif task.status == TaskStatus.COMPLETED:
             self._progress_bar.setValue(1000)
-            self._progress_lbl.setText("已完成")
+            self._progress_lbl.setText(tr("Completed", "已完成", "完了"))
+        elif task.status == TaskStatus.SKIPPED:
+            self._progress_bar.setValue(0)
+            self._progress_lbl.setText(
+                tr(
+                    f"Skipped: {task.error_msg}",
+                    f"已跳过: {task.error_msg}",
+                    f"スキップ: {task.error_msg}",
+                )
+            )
         elif task.status == TaskStatus.FAILED:
             self._progress_bar.setValue(0)
-            self._progress_lbl.setText(f"错误: {task.error_msg}")
+            self._progress_lbl.setText(
+                tr(f"Error: {task.error_msg}", f"错误: {task.error_msg}", f"エラー: {task.error_msg}")
+            )
 
     def _set_status(self, status: TaskStatus):
         label = STATUS_LABELS.get(status, status.value)
@@ -117,10 +134,10 @@ class TaskCard(CardWidget):
         # Show retry button for failed tasks, delete button otherwise
         if status == TaskStatus.FAILED:
             self._action_btn.setIcon(FluentIcon.SYNC)
-            self._action_btn.setToolTip("重试")
+            self._action_btn.setToolTip(tr("Retry", "重试", "再試行"))
         else:
             self._action_btn.setIcon(FluentIcon.DELETE)
-            self._action_btn.setToolTip("移除任务")
+            self._action_btn.setToolTip(tr("Remove task", "移除任务", "タスクを削除"))
 
         # Indeterminate progress for resolving
         if status == TaskStatus.RESOLVING:
@@ -142,7 +159,21 @@ class TaskCard(CardWidget):
         self._set_status(status)
         if status == TaskStatus.COMPLETED:
             self._progress_bar.setValue(1000)
-            self._progress_lbl.setText("已完成")
+            self._progress_lbl.setText(tr("Completed", "已完成", "完了"))
+        elif status == TaskStatus.SKIPPED:
+            self._progress_bar.setValue(0)
+            task = next(
+                (t for t in download_manager.get_tasks() if t.task_id == self.task_id),
+                None,
+            )
+            reason = task.error_msg if task else ""
+            self._progress_lbl.setText(
+                tr(
+                    f"Skipped: {reason}",
+                    f"已跳过: {reason}",
+                    f"スキップ: {reason}",
+                )
+            )
         elif status in (
             TaskStatus.QUEUED_META,
             TaskStatus.RESOLVING,
@@ -164,7 +195,7 @@ class TaskCard(CardWidget):
     def _on_error(self, task_id: str, msg: str):
         if task_id != self.task_id:
             return
-        self._progress_lbl.setText(f"错误: {msg}")
+        self._progress_lbl.setText(tr(f"Error: {msg}", f"错误: {msg}", f"エラー: {msg}"))
 
     def _on_action(self):
         task = next(

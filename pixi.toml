@@ -7,6 +7,7 @@ version = "0.2.0"
 
 [tasks]
 start = "python main.py"
+crawl = "python app/core/crawl_iwara_tags.py"
 build = """
 nuitka 
 --standalone 

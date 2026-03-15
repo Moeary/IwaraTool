@@ -24,6 +24,9 @@ class TaskSignalBus(QObject):
     # Emitted when login state changes (bool: logged_in)
     login_state_changed = Signal(bool)
 
+    # Emitted when UI language changes (str: language code)
+    language_changed = Signal(str)
+
 
 # Module-level singleton — import this everywhere
 signal_bus = TaskSignalBus()

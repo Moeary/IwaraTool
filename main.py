@@ -8,7 +8,6 @@ from PySide6.QtWidgets import QApplication
 
 from qfluentwidgets import setTheme, Theme
 
-from app.config import app_config
 from app.core.manager import download_manager
 from app.ui.main_window import MainWindow
 
@@ -33,12 +32,8 @@ def main():
     # Apply proxy config on startup
     download_manager.apply_config()
 
-    # Auto-login if credentials saved
-    if app_config.auth_enabled and app_config.username and app_config.password:
-        from app.core.manager import download_manager as dm
-        from concurrent.futures import ThreadPoolExecutor
-        _boot_pool = ThreadPoolExecutor(max_workers=1)
-        _boot_pool.submit(dm.api.login, app_config.username, app_config.password)
+    # Restore cached token first for faster startup auth.
+    download_manager.restore_cached_login()
 
     window = MainWindow()
     if icon_path.exists():
