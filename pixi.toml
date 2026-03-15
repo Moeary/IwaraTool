@@ -3,7 +3,7 @@ authors = ["Moeary"]
 channels = ["conda-forge"]
 name = "IwaraTool"
 platforms = ["win-64", "osx-arm64"]
-version = "0.2.0"
+version = "0.3.0"
 
 [tasks]
 start = "python main.py"
