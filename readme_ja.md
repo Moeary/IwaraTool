@@ -1,10 +1,12 @@
 ﻿# IwaraTool
 
+![logo](./docs/iwaratool_logo.png)
+
 [English](./readme.md) | [简体中文](./readme_zh.md)
 
-Python + PySide6 で作られた Iwara 向けダウンローダーです。大量ダウンロードに向いています。
+煩わしいコマンドラインにさよなら！モダンな Fluent スタイルのインターフェースを備えた Iwara 一括ダウンローダー。初心者でもワンクリックで作者の全動画をダウンロードできます。
 
-![](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202603051905789.png)
+![demo](./docs/iwaratool_demo.gif)
 
 ## 主な機能
 - `X-Version` 署名計算に対応。
@@ -37,24 +39,40 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `sort`：`date`、`trending`、`popularity`、`views`、`likes`。
 
+`tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
+
 ## ドキュメント
 - Wiki: <https://github.com/Moeary/IwaraTool/wiki>
-- API（EN）：[docs/API.md](./docs/API.md)
-- API（ZH）：[docs/API_zh.md](./docs/API_zh.md)
 - API（JA）：[docs/API_ja.md](./docs/API_ja.md)
 - タグ索引：[docs/iwara_tags.md](./docs/iwara_tags.md)
 
-## タグ収集
-```bash
-pixi run python app/core/crawl_iwara_tags.py
+## 実行 / ビルド
+
+プロジェクトの依存関係は [pixi](https://pixi.prefix.dev/latest/) で管理されています。
+
+開発者としてソースコードを直接実行したい、またはアプリをビルドしたい場合：
+
+```shell
+pixi run start // プログラムを実行
+pixi run build // アプリをビルド
+pixi run crawl // タグデータを取得（docs/iwara_tags.md を更新）
 ```
 
-## 実行 / ビルド
-```bash
-pixi run start
-pixi run crawl
-pixi run build
-```
+## 貢献
+
+PRは大歓迎です！
+現在、プログラムの i18n（多言語）はまだ不十分であり、ダーク/ライトモードの切り替えもまだ実装されていません。これらはコアなダウンロード機能には影響しませんが、もし時間があり、改善に協力していただける場合は、直接 PR を提出してください（PRを提出する際は、標準的な更新を遵守して dev ブランチにマージし、提出前に GitHub Action の CI/CD を通過させるようにしてください）。ありがとうございます！
 
 ## ライセンス
+
 MIT License。
+
+**本プログラムをダウンロードした時点で、MIT ライセンスを遵守することに同意したものとみなされます。詳細は LICENSE ファイルを参照してください。**
+
+1. 本プロジェクトを違法、公序良俗に反する目的、または法令に違反する目的で使用することを禁止します。違反した使用により生じた損害については、ユーザーが全責任を負うものとします。
+2. 本プロジェクトで提供されるパッケージ版およびスクリプトは、個人の学習および研究目的のみに使用されるものであり、許可なく商用での再配布や転売を行うことはできません。
+3. プロジェクトの管理者は、法令またはコミュニティのフィードバックに基づき、いつでもサービスおよびサポートを更新、中断、または終了する権利を留保します。
+
+## 特別感謝
+
+[hare1039](https://github.com/hare1039) 氏の [iwara-dl](https://github.com/hare1039/iwara-dl/tree/master) プロジェクトから貴重な参考とインスピレーションをいただきました。特に X-Version 署名計算とダウンロードリンク解析の実装詳細は、本プロジェクトの開発に大きな推進力となりました。

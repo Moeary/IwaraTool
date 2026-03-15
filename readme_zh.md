@@ -1,12 +1,13 @@
 ﻿# IwaraTool
 
-![](./docs/iwaratool_logo.png)
+![logo](./docs/iwaratool_logo.png)
 
 [English](./readme.md) | [日本語](./readme_ja.md)
 
-![demo](./docs/iwaratool_demo.gif)
 
 告别繁琐的命令行！拥有现代化 Fluent 风格界面的 Iwara 批量下载器，小白也能一键下载作者全视频
+
+![demo](./docs/iwaratool_demo.gif)
 
 
 ## 核心功能
@@ -39,15 +40,15 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 ```
 
 `sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
+`tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
 
 ## 文档
 - Wiki：<https://github.com/Moeary/IwaraTool/wiki>
-- API 文档（EN）：[docs/API.md](./docs/API.md)
 - API 文档（ZH）：[docs/API_zh.md](./docs/API_zh.md)
-- API 文档（JA）：[docs/API_ja.md](./docs/API_ja.md)
 - 标签索引：[docs/iwara_tags.md](./docs/iwara_tags.md)
 
 ## 运行与构建
+
 项目依赖使用 [pixi](https://pixi.prefix.dev/latest/) 管理。
 
 如果你是开发者想直接运行源代码/或者想构建应用：
