@@ -4,6 +4,7 @@ State machine flow
 ──────────────────
 QUEUED_META → RESOLVING → QUEUED_DOWNLOAD → DOWNLOADING → COMPLETED
                                                         ↘ FAILED
+                        RESOLVING ─────────────────────→ SKIPPED (filtered)
 
 Concurrency rule
 ────────────────
@@ -22,12 +23,14 @@ import subprocess
 import threading
 import time
 import uuid
+from xml.sax.saxutils import escape
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import TYPE_CHECKING
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, urlparse
 
 from ..config import app_config
+from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI
 from .history import DownloadHistory
@@ -128,12 +131,13 @@ class DownloadManager:
             signal_bus.task_removed.emit(task_id)
 
     def clear_completed(self):
+        """Remove terminal tasks from UI board (completed/skipped/failed)."""
         removed_ids: list[str] = []
         with self._lock:
             to_remove = [
                 tid
                 for tid, t in self._tasks.items()
-                if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+                if t.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED)
             ]
             for tid in to_remove:
                 del self._tasks[tid]
@@ -145,20 +149,24 @@ class DownloadManager:
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
-                return False, "任务不存在"
+                return False, tr("Task does not exist", "任务不存在", "タスクが存在しません")
             status = task.status
             file_path = task.file_path
             title = task.title or task.video_id
 
         if status != TaskStatus.COMPLETED:
-            return False, "仅支持已完成任务"
+            return False, tr(
+                "Only completed tasks can be opened",
+                "仅支持已完成任务",
+                "完了タスクのみ開けます",
+            )
         if not file_path or not os.path.exists(file_path):
-            return False, "文件不存在"
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
 
         action = str(app_config.completed_task_click_action or "folder").lower()
         target = file_path if action == "player" else os.path.dirname(file_path)
         if not target:
-            return False, "无可打开路径"
+            return False, tr("No openable path", "无可打开路径", "開けるパスがありません")
 
         try:
             if os.name == "nt":
@@ -168,19 +176,40 @@ class DownloadManager:
             elif shutil.which("open"):
                 subprocess.Popen(["open", target])
             else:
-                return False, "系统不支持自动打开"
+                return False, tr(
+                    "System does not support auto-open",
+                    "系统不支持自动打开",
+                    "システムが自動オープンに対応していません",
+                )
         except Exception as exc:
             return False, str(exc)
 
-        action_text = "播放器" if action == "player" else "文件夹"
-        signal_bus.log_message.emit(f"[打开] 《{title}》 → {action_text}")
+        action_text = tr("Player", "播放器", "プレイヤー") if action == "player" else tr("Folder", "文件夹", "フォルダー")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Open] \"{title}\" -> {action_text}",
+                f"[打开] 《{title}》 → {action_text}",
+                f"[開く] 「{title}」 -> {action_text}",
+            )
+        )
         return True, ""
 
     def set_login(self, logged_in: bool, token: str | None = None):
         if logged_in and token:
             self.api.token = token
+            app_config.auth_token = token
+            app_config.auth_token_saved_at = datetime.now().isoformat(timespec="seconds")
         elif not logged_in:
             self.api.token = None
+            app_config.auth_token = ""
+            app_config.auth_token_saved_at = ""
+
+    def restore_cached_login(self) -> bool:
+        token = (app_config.auth_token or "").strip()
+        if not (app_config.auth_enabled and token):
+            return False
+        self.api.token = token
+        return True
 
     def apply_config(self):
         """Apply proxy settings from app_config to the scraper."""
@@ -195,18 +224,44 @@ class DownloadManager:
         url = raw.strip()
         if not url:
             return
-        signal_bus.log_message.emit(f"解析输入：{url}")
+        signal_bus.log_message.emit(
+            tr(f"Parsing input: {url}", f"解析输入：{url}", f"入力を解析中: {url}")
+        )
 
         parsed = self._parse_iwara_url(url)
         if parsed:
             kind, value = parsed
             if kind == "video":
-                signal_bus.log_message.emit(f"[识别] 视频链接 → video_id={value}")
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Detected] Video URL -> video_id={value}",
+                        f"[识别] 视频链接 → video_id={value}",
+                        f"[検出] 動画URL -> video_id={value}",
+                    )
+                )
             elif kind == "user":
-                signal_bus.log_message.emit(f"[识别] 用户链接 → username={value}")
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Detected] User URL -> username={value}",
+                        f"[识别] 用户链接 → username={value}",
+                        f"[検出] ユーザーURL -> username={value}",
+                    )
+                )
             elif kind == "playlist":
                 signal_bus.log_message.emit(
-                    f"[识别] 播放列表链接 → playlist_id={value}"
+                    tr(
+                        f"[Detected] Playlist URL -> playlist_id={value}",
+                        f"[识别] 播放列表链接 → playlist_id={value}",
+                        f"[検出] プレイリストURL -> playlist_id={value}",
+                    )
+                )
+            elif kind == "search":
+                signal_bus.log_message.emit(
+                    tr(
+                        "[Detected] API search URL",
+                        "[识别] API 搜索链接",
+                        "[検出] API 検索URL",
+                    )
                 )
             if kind == "video":
                 self._enqueue_video_id(value, url)
@@ -217,13 +272,24 @@ class DownloadManager:
             if kind == "playlist":
                 self._enqueue_playlist(value)
                 return
+            if kind == "search":
+                self._enqueue_search_query(value)
+                return
 
         # Treat as raw video ID
-        signal_bus.log_message.emit(f"[识别] 按视频ID处理 → {url}")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Detected] Treat as raw video ID -> {url}",
+                f"[识别] 按视频ID处理 → {url}",
+                f"[検出] 生の動画IDとして処理 -> {url}",
+            )
+        )
         self._enqueue_video_id(url, url)
 
-    def _parse_iwara_url(self, raw_url: str) -> tuple[str, str] | None:
-        """Parse iwara URLs into ('video'|'user'|'playlist', value)."""
+    def _parse_iwara_url(
+        self, raw_url: str
+    ) -> tuple[str, str | dict[str, str]] | None:
+        """Parse iwara URLs into ('video'|'user'|'playlist'|'search', value)."""
         normalized = raw_url.strip()
         if "iwara.tv" in normalized and "://" not in normalized:
             normalized = f"https://{normalized.lstrip('/')}"
@@ -241,6 +307,21 @@ class DownloadManager:
         if not parts:
             return None
         lower_parts = [p.lower() for p in parts]
+
+        # Search endpoint, e.g.
+        # - https://api.iwara.tv/videos?tags=2d&sort=date
+        # - https://www.iwara.tv/videos?tags=2d&sort=date
+        if lower_parts[0] == "videos":
+            query_raw = parse_qs(parsed.query, keep_blank_values=False)
+            query_params = {
+                key: values[-1].strip()
+                for key, values in query_raw.items()
+                if values and values[-1].strip()
+            }
+            # Keep behavior sane for bare /videos links.
+            if not query_params:
+                query_params["sort"] = "date"
+            return "search", query_params
 
         def _next_after(key: str) -> str | None:
             try:
@@ -271,7 +352,11 @@ class DownloadManager:
             existing_path = self._find_existing_local_file(video_id)
             if existing_path:
                 signal_bus.log_message.emit(
-                    f"[跳过] {video_id} 已存在本地文件: {existing_path}"
+                    tr(
+                        f"[Skipped] {video_id} local file already exists: {existing_path}",
+                        f"[跳过] {video_id} 已存在本地文件: {existing_path}",
+                        f"[スキップ] {video_id} はローカルに既存: {existing_path}",
+                    )
                 )
                 return
 
@@ -279,7 +364,13 @@ class DownloadManager:
             # Dedup: skip if already in current queue
             for t in self._tasks.values():
                 if t.video_id == video_id:
-                    signal_bus.log_message.emit(f"[跳过] {video_id} 已在队列中")
+                    signal_bus.log_message.emit(
+                        tr(
+                            f"[Skipped] {video_id} already in queue",
+                            f"[跳过] {video_id} 已在队列中",
+                            f"[スキップ] {video_id} は既にキュー内です",
+                        )
+                    )
                     return
             task_id = str(uuid.uuid4())
             task = DownloadTask(task_id=task_id, url=original_url, video_id=video_id)
@@ -292,7 +383,11 @@ class DownloadManager:
             limit = app_config.max_concurrent
 
         signal_bus.log_message.emit(
-            f"[入队] {video_id}（当前排队: {queued_count}，活动: {active_count}/{limit}）"
+            tr(
+                f"[Queued] {video_id} (queued: {queued_count}, active: {active_count}/{limit})",
+                f"[入队] {video_id}（当前排队: {queued_count}，活动: {active_count}/{limit}）",
+                f"[キュー追加] {video_id}（待機: {queued_count}、稼働: {active_count}/{limit}）",
+            )
         )
 
         signal_bus.task_added.emit(
@@ -307,24 +402,122 @@ class DownloadManager:
         self._try_activate()
 
     def _enqueue_user(self, username: str):
-        signal_bus.log_message.emit(f"正在获取用户 [{username}] 的视频列表…")
+        signal_bus.log_message.emit(
+            tr(
+                f"Fetching videos for user [{username}] ...",
+                f"正在获取用户 [{username}] 的视频列表…",
+                f"ユーザー [{username}] の動画一覧を取得中...",
+            )
+        )
         user_id, err = self.api.get_user_id(username)
         if not user_id:
-            signal_bus.log_message.emit(f"[错误] 无法获取用户 ID: {err}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Error] Failed to get user ID: {err}",
+                    f"[错误] 无法获取用户 ID: {err}",
+                    f"[エラー] ユーザーIDの取得に失敗: {err}",
+                )
+            )
             return
         videos = self.api.get_user_videos(user_id)
-        signal_bus.log_message.emit(f"用户 [{username}] 共找到 {len(videos)} 个视频")
+        signal_bus.log_message.emit(
+            tr(
+                f"Found {len(videos)} videos for user [{username}]",
+                f"用户 [{username}] 共找到 {len(videos)} 个视频",
+                f"ユーザー [{username}] で {len(videos)} 件の動画を検出",
+            )
+        )
         for video in videos:
             vid = video.get("id", "")
             if vid:
                 self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
 
     def _enqueue_playlist(self, playlist_id: str):
-        signal_bus.log_message.emit(f"正在获取播放列表 [{playlist_id}] 的视频…")
+        signal_bus.log_message.emit(
+            tr(
+                f"Fetching videos from playlist [{playlist_id}] ...",
+                f"正在获取播放列表 [{playlist_id}] 的视频…",
+                f"プレイリスト [{playlist_id}] の動画を取得中...",
+            )
+        )
         videos = self.api.get_playlist_videos(playlist_id)
-        signal_bus.log_message.emit(f"播放列表共找到 {len(videos)} 个视频")
+        signal_bus.log_message.emit(
+            tr(
+                f"Found {len(videos)} videos in playlist",
+                f"播放列表共找到 {len(videos)} 个视频",
+                f"プレイリストで {len(videos)} 件の動画を検出",
+            )
+        )
         for video in videos:
             vid = video.get("id", "")
+            if vid:
+                self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
+
+    def _enqueue_search_query(self, query_params: dict[str, str]):
+        if not query_params:
+            signal_bus.log_message.emit(
+                tr(
+                    "[Error] Empty API query parameters",
+                    "[错误] API 搜索参数为空",
+                    "[エラー] API 検索パラメータが空です",
+                )
+            )
+            return
+
+        configured_cap = (
+            max(0, int(app_config.search_limit_count))
+            if app_config.search_limit_enabled
+            else 0
+        )
+        query_text = "&".join(f"{k}={v}" for k, v in query_params.items())
+        if configured_cap > 0:
+            signal_bus.log_message.emit(
+                tr(
+                    f"Fetching search videos: {query_text} (cap: {configured_cap})",
+                    f"正在拉取搜索结果: {query_text}（上限: {configured_cap}）",
+                    f"検索結果を取得中: {query_text}（上限: {configured_cap}）",
+                )
+            )
+        else:
+            signal_bus.log_message.emit(
+                tr(
+                    f"Fetching search videos: {query_text}",
+                    f"正在拉取搜索结果: {query_text}",
+                    f"検索結果を取得中: {query_text}",
+                )
+            )
+
+        videos, err = self.api.get_videos_by_query(
+            query_params,
+            max_results=configured_cap,
+        )
+        if err:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Warning] Search API returned partial result: {err}",
+                    f"[警告] 搜索 API 返回部分结果: {err}",
+                    f"[警告] 検索 API は部分結果を返しました: {err}",
+                )
+            )
+        if not videos:
+            signal_bus.log_message.emit(
+                tr(
+                    "No videos found for this query",
+                    "该查询未找到视频",
+                    "このクエリでは動画が見つかりませんでした",
+                )
+            )
+            return
+
+        signal_bus.log_message.emit(
+            tr(
+                f"Search found {len(videos)} videos",
+                f"搜索共找到 {len(videos)} 个视频",
+                f"検索で {len(videos)} 件の動画を検出",
+            )
+        )
+        for video in videos:
+            vid = str(video.get("id", "") or "").strip()
             if vid:
                 self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
 
@@ -360,12 +553,31 @@ class DownloadManager:
         if not task:
             return
 
-        signal_bus.log_message.emit(f"[解析] 开始获取视频信息: {task.video_id}")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Resolve] Fetching video info: {task.video_id}",
+                f"[解析] 开始获取视频信息: {task.video_id}",
+                f"[解析] 動画情報を取得中: {task.video_id}",
+            )
+        )
 
         video_info, err = self.api.get_video_info(task.video_id)
         if not video_info:
-            self._fail_task(task_id, f"获取视频信息失败: {err}")
-            signal_bus.log_message.emit(f"[失败] {task.video_id} → {err}")
+            self._fail_task(
+                task_id,
+                tr(
+                    f"Failed to fetch video info: {err}",
+                    f"获取视频信息失败: {err}",
+                    f"動画情報の取得に失敗: {err}",
+                ),
+            )
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Failed] {task.video_id} -> {err}",
+                    f"[失败] {task.video_id} → {err}",
+                    f"[失敗] {task.video_id} -> {err}",
+                )
+            )
             return
 
         # Re-try with login if private
@@ -374,13 +586,37 @@ class DownloadManager:
             and video_info.get("message") == "errors.privateVideo"
         ):
             if not self.api.token:
-                self._fail_task(task_id, "私有视频，请先登录后重试")
+                self._fail_task(
+                    task_id,
+                    tr(
+                        "Private video. Please login and try again.",
+                        "私有视频，请先登录后重试",
+                        "非公開動画です。ログインして再試行してください。",
+                    ),
+                )
                 signal_bus.log_message.emit(
-                    f"[跳过] {task.video_id} 为私有视频，请先登录"
+                    tr(
+                        f"[Skipped] {task.video_id} is private, login required",
+                        f"[跳过] {task.video_id} 为私有视频，请先登录",
+                        f"[スキップ] {task.video_id} は非公開です。ログインが必要です",
+                    )
                 )
                 return
-            self._fail_task(task_id, "私有视频（已登录但无权限）")
-            signal_bus.log_message.emit(f"[跳过] {task.video_id} 私有视频，无权限")
+            self._fail_task(
+                task_id,
+                tr(
+                    "Private video (logged in but no permission)",
+                    "私有视频（已登录但无权限）",
+                    "非公開動画（ログイン済みですが権限がありません）",
+                ),
+            )
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Skipped] {task.video_id} private, no permission",
+                    f"[跳过] {task.video_id} 私有视频，无权限",
+                    f"[スキップ] {task.video_id} 非公開・権限なし",
+                )
+            )
             return
 
         title: str = video_info.get("title", task.video_id) or task.video_id
@@ -392,7 +628,8 @@ class DownloadManager:
         rating = str(video_info.get("rating", "") or "")
         duration = int(video_info.get("file", {}).get("duration", 0) or 0)
         comments = int(video_info.get("numComments", 0) or 0)
-        tags_json = json.dumps(video_info.get("tags", []), ensure_ascii=False)
+        raw_tags = video_info.get("tags", [])
+        tags_json = json.dumps(raw_tags, ensure_ascii=False)
         raw_json = json.dumps(video_info, ensure_ascii=False)
         file_url = str(video_info.get("fileUrl", "") or "")
         file_id = str(video_info.get("file", {}).get("id", "") or "")
@@ -421,17 +658,35 @@ class DownloadManager:
             likes=likes,
             views=views,
             published_at=published_at,
+            tags=raw_tags if isinstance(raw_tags, list) else [],
         )
         if not passed_filter:
-            self._skip_task(task_id, f"筛选不通过: {filter_reason}")
+            self._skip_task(
+                task_id,
+                tr(
+                    f"Filtered out: {filter_reason}",
+                    f"筛选不通过: {filter_reason}",
+                    f"フィルター不一致: {filter_reason}",
+                ),
+            )
             return
 
-        signal_bus.log_message.emit(f"[解析] 《{title}》 by {author}")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Resolve] \"{title}\" by {author}",
+                f"[解析] 《{title}》 by {author}",
+                f"[解析] 「{title}」 by {author}",
+            )
+        )
 
         # Pass quality preference and a logging callback
         pref_quality = app_config.preferred_quality
         signal_bus.log_message.emit(
-            f"[解析] 首选画质: {pref_quality}，开始获取文件列表…"
+            tr(
+                f"[Resolve] Preferred quality: {pref_quality}, fetching source list...",
+                f"[解析] 首选画质: {pref_quality}，开始获取文件列表…",
+                f"[解析] 優先画質: {pref_quality}、ソース一覧を取得中...",
+            )
         )
 
         def _log(msg: str):
@@ -443,19 +698,46 @@ class DownloadManager:
             log_cb=_log,
         )
         if not dl_url:
-            self._fail_task(task_id, f"解析下载链接失败: {err2}")
-            signal_bus.log_message.emit(f"[失败] 《{title}》 解析失败 → {err2}")
+            self._fail_task(
+                task_id,
+                tr(
+                    f"Failed to resolve download URL: {err2}",
+                    f"解析下载链接失败: {err2}",
+                    f"ダウンロードURLの解決に失敗: {err2}",
+                ),
+            )
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Failed] \"{title}\" resolve failed -> {err2}",
+                    f"[失败] 《{title}》 解析失败 → {err2}",
+                    f"[失敗] 「{title}」解析失敗 -> {err2}",
+                )
+            )
             return
 
-        signal_bus.log_message.emit(f"[解析完成] 《{title}》 画质={quality}")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Resolved] \"{title}\" quality={quality}",
+                f"[解析完成] 《{title}》 画质={quality}",
+                f"[解析完了] 「{title}」画質={quality}",
+            )
+        )
 
-        filename = self._build_filename(
+        output_rel_path = self._build_output_relative_path(
             title=title,
             video_id=task.video_id,
+            author=author,
             published_at=published_at,
+            quality=quality or "",
+            likes=likes,
+            views=views,
+            comments=comments,
+            duration=duration,
+            slug=slug,
+            rating=rating,
         )
-        save_dir = os.path.join(app_config.download_dir, author or "unknown")
-        file_path = os.path.join(save_dir, filename)
+        file_path = os.path.join(app_config.download_dir, output_rel_path)
+        filename = os.path.basename(file_path)
 
         if (
             app_config.skip_existing_files
@@ -467,7 +749,13 @@ class DownloadManager:
                 task.quality = quality or ""
                 task.filename = filename
                 task.file_path = file_path
-            signal_bus.log_message.emit(f"[跳过] 《{title}》 本地已存在，标记完成")
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Skipped] \"{title}\" already exists locally, marked completed",
+                    f"[跳过] 《{title}》 本地已存在，标记完成",
+                    f"[スキップ] 「{title}」はローカルに存在するため完了扱い",
+                )
+            )
             self._complete_task(task_id)
             return
 
@@ -499,17 +787,50 @@ class DownloadManager:
             return
 
         # Determine save path
-        save_dir = os.path.join(app_config.download_dir, task.author or "unknown")
+        final_path = task.file_path.strip() if task.file_path else ""
+        if not final_path:
+            fallback_rel = self._build_output_relative_path(
+                title=task.title or task.video_id,
+                video_id=task.video_id,
+                author=task.author,
+                published_at=task.published_at,
+                quality=task.quality,
+                likes=task.likes,
+                views=task.views,
+                comments=task.comments,
+                duration=task.duration,
+                slug=task.slug,
+                rating=task.rating,
+            )
+            final_path = os.path.join(app_config.download_dir, fallback_rel)
+        save_dir = os.path.dirname(final_path)
         os.makedirs(save_dir, exist_ok=True)
-        final_path = os.path.join(save_dir, task.filename)
         temp_path = f"{final_path}_temp"
 
         with self._lock:
             task.file_path = final_path
 
-        signal_bus.log_message.emit(f"[下载] 《{task.title}》 [画质:{task.quality}]")
-        signal_bus.log_message.emit(f"  保存至: {final_path}")
-        signal_bus.log_message.emit(f"  临时文件: {temp_path}")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Download] \"{task.title}\" [quality:{task.quality}]",
+                f"[下载] 《{task.title}》 [画质:{task.quality}]",
+                f"[ダウンロード] 「{task.title}」 [画質:{task.quality}]",
+            )
+        )
+        signal_bus.log_message.emit(
+            tr(
+                f"  Save to: {final_path}",
+                f"  保存至: {final_path}",
+                f"  保存先: {final_path}",
+            )
+        )
+        signal_bus.log_message.emit(
+            tr(
+                f"  Temp file: {temp_path}",
+                f"  临时文件: {temp_path}",
+                f"  一時ファイル: {temp_path}",
+            )
+        )
 
         if app_config.aria2_rpc_enabled:
             self._download_task_aria2(
@@ -519,7 +840,13 @@ class DownloadManager:
             )
             return
 
-        signal_bus.log_message.emit("  aria2 未启用，使用内置下载器")
+        signal_bus.log_message.emit(
+            tr(
+                "  aria2 disabled, using built-in downloader",
+                "  aria2 未启用，使用内置下载器",
+                "  aria2 無効のため内蔵ダウンローダーを使用",
+            )
+        )
         self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
 
     def _download_task_aria2(
@@ -534,7 +861,13 @@ class DownloadManager:
 
         rpc_url = app_config.aria2_rpc_url.strip()
         if not rpc_url:
-            signal_bus.log_message.emit("  aria2 RPC 地址为空，回退到内置下载器")
+            signal_bus.log_message.emit(
+                tr(
+                    "  aria2 RPC URL is empty, fallback to built-in downloader",
+                    "  aria2 RPC 地址为空，回退到内置下载器",
+                    "  aria2 RPC URL が空のため内蔵ダウンローダーへフォールバック",
+                )
+            )
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
 
@@ -563,10 +896,22 @@ class DownloadManager:
         if app_config.proxy_enabled and app_config.proxy_url:
             options["all-proxy"] = app_config.proxy_url
 
-        signal_bus.log_message.emit(f"  使用 aria2 RPC 下载: {rpc_url}")
+        signal_bus.log_message.emit(
+            tr(
+                f"  Download via aria2 RPC: {rpc_url}",
+                f"  使用 aria2 RPC 下载: {rpc_url}",
+                f"  aria2 RPC でダウンロード: {rpc_url}",
+            )
+        )
         gid, add_err = self._aria2_rpc_add_uri(task.download_url, options)
         if not gid:
-            signal_bus.log_message.emit(f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"  aria2 RPC submit failed, fallback to built-in downloader: {add_err}",
+                    f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}",
+                    f"  aria2 RPC 送信失敗、内蔵ダウンローダーへフォールバック: {add_err}",
+                )
+            )
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
 
@@ -574,7 +919,14 @@ class DownloadManager:
         while True:
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
-                self._fail_task(task_id, f"aria2 RPC 查询失败: {err}")
+                self._fail_task(
+                    task_id,
+                    tr(
+                        f"aria2 RPC query failed: {err}",
+                        f"aria2 RPC 查询失败: {err}",
+                        f"aria2 RPC 問い合わせ失敗: {err}",
+                    ),
+                )
                 return
 
             status = str(status_info.get("status", ""))
@@ -601,13 +953,25 @@ class DownloadManager:
                     task.total_bytes = max(total, downloaded)
                     task.speed_str = ""
                 signal_bus.task_progress_updated.emit(task_id, downloaded, max(total, downloaded), "")
-                signal_bus.log_message.emit(f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}")
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
+                        f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
+                        f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
+                    )
+                )
                 self._complete_task(task_id)
                 self._aria2_rpc_remove_result(gid)
                 return
 
             if status in ("error", "removed"):
-                err_msg = str(status_info.get("errorMessage", "aria2 未知错误") or "aria2 未知错误")
+                err_msg = str(
+                    status_info.get(
+                        "errorMessage",
+                        tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー"),
+                    )
+                    or tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー")
+                )
                 self._fail_task(task_id, f"aria2 {status}: {err_msg}")
                 self._aria2_rpc_remove_result(gid)
                 return
@@ -631,7 +995,11 @@ class DownloadManager:
                 if existing_size > 0:
                     headers["Range"] = f"bytes={existing_size}-"
                     signal_bus.log_message.emit(
-                        f"  断点续传: 已有 {_fmt_bytes(existing_size)}"
+                        tr(
+                            f"  Resume download: existing {_fmt_bytes(existing_size)}",
+                            f"  断点续传: 已有 {_fmt_bytes(existing_size)}",
+                            f"  レジューム: 既存 {_fmt_bytes(existing_size)}",
+                        )
                     )
 
             resp = self.api.scraper.get(
@@ -642,7 +1010,13 @@ class DownloadManager:
             )
 
             if resp.status_code == 416:
-                signal_bus.log_message.emit("  文件已完整，标记完成")
+                signal_bus.log_message.emit(
+                    tr(
+                        "  File already complete, mark as completed",
+                        "  文件已完整，标记完成",
+                        "  ファイルは既に完全です。完了扱いにします",
+                    )
+                )
                 if not self._finalize_temp_file(
                     task_id,
                     temp_path=temp_path,
@@ -668,7 +1042,13 @@ class DownloadManager:
                 task.total_bytes = total
                 task.downloaded_bytes = existing_size
 
-            signal_bus.log_message.emit(f"  文件总大小: {_fmt_bytes(total)}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"  Total size: {_fmt_bytes(total)}",
+                    f"  文件总大小: {_fmt_bytes(total)}",
+                    f"  合計サイズ: {_fmt_bytes(total)}",
+                )
+            )
 
             mode = "ab" if existing_size > 0 else "wb"
             downloaded = existing_size
@@ -707,12 +1087,22 @@ class DownloadManager:
                 return
 
             signal_bus.log_message.emit(
-                f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}"
+                tr(
+                    f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
+                    f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
+                    f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
+                )
             )
             self._complete_task(task_id)
 
         except Exception as exc:
-            signal_bus.log_message.emit(f"[下载异常] 《{task.title}》 → {exc}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Download error] \"{task.title}\" -> {exc}",
+                    f"[下载异常] 《{task.title}》 → {exc}",
+                    f"[ダウンロードエラー] 「{task.title}」 -> {exc}",
+                )
+            )
             self._fail_task(task_id, str(exc))
 
     # ── Local file / filename helpers ────────────────────────────────────────
@@ -737,29 +1127,67 @@ class DownloadManager:
             return None
         return None
 
-    def _build_filename(self, title: str, video_id: str, published_at: str = "") -> str:
-        template = (
+    def _build_output_relative_path(
+        self,
+        *,
+        title: str,
+        video_id: str,
+        author: str,
+        published_at: str,
+        quality: str,
+        likes: int,
+        views: int,
+        comments: int,
+        duration: int,
+        slug: str,
+        rating: str,
+    ) -> str:
+        raw_template = (
             app_config.filename_template or ""
-        ).strip() or "{YYYY-MM-DD}+{title}+{id}.mp4"
+        ).strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+        template = raw_template.replace("\\", "/")
+
         date_text = _extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
+        year, month, day = date_text.split("-")
+        username = (author or "unknown").strip() or "unknown"
+        safe = lambda v: str(v).replace("/", "-").replace("\\", "-")
+
         mapping = {
-            "{YYYY-MM-DD}": date_text,
-            "{title}": title,
-            "{id}": video_id,
+            "{YYYY-MM-DD}": safe(date_text),
+            "{YYYY}": safe(year),
+            "{MM}": safe(month),
+            "{DD}": safe(day),
+            "{date}": safe(date_text),
+            "{title}": safe(title),
+            "{id}": safe(video_id),
+            "{username}": safe(username),
+            "{author}": safe(username),
+            "{quality}": safe(quality or "unknown"),
+            "{likes}": safe(str(likes)),
+            "{views}": safe(str(views)),
+            "{comments}": safe(str(comments)),
+            "{duration}": safe(str(duration)),
+            "{slug}": safe(slug),
+            "{rating}": safe(rating),
         }
-
         for token, value in mapping.items():
-            template = template.replace(token, value)
+            template = template.replace(token, str(value))
 
-        template = self._sanitize_filename(template)
-        if not template.lower().endswith(".mp4"):
-            template += ".mp4"
-        return template
+        parts = [p for p in template.split("/") if p.strip()]
+        if not parts:
+            parts = [f"{date_text}_{title}_{video_id}.mp4"]
+
+        parts = [self._sanitize_path_segment(p) for p in parts]
+        if not parts[-1].lower().endswith(".mp4"):
+            parts[-1] += ".mp4"
+        return os.path.join(*parts)
 
     @staticmethod
-    def _sanitize_filename(name: str) -> str:
+    def _sanitize_path_segment(name: str) -> str:
         cleaned = re.sub(r'[\\/:*?"<>|\t\r\n]', "-", name).strip(" .")
-        return cleaned or "video.mp4"
+        if cleaned in ("", ".", ".."):
+            return "_"
+        return cleaned
 
     # ── Terminal state helpers ────────────────────────────────────────────────
 
@@ -776,11 +1204,25 @@ class DownloadManager:
 
     def _finalize_temp_file(self, task_id: str, temp_path: str, final_path: str) -> bool:
         if not os.path.exists(temp_path):
-            self._fail_task(task_id, "临时文件不存在，无法完成重命名")
+            self._fail_task(
+                task_id,
+                tr(
+                    "Temp file does not exist, cannot finalize",
+                    "临时文件不存在，无法完成重命名",
+                    "一時ファイルが存在しないため確定できません",
+                ),
+            )
             return False
         size = os.path.getsize(temp_path)
         if size <= 0:
-            self._fail_task(task_id, "临时文件为空，下载不完整")
+            self._fail_task(
+                task_id,
+                tr(
+                    "Temp file is empty, download is incomplete",
+                    "临时文件为空，下载不完整",
+                    "一時ファイルが空のためダウンロードが不完全です",
+                ),
+            )
             return False
         try:
             os.replace(temp_path, final_path)
@@ -789,7 +1231,14 @@ class DownloadManager:
                 os.remove(sidecar)
             return True
         except Exception as exc:
-            self._fail_task(task_id, f"重命名临时文件失败: {exc}")
+            self._fail_task(
+                task_id,
+                tr(
+                    f"Failed to rename temp file: {exc}",
+                    f"重命名临时文件失败: {exc}",
+                    f"一時ファイルのリネームに失敗: {exc}",
+                ),
+            )
             return False
 
     def clear_temp_files(self) -> tuple[int, int]:
@@ -857,24 +1306,67 @@ class DownloadManager:
         task.file_id = file_id
         task.thumbnail_index = thumbnail_index
 
-    def _passes_filters(self, likes: int, views: int, published_at: str) -> tuple[bool, str]:
+    def _passes_filters(
+        self,
+        likes: int,
+        views: int,
+        published_at: str,
+        tags: list[Any],
+    ) -> tuple[bool, str]:
         if not app_config.filter_enabled:
             return True, ""
 
         if app_config.filter_min_likes_enabled and likes < app_config.filter_min_likes:
-            return False, f"点赞 {likes} < {app_config.filter_min_likes}"
+            return False, tr(
+                f"likes {likes} < {app_config.filter_min_likes}",
+                f"点赞 {likes} < {app_config.filter_min_likes}",
+                f"いいね {likes} < {app_config.filter_min_likes}",
+            )
 
         if app_config.filter_min_views_enabled and views < app_config.filter_min_views:
-            return False, f"播放 {views} < {app_config.filter_min_views}"
+            return False, tr(
+                f"views {views} < {app_config.filter_min_views}",
+                f"播放 {views} < {app_config.filter_min_views}",
+                f"再生数 {views} < {app_config.filter_min_views}",
+            )
 
         if app_config.filter_date_enabled:
             date_text = _extract_date_text(published_at)
             if not date_text:
-                return False, "无有效发布日期"
+                return False, tr(
+                    "invalid publish date",
+                    "无有效发布日期",
+                    "有効な公開日がありません",
+                )
             start = app_config.filter_start_date or "1970-01-01"
             end = app_config.filter_end_date or datetime.now().strftime("%Y-%m-%d")
             if date_text < start or date_text > end:
-                return False, f"日期 {date_text} 不在 {start} ~ {end}"
+                return False, tr(
+                    f"date {date_text} is out of range {start} ~ {end}",
+                    f"日期 {date_text} 不在 {start} ~ {end}",
+                    f"日付 {date_text} が範囲外です {start} ~ {end}",
+                )
+
+        normalized_tags = _normalize_video_tags(tags)
+        include_terms = _split_filter_tags(app_config.filter_include_tags)
+        if app_config.filter_include_tags_enabled and include_terms:
+            hit = [term for term in include_terms if term in normalized_tags]
+            if not hit:
+                return False, tr(
+                    f"no include tags matched ({', '.join(include_terms)})",
+                    f"未命中包含标签（{', '.join(include_terms)}）",
+                    f"包含タグに一致しませんでした（{', '.join(include_terms)}）",
+                )
+
+        exclude_terms = _split_filter_tags(app_config.filter_exclude_tags)
+        if app_config.filter_exclude_tags_enabled and exclude_terms:
+            hit = [term for term in exclude_terms if term in normalized_tags]
+            if hit:
+                return False, tr(
+                    f"matched exclude tags ({', '.join(hit)})",
+                    f"命中排除标签（{', '.join(hit)}）",
+                    f"除外タグに一致しました（{', '.join(hit)}）",
+                )
 
         return True, ""
 
@@ -882,16 +1374,26 @@ class DownloadManager:
         with self._lock:
             task = self._tasks.get(task_id)
             if task:
-                task.status = TaskStatus.COMPLETED
+                task.status = TaskStatus.SKIPPED
                 task.error_msg = reason
-        signal_bus.log_message.emit(f"[筛选跳过] {task_id} → {reason}")
-        signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
+        signal_bus.log_message.emit(
+            tr(
+                f"[Filtered] {task_id} -> {reason}",
+                f"[筛选跳过] {task_id} → {reason}",
+                f"[フィルター] {task_id} -> {reason}",
+            )
+        )
+        signal_bus.task_status_changed.emit(task_id, TaskStatus.SKIPPED.value)
         self._try_activate()
 
     def _aria2_rpc_call(self, method: str, params: list) -> tuple[dict | None, str]:
         rpc_url = app_config.aria2_rpc_url.strip()
         if not rpc_url:
-            return None, "aria2 RPC URL 为空"
+            return None, tr(
+                "aria2 RPC URL is empty",
+                "aria2 RPC URL 为空",
+                "aria2 RPC URL が空です",
+            )
 
         payload_params = list(params)
         token = app_config.aria2_rpc_token.strip()
@@ -922,7 +1424,11 @@ class DownloadManager:
             return None, err
         gid = str(data.get("result", "") or "")
         if not gid:
-            return None, "aria2 未返回 gid"
+            return None, tr(
+                "aria2 did not return gid",
+                "aria2 未返回 gid",
+                "aria2 が gid を返しませんでした",
+            )
         return gid, ""
 
     def _aria2_rpc_tell_status(self, gid: str) -> tuple[dict | None, str]:
@@ -932,7 +1438,11 @@ class DownloadManager:
             return None, err
         result = data.get("result")
         if not isinstance(result, dict):
-            return None, f"aria2 tellStatus 返回异常: {result!r}"
+            return None, tr(
+                f"Unexpected aria2 tellStatus result: {result!r}",
+                f"aria2 tellStatus 返回异常: {result!r}",
+                f"aria2 tellStatus の戻り値が不正です: {result!r}",
+            )
         return result, ""
 
     def _aria2_rpc_remove_result(self, gid: str):
@@ -944,12 +1454,24 @@ class DownloadManager:
         if os.path.getsize(task.file_path) <= 0:
             return
         if not task.file_id or not task.file_url:
-            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过")
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [Thumbnail] \"{task.title}\" missing file_id/file_url, skipped",
+                    f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过",
+                    f"  [サムネイル] 「{task.title}」file_id/file_url 欠落のためスキップ",
+                )
+            )
             return
 
         host = urlparse(task.file_url).netloc
         if not host:
-            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 无效 file_url，跳过")
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [Thumbnail] \"{task.title}\" invalid file_url, skipped",
+                    f"  [封面] 《{task.title}》 无效 file_url，跳过",
+                    f"  [サムネイル] 「{task.title}」無効な file_url のためスキップ",
+                )
+            )
             return
 
         thumbnail_path = os.path.splitext(task.file_path)[0] + ".jpg"
@@ -964,7 +1486,11 @@ class DownloadManager:
             resp = self.api.scraper.get(thumb_url, stream=True, timeout=60)
             if resp.status_code != 200:
                 signal_bus.log_message.emit(
-                    f"  [封面] 《{task.title}》 下载失败 HTTP {resp.status_code}"
+                    tr(
+                        f"  [Thumbnail] \"{task.title}\" failed HTTP {resp.status_code}",
+                        f"  [封面] 《{task.title}》 下载失败 HTTP {resp.status_code}",
+                        f"  [サムネイル] 「{task.title}」HTTP {resp.status_code} 失敗",
+                    )
                 )
                 return
             with open(temp_path, "wb") as fh:
@@ -975,13 +1501,61 @@ class DownloadManager:
             if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
                 os.replace(temp_path, thumbnail_path)
                 task.thumbnail_path = thumbnail_path
-                signal_bus.log_message.emit(f"  [封面] 已保存: {thumbnail_path}")
+                signal_bus.log_message.emit(
+                    tr(
+                        f"  [Thumbnail] saved: {thumbnail_path}",
+                        f"  [封面] 已保存: {thumbnail_path}",
+                        f"  [サムネイル] 保存完了: {thumbnail_path}",
+                    )
+                )
                 return
 
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except Exception as exc:
-            signal_bus.log_message.emit(f"  [封面] 《{task.title}》 下载异常: {exc}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [Thumbnail] \"{task.title}\" error: {exc}",
+                    f"  [封面] 《{task.title}》 下载异常: {exc}",
+                    f"  [サムネイル] 「{task.title}」エラー: {exc}",
+                )
+            )
+
+    def _write_nfo(self, task: DownloadTask):
+        if not task.file_path or not os.path.exists(task.file_path):
+            return
+        if os.path.getsize(task.file_path) <= 0:
+            return
+
+        nfo_path = os.path.splitext(task.file_path)[0] + ".nfo"
+        tags = _parse_tags(task.tags_json)
+        nfo_text = _build_nfo_text(task, tags)
+
+        temp_path = f"{nfo_path}_temp"
+        try:
+            with open(temp_path, "w", encoding="utf-8") as fh:
+                fh.write(nfo_text)
+            os.replace(temp_path, nfo_path)
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [NFO] saved: {nfo_path}",
+                    f"  [NFO] 已保存: {nfo_path}",
+                    f"  [NFO] 保存完了: {nfo_path}",
+                )
+            )
+        except Exception as exc:
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [NFO] \"{task.title}\" write failed: {exc}",
+                    f"  [NFO] 《{task.title}》 写入失败: {exc}",
+                    f"  [NFO] 「{task.title}」書き込み失敗: {exc}",
+                )
+            )
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
     def _complete_task(self, task_id: str):
         task = self._tasks.get(task_id)
@@ -991,6 +1565,8 @@ class DownloadManager:
             task.status = TaskStatus.COMPLETED
         if app_config.download_thumbnail:
             self._download_thumbnail(task)
+        if app_config.collect_nfo_info:
+            self._write_nfo(task)
         try:
             self.history.upsert_downloaded(
                 {
@@ -1013,7 +1589,13 @@ class DownloadManager:
                 }
             )
         except Exception as exc:
-            signal_bus.log_message.emit(f"[警告] 写入历史库失败（不影响文件下载）: {exc}")
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Warning] Failed to write history DB (download file is safe): {exc}",
+                    f"[警告] 写入历史库失败（不影响文件下载）: {exc}",
+                    f"[警告] 履歴DB書き込み失敗（ダウンロードファイルには影響なし）: {exc}",
+                )
+            )
         signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
         # Free concurrency slot
         self._try_activate()
@@ -1059,3 +1641,142 @@ def _extract_date_text(published_at: str) -> str:
     except ValueError:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
         return m.group(1) if m else ""
+
+
+def _xml_text(value: str) -> str:
+    return escape(value or "", {'"': "&quot;", "'": "&apos;"})
+
+
+def _split_filter_tags(text: str) -> list[str]:
+    if not text:
+        return []
+    parts = re.split(r"[\s,，;；|]+", text.strip())
+    normalized: list[str] = []
+    for part in parts:
+        token = part.strip().lower().lstrip("#")
+        if token and token not in normalized:
+            normalized.append(token)
+    return normalized
+
+
+def _normalize_video_tags(tags: list[Any]) -> set[str]:
+    normalized: set[str] = set()
+    for item in tags:
+        if isinstance(item, dict):
+            for key in ("id", "type", "slug", "name", "title"):
+                raw = str(item.get(key, "") or "").strip().lower().lstrip("#")
+                if raw:
+                    normalized.add(raw)
+            continue
+        text = str(item or "").strip().lower().lstrip("#")
+        if text:
+            normalized.add(text)
+    return normalized
+
+
+def _parse_tags(tags_json: str) -> list[str]:
+    if not tags_json:
+        return []
+    try:
+        data = json.loads(tags_json)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    tags: list[str] = []
+    for item in data:
+        if isinstance(item, dict):
+            tag_text = str(item.get("id") or item.get("type") or "").strip()
+            if tag_text:
+                tags.append(tag_text)
+            continue
+        text = str(item).strip()
+        if text:
+            tags.append(text)
+    return tags
+
+
+def _build_nfo_text(task: DownloadTask, tags: list[str]) -> str:
+    author_message = _extract_author_message(task.raw_json)
+    tags_json_text = task.tags_json or json.dumps(tags, ensure_ascii=False)
+    date_only = _extract_date_text(task.published_at)
+
+    tag_lines = "\n".join(f"  <tag>{_xml_text(t)}</tag>" for t in tags)
+    genre_lines = "\n".join(f"  <genre>{_xml_text(t)}</genre>" for t in tags)
+    if tag_lines:
+        tag_lines = f"\n{tag_lines}"
+    if genre_lines:
+        genre_lines = f"\n{genre_lines}"
+
+    # Use movie-style XML for better media-library compatibility.
+    return (
+        "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n"
+        "<movie>\n"
+        f"  <title>{_xml_text(task.title or task.video_id)}</title>\n"
+        f"  <originaltitle>{_xml_text(task.title or task.video_id)}</originaltitle>\n"
+        f"  <author>{_xml_text(task.author)}</author>\n"
+        f"  <director>{_xml_text(task.author)}</director>\n"
+        f"  <studio>{_xml_text(task.author)}</studio>\n"
+        f"  <video_id>{_xml_text(task.video_id)}</video_id>\n"
+        f"  <id>{_xml_text(task.video_id)}</id>\n"
+        f"  <uniqueid type=\"iwara\" default=\"true\">{_xml_text(task.video_id)}</uniqueid>\n"
+        f"  <source_url>{_xml_text(task.url)}</source_url>\n"
+        f"  <slug>{_xml_text(task.slug)}</slug>\n"
+        f"  <rating>{_xml_text(task.rating)}</rating>\n"
+        f"  <duration>{task.duration}</duration>\n"
+        f"  <published_at>{_xml_text(task.published_at)}</published_at>\n"
+        f"  <premiered>{_xml_text(date_only)}</premiered>\n"
+        f"  <releasedate>{_xml_text(date_only)}</releasedate>\n"
+        f"  <likes>{task.likes}</likes>\n"
+        f"  <views>{task.views}</views>\n"
+        f"  <comments>{task.comments}</comments>\n"
+        f"  <plot>{_xml_text(author_message)}</plot>\n"
+        f"  <tags_json>{_xml_text(tags_json_text)}</tags_json>\n"
+        f"  <author_message>{_xml_text(author_message)}</author_message>{genre_lines}{tag_lines}\n"
+        "</movie>\n"
+    )
+
+
+def _extract_author_message(raw_json: str) -> str:
+    if not raw_json:
+        return ""
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+
+    # Iwara API schemas are not perfectly stable; try common text fields.
+    candidates = [
+        data.get("body"),
+        data.get("description"),
+        data.get("message"),
+    ]
+
+    user = data.get("user")
+    if isinstance(user, dict):
+        candidates.extend(
+            [
+                user.get("body"),
+                user.get("description"),
+                user.get("bio"),
+                user.get("about"),
+            ]
+        )
+        profile = user.get("profile")
+        if isinstance(profile, dict):
+            candidates.extend(
+                [
+                    profile.get("body"),
+                    profile.get("description"),
+                    profile.get("bio"),
+                    profile.get("about"),
+                ]
+            )
+
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""

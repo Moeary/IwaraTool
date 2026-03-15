@@ -49,6 +49,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
           python -m nuitka \
             --assume-yes-for-downloads \
             --standalone \
@@ -58,7 +60,7 @@ jobs:
             --include-package-data=cloudscraper \
             --windows-icon-from-ico=app/icon.ico \
             --include-data-file=app/icon.ico=app/icon.ico \
-            --output-filename=IwaraTool.exe \
+            --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe" \
             --output-dir=dist \
             --remove-output \
             main.py
@@ -67,13 +69,15 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
           python -m nuitka \
             --standalone \
             --onefile \
             --enable-plugin=pyside6 \
             --include-package-data=cloudscraper \
             --include-data-file=app/icon.ico=app/icon.ico \
-            --output-filename=IwaraTool \
+            --output-filename="IwaraTool-Linux-AMD64-${VERSION}" \
             --output-dir=dist \
             --remove-output \
             main.py

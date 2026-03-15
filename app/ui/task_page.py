@@ -50,8 +50,7 @@ class TaskListWidget(QWidget):
         self._v_layout.addStretch()
         self._scroll.setWidget(self._container)
 
-        self._empty_lbl = BodyLabel("暂无任务", self._container)
-        self._empty_lbl.setText(tr("No tasks", "暂无任务"))
+        self._empty_lbl = BodyLabel(tr("No tasks", "暂无任务", "タスクなし"), self._container)
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._v_layout.insertWidget(0, self._empty_lbl)
 
@@ -98,19 +97,23 @@ class TaskCenterInterface(QWidget):
 
         # Title row
         title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Task Center", "任务中心"), self))
+        title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
         title_row.addStretch()
 
         self._exclude_downloaded_switch = SwitchButton(self)
         self._exclude_downloaded_switch.setChecked(True)
-        title_row.addWidget(BodyLabel("排除已下载", self))
+        title_row.addWidget(BodyLabel(tr("Exclude downloaded", "排除已下载", "ダウンロード済みを除外"), self))
         title_row.addWidget(self._exclude_downloaded_switch)
 
-        retry_all_btn = PrimaryPushButton("全部重试", self, FluentIcon.SYNC)
+        retry_all_btn = PrimaryPushButton(tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC)
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
 
-        clear_btn = PrimaryPushButton(tr("Clear Completed", "清除已完成"), self, FluentIcon.BROOM)
+        clear_btn = PrimaryPushButton(
+            tr("Clear Done", "清除完成项", "完了項目をクリア"),
+            self,
+            FluentIcon.BROOM,
+        )
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
         root.addLayout(title_row)
@@ -127,12 +130,22 @@ class TaskCenterInterface(QWidget):
             self,
         )
         self._done_list = TaskListWidget(
-            frozenset([TaskStatus.COMPLETED, TaskStatus.FAILED]), self
+            frozenset([TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED]), self
         )
 
-        board.addLayout(self._build_column(tr("Queued", "排队中"), self._queued_list), stretch=1)
-        board.addLayout(self._build_column(tr("Downloading", "下载中"), self._active_list), stretch=1)
-        board.addLayout(self._build_column(tr("Done / Failed", "已完成 / 失败"), self._done_list), stretch=1)
+        board.addLayout(self._build_column(tr("Queued", "排队中", "待機中"), self._queued_list), stretch=1)
+        board.addLayout(self._build_column(tr("Downloading", "下载中", "ダウンロード中"), self._active_list), stretch=1)
+        board.addLayout(
+            self._build_column(
+                tr(
+                    "Done / Skipped / Failed",
+                    "已完成 / 已跳过 / 失败",
+                    "完了 / スキップ / 失敗",
+                ),
+                self._done_list,
+            ),
+            stretch=1,
+        )
 
         root.addLayout(board, stretch=1)
 
@@ -159,7 +172,7 @@ class TaskCenterInterface(QWidget):
             return self._queued_list
         if status in (TaskStatus.RESOLVING, TaskStatus.QUEUED_DOWNLOAD, TaskStatus.DOWNLOADING):
             return self._active_list
-        if status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+        if status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED):
             return self._done_list
         return None
 
@@ -214,8 +227,12 @@ class TaskCenterInterface(QWidget):
     def _clear_done(self):
         download_manager.clear_completed()
         InfoBar.success(
-            title=tr("Cleared", "已清除"),
-            content=tr("All completed/failed tasks were removed", "已移除所有已完成和失败的任务"),
+            title=tr("Cleared", "已清除", "クリア完了"),
+            content=tr(
+                "All completed/skipped/failed tasks were removed",
+                "已移除所有已完成/已跳过/失败的任务",
+                "完了/スキップ/失敗タスクをすべて削除しました",
+            ),
             orient=0,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -233,8 +250,12 @@ class TaskCenterInterface(QWidget):
             exclude_downloaded=self._exclude_downloaded_switch.isChecked()
         )
         InfoBar.success(
-            title=tr("Retry Triggered", "批量重试已触发"),
-            content=f"重试 {retried} 个，排除并标记完成 {skipped} 个",
+            title=tr("Retry Triggered", "批量重试已触发", "再試行を開始"),
+            content=tr(
+                f"Retried {retried}, skipped-as-completed {skipped}",
+                f"重试 {retried} 个，排除并标记完成 {skipped} 个",
+                f"再試行 {retried} 件、除外して完了扱い {skipped} 件",
+            ),
             orient=0,
             isClosable=True,
             position=InfoBarPosition.TOP,

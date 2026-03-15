@@ -27,10 +27,12 @@ class AppConfig:
         "auth_enabled": False,
         "username": "",
         "password": "",
+        "auth_token": "",
+        "auth_token_saved_at": "",
         "preferred_quality": "Source",  # Source / 540 / 360
         "auto_login": True,
         "skip_existing_files": True,
-        "filename_template": "{YYYY-MM-DD}_{title}_{id}.mp4",
+        "filename_template": "{username}/{YYYY-MM-DD}_{title}_{id}.mp4",
         "ui_language": "zh_CN",
         "filter_enabled": False,
         "filter_min_likes_enabled": False,
@@ -40,10 +42,17 @@ class AppConfig:
         "filter_date_enabled": False,
         "filter_start_date": "1970-01-01",
         "filter_end_date": "",
+        "filter_include_tags_enabled": False,
+        "filter_include_tags": "",
+        "filter_exclude_tags_enabled": False,
+        "filter_exclude_tags": "",
+        "search_limit_enabled": True,
+        "search_limit_count": 100,
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
         "download_thumbnail": False,
+        "collect_nfo_info": False,
         "completed_task_click_action": "folder",
     }
 
@@ -79,6 +88,8 @@ class AppConfig:
             "skip_existing_files",
             "filename_template",
             "ui_language",
+            "auth_token",
+            "auth_token_saved_at",
             "filter_enabled",
             "filter_min_likes_enabled",
             "filter_min_likes",
@@ -87,10 +98,17 @@ class AppConfig:
             "filter_date_enabled",
             "filter_start_date",
             "filter_end_date",
+            "filter_include_tags_enabled",
+            "filter_include_tags",
+            "filter_exclude_tags_enabled",
+            "filter_exclude_tags",
+            "search_limit_enabled",
+            "search_limit_count",
             "aria2_rpc_enabled",
             "aria2_rpc_url",
             "aria2_rpc_token",
             "download_thumbnail",
+            "collect_nfo_info",
             "completed_task_click_action",
         }
         for key, default in self._DEFAULTS.items():
@@ -202,6 +220,22 @@ class AppConfig:
     @password.setter
     def password(self, v: str):
         self._set("password", v)
+
+    @property
+    def auth_token(self) -> str:
+        return self._get("auth_token")
+
+    @auth_token.setter
+    def auth_token(self, v: str):
+        self._set("auth_token", v)
+
+    @property
+    def auth_token_saved_at(self) -> str:
+        return self._get("auth_token_saved_at")
+
+    @auth_token_saved_at.setter
+    def auth_token_saved_at(self, v: str):
+        self._set("auth_token_saved_at", v)
 
     @property
     def preferred_quality(self) -> str:
@@ -320,6 +354,54 @@ class AppConfig:
         self._set("filter_end_date", v)
 
     @property
+    def filter_include_tags_enabled(self) -> bool:
+        return self._get("filter_include_tags_enabled")
+
+    @filter_include_tags_enabled.setter
+    def filter_include_tags_enabled(self, v: bool):
+        self._set("filter_include_tags_enabled", v)
+
+    @property
+    def filter_include_tags(self) -> str:
+        return self._get("filter_include_tags")
+
+    @filter_include_tags.setter
+    def filter_include_tags(self, v: str):
+        self._set("filter_include_tags", v)
+
+    @property
+    def filter_exclude_tags_enabled(self) -> bool:
+        return self._get("filter_exclude_tags_enabled")
+
+    @filter_exclude_tags_enabled.setter
+    def filter_exclude_tags_enabled(self, v: bool):
+        self._set("filter_exclude_tags_enabled", v)
+
+    @property
+    def filter_exclude_tags(self) -> str:
+        return self._get("filter_exclude_tags")
+
+    @filter_exclude_tags.setter
+    def filter_exclude_tags(self, v: str):
+        self._set("filter_exclude_tags", v)
+
+    @property
+    def search_limit_enabled(self) -> bool:
+        return self._get("search_limit_enabled")
+
+    @search_limit_enabled.setter
+    def search_limit_enabled(self, v: bool):
+        self._set("search_limit_enabled", v)
+
+    @property
+    def search_limit_count(self) -> int:
+        return self._get("search_limit_count")
+
+    @search_limit_count.setter
+    def search_limit_count(self, v: int):
+        self._set("search_limit_count", v)
+
+    @property
     def aria2_rpc_enabled(self) -> bool:
         return self._get("aria2_rpc_enabled")
 
@@ -350,6 +432,14 @@ class AppConfig:
     @download_thumbnail.setter
     def download_thumbnail(self, v: bool):
         self._set("download_thumbnail", v)
+
+    @property
+    def collect_nfo_info(self) -> bool:
+        return self._get("collect_nfo_info")
+
+    @collect_nfo_info.setter
+    def collect_nfo_info(self, v: bool):
+        self._set("collect_nfo_info", v)
 
     @property
     def completed_task_click_action(self) -> str:

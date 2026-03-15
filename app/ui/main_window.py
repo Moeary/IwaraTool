@@ -15,6 +15,7 @@ from qfluentwidgets import (
 )
 
 from ..i18n import tr
+from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
 from .settings_page import SettingsInterface
 from .task_page import TaskCenterInterface
@@ -23,11 +24,16 @@ from .task_page import TaskCenterInterface
 class MainWindow(FluentWindow):
     """Application main window using Fluent Design."""
 
+    _window_ref: "MainWindow | None" = None
+
     def __init__(self):
         super().__init__()
+        self._reloading_language = False
         self._init_window()
         self._init_navigation()
         self._splash_finish()
+        signal_bus.language_changed.connect(self._on_language_changed)
+        MainWindow._window_ref = self
 
     def _init_window(self):
         self.setWindowTitle("IwaraTool")
@@ -47,12 +53,12 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
-            text=tr("New Download", "新建下载"),
+            text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),
         )
         self.addSubInterface(
             self._task_page,
             icon=FluentIcon.CHECKBOX,
-            text=tr("Task Center", "任务中心"),
+            text=tr("Task Center", "任务中心", "タスクセンター"),
         )
 
         # Bottom quick actions (shown above settings)
@@ -64,7 +70,7 @@ class MainWindow(FluentWindow):
             onClick=self._open_github,
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
-            tooltip=tr("Open project GitHub (placeholder)", "打开项目 GitHub链接"),
+            tooltip=tr("Open project GitHub", "打开项目 GitHub链接", "プロジェクト GitHub を開く"),
         )
 
         # 切换模式暂时有问题, 先注释掉，后续再完善
@@ -83,7 +89,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self._settings_page,
             icon=FluentIcon.SETTING,
-            text=tr("Settings", "应用设置"),
+            text=tr("Settings", "应用设置", "設定"),
             position=NavigationItemPosition.BOTTOM,
         )
 
@@ -100,3 +106,17 @@ class MainWindow(FluentWindow):
 
     def _open_github(self):
         QDesktopServices.openUrl(QUrl("https://github.com/Moeary/IwaraTool"))
+
+    def _on_language_changed(self, _lang: str):
+        if self._reloading_language:
+            return
+        self._reloading_language = True
+        new_window = MainWindow()
+        if self.isMaximized():
+            new_window.showMaximized()
+        else:
+            new_window.resize(self.size())
+            new_window.move(self.pos())
+            new_window.show()
+        MainWindow._window_ref = new_window
+        self.close()

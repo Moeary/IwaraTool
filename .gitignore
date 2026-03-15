@@ -11,6 +11,8 @@ data/*
 
 *.pyd
 *.pyc
+*.pyc.*
+**/__pycache__/
 
 plan.md
 test.md

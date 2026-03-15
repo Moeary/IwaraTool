@@ -1,85 +1,78 @@
 ﻿# IwaraTool
 
-[English Version](#english)
+![logo](./docs/iwaratool_logo.png)
 
-一个基于 Python 和 pysid6+widget-fluent 开发的 Iwara 视频下载器。非常适合批量下载单作者的所有视频!
+[简体中文](./readme_zh.md) | [日本語](./readme_ja.md)
 
-![](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202603051905789.png)
+Say goodbye to tedious command-line tools! Iwara batches downloader with a modern Fluent-style interface, making it easy for anyone to download all videos from a creator with one click.
 
-## 核心功能
-- X-Version 签名计算，确保下载请求正常通行
-- 画质自动回退机制（Source -> 540 -> 360）
-- 防 URL 过期处理，多阶段状态机控制并发下载
-- 本地文件去重 + SQLite 历史元数据存储（点赞/日期/播放等）
-- 支持输入用户主页或播放列表链接，自动分页解析所有视频并排队下载
-- 可选筛选下载（点赞、播放、发布日期区间）
-- 可选 Aria2 RPC 下载与封面下载
-
-## 怎么用
-去[release](https://github.com/Moeary/IwaraTool/releases)里面下载你操作系统的文件,然后保存到本地运行即可
-
-**重点：先登录！** 不登录下个锤子。
-请先在设置页面里把账号登录好，确认登录成功了，再去粘贴你想下载的视频、用户或者播放列表链接。
-
-更完整的使用说明请见 [Wiki](https://github.com/Moeary/IwaraTool/wiki)
-
-## 运行与构建
-项目依赖使用 pixi 管理。
-如果你是开发者想直接运行源代码：
-```shell
-pixi run start //运行程序
-pixi run build //构建应用
-```
-## 参与贡献
-非常欢迎大家提 PR！
-目前程序的 i18n（多语言）还没做完，深色/浅色模式切换的时候也有点小 bug。这些虽然都不影响核心的下载功能，但如果你有时间并且愿意帮忙完善它的话，直接提 PR 就行，感谢！
-
-## License
-MIT License
-
-```
-下载本程序即视为同意遵守 MIT 许可证。详情请参阅 LICENSE 文件。
-```
-
-1. 禁止将本项目用于任何违法、违规或违背公共秩序与善良风俗的用途；如因违规使用导致损失，责任由用户自行承担。
-2. 项目提供的打包版本及脚本仅供个人学习与研究使用，未经许可不得用于商业再发行或转售。
-3. 项目维护者保留依据法律法规或社区反馈随时更新、暂停或终止服务与支持的权利。
-
-## 特别感谢
-
-感谢[hare1039](https://github.com/hare1039)的[iwara-dl](https://github.com/hare1039/iwara-dl/tree/master)项目提供的宝贵参考和启发，尤其是在 X-Version 签名计算和下载链接解析方面的实现细节，对本项目的开发起到了重要的推动作用。
-
----
-
-<a id="english"></a>
-# IwaraTool (English)
-
-A Python and Pyside6 based video downloader for Iwara. It is especially good at batch downloading all videos from a single creator!
-
-![](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202603051905789.png)
-
+![demo](./docs/iwaratool_demo.gif)
 
 ## Features
-- Valid X-Version signature calculation for API requests
-- Automatic video quality fallback (Source -> 540 -> 360)
-- Anti-expiration link handling with a multi-stage state machine
-- Local-file dedup + SQLite metadata history (likes/date/views, etc.)
-- Resumable downloads
-- Batch downloading for user profiles and playlists with automatic pagination
-- Optional filters (likes, views, publish date range)
-- Optional aria2 RPC mode and thumbnail download
+- Valid `X-Version` signature calculation for API requests.
+- Quality fallback: `Source -> 540 -> 360`.
+- Stateful scheduler to avoid early URL expiration.
+- Local dedup + SQLite history metadata.
+- Batch enqueue from user profile, playlist, and search URLs.
+- Filters: likes, views, date range, include tags, exclude tags.
+- Search-only result cap.
+- Token cache in `data/config.ini` for faster startup sign-in.
+- Runtime language switching (`zh/en/ja`) without restarting.
+- Filename template placeholders for flexible naming and directory layout.
+- Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
 
-## How to Use
-**Important: Log in first!** You won't be able to download anything without an account.
-Please log in using the built-in browser/login page first. Once logged in, you can paste video, user, or playlist URLs to start downloading.
+## Quick Start
+1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
+2. Open app and sign in first.
+3. Paste URLs in `New Download` and start queueing.
 
-For a practical quick guide, see [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+## Supported URL Types
+```text
+https://www.iwara.tv/profile/username
+https://www.iwara.tv/profile/username/videos
+https://www.iwara.tv/playlist/xxxxxxxx
+https://www.iwara.tv/video/xxxxxxxx
+https://www.iwara.tv/videos?sort=date
+https://www.iwara.tv/videos?tags=2d&sort=likes
+https://api.iwara.tv/videos?tags=2d&sort=date
+```
 
-## Run and Build
-This project uses pixi for package management.
-- Run locally: pixi run start
-- Build app: pixi run build
+`sort` supports: `date`, `trending`, `popularity`, `views`, `likes`.
+
+`tags` supports see [Tag index](./docs/iwara_tags.md).
+
+## Docs
+- Wiki: <https://github.com/Moeary/IwaraTool/wiki>
+- API notes (EN): [docs/API.md](./docs/API.md)
+- Tag index: [docs/iwara_tags.md](./docs/iwara_tags.md)
+
+## Run / Build
+
+Project dependencies are managed by [pixi](https://pixi.prefix.dev/latest/).
+
+If you are a developer and want to run the source code directly or build the app:
+
+```shell
+pixi run start // Run the application
+pixi run build // Build the application
+pixi run crawl // Crawl tag data (updates docs/iwara_tags.md)
+```
 
 ## Contributing
-Pull Requests are highly welcome! 
-Currently, the i18n (internationalization) implementation is incomplete, and there is a minor visual bug when toggling between dark and light modes. These issues do not affect the core downloading functionality, but if you'd like to help fix them, your contributions are greatly appreciated!
+
+Pull Requests are very welcome!
+The app's i18n (multi-language) is currently not perfect, and the light/dark mode switch is not yet implemented. Although these do not affect the core download function, if you have time and are willing to help improve it, please submit a PR (please follow the standard submission update merge into the dev branch, and try to pass the GitHub Action CI/CD before submitting). Thanks!
+
+## License
+
+MIT License.
+
+**By downloading this program, you agree to comply with the MIT License. See the LICENSE file for details.**
+
+1. Using this project for any illegal, regulatory-violating purpose or any purpose against public order and good morals is prohibited; the user bears full responsibility for losses caused by non-compliant use.
+2. The packaged versions and scripts provided by the project are for personal learning and research only, and may not be used for commercial redistribution or resale without permission.
+3. Project maintainers reserve the right to update, suspend, or terminate services and support at any time in accordance with laws and regulations or community feedback.
+
+## Special Thanks
+
+Thanks to [hare1039](https://github.com/hare1039)'s [iwara-dl](https://github.com/hare1039/iwara-dl/tree/master) project for its valuable reference and inspiration, especially in the implementation details of X-Version signature calculation and download link parsing, which played a key role in the development of this project.
