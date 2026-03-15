@@ -2,7 +2,7 @@
 
 ![](./docs/iwaratool_logo.png)
 
-[简体中文](./readme.zh.md) | [日本語](./readme.ja.md)
+[简体中文](./readme_zh.md) | [日本語](./readme_ja.md)
 
 A Python + PySide6 downloader for Iwara, optimized for batch downloads.
 
@@ -42,8 +42,8 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 ## Docs
 - Wiki: <https://github.com/Moeary/IwaraTool/wiki>
 - API notes (EN): [docs/API.md](./docs/API.md)
-- API notes (ZH): [docs/API.zh.md](./docs/API.zh.md)
-- API notes (JA): [docs/API.ja.md](./docs/API.ja.md)
+- API notes (ZH): [docs/API_zh.md](./docs/API_zh.md)
+- API notes (JA): [docs/API_ja.md](./docs/API_ja.md)
 - Tag index: [docs/iwara_tags.md](./docs/iwara_tags.md)
 
 ## Tag Crawl

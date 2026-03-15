@@ -1,6 +1,6 @@
 ﻿# IwaraTool
 
-[English](./readme.md) | [简体中文](./readme.zh.md)
+[English](./readme.md) | [简体中文](./readme_zh.md)
 
 Python + PySide6 で作られた Iwara 向けダウンローダーです。大量ダウンロードに向いています。
 
@@ -40,8 +40,8 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 ## ドキュメント
 - Wiki: <https://github.com/Moeary/IwaraTool/wiki>
 - API（EN）：[docs/API.md](./docs/API.md)
-- API（ZH）：[docs/API.zh.md](./docs/API.zh.md)
-- API（JA）：[docs/API.ja.md](./docs/API.ja.md)
+- API（ZH）：[docs/API_zh.md](./docs/API_zh.md)
+- API（JA）：[docs/API_ja.md](./docs/API_ja.md)
 - タグ索引：[docs/iwara_tags.md](./docs/iwara_tags.md)
 
 ## タグ収集
