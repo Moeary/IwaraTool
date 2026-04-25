@@ -75,6 +75,29 @@ class DownloadManager:
 
     def retry_task(self, task_id: str):
         """Re-queue a failed task."""
+        temp_file_path = ""
+        temp_title = ""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task and task.status == TaskStatus.FAILED:
+                temp_file_path = task.file_path
+                temp_title = task.title or task.video_id
+        if not temp_title:
+            return
+
+        _, cleanup_failed = self._log_retry_temp_cleanup(temp_title, temp_file_path)
+        if cleanup_failed:
+            signal_bus.task_error.emit(
+                task_id,
+                tr(
+                    "Temp cache cleanup failed; retry was not started",
+                    "临时缓存清理失败，未开始重试",
+                    "一時キャッシュ削除に失敗したため再試行しません",
+                ),
+            )
+            return
+
+        requeued = False
         with self._lock:
             task = self._tasks.get(task_id)
             if task and task.status == TaskStatus.FAILED:
@@ -83,6 +106,9 @@ class DownloadManager:
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                requeued = True
+        if not requeued:
+            return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
         self._try_activate()
 
@@ -96,7 +122,7 @@ class DownloadManager:
         Returns:
             (retried_count, skipped_as_completed_count)
         """
-        to_retry: list[str] = []
+        to_retry: list[tuple[str, str, str]] = []
         to_complete: list[str] = []
 
         with self._lock:
@@ -109,20 +135,39 @@ class DownloadManager:
                     to_complete.append(task.task_id)
                     continue
 
+                to_retry.append(
+                    (task.task_id, task.file_path, task.title or task.video_id)
+                )
+
+        retried_count = 0
+        for tid in to_complete:
+            self._complete_task(tid)
+        for tid, file_path, title in to_retry:
+            _, cleanup_failed = self._log_retry_temp_cleanup(title, file_path)
+            if cleanup_failed:
+                signal_bus.task_error.emit(
+                    tid,
+                    tr(
+                        "Temp cache cleanup failed; retry was not started",
+                        "临时缓存清理失败，未开始重试",
+                        "一時キャッシュ削除に失敗したため再試行しません",
+                    ),
+                )
+                continue
+            with self._lock:
+                task = self._tasks.get(tid)
+                if not task or task.status != TaskStatus.FAILED:
+                    continue
                 task.status = TaskStatus.QUEUED_META
                 task.error_msg = ""
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
-                to_retry.append(task.task_id)
-
-        for tid in to_complete:
-            self._complete_task(tid)
-        for tid in to_retry:
+            retried_count += 1
             signal_bus.task_status_changed.emit(tid, TaskStatus.QUEUED_META.value)
 
         self._try_activate()
-        return len(to_retry), len(to_complete)
+        return retried_count, len(to_complete)
 
     def remove_task(self, task_id: str):
         with self._lock:
@@ -144,6 +189,99 @@ class DownloadManager:
                 removed_ids.append(tid)
         for tid in removed_ids:
             signal_bus.task_removed.emit(tid)
+
+    def get_history_records(self) -> list[dict[str, Any]]:
+        return self.history.list_records()
+
+    def sync_history_with_download_folder(self) -> dict[str, int]:
+        return self.history.sync_with_download_folder(app_config.download_dir)
+
+    def remove_history_record(self, video_id: str):
+        self.history.remove(video_id)
+
+    def open_history_output(
+        self, video_id: str, *, open_file: bool = False
+    ) -> tuple[bool, str]:
+        record = self.history.get_record(video_id)
+        if not record:
+            return False, tr("History record does not exist", "历史记录不存在", "履歴が存在しません")
+
+        file_path = str(record.get("file_path", "") or "")
+        if not file_path or not os.path.exists(file_path):
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
+
+        target = file_path if open_file else os.path.dirname(file_path)
+        return self._open_system_path(target)
+
+    def rename_history_file(
+        self, video_id: str, new_filename: str
+    ) -> tuple[bool, str]:
+        record = self.history.get_record(video_id)
+        if not record:
+            return False, tr("History record does not exist", "历史记录不存在", "履歴が存在しません")
+
+        old_path = str(record.get("file_path", "") or "")
+        if not old_path or not os.path.isfile(old_path):
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
+
+        old_dir = os.path.dirname(old_path)
+        old_ext = os.path.splitext(old_path)[1] or ".mp4"
+        cleaned_name = self._sanitize_path_segment(new_filename.strip())
+        if cleaned_name in ("", "_"):
+            return False, tr("Invalid file name", "文件名无效", "ファイル名が不正です")
+        if not os.path.splitext(cleaned_name)[1]:
+            cleaned_name += old_ext
+
+        new_path = os.path.join(old_dir, cleaned_name)
+        if os.path.abspath(new_path) == os.path.abspath(old_path):
+            return False, tr("File name is unchanged", "文件名没有变化", "ファイル名は変更されていません")
+        if os.path.exists(new_path):
+            return False, tr("Target file already exists", "目标文件已存在", "変更先ファイルは既に存在します")
+
+        old_stem = os.path.splitext(old_path)[0]
+        new_stem = os.path.splitext(new_path)[0]
+        sidecars: list[tuple[str, str]] = []
+
+        old_thumbnail = str(record.get("thumbnail_path", "") or "")
+        if old_thumbnail and os.path.isfile(old_thumbnail):
+            thumb_ext = os.path.splitext(old_thumbnail)[1] or ".jpg"
+            sidecars.append((old_thumbnail, new_stem + thumb_ext))
+
+        nfo_path = old_stem + ".nfo"
+        if os.path.isfile(nfo_path):
+            sidecars.append((nfo_path, new_stem + ".nfo"))
+
+        for _, target in sidecars:
+            if os.path.exists(target):
+                return False, tr(
+                    f"Sidecar target already exists: {target}",
+                    f"同名附属文件已存在: {target}",
+                    f"関連ファイルの変更先が既に存在します: {target}",
+                )
+
+        new_thumbnail = old_thumbnail
+        try:
+            os.rename(old_path, new_path)
+            for source, target in sidecars:
+                os.rename(source, target)
+                if source == old_thumbnail:
+                    new_thumbnail = target
+        except Exception as exc:
+            return False, str(exc)
+
+        self.history.update_file_paths(
+            video_id,
+            file_path=new_path,
+            thumbnail_path=new_thumbnail if os.path.exists(new_thumbnail) else "",
+        )
+        signal_bus.log_message.emit(
+            tr(
+                f"[History] Renamed file: {old_path} -> {new_path}",
+                f"[历史] 已重命名文件: {old_path} -> {new_path}",
+                f"[履歴] ファイル名を変更しました: {old_path} -> {new_path}",
+            )
+        )
+        return True, new_path
 
     def open_task_output(self, task_id: str) -> tuple[bool, str]:
         with self._lock:
@@ -192,6 +330,26 @@ class DownloadManager:
                 f"[開く] 「{title}」 -> {action_text}",
             )
         )
+        return True, ""
+
+    def _open_system_path(self, target: str) -> tuple[bool, str]:
+        if not target:
+            return False, tr("No openable path", "无可打开路径", "開けるパスがありません")
+        try:
+            if os.name == "nt":
+                os.startfile(target)
+            elif shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", target])
+            elif shutil.which("open"):
+                subprocess.Popen(["open", target])
+            else:
+                return False, tr(
+                    "System does not support auto-open",
+                    "系统不支持自动打开",
+                    "システムが自動オープンに対応していません",
+                )
+        except Exception as exc:
+            return False, str(exc)
         return True, ""
 
     def set_login(self, logged_in: bool, token: str | None = None):
@@ -1240,6 +1398,41 @@ class DownloadManager:
                 ),
             )
             return False
+
+    def _log_retry_temp_cleanup(self, title: str, file_path: str) -> tuple[int, int]:
+        removed, failed = self._clear_retry_temp_files(file_path)
+        if not removed and not failed:
+            return removed, failed
+        signal_bus.log_message.emit(
+            tr(
+                f"[Retry] Cleaned temp cache for \"{title}\": removed {removed}, failed {failed}",
+                f"[重试] 已清理《{title}》对应临时缓存: 删除 {removed} 个，失败 {failed} 个",
+                f"[再試行] 「{title}」の一時キャッシュを削除: 削除 {removed} / 失敗 {failed}",
+            )
+        )
+        return removed, failed
+
+    @staticmethod
+    def _clear_retry_temp_files(file_path: str) -> tuple[int, int]:
+        if not file_path:
+            return 0, 0
+        candidates: list[str] = []
+        for suffix in ("_temp", ".tmp"):
+            temp_path = f"{file_path}{suffix}"
+            candidates.append(temp_path)
+            candidates.append(f"{temp_path}.aria2")
+
+        removed = 0
+        failed = 0
+        for temp_path in dict.fromkeys(candidates):
+            if not os.path.isfile(temp_path):
+                continue
+            try:
+                os.remove(temp_path)
+                removed += 1
+            except Exception:
+                failed += 1
+        return removed, failed
 
     def clear_temp_files(self) -> tuple[int, int]:
         """Delete all *_temp files under download directory.

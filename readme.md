@@ -12,7 +12,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Valid `X-Version` signature calculation for API requests.
 - Quality fallback: `Source -> 540 -> 360`.
 - Stateful scheduler to avoid early URL expiration.
-- Local dedup + SQLite history metadata.
+- Local dedup + SQLite history center.
 - Batch enqueue from user profile, playlist, and search URLs.
 - Filters: likes, views, date range, include tags, exclude tags.
 - Search-only result cap.
@@ -20,6 +20,8 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Runtime language switching (`zh/en/ja`) without restarting.
 - Filename template placeholders for flexible naming and directory layout.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
+- History center with search, filters, sorting, open-file actions, rename, and moved-record cleanup.
+- Retry now cleans matching temporary cache files before re-downloading.
 
 ## Quick Start
 1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).

@@ -17,6 +17,7 @@ from qfluentwidgets import (
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
+from .history_page import HistoryInterface
 from .settings_page import SettingsInterface
 from .task_page import TaskCenterInterface
 
@@ -47,6 +48,7 @@ class MainWindow(FluentWindow):
         # Create sub-interfaces
         self._download_page = DownloadInterface(self)
         self._task_page = TaskCenterInterface(self)
+        self._history_page = HistoryInterface(self)
         self._settings_page = SettingsInterface(self)
 
         # Add items with Fluent icons
@@ -59,6 +61,11 @@ class MainWindow(FluentWindow):
             self._task_page,
             icon=FluentIcon.CHECKBOX,
             text=tr("Task Center", "任务中心", "タスクセンター"),
+        )
+        self.addSubInterface(
+            self._history_page,
+            icon=FluentIcon.HISTORY,
+            text=tr("History", "历史记录", "履歴"),
         )
 
         # Bottom quick actions (shown above settings)
