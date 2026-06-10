@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget, QSizePolicy
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QSplitter, QVBoxLayout, QWidget, QSizePolicy
 
 from qfluentwidgets import (
     BodyLabel,
@@ -14,7 +14,6 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
-    ScrollArea,
     SubtitleLabel,
     SwitchButton,
     TextEdit,
@@ -25,6 +24,7 @@ from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .task_page import TaskCenterInterface
 
 
 class FilterDialog(QDialog):
@@ -201,17 +201,12 @@ class FilterDialog(QDialog):
 
 # ── Download Interface ────────────────────────────────────────────────────────
 
-class DownloadInterface(ScrollArea):
-    """Page for submitting new download URLs."""
+class DownloadInterface(QWidget):
+    """Download workbench: URL input, runtime log, and task table."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("DownloadInterface")
-
-        self._content = QWidget(self)
-        self._content.setObjectName("scrollContent")
-        self.setWidget(self._content)
-        self.setWidgetResizable(True)
 
         self._build_ui()
         signal_bus.log_message.connect(self._append_log)
@@ -221,27 +216,51 @@ class DownloadInterface(ScrollArea):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        layout = QVBoxLayout(self._content)
-        layout.setContentsMargins(36, 24, 36, 24)
-        layout.setSpacing(16)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 22, 28, 18)
+        root.setSpacing(12)
 
         title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Download Hub", "下载工作台", "ダウンロードハブ"), self._content))
+        title_row.addWidget(TitleLabel(tr("Download Workbench", "下载工作台", "ダウンロードワークベンチ"), self))
         title_row.addStretch()
-        title_row.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), self._content))
-        self._filter_switch = SwitchButton(self._content)
+        root.addLayout(title_row)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setChildrenCollapsible(False)
+        root.addWidget(splitter, stretch=1)
+
+        left_panel = QWidget(self)
+        left_panel.setMinimumWidth(320)
+        left_panel.setMaximumWidth(520)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
+        splitter.addWidget(left_panel)
+
+        right_panel = QWidget(self)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([390, 1180])
+
+        quick_row = QHBoxLayout()
+        quick_row.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), left_panel))
+        self._filter_switch = SwitchButton(left_panel)
         self._filter_switch.setChecked(app_config.filter_enabled)
         self._filter_switch.checkedChanged.connect(self._on_filter_toggle)
-        title_row.addWidget(self._filter_switch)
-        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), self._content)
+        quick_row.addWidget(self._filter_switch)
+        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel)
         self._filter_btn.clicked.connect(self._open_filter_dialog)
-        title_row.addWidget(self._filter_btn)
-        layout.addLayout(title_row)
+        quick_row.addWidget(self._filter_btn)
+        left_layout.addLayout(quick_row)
 
         # ── Login status banner ───────────────────────────────────────────────
-        self._login_banner = CardWidget(self._content)
+        self._login_banner = CardWidget(left_panel)
         banner_layout = QHBoxLayout(self._login_banner)
-        banner_layout.setContentsMargins(20, 10, 20, 10)
+        banner_layout.setContentsMargins(14, 8, 14, 8)
         self._login_status_lbl = BodyLabel(
             tr(
                 "Not logged in — go to Settings to sign in (private videos require login)",
@@ -252,12 +271,12 @@ class DownloadInterface(ScrollArea):
         )
         banner_layout.addWidget(self._login_status_lbl)
         banner_layout.addStretch()
-        layout.addWidget(self._login_banner)
+        left_layout.addWidget(self._login_banner)
 
         # ── URL input card ────────────────────────────────────────────────────
-        url_card = CardWidget(self._content)
+        url_card = CardWidget(left_panel)
         url_layout = QVBoxLayout(url_card)
-        url_layout.setContentsMargins(20, 16, 20, 16)
+        url_layout.setContentsMargins(16, 14, 16, 14)
         url_layout.setSpacing(10)
 
         url_layout.addWidget(SubtitleLabel(tr("Target URL", "目标地址", "対象URL"), url_card))
@@ -272,7 +291,6 @@ class DownloadInterface(ScrollArea):
             )
         )
 
-        url_row = QHBoxLayout()
         self._url_edit = LineEdit(url_card)
         self._url_edit.setPlaceholderText(
             tr(
@@ -292,16 +310,15 @@ class DownloadInterface(ScrollArea):
         self._submit_btn.clicked.connect(self._submit)
         self._submit_btn.setFixedWidth(130)
 
-        url_row.addWidget(self._url_edit, stretch=1)
-        url_row.addWidget(self._submit_btn)
-        url_layout.addLayout(url_row)
-        layout.addWidget(url_card)
+        url_layout.addWidget(self._url_edit)
+        url_layout.addWidget(self._submit_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        left_layout.addWidget(url_card)
 
         # ── Operation log card ────────────────────────────────────────────────
-        log_card = CardWidget(self._content)
+        log_card = CardWidget(left_panel)
         log_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         log_layout = QVBoxLayout(log_card)
-        log_layout.setContentsMargins(20, 16, 20, 16)
+        log_layout.setContentsMargins(16, 14, 16, 14)
         log_layout.setSpacing(8)
 
         log_header = QHBoxLayout()
@@ -326,7 +343,10 @@ class DownloadInterface(ScrollArea):
             tr("Logs will appear here…", "操作日志将显示在此…", "ログはここに表示されます…")
         )
         log_layout.addWidget(self._log_edit)
-        layout.addWidget(log_card, 1)
+        left_layout.addWidget(log_card, stretch=1)
+
+        self._task_center = TaskCenterInterface(right_panel, embedded=True)
+        right_layout.addWidget(self._task_center, stretch=1)
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 

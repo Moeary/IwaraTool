@@ -20,7 +20,6 @@ from .download_page import DownloadInterface
 from .history_page import HistoryInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
-from .task_page import TaskCenterInterface
 
 
 class MainWindow(FluentWindow):
@@ -49,7 +48,6 @@ class MainWindow(FluentWindow):
         # Create sub-interfaces
         self._download_page = DownloadInterface(self)
         self._subscription_page = SubscriptionInterface(self)
-        self._task_page = TaskCenterInterface(self)
         self._history_page = HistoryInterface(self)
         self._settings_page = SettingsInterface(self)
 
@@ -63,11 +61,6 @@ class MainWindow(FluentWindow):
             self._subscription_page,
             icon=FluentIcon.PEOPLE,
             text=tr("Subscriptions", "订阅页", "購読"),
-        )
-        self.addSubInterface(
-            self._task_page,
-            icon=FluentIcon.CHECKBOX,
-            text=tr("Task Center", "任务中心", "タスクセンター"),
         )
         self.addSubInterface(
             self._history_page,

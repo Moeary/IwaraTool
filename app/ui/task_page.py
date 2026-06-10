@@ -94,9 +94,10 @@ class TaskCenterInterface(QWidget):
     _SORT_DEFAULT = -1
     _SORT_ADDED = -2
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, *, embedded: bool = False):
         super().__init__(parent)
         self.setObjectName("TaskCenterInterface")
+        self._embedded = embedded
         self._tasks_by_id: dict[str, DownloadTask] = {}
         self._row_by_task_id: dict[str, int] = {}
         self._task_order: dict[str, int] = {}
@@ -115,8 +116,12 @@ class TaskCenterInterface(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 16)
-        root.setSpacing(12)
+        if self._embedded:
+            root.setContentsMargins(0, 0, 0, 0)
+            root.setSpacing(8)
+        else:
+            root.setContentsMargins(36, 24, 36, 16)
+            root.setSpacing(12)
 
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
@@ -221,28 +226,32 @@ class TaskCenterInterface(QWidget):
         self._table.setWordWrap(False)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setVisible(False)
-        self._table.verticalHeader().setDefaultSectionSize(42)
+        self._table.verticalHeader().setDefaultSectionSize(34)
         self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._table.cellClicked.connect(self._on_cell_clicked)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(self._COL_TITLE, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self._COL_ACTION, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self._COL_REMOVE, QHeaderView.ResizeMode.Fixed)
         header.sectionClicked.connect(self._on_header_clicked)
         self._restore_sort_indicator()
 
         for col, width in {
-            self._COL_STATE: 82,
-            self._COL_TITLE: 420,
-            self._COL_AUTHOR: 130,
+            self._COL_STATE: 72,
+            self._COL_TITLE: 320,
+            self._COL_AUTHOR: 116,
             self._COL_PROGRESS: 180,
-            self._COL_SIZE: 120,
-            self._COL_SPEED: 110,
-            self._COL_QUALITY: 76,
-            self._COL_ID: 135,
-            self._COL_ACTION: 58,
-            self._COL_REMOVE: 58,
+            self._COL_SIZE: 142,
+            self._COL_SPEED: 96,
+            self._COL_QUALITY: 72,
+            self._COL_ID: 126,
+            self._COL_ACTION: 66,
+            self._COL_REMOVE: 66,
         }.items():
             self._table.setColumnWidth(col, width)
 
@@ -310,33 +319,45 @@ class TaskCenterInterface(QWidget):
                         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     self._table.setItem(row_idx, col_idx, item)
 
-                icon, tooltip, enabled, callback = self._primary_action(task)
-                self._set_row_action(row_idx, self._COL_ACTION, icon, tooltip, enabled, callback)
-                self._set_row_action(
+                action_key, action_text, action_tip, action_enabled = self._primary_action(task)
+                self._set_action_item(
+                    row_idx,
+                    self._COL_ACTION,
+                    task.task_id,
+                    action_key,
+                    action_text,
+                    action_tip,
+                    action_enabled,
+                )
+                self._set_action_item(
                     row_idx,
                     self._COL_REMOVE,
-                    FluentIcon.DELETE,
+                    task.task_id,
+                    "remove",
+                    tr("Remove", "移除", "削除"),
                     tr("Remove task", "移除任务", "タスクを削除"),
                     True,
-                    lambda _checked=False, tid=task.task_id: self._remove_task(tid),
                 )
         finally:
             self._table.setUpdatesEnabled(True)
 
-    def _set_row_action(
+    def _set_action_item(
         self,
         row: int,
         column: int,
-        icon: FluentIcon,
+        task_id: str,
+        action: str,
+        text: str,
         tooltip: str,
         enabled: bool,
-        callback,
     ):
-        btn = ToolButton(icon, self._table)
-        btn.setToolTip(tooltip)
-        btn.setEnabled(enabled)
-        btn.clicked.connect(callback)
-        self._table.setCellWidget(row, column, btn)
+        item = QTableWidgetItem(text if enabled else "—")
+        item.setData(Qt.ItemDataRole.UserRole, task_id)
+        item.setData(Qt.ItemDataRole.UserRole + 1, action if enabled else "")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(tooltip)
+        item.setForeground(QColor("#0078d4" if enabled else "#999999"))
+        self._table.setItem(row, column, item)
 
     def _update_summary(self, tasks: list[DownloadTask], visible: list[DownloadTask]):
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
@@ -491,31 +512,50 @@ class TaskCenterInterface(QWidget):
     def _primary_action(self, task: DownloadTask):
         if task.status == TaskStatus.FAILED:
             return (
-                FluentIcon.SYNC,
+                "retry",
+                tr("Retry", "重试", "再試行"),
                 tr("Retry task", "重试任务", "タスクを再試行"),
                 True,
-                lambda _checked=False, tid=task.task_id: self._retry_task(tid),
             )
         if task.status == TaskStatus.COMPLETED:
             return (
-                FluentIcon.FOLDER,
+                "open",
+                tr("Open", "打开", "開く"),
                 tr("Open downloaded file", "打开下载文件", "保存ファイルを開く"),
                 bool(task.file_path),
-                lambda _checked=False, tid=task.task_id: self._open_task(tid),
             )
         if task.status in _TERMINAL_STATUSES:
             return (
-                FluentIcon.INFO,
+                "",
+                tr("None", "无", "なし"),
                 tr("No action", "无可用操作", "操作なし"),
                 False,
-                lambda _checked=False: None,
             )
         return (
-            FluentIcon.CANCEL,
+            "cancel",
+            tr("Cancel", "中断", "中断"),
             tr("Cancel task", "中断任务", "タスクを中断"),
             task.status != TaskStatus.CANCELLING,
-            lambda _checked=False, tid=task.task_id: self._cancel_task(tid),
         )
+
+    def _on_cell_clicked(self, row: int, column: int):
+        if column not in (self._COL_ACTION, self._COL_REMOVE):
+            return
+        item = self._table.item(row, column)
+        if not item:
+            return
+        task_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+        if not task_id or not action:
+            return
+        if action == "retry":
+            self._retry_task(task_id)
+        elif action == "open":
+            self._open_task(task_id)
+        elif action == "cancel":
+            self._cancel_task(task_id)
+        elif action == "remove":
+            self._remove_task(task_id)
 
     def _retry_task(self, task_id: str):
         download_manager.retry_task(task_id)
@@ -607,11 +647,11 @@ class TaskCenterInterface(QWidget):
 
     def _on_task_added(self, task_id: str, _info: dict):
         self._ensure_order(task_id)
-        self._schedule_refresh(0)
+        self._schedule_refresh(120)
 
     def _on_task_status_changed(self, task_id: str, _status_str: str):
         self._ensure_order(task_id)
-        self._schedule_refresh(0)
+        self._schedule_refresh(80)
 
     def _on_task_progress(self, task_id: str, _downloaded: int, _total: int, _speed: str):
         self._ensure_order(task_id)
@@ -628,7 +668,7 @@ class TaskCenterInterface(QWidget):
 
     def _on_task_error(self, task_id: str, _message: str):
         self._ensure_order(task_id)
-        self._schedule_refresh(0)
+        self._schedule_refresh(80)
 
     def _on_task_removed(self, task_id: str):
         self._tasks_by_id.pop(task_id, None)
