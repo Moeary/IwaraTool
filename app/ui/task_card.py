@@ -26,6 +26,8 @@ _STATUS_COLORS: dict[TaskStatus, str] = {
     TaskStatus.RESOLVING: "#0078d4",
     TaskStatus.QUEUED_DOWNLOAD: "#8764b8",
     TaskStatus.DOWNLOADING: "#0f7b0f",
+    TaskStatus.CANCELLING: "#c17d00",
+    TaskStatus.CANCELLED: "#666666",
     TaskStatus.SKIPPED: "#c17d00",
     TaskStatus.COMPLETED: "#107c10",
     TaskStatus.FAILED: "#c42b1c",
@@ -83,7 +85,12 @@ class TaskCard(CardWidget):
         center.addWidget(self._progress_lbl)
         root.addLayout(center, stretch=1)
 
-        # ── Right: action button ──────────────────────────────────────────────
+        # ── Right: action buttons ─────────────────────────────────────────────
+        self._cancel_btn = ToolButton(FluentIcon.CANCEL, self)
+        self._cancel_btn.setToolTip(tr("Cancel task", "中断任务", "タスクを中断"))
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        root.addWidget(self._cancel_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
         self._action_btn = ToolButton(FluentIcon.DELETE, self)
         self._action_btn.setToolTip(tr("Remove task", "移除任务", "タスクを削除"))
         self._action_btn.clicked.connect(self._on_action)
@@ -123,6 +130,11 @@ class TaskCard(CardWidget):
             self._progress_lbl.setText(
                 tr(f"Error: {task.error_msg}", f"错误: {task.error_msg}", f"エラー: {task.error_msg}")
             )
+        elif task.status == TaskStatus.CANCELLING:
+            self._progress_lbl.setText(tr("Cancelling...", "正在中断...", "中断中..."))
+        elif task.status == TaskStatus.CANCELLED:
+            self._progress_bar.setValue(0)
+            self._progress_lbl.setText(tr("Cancelled", "已中断", "キャンセル済み"))
 
     def _set_status(self, status: TaskStatus):
         label = STATUS_LABELS.get(status, status.value)
@@ -138,6 +150,15 @@ class TaskCard(CardWidget):
         else:
             self._action_btn.setIcon(FluentIcon.DELETE)
             self._action_btn.setToolTip(tr("Remove task", "移除任务", "タスクを削除"))
+
+        can_cancel = status in (
+            TaskStatus.QUEUED_META,
+            TaskStatus.RESOLVING,
+            TaskStatus.QUEUED_DOWNLOAD,
+            TaskStatus.DOWNLOADING,
+        )
+        self._cancel_btn.setVisible(can_cancel or status == TaskStatus.CANCELLING)
+        self._cancel_btn.setEnabled(can_cancel)
 
         # Indeterminate progress for resolving
         if status == TaskStatus.RESOLVING:
@@ -174,6 +195,11 @@ class TaskCard(CardWidget):
                     f"スキップ: {reason}",
                 )
             )
+        elif status == TaskStatus.CANCELLED:
+            self._progress_bar.setValue(0)
+            self._progress_lbl.setText(tr("Cancelled", "已中断", "キャンセル済み"))
+        elif status == TaskStatus.CANCELLING:
+            self._progress_lbl.setText(tr("Cancelling...", "正在中断...", "中断中..."))
         elif status in (
             TaskStatus.QUEUED_META,
             TaskStatus.RESOLVING,
@@ -207,9 +233,12 @@ class TaskCard(CardWidget):
         else:
             download_manager.remove_task(self.task_id)
 
+    def _on_cancel(self):
+        download_manager.cancel_task(self.task_id)
+
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            if self._action_btn.geometry().contains(event.pos()):
+            if self._action_btn.geometry().contains(event.pos()) or self._cancel_btn.geometry().contains(event.pos()):
                 super().mouseReleaseEvent(event)
                 return
             task = next(

@@ -19,6 +19,7 @@ from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
 from .settings_page import SettingsInterface
+from .subscription_page import SubscriptionInterface
 from .task_page import TaskCenterInterface
 
 
@@ -47,6 +48,7 @@ class MainWindow(FluentWindow):
     def _init_navigation(self):
         # Create sub-interfaces
         self._download_page = DownloadInterface(self)
+        self._subscription_page = SubscriptionInterface(self)
         self._task_page = TaskCenterInterface(self)
         self._history_page = HistoryInterface(self)
         self._settings_page = SettingsInterface(self)
@@ -56,6 +58,11 @@ class MainWindow(FluentWindow):
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
             text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),
+        )
+        self.addSubInterface(
+            self._subscription_page,
+            icon=FluentIcon.PEOPLE,
+            text=tr("Subscriptions", "订阅页", "購読"),
         )
         self.addSubInterface(
             self._task_page,

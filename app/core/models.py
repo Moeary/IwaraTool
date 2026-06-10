@@ -13,6 +13,8 @@ class TaskStatus(Enum):
     RESOLVING = "resolving"            # 正在解析真实下载直链
     QUEUED_DOWNLOAD = "queued_download"  # 已拿到直链，等待下载槽位
     DOWNLOADING = "downloading"        # 正在下载
+    CANCELLING = "cancelling"          # 正在中断
+    CANCELLED = "cancelled"            # 已中断
     SKIPPED = "skipped"                # 命中过滤条件，已跳过
     COMPLETED = "completed"            # 下载完成
     FAILED = "failed"                  # 下载失败
@@ -24,6 +26,8 @@ STATUS_LABELS: dict[TaskStatus, str] = {
     TaskStatus.RESOLVING: tr("Resolving", "解析中", "解析中"),
     TaskStatus.QUEUED_DOWNLOAD: tr("Waiting", "待下载", "待機"),
     TaskStatus.DOWNLOADING: tr("Downloading", "下载中", "ダウンロード中"),
+    TaskStatus.CANCELLING: tr("Cancelling", "中断中", "中断中"),
+    TaskStatus.CANCELLED: tr("Cancelled", "已中断", "キャンセル済み"),
     TaskStatus.SKIPPED: tr("Skipped", "已跳过", "スキップ"),
     TaskStatus.COMPLETED: tr("Completed", "已完成", "完了"),
     TaskStatus.FAILED: tr("Failed", "失败", "失敗"),
@@ -60,3 +64,7 @@ class DownloadTask:
     file_id: str = ""
     thumbnail_index: int = 0
     thumbnail_path: str = ""
+    cancel_requested: bool = False
+    delete_temp_on_cancel: bool = False
+    remove_after_cancel: bool = False
+    aria2_gid: str = ""
