@@ -163,6 +163,13 @@ class AppConfig:
         self._qs.setValue(key, value)
         self._qs.sync()
 
+    def get_ui_value(self, key: str, default=""):
+        return self._qs.value(f"ui/{key}", default)
+
+    def set_ui_value(self, key: str, value):
+        self._qs.setValue(f"ui/{key}", value)
+        self._qs.sync()
+
     # ── properties ───────────────────────────────────────────────────────────
 
     @property

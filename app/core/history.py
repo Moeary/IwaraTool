@@ -246,6 +246,45 @@ class DownloadHistory:
                     ).fetchone()
                     return dict(row) if row else None
 
+    def get_records(self, video_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return history rows keyed by video_id for a batch of ids."""
+        ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
+        if not ids:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        with self._lock:
+            self._ensure_db_ready()
+            try:
+                with sqlite3.connect(self._db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    for start in range(0, len(ids), 500):
+                        chunk = ids[start:start + 500]
+                        placeholders = ",".join("?" for _ in chunk)
+                        rows = conn.execute(
+                            f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id IN ({placeholders})",
+                            chunk,
+                        ).fetchall()
+                        for row in rows:
+                            data = dict(row)
+                            result[str(data.get("video_id", "") or "")] = data
+            except sqlite3.OperationalError as exc:
+                if not self._is_missing_table_error(exc):
+                    raise
+                self._ensure_db_ready()
+                with sqlite3.connect(self._db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    for start in range(0, len(ids), 500):
+                        chunk = ids[start:start + 500]
+                        placeholders = ",".join("?" for _ in chunk)
+                        rows = conn.execute(
+                            f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id IN ({placeholders})",
+                            chunk,
+                        ).fetchall()
+                        for row in rows:
+                            data = dict(row)
+                            result[str(data.get("video_id", "") or "")] = data
+        return result
+
     def list_records(self) -> list[dict[str, Any]]:
         """Return all history rows, newest first."""
         with self._lock:

@@ -32,6 +32,7 @@ from ..core.manager import download_manager
 from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .ui_state import connect_table_width_saver, restore_table_widths
 
 
 _STATUS_COLORS: dict[TaskStatus, str] = {
@@ -87,9 +88,10 @@ class TaskCenterInterface(QWidget):
     _COL_SIZE = 4
     _COL_SPEED = 5
     _COL_QUALITY = 6
-    _COL_ID = 7
-    _COL_ACTION = 8
-    _COL_REMOVE = 9
+    _COL_URL = 7
+    _COL_ID = 8
+    _COL_ACTION = 9
+    _COL_REMOVE = 10
 
     _SORT_DEFAULT = -1
     _SORT_ADDED = -2
@@ -100,6 +102,7 @@ class TaskCenterInterface(QWidget):
         self._embedded = embedded
         self._tasks_by_id: dict[str, DownloadTask] = {}
         self._row_by_task_id: dict[str, int] = {}
+        self._visible_task_ids: list[str] = []
         self._task_order: dict[str, int] = {}
         self._next_order = 0
         self._refresh_pending = False
@@ -202,7 +205,7 @@ class TaskCenterInterface(QWidget):
 
         self._table = TableWidget(self)
         self._table.setObjectName("taskTable")
-        self._table.setColumnCount(10)
+        self._table.setColumnCount(11)
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -212,6 +215,7 @@ class TaskCenterInterface(QWidget):
                 tr("Size", "大小", "サイズ"),
                 tr("Speed", "速度", "速度"),
                 tr("Quality", "画质", "画質"),
+                "URL",
                 "ID",
                 tr("Action", "操作", "操作"),
                 tr("Remove", "移除", "削除"),
@@ -241,7 +245,7 @@ class TaskCenterInterface(QWidget):
         header.sectionClicked.connect(self._on_header_clicked)
         self._restore_sort_indicator()
 
-        for col, width in {
+        default_widths = {
             self._COL_STATE: 72,
             self._COL_TITLE: 320,
             self._COL_AUTHOR: 116,
@@ -249,21 +253,25 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE: 142,
             self._COL_SPEED: 96,
             self._COL_QUALITY: 72,
+            self._COL_URL: 240,
             self._COL_ID: 126,
             self._COL_ACTION: 66,
             self._COL_REMOVE: 66,
-        }.items():
-            self._table.setColumnWidth(col, width)
+        }
+        restore_table_widths(self._table, "task_table_widths", default_widths)
+        connect_table_width_saver(self._table, "task_table_widths")
 
         root.addWidget(self._table, stretch=1)
 
     # ── Signals ───────────────────────────────────────────────────────────────
 
     def _connect_signals(self):
+        signal_bus.tasks_added.connect(self._on_tasks_added)
         signal_bus.task_added.connect(self._on_task_added)
         signal_bus.task_status_changed.connect(self._on_task_status_changed)
         signal_bus.task_progress_updated.connect(self._on_task_progress)
         signal_bus.task_error.connect(self._on_task_error)
+        signal_bus.tasks_removed.connect(self._on_tasks_removed)
         signal_bus.task_removed.connect(self._on_task_removed)
 
     # ── Rendering ─────────────────────────────────────────────────────────────
@@ -293,53 +301,62 @@ class TaskCenterInterface(QWidget):
         self._table.setUpdatesEnabled(False)
         try:
             self._row_by_task_id = {}
-            self._table.setRowCount(0)
+            self._visible_task_ids = [task.task_id for task in tasks]
             self._table.setRowCount(len(tasks))
             for row_idx, task in enumerate(tasks):
                 self._row_by_task_id[task.task_id] = row_idx
-                values = [
-                    STATUS_LABELS.get(task.status, task.status.value),
-                    task.title or task.video_id,
-                    task.author,
-                    self._progress_text(task),
-                    self._size_text(task),
-                    task.speed_str,
-                    task.quality,
-                    task.video_id,
-                ]
-
-                for col_idx, value in enumerate(values):
-                    item = QTableWidgetItem(value)
-                    item.setData(Qt.ItemDataRole.UserRole, task.task_id)
-                    item.setToolTip(self._cell_tooltip(task, col_idx, value))
-                    if col_idx == self._COL_STATE:
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                        item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
-                    elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    self._table.setItem(row_idx, col_idx, item)
-
-                action_key, action_text, action_tip, action_enabled = self._primary_action(task)
-                self._set_action_item(
-                    row_idx,
-                    self._COL_ACTION,
-                    task.task_id,
-                    action_key,
-                    action_text,
-                    action_tip,
-                    action_enabled,
-                )
-                self._set_action_item(
-                    row_idx,
-                    self._COL_REMOVE,
-                    task.task_id,
-                    "remove",
-                    tr("Remove", "移除", "削除"),
-                    tr("Remove task", "移除任务", "タスクを削除"),
-                    True,
-                )
+                self._update_row(row_idx, task)
         finally:
             self._table.setUpdatesEnabled(True)
+
+    def _update_row(self, row_idx: int, task: DownloadTask):
+        values = [
+            STATUS_LABELS.get(task.status, task.status.value),
+            task.title or task.video_id,
+            task.author,
+            self._progress_text(task),
+            self._size_text(task),
+            task.speed_str,
+            task.quality,
+            _video_url(task.video_id),
+            task.video_id,
+        ]
+
+        for col_idx, value in enumerate(values):
+            item = self._table.item(row_idx, col_idx)
+            if item is None:
+                item = QTableWidgetItem()
+                self._table.setItem(row_idx, col_idx, item)
+            item.setText(value)
+            item.setData(Qt.ItemDataRole.UserRole, task.task_id)
+            item.setToolTip(self._cell_tooltip(task, col_idx, value))
+            if col_idx == self._COL_STATE:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
+            elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            else:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        action_key, action_text, action_tip, action_enabled = self._primary_action(task)
+        self._set_action_item(
+            row_idx,
+            self._COL_ACTION,
+            task.task_id,
+            action_key,
+            action_text,
+            action_tip,
+            action_enabled,
+        )
+        self._set_action_item(
+            row_idx,
+            self._COL_REMOVE,
+            task.task_id,
+            "remove",
+            tr("Remove", "移除", "削除"),
+            tr("Remove task", "移除任务", "タスクを削除"),
+            True,
+        )
 
     def _set_action_item(
         self,
@@ -351,13 +368,16 @@ class TaskCenterInterface(QWidget):
         tooltip: str,
         enabled: bool,
     ):
-        item = QTableWidgetItem(text if enabled else "—")
+        item = self._table.item(row, column)
+        if item is None:
+            item = QTableWidgetItem()
+            self._table.setItem(row, column, item)
+        item.setText(text if enabled else "—")
         item.setData(Qt.ItemDataRole.UserRole, task_id)
         item.setData(Qt.ItemDataRole.UserRole + 1, action if enabled else "")
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(tooltip)
         item.setForeground(QColor("#0078d4" if enabled else "#999999"))
-        self._table.setItem(row, column, item)
 
     def _update_summary(self, tasks: list[DownloadTask], visible: list[DownloadTask]):
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
@@ -371,6 +391,97 @@ class TaskCenterInterface(QWidget):
                 f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 完了: {completed}",
             )
         )
+
+    def _update_current_summary(self):
+        tasks = list(self._tasks_by_id.values())
+        visible = [
+            self._tasks_by_id[task_id]
+            for task_id in self._visible_task_ids
+            if task_id in self._tasks_by_id
+        ]
+        self._update_summary(tasks, visible)
+
+    def _task_from_info(self, info: dict) -> DownloadTask:
+        task_id = str(info.get("task_id", "") or "")
+        video_id = str(info.get("video_id", "") or task_id)
+        status_value = str(info.get("status", TaskStatus.QUEUED_META.value) or TaskStatus.QUEUED_META.value)
+        try:
+            status = TaskStatus(status_value)
+        except ValueError:
+            status = TaskStatus.QUEUED_META
+        return DownloadTask(
+            task_id=task_id,
+            url=f"https://www.iwara.tv/video/{video_id}",
+            video_id=video_id,
+            title=str(info.get("title", "") or video_id),
+            author=str(info.get("author", "") or ""),
+            status=status,
+        )
+
+    def _fetch_task(self, task_id: str, info: dict | None = None) -> DownloadTask | None:
+        task = download_manager.get_task(task_id)
+        if task:
+            return task
+        if info is not None:
+            return self._task_from_info(info)
+        return self._tasks_by_id.get(task_id)
+
+    def _append_visible_tasks(self, tasks: list[DownloadTask]):
+        visible = [
+            task
+            for task in tasks
+            if task.task_id not in self._row_by_task_id and self._passes_filters(task)
+        ]
+        if not visible:
+            self._update_current_summary()
+            return
+        start = self._table.rowCount()
+        self._table.setUpdatesEnabled(False)
+        try:
+            self._table.setRowCount(start + len(visible))
+            for offset, task in enumerate(visible):
+                row = start + offset
+                self._visible_task_ids.append(task.task_id)
+                self._row_by_task_id[task.task_id] = row
+                self._update_row(row, task)
+        finally:
+            self._table.setUpdatesEnabled(True)
+        self._update_current_summary()
+
+    def _upsert_task_row(self, task: DownloadTask):
+        row = self._row_by_task_id.get(task.task_id)
+        visible = self._passes_filters(task)
+        if visible and row is not None:
+            self._update_row(row, task)
+        elif visible:
+            self._append_visible_tasks([task])
+            return
+        elif row is not None:
+            self._remove_visible_task_ids([task.task_id])
+            return
+        self._update_current_summary()
+
+    def _remove_visible_task_ids(self, task_ids: list[str]):
+        remove_set = {task_id for task_id in task_ids if task_id}
+        if not remove_set:
+            return
+        rows = sorted(
+            (row for task_id, row in self._row_by_task_id.items() if task_id in remove_set),
+            reverse=True,
+        )
+        if rows:
+            self._table.setUpdatesEnabled(False)
+            try:
+                for row in rows:
+                    self._table.removeRow(row)
+            finally:
+                self._table.setUpdatesEnabled(True)
+        self._visible_task_ids = [task_id for task_id in self._visible_task_ids if task_id not in remove_set]
+        self._rebuild_row_map()
+        self._update_current_summary()
+
+    def _rebuild_row_map(self):
+        self._row_by_task_id = {task_id: row for row, task_id in enumerate(self._visible_task_ids)}
 
     # ── Sorting / filtering ──────────────────────────────────────────────────
 
@@ -419,6 +530,8 @@ class TaskCenterInterface(QWidget):
                 return (text(task.speed_str), order)
             if self._sort_column == self._COL_QUALITY:
                 return (text(task.quality), order)
+            if self._sort_column == self._COL_URL:
+                return (text(_video_url(task.video_id)), order)
             if self._sort_column == self._COL_ID:
                 return (text(task.video_id), order)
             return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
@@ -476,6 +589,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE,
             self._COL_SPEED,
             self._COL_QUALITY,
+            self._COL_URL,
             self._COL_ID,
         }
 
@@ -559,15 +673,12 @@ class TaskCenterInterface(QWidget):
 
     def _retry_task(self, task_id: str):
         download_manager.retry_task(task_id)
-        self._schedule_refresh(0)
 
     def _cancel_task(self, task_id: str):
         download_manager.cancel_task(task_id)
-        self._schedule_refresh(0)
 
     def _remove_task(self, task_id: str):
         download_manager.remove_task(task_id)
-        self._schedule_refresh(0)
 
     def _open_task(self, task_id: str):
         ok, message = download_manager.open_task_output(task_id)
@@ -592,7 +703,6 @@ class TaskCenterInterface(QWidget):
 
     def _clear_done(self):
         download_manager.clear_completed()
-        self._refresh_tasks()
         InfoBar.success(
             title=tr("Cleared", "已清除", "クリア完了"),
             content=tr(
@@ -646,17 +756,47 @@ class TaskCenterInterface(QWidget):
     # ── Signal slots ──────────────────────────────────────────────────────────
 
     def _on_task_added(self, task_id: str, _info: dict):
+        if task_id in self._tasks_by_id:
+            return
         self._ensure_order(task_id)
-        self._schedule_refresh(120)
+        info = dict(_info or {})
+        info["task_id"] = task_id
+        task = self._fetch_task(task_id, info)
+        if task:
+            self._tasks_by_id[task_id] = task
+            self._append_visible_tasks([task])
+
+    def _on_tasks_added(self, infos: list):
+        added: list[DownloadTask] = []
+        for info in infos:
+            task_id = str(info.get("task_id", "") or "")
+            if task_id:
+                self._ensure_order(task_id)
+                if task_id in self._tasks_by_id:
+                    continue
+                task = self._fetch_task(task_id, info)
+                if task:
+                    self._tasks_by_id[task_id] = task
+                    added.append(task)
+        self._append_visible_tasks(added)
 
     def _on_task_status_changed(self, task_id: str, _status_str: str):
         self._ensure_order(task_id)
-        self._schedule_refresh(80)
+        task = self._fetch_task(task_id)
+        if not task:
+            return
+        self._tasks_by_id[task_id] = task
+        self._upsert_task_row(task)
+        if self._sort_column in (self._SORT_DEFAULT, self._COL_STATE):
+            self._schedule_refresh(300)
 
     def _on_task_progress(self, task_id: str, _downloaded: int, _total: int, _speed: str):
         self._ensure_order(task_id)
         task = self._tasks_by_id.get(task_id)
+        if task is None:
+            task = self._fetch_task(task_id)
         if task:
+            self._tasks_by_id[task_id] = task
             task.downloaded_bytes = _downloaded
             task.total_bytes = _total
             task.speed_str = _speed
@@ -668,12 +808,27 @@ class TaskCenterInterface(QWidget):
 
     def _on_task_error(self, task_id: str, _message: str):
         self._ensure_order(task_id)
-        self._schedule_refresh(80)
+        task = self._fetch_task(task_id)
+        if task:
+            self._tasks_by_id[task_id] = task
+            self._upsert_task_row(task)
 
     def _on_task_removed(self, task_id: str):
         self._tasks_by_id.pop(task_id, None)
-        self._row_by_task_id.pop(task_id, None)
-        self._apply_filters()
+        self._remove_visible_task_ids([task_id])
+
+    def _on_tasks_removed(self, task_ids: list):
+        changed = False
+        clean_ids: list[str] = []
+        for raw_task_id in task_ids:
+            task_id = str(raw_task_id or "")
+            if not task_id:
+                continue
+            clean_ids.append(task_id)
+            if self._tasks_by_id.pop(task_id, None) is not None:
+                changed = True
+        if changed:
+            self._remove_visible_task_ids(clean_ids)
 
     def _flush_progress_updates(self):
         self._progress_flush_pending = False
@@ -717,6 +872,7 @@ class TaskCenterInterface(QWidget):
                 task.title,
                 task.author,
                 task.video_id,
+                _video_url(task.video_id),
                 task.quality,
                 task.error_msg,
                 task.file_path,
@@ -770,3 +926,8 @@ def _fmt_bytes(n: int) -> str:
     if n >= 1024:
         return f"{n / 1024:.1f} KB"
     return f"{n} B"
+
+
+def _video_url(video_id: str) -> str:
+    video_id = str(video_id or "").strip()
+    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""

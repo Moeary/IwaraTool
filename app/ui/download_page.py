@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QSplitter, QVBoxLayout, QWidget, QSizePolicy
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget, QSizePolicy
 
 from qfluentwidgets import (
     BodyLabel,
@@ -16,7 +16,6 @@ from qfluentwidgets import (
     PrimaryPushButton,
     SubtitleLabel,
     SwitchButton,
-    TextEdit,
     TitleLabel,
 )
 
@@ -204,9 +203,15 @@ class FilterDialog(QDialog):
 class DownloadInterface(QWidget):
     """Download workbench: URL input, runtime log, and task table."""
 
+    _MAX_LOG_BLOCKS = 2000
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("DownloadInterface")
+        self._pending_logs: list[str] = []
+        self._log_flush_timer = QTimer(self)
+        self._log_flush_timer.setInterval(200)
+        self._log_flush_timer.timeout.connect(self._flush_logs)
 
         self._build_ui()
         signal_bus.log_message.connect(self._append_log)
@@ -330,8 +335,9 @@ class DownloadInterface(QWidget):
         log_header.addWidget(clear_log_btn)
         log_layout.addLayout(log_header)
 
-        self._log_edit = TextEdit(log_card)
+        self._log_edit = QPlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
+        self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         from PySide6.QtGui import QFont
         mono = QFont("Consolas", 9)
         if not mono.exactMatch():
@@ -391,11 +397,24 @@ class DownloadInterface(QWidget):
             )
 
     def _append_log(self, msg: str):
-        self._log_edit.append(msg)
+        self._pending_logs.append(str(msg))
+        if not self._log_flush_timer.isActive():
+            self._log_flush_timer.start()
+
+    def _flush_logs(self):
+        if not self._pending_logs:
+            self._log_flush_timer.stop()
+            return
+        chunk = self._pending_logs[:200]
+        del self._pending_logs[:200]
+        self._log_edit.appendPlainText("\n".join(chunk))
         sb = self._log_edit.verticalScrollBar()
         sb.setValue(sb.maximum())
+        if not self._pending_logs:
+            self._log_flush_timer.stop()
 
     def _clear_log(self):
+        self._pending_logs.clear()
         self._log_edit.clear()
 
     def _on_filter_toggle(self, checked: bool):

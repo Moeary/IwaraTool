@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
@@ -35,6 +36,7 @@ from ..core.manager import download_manager
 from ..core.models import TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .ui_state import connect_table_width_saver, restore_table_widths
 
 
 class HistoryInterface(QWidget):
@@ -50,10 +52,11 @@ class HistoryInterface(QWidget):
     _COL_DOWNLOADED = 7
     _COL_ID = 8
     _COL_PATH = 9
-    _COL_OPEN_FOLDER = 10
-    _COL_OPEN_FILE = 11
-    _COL_RENAME = 12
-    _COL_REMOVE = 13
+    _COL_OPEN_URL = 10
+    _COL_OPEN_FOLDER = 11
+    _COL_OPEN_FILE = 12
+    _COL_RENAME = 13
+    _COL_REMOVE = 14
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -135,6 +138,7 @@ class HistoryInterface(QWidget):
                 tr("Quality", "画质", "画質"),
                 tr("Published", "发布日期", "公開日"),
                 "ID",
+                "URL",
                 tr("Path", "路径", "パス"),
             ]
         )
@@ -157,7 +161,7 @@ class HistoryInterface(QWidget):
 
         self._table = TableWidget(self)
         self._table.setObjectName("historyTable")
-        self._table.setColumnCount(14)
+        self._table.setColumnCount(15)
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -170,6 +174,7 @@ class HistoryInterface(QWidget):
                 tr("Downloaded At", "下载时间", "保存日時"),
                 "ID",
                 tr("File Path", "文件路径", "ファイルパス"),
+                tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
                 tr("Rename", "重命名", "名前変更"),
@@ -197,7 +202,7 @@ class HistoryInterface(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         initial_widths = {
             self._COL_STATE: 62,
-            self._COL_TITLE: 420,
+            self._COL_TITLE: 620,
             self._COL_AUTHOR: 110,
             self._COL_QUALITY: 80,
             self._COL_PUBLISHED: 112,
@@ -206,13 +211,14 @@ class HistoryInterface(QWidget):
             self._COL_DOWNLOADED: 150,
             self._COL_ID: 135,
             self._COL_PATH: 520,
+            self._COL_OPEN_URL: 58,
             self._COL_OPEN_FOLDER: 58,
             self._COL_OPEN_FILE: 58,
             self._COL_RENAME: 66,
             self._COL_REMOVE: 66,
         }
-        for col, width in initial_widths.items():
-            self._table.setColumnWidth(col, width)
+        restore_table_widths(self._table, "history_table_widths", initial_widths)
+        connect_table_width_saver(self._table, "history_table_widths")
         root.addWidget(self._table, stretch=1)
 
     def _load_history(self):
@@ -288,6 +294,14 @@ class HistoryInterface(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self._table.setItem(row_idx, col_idx, item)
 
+            self._set_row_action(
+                row_idx,
+                self._COL_OPEN_URL,
+                FluentIcon.HISTORY,
+                tr("Open video page", "打开视频页", "動画ページを開く"),
+                bool(video_id),
+                lambda _checked=False, vid=video_id: self._open_video_url(vid),
+            )
             self._set_row_action(
                 row_idx,
                 self._COL_OPEN_FOLDER,
@@ -447,7 +461,8 @@ class HistoryInterface(QWidget):
             4: [record.get("quality", "")],
             5: [record.get("published_at", ""), record.get("downloaded_at", "")],
             6: [record.get("video_id", "")],
-            7: [record.get("file_path", "")],
+            7: [record.get("source_url", ""), record.get("video_id", "")],
+            8: [record.get("file_path", "")],
         }
         if field_idx in fields:
             values = fields[field_idx]
@@ -463,6 +478,7 @@ class HistoryInterface(QWidget):
                 record.get("likes", ""),
                 record.get("views", ""),
                 record.get("video_id", ""),
+                record.get("source_url", ""),
                 record.get("file_path", ""),
             ]
         return " ".join(str(v or "") for v in values).lower()
@@ -485,6 +501,12 @@ class HistoryInterface(QWidget):
         ok, msg = download_manager.open_history_output(video_id, open_file=open_file)
         if not ok:
             self._show_error(msg)
+
+    def _open_video_url(self, video_id: str):
+        record = self._records_by_id.get(video_id, {})
+        url = str(record.get("source_url", "") or _video_url(video_id))
+        if url:
+            webbrowser.open(url)
 
     def _rename_record(self, video_id: str):
         record = self._records_by_id.get(video_id)
@@ -629,3 +651,8 @@ def _date_only(value: str) -> str:
     if not text:
         return ""
     return text[:10] if len(text) >= 10 else text
+
+
+def _video_url(video_id: str) -> str:
+    video_id = str(video_id or "").strip()
+    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
