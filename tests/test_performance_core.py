@@ -1,4 +1,5 @@
 import os
+import gc
 import json
 import shutil
 import tempfile
@@ -6,14 +7,16 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTableWidget
 
 from app.config import app_config
 from app.core.history import DownloadHistory
 from app.core.manager import DownloadManager, _compact_video_raw_json, download_manager
 from app.core.models import DownloadTask, TaskStatus
+from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.task_page import TaskCenterInterface
+from app.ui.ui_state import connect_table_width_saver, restore_table_widths
 
 TEMP_DIRS: list[str] = []
 
@@ -45,6 +48,7 @@ def make_manager() -> DownloadManager:
     tmp_dir = tempfile.mkdtemp(prefix="iwaratool-test-")
     TEMP_DIRS.append(tmp_dir)
     mgr.history = DownloadHistory(os.path.join(tmp_dir, "history.db"))
+    mgr.subscriptions = SubscriptionStore(os.path.join(tmp_dir, "subscriptions.db"))
     mgr._resolve_executor = FakeExecutor()
     return mgr
 
@@ -157,6 +161,153 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertNotIn("file", data)
         self.assertLess(len(raw), 1000)
 
+    def test_mark_subscription_items_downloaded_creates_moved_history(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "videoMoved01",
+                    "title": "Moved Video",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/videoMoved01",
+                }
+            ],
+        )
+
+        marked = mgr.mark_subscription_items_downloaded(["videoMoved01"])
+        record = mgr.history.get_record("videoMoved01")
+        item = mgr.get_subscription_items(source_id)[0]
+
+        self.assertEqual(marked, 1)
+        self.assertEqual(record["title"], "Moved Video")
+        self.assertEqual(record["file_path"], "")
+        self.assertTrue(item["downloaded"])
+        self.assertFalse(item["download_file_exists"])
+
+        restored = mgr.restore_subscription_items_downloaded(["videoMoved01"])
+        restored_item = mgr.get_subscription_items(source_id)[0]
+
+        self.assertEqual(restored, 1)
+        self.assertIsNone(mgr.history.get_record("videoMoved01"))
+        self.assertFalse(restored_item["downloaded"])
+
+    def test_subscription_store_migrates_legacy_db_into_history_db(self):
+        tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-migrate-")
+        TEMP_DIRS.append(tmp_dir)
+        legacy_path = os.path.join(tmp_dir, "subscriptions.db")
+        history_path = os.path.join(tmp_dir, "history.db")
+
+        legacy_store = SubscriptionStore(legacy_path, legacy_db_path="")
+        legacy_source_id = legacy_store.add_source("author", "author01", "Author 01")
+        legacy_store.upsert_items(
+            legacy_source_id,
+            [
+                {
+                    "video_id": "legacyVideo01",
+                    "title": "Legacy Video",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/legacyVideo01",
+                }
+            ],
+        )
+        del legacy_store
+        gc.collect()
+
+        merged_store = SubscriptionStore(history_path, legacy_db_path=legacy_path)
+        sources = merged_store.list_sources()
+        items = merged_store.list_items(int(sources[0]["id"]))
+
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["source_key"], "author01")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["video_id"], "legacyVideo01")
+        self.assertFalse(os.path.exists(legacy_path))
+        self.assertTrue(any(name.startswith("subscriptions.db.migrated") for name in os.listdir(tmp_dir)))
+
+    def test_subscription_submit_honors_metadata_only_options(self):
+        mgr = make_manager()
+        tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-metadata-")
+        TEMP_DIRS.append(tmp_dir)
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "subMeta01",
+                    "title": "Cached Title",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/subMeta01",
+                }
+            ],
+        )
+
+        old_download_dir = app_config.download_dir
+        old_download_video = app_config.download_video_file
+        old_download_thumbnail = app_config.download_thumbnail
+        old_collect_nfo = app_config.collect_nfo_info
+        old_mark_submitted = app_config.mark_submitted_as_downloaded
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            if method_name == "get_video_info":
+                return (
+                    {
+                        "id": args[0],
+                        "title": "Metadata Only",
+                        "createdAt": "2026-06-12T00:00:00Z",
+                        "numLikes": 1,
+                        "numViews": 2,
+                        "numComments": 3,
+                        "slug": "metadata-only",
+                        "rating": "general",
+                        "body": "description",
+                        "user": {"username": "author01"},
+                        "file": {"id": "file01", "duration": 120},
+                        "fileUrl": "https://files.example.test/video.mp4",
+                        "thumbnail": 0,
+                        "tags": [{"name": "tag01"}],
+                    },
+                    "",
+                )
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        try:
+            app_config.download_dir = tmp_dir
+            app_config.download_video_file = False
+            app_config.download_thumbnail = False
+            app_config.collect_nfo_info = True
+            app_config.mark_submitted_as_downloaded = True
+            mgr._api_call = fake_api_call
+
+            result = mgr.submit_subscription_items(["subMeta01"])
+            record = mgr.history.get_record("subMeta01")
+            nfo_files = [
+                os.path.join(dirpath, name)
+                for dirpath, _, filenames in os.walk(tmp_dir)
+                for name in filenames
+                if name.endswith(".nfo")
+            ]
+
+            self.assertEqual(result["mode"], "metadata")
+            self.assertEqual(result["queued"], 0)
+            self.assertEqual(result["marked"], 1)
+            self.assertEqual(result["nfo"], 1)
+            self.assertEqual(len(mgr.get_tasks()), 0)
+            self.assertIsNotNone(record)
+            self.assertEqual(record["file_path"], "")
+            self.assertEqual(record["title"], "Metadata Only")
+            self.assertEqual(len(nfo_files), 1)
+        finally:
+            app_config.download_dir = old_download_dir
+            app_config.download_video_file = old_download_video
+            app_config.download_thumbnail = old_download_thumbnail
+            app_config.collect_nfo_info = old_collect_nfo
+            app_config.mark_submitted_as_downloaded = old_mark_submitted
+
 
 class UiPerformanceTests(unittest.TestCase):
     @classmethod
@@ -233,6 +384,19 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertEqual(page._table.rowCount(), 50)
         self.assertFalse(page._refresh_pending)
         self.assertEqual(len(page._row_by_task_id), 50)
+
+    def test_table_width_saver_records_resize_immediately(self):
+        key = f"test_table_widths_{id(self)}"
+        table = QTableWidget()
+        table.setColumnCount(3)
+        restore_table_widths(table, key, {0: 50, 1: 60, 2: 70})
+        connect_table_width_saver(table, key)
+
+        table.setColumnWidth(1, 234)
+        self.app.processEvents()
+        raw = str(app_config.get_ui_value(key, "") or "")
+
+        self.assertEqual(raw.split(","), [str(table.columnWidth(i)) for i in range(3)])
 
 
 def tearDownModule():

@@ -51,8 +51,11 @@ class AppConfig:
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
+        "download_video_file": True,
         "download_thumbnail": False,
         "collect_nfo_info": False,
+        "mark_submitted_as_downloaded": False,
+        "subscription_prompt_mode": "ask",  # ask / always / never
         "completed_task_click_action": "folder",
     }
 
@@ -107,8 +110,11 @@ class AppConfig:
             "aria2_rpc_enabled",
             "aria2_rpc_url",
             "aria2_rpc_token",
+            "download_video_file",
             "download_thumbnail",
             "collect_nfo_info",
+            "mark_submitted_as_downloaded",
+            "subscription_prompt_mode",
             "completed_task_click_action",
         }
         for key, default in self._DEFAULTS.items():
@@ -166,8 +172,12 @@ class AppConfig:
     def get_ui_value(self, key: str, default=""):
         return self._qs.value(f"ui/{key}", default)
 
-    def set_ui_value(self, key: str, value):
+    def set_ui_value(self, key: str, value, *, sync: bool = True):
         self._qs.setValue(f"ui/{key}", value)
+        if sync:
+            self._qs.sync()
+
+    def sync(self):
         self._qs.sync()
 
     # ── properties ───────────────────────────────────────────────────────────
@@ -433,6 +443,14 @@ class AppConfig:
         self._set("aria2_rpc_token", v)
 
     @property
+    def download_video_file(self) -> bool:
+        return self._get("download_video_file")
+
+    @download_video_file.setter
+    def download_video_file(self, v: bool):
+        self._set("download_video_file", v)
+
+    @property
     def download_thumbnail(self) -> bool:
         return self._get("download_thumbnail")
 
@@ -447,6 +465,24 @@ class AppConfig:
     @collect_nfo_info.setter
     def collect_nfo_info(self, v: bool):
         self._set("collect_nfo_info", v)
+
+    @property
+    def mark_submitted_as_downloaded(self) -> bool:
+        return self._get("mark_submitted_as_downloaded")
+
+    @mark_submitted_as_downloaded.setter
+    def mark_submitted_as_downloaded(self, v: bool):
+        self._set("mark_submitted_as_downloaded", v)
+
+    @property
+    def subscription_prompt_mode(self) -> str:
+        mode = str(self._get("subscription_prompt_mode") or "ask").lower()
+        return mode if mode in ("ask", "always", "never") else "ask"
+
+    @subscription_prompt_mode.setter
+    def subscription_prompt_mode(self, v: str):
+        mode = str(v or "ask").lower()
+        self._set("subscription_prompt_mode", mode if mode in ("ask", "always", "never") else "ask")
 
     @property
     def completed_task_click_action(self) -> str:

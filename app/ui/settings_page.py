@@ -310,38 +310,6 @@ class SettingsInterface(ScrollArea):
         skip_row.addWidget(self._skip_existing_switch)
         name_layout.addLayout(skip_row)
 
-        cover_row = QHBoxLayout()
-        cover_row.addWidget(
-            BodyLabel(
-                tr(
-                    "Save video thumbnail after success (.jpg)",
-                    "下载成功后同时保存视频封面（同名 .jpg）",
-                    "完了後にサムネイルを保存（同名 .jpg）",
-                ),
-                name_card,
-            )
-        )
-        cover_row.addStretch()
-        self._download_thumb_switch = SwitchButton(name_card)
-        cover_row.addWidget(self._download_thumb_switch)
-        name_layout.addLayout(cover_row)
-
-        nfo_row = QHBoxLayout()
-        nfo_row.addWidget(
-            BodyLabel(
-                tr(
-                    "Generate sidecar .nfo metadata after success",
-                    "下载成功后生成同名 .nfo 元数据文件",
-                    "完了後に同名 .nfo メタデータを生成",
-                ),
-                name_card,
-            )
-        )
-        nfo_row.addStretch()
-        self._collect_nfo_switch = SwitchButton(name_card)
-        nfo_row.addWidget(self._collect_nfo_switch)
-        name_layout.addLayout(nfo_row)
-
         click_row = QHBoxLayout()
         click_row.addWidget(BodyLabel(tr("Completed card click action", "已完成任务卡片单击行为", "完了カードのクリック動作"), name_card))
         click_row.addStretch()
@@ -433,6 +401,39 @@ class SettingsInterface(ScrollArea):
         search_row.addStretch()
         search_layout.addLayout(search_row)
         layout.addWidget(search_card)
+
+        # ── Subscription prompt behavior ───────────────────────────────────
+        sub_prompt_card = CardWidget(self._content)
+        sub_prompt_layout = QVBoxLayout(sub_prompt_card)
+        sub_prompt_layout.setContentsMargins(20, 16, 20, 16)
+        sub_prompt_layout.setSpacing(10)
+        sub_prompt_layout.addWidget(
+            SubtitleLabel(tr("Download Subscription Prompt", "下载订阅提示", "ダウンロード時の購読確認"), sub_prompt_card)
+        )
+        sub_prompt_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "When a download input is an author or playlist URL, decide whether it should also be added to local subscriptions.",
+                    "当下载输入为作者或播放列表链接时，决定是否同时加入本地订阅列表。",
+                    "入力が作者またはプレイリストURLの場合、ローカル購読へ追加するかを決めます。",
+                ),
+                sub_prompt_card,
+            )
+        )
+        sub_prompt_row = QHBoxLayout()
+        self._subscription_prompt_combo = ComboBox(sub_prompt_card)
+        self._subscription_prompt_combo.addItems(
+            [
+                tr("Ask Every Time", "每次询问", "毎回確認"),
+                tr("Always Add", "自动加入", "常に追加"),
+                tr("Never Ask", "不再提醒", "確認しない"),
+            ]
+        )
+        self._subscription_prompt_combo.setFixedWidth(180)
+        sub_prompt_row.addWidget(self._subscription_prompt_combo)
+        sub_prompt_row.addStretch()
+        sub_prompt_layout.addLayout(sub_prompt_row)
+        layout.addWidget(sub_prompt_card)
 
         # ── Proxy ─────────────────────────────────────────────────────────────
         proxy_card = CardWidget(self._content)
@@ -540,10 +541,10 @@ class SettingsInterface(ScrollArea):
         self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
         self._name_tpl_edit.setText(app_config.filename_template)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
-        self._download_thumb_switch.setChecked(app_config.download_thumbnail)
-        self._collect_nfo_switch.setChecked(app_config.collect_nfo_info)
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
+        prompt_mode = app_config.subscription_prompt_mode
+        self._subscription_prompt_combo.setCurrentIndex({"ask": 0, "always": 1, "never": 2}.get(prompt_mode, 0))
         lang = app_config.ui_language.lower()
         if lang.startswith("en"):
             self._lang_combo.setCurrentIndex(1)
@@ -784,11 +785,10 @@ class SettingsInterface(ScrollArea):
         app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
         app_config.filename_template = self._name_tpl_edit.text().strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
-        app_config.download_thumbnail = self._download_thumb_switch.isChecked()
-        app_config.collect_nfo_info = self._collect_nfo_switch.isChecked()
         app_config.completed_task_click_action = (
             "player" if self._completed_click_combo.currentIndex() == 1 else "folder"
         )
+        app_config.subscription_prompt_mode = ["ask", "always", "never"][self._subscription_prompt_combo.currentIndex()]
         self._on_search_limit_input_finished()
         app_config.search_limit_enabled = self._search_limit_switch.isChecked()
         if app_config.proxy_enabled:

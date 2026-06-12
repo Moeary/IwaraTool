@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from contextlib import closing
 from typing import Any
 
 from ..config import app_config
@@ -59,7 +60,7 @@ class DownloadHistory:
         self._init_db()
 
     def _init_db(self):
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS downloaded ("
                 "video_id TEXT PRIMARY KEY, "
@@ -121,7 +122,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     row = conn.execute(
                         "SELECT 1 FROM downloaded WHERE video_id=?", (video_id,)
                     ).fetchone()
@@ -130,7 +131,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     row = conn.execute(
                         "SELECT 1 FROM downloaded WHERE video_id=?", (video_id,)
                     ).fetchone()
@@ -140,7 +141,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "INSERT INTO downloaded (video_id, downloaded_at) VALUES (?, CURRENT_TIMESTAMP) "
                         "ON CONFLICT(video_id) DO UPDATE SET downloaded_at=CURRENT_TIMESTAMP",
@@ -151,7 +152,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "INSERT INTO downloaded (video_id, downloaded_at) VALUES (?, CURRENT_TIMESTAMP) "
                         "ON CONFLICT(video_id) DO UPDATE SET downloaded_at=CURRENT_TIMESTAMP",
@@ -207,14 +208,14 @@ class DownloadHistory:
                 str(meta.get("quality", "") or ""),
             )
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(sql, params)
                     conn.commit()
             except sqlite3.OperationalError as exc:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(sql, params)
                     conn.commit()
 
@@ -222,7 +223,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "DELETE FROM downloaded WHERE video_id=?", (video_id,)
                     )
@@ -231,7 +232,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "DELETE FROM downloaded WHERE video_id=?", (video_id,)
                     )
@@ -250,7 +251,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     row = conn.execute(
                         f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id=?",
@@ -261,7 +262,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     row = conn.execute(
                         f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id=?",
@@ -281,7 +282,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     for start in range(0, len(ids), 500):
                         chunk = ids[start:start + 500]
@@ -297,7 +298,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     for start in range(0, len(ids), 500):
                         chunk = ids[start:start + 500]
@@ -317,7 +318,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
                         f"SELECT {', '.join(columns)} FROM downloaded "
@@ -328,7 +329,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
                         f"SELECT {', '.join(columns)} FROM downloaded "
@@ -350,7 +351,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "UPDATE downloaded SET file_path=?, thumbnail_path=? WHERE video_id=?",
                         (file_path, thumbnail_path, video_id),
@@ -360,7 +361,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     conn.execute(
                         "UPDATE downloaded SET file_path=?, thumbnail_path=? WHERE video_id=?",
                         (file_path, thumbnail_path, video_id),
@@ -410,7 +411,7 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     rows = conn.execute(
                         "SELECT video_id FROM downloaded ORDER BY downloaded_at DESC"
                     ).fetchall()
@@ -419,7 +420,7 @@ class DownloadHistory:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with sqlite3.connect(self._db_path) as conn:
+                with closing(sqlite3.connect(self._db_path)) as conn:
                     rows = conn.execute(
                         "SELECT video_id FROM downloaded ORDER BY downloaded_at DESC"
                     ).fetchall()

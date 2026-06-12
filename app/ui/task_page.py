@@ -239,9 +239,6 @@ class TaskCenterInterface(QWidget):
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(self._COL_TITLE, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(self._COL_ACTION, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self._COL_REMOVE, QHeaderView.ResizeMode.Fixed)
         header.sectionClicked.connect(self._on_header_clicked)
         self._restore_sort_indicator()
 

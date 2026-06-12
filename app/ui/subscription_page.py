@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import webbrowser
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
@@ -70,8 +72,26 @@ class SubscriptionEnqueueWorker(QThread):
         self._video_ids = list(video_ids)
 
     def run(self):
-        queued = download_manager.enqueue_subscription_items(self._video_ids)
-        self.finished.emit({"queued": queued})
+        self.finished.emit(download_manager.submit_subscription_items(self._video_ids))
+
+
+_CONTROL_HEIGHT = 36
+_ROW_SPACING = 10
+
+
+def _style_action_button(button: PrimaryPushButton, *, min_width: int = 0):
+    button.setFixedHeight(_CONTROL_HEIGHT)
+    if min_width:
+        button.setMinimumWidth(min_width)
+    font = button.font()
+    if font.pointSize() < 10:
+        font.setPointSize(10)
+    button.setFont(font)
+
+
+def _style_inline_label(label: BodyLabel):
+    label.setFixedHeight(_CONTROL_HEIGHT)
+    label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
 
 class SubscriptionInterface(QWidget):
@@ -105,7 +125,9 @@ class SubscriptionInterface(QWidget):
         self._import_worker: SubscriptionImportAuthorsWorker | None = None
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
         self._sources: list[dict[str, Any]] = []
+        self._all_items: list[dict[str, Any]] = []
         self._visible_items: list[dict[str, Any]] = []
+        self._current_source_id: int | None = None
         self._source_render_index = 0
         self._item_render_index = 0
         self._items_refresh_pending = False
@@ -127,9 +149,6 @@ class SubscriptionInterface(QWidget):
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Subscriptions", "订阅页", "購読"), self))
         title_row.addStretch()
-        refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
-        refresh_all_btn.clicked.connect(self._refresh_all)
-        title_row.addWidget(refresh_all_btn)
         root.addLayout(title_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -140,14 +159,14 @@ class SubscriptionInterface(QWidget):
         left_panel.setMinimumWidth(400)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(_ROW_SPACING)
         splitter.addWidget(left_panel)
 
         right_panel = QWidget(self)
         right_panel.setMinimumWidth(760)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(_ROW_SPACING)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
@@ -155,33 +174,48 @@ class SubscriptionInterface(QWidget):
         connect_splitter_saver(splitter, "subscription_splitter_sizes")
 
         source_actions_1 = QHBoxLayout()
+        source_actions_1.setSpacing(_ROW_SPACING)
         import_authors_btn = PrimaryPushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
+        _style_action_button(import_authors_btn)
         import_authors_btn.clicked.connect(self._import_followed_authors)
         source_actions_1.addWidget(import_authors_btn)
 
         add_feed_btn = PrimaryPushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
+        _style_action_button(add_feed_btn)
         add_feed_btn.clicked.connect(self._add_following_feed)
         source_actions_1.addWidget(add_feed_btn)
         left_layout.addLayout(source_actions_1)
 
         source_actions_2 = QHBoxLayout()
+        source_actions_2.setSpacing(_ROW_SPACING)
         add_source_btn = PrimaryPushButton(tr("Add Author / Playlist", "添加作者/播放列表", "作者/リストを追加"), self, FluentIcon.PEOPLE)
+        _style_action_button(add_source_btn)
         add_source_btn.clicked.connect(self._add_source)
         source_actions_2.addWidget(add_source_btn)
+
+        toggle_btn = PrimaryPushButton(tr("Enable / Disable", "启用/停用", "有効/無効"), self, FluentIcon.CANCEL)
+        _style_action_button(toggle_btn)
+        toggle_btn.clicked.connect(self._toggle_selected_source)
+        source_actions_2.addWidget(toggle_btn)
         left_layout.addLayout(source_actions_2)
 
         source_actions_3 = QHBoxLayout()
+        source_actions_3.setSpacing(_ROW_SPACING)
         refresh_selected_btn = PrimaryPushButton(tr("Refresh Selected", "刷新选中", "選択を更新"), self, FluentIcon.SYNC)
+        _style_action_button(refresh_selected_btn)
         refresh_selected_btn.clicked.connect(self._refresh_selected)
         source_actions_3.addWidget(refresh_selected_btn)
 
-        toggle_btn = PrimaryPushButton(tr("Enable / Disable", "启用/停用", "有効/無効"), self, FluentIcon.CANCEL)
-        toggle_btn.clicked.connect(self._toggle_selected_source)
-        source_actions_3.addWidget(toggle_btn)
+        refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
+        _style_action_button(refresh_all_btn)
+        refresh_all_btn.clicked.connect(self._refresh_all)
+        source_actions_3.addWidget(refresh_all_btn)
         left_layout.addLayout(source_actions_3)
 
         storage = download_manager.get_subscription_storage_info()
-        storage_label = BodyLabel(tr("Saved locally", "本地保存", "ローカル保存") + ": subscriptions.db", self)
+        db_name = os.path.basename(str(storage.get("db_path", "") or "")) or "history.db"
+        storage_label = BodyLabel(tr("Saved locally", "本地保存", "ローカル保存") + f": {db_name}", self)
+        _style_inline_label(storage_label)
         storage_label.setToolTip(
             tr(
                 f"DB: {storage.get('db_path', '')}\nBackup: {storage.get('backup_path', '')}",
@@ -234,31 +268,111 @@ class SubscriptionInterface(QWidget):
         self._source_table.setColumnHidden(self._SRC_KEY, True)
         left_layout.addWidget(self._source_table, stretch=1)
 
-        item_actions = QHBoxLayout()
+        item_summary_row = QHBoxLayout()
+        item_summary_row.setSpacing(_ROW_SPACING)
         self._summary_label = BodyLabel("", self)
-        item_actions.addWidget(self._summary_label)
-        item_actions.addStretch()
+        _style_inline_label(self._summary_label)
+        item_summary_row.addWidget(self._summary_label)
+        item_summary_row.addStretch()
+        right_layout.addLayout(item_summary_row)
 
+        item_actions_top = QHBoxLayout()
+        item_actions_top.setSpacing(_ROW_SPACING)
         all_sources_btn = PrimaryPushButton(tr("Show All", "显示全部", "全て表示"), self, FluentIcon.HISTORY)
+        _style_action_button(all_sources_btn, min_width=116)
         all_sources_btn.clicked.connect(lambda: self._load_items(None))
-        item_actions.addWidget(all_sources_btn)
+        item_actions_top.addWidget(all_sources_btn)
 
-        mark_seen_btn = PrimaryPushButton(tr("Mark Seen", "标为已读", "既読にする"), self, FluentIcon.CHECKBOX)
-        mark_seen_btn.clicked.connect(self._mark_selected_seen)
-        item_actions.addWidget(mark_seen_btn)
+        mark_downloaded_btn = PrimaryPushButton(
+            tr("Mark Downloaded (Moved)", "标为已下载（移走）", "保存済み（移動済み）"),
+            self,
+            FluentIcon.CHECKBOX,
+        )
+        _style_action_button(mark_downloaded_btn, min_width=176)
+        mark_downloaded_btn.clicked.connect(self._mark_selected_downloaded_moved)
+        item_actions_top.addWidget(mark_downloaded_btn)
 
+        restore_moved_btn = PrimaryPushButton(
+            tr("Restore Moved", "还原已移走", "移動済み解除"),
+            self,
+            FluentIcon.RETURN,
+        )
+        _style_action_button(restore_moved_btn, min_width=136)
+        restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
+        item_actions_top.addWidget(restore_moved_btn)
+        item_actions_top.addStretch()
+        right_layout.addLayout(item_actions_top)
+
+        item_actions_bottom = QHBoxLayout()
+        item_actions_bottom.setSpacing(_ROW_SPACING)
         download_selected_btn = PrimaryPushButton(tr("Download Selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
+        _style_action_button(download_selected_btn, min_width=126)
         download_selected_btn.clicked.connect(self._download_selected)
-        item_actions.addWidget(download_selected_btn)
+        item_actions_bottom.addWidget(download_selected_btn)
 
         download_new_btn = PrimaryPushButton(tr("Download New", "下载新增", "新規を保存"), self, FluentIcon.DOWNLOAD)
+        _style_action_button(download_new_btn, min_width=126)
         download_new_btn.clicked.connect(self._download_new)
-        item_actions.addWidget(download_new_btn)
+        item_actions_bottom.addWidget(download_new_btn)
 
         download_all_btn = PrimaryPushButton(tr("Download Visible", "下载当前列表", "表示分を保存"), self, FluentIcon.DOWNLOAD)
+        _style_action_button(download_all_btn, min_width=146)
         download_all_btn.clicked.connect(self._download_visible)
-        item_actions.addWidget(download_all_btn)
-        right_layout.addLayout(item_actions)
+        item_actions_bottom.addWidget(download_all_btn)
+        item_actions_bottom.addStretch()
+        right_layout.addLayout(item_actions_bottom)
+
+        item_filter_row = QHBoxLayout()
+        item_filter_row.setSpacing(_ROW_SPACING)
+        install_label = BodyLabel(tr("Install", "安装状态", "保存状態"), self)
+        _style_inline_label(install_label)
+        item_filter_row.addWidget(install_label)
+        self._install_filter_combo = ComboBox(self)
+        self._install_filter_combo.addItems(
+            [
+                tr("All", "全部", "全て"),
+                tr("Ready", "可下载", "保存可能"),
+                tr("Downloaded", "已下载", "保存済み"),
+                tr("Moved", "已移走", "移動済み"),
+                tr("Queued", "已入队", "キュー内"),
+            ]
+        )
+        self._install_filter_combo.setFixedSize(120, _CONTROL_HEIGHT)
+        self._install_filter_combo.currentIndexChanged.connect(self._apply_item_filters)
+        item_filter_row.addWidget(self._install_filter_combo)
+
+        new_label = BodyLabel(tr("New", "新增", "新規"), self)
+        _style_inline_label(new_label)
+        item_filter_row.addWidget(new_label)
+        self._new_filter_combo = ComboBox(self)
+        self._new_filter_combo.addItems(
+            [
+                tr("All", "全部", "全て"),
+                tr("New Only", "仅新增", "新規のみ"),
+                tr("Not New", "非新增", "新規以外"),
+            ]
+        )
+        self._new_filter_combo.setFixedSize(120, _CONTROL_HEIGHT)
+        self._new_filter_combo.currentIndexChanged.connect(self._apply_item_filters)
+        item_filter_row.addWidget(self._new_filter_combo)
+
+        sort_label = BodyLabel(tr("Sort", "排序", "並び順"), self)
+        _style_inline_label(sort_label)
+        item_filter_row.addWidget(sort_label)
+        self._item_sort_combo = ComboBox(self)
+        self._item_sort_combo.addItems(
+            [
+                tr("Date Desc", "时间倒序", "日付降順"),
+                tr("Date Asc", "时间升序", "日付昇順"),
+                tr("New First", "新增优先", "新規優先"),
+                tr("Title A-Z", "标题 A-Z", "タイトル A-Z"),
+            ]
+        )
+        self._item_sort_combo.setFixedSize(130, _CONTROL_HEIGHT)
+        self._item_sort_combo.currentIndexChanged.connect(self._apply_item_filters)
+        item_filter_row.addWidget(self._item_sort_combo)
+        item_filter_row.addStretch()
+        right_layout.addLayout(item_filter_row)
 
         self._item_table = TableWidget(self)
         self._item_table.setColumnCount(9)
@@ -324,6 +438,27 @@ class SubscriptionInterface(QWidget):
             return
         self._load_items(None)
 
+    def _refresh_sources_keep_current_items(self):
+        source_id = self._current_source_id
+        self._sources = download_manager.get_subscription_sources()
+        self._render_sources()
+        if source_id is not None and not self._select_source_id(source_id):
+            source_id = None
+        self._load_items(source_id)
+
+    def _select_source_id(self, source_id: int) -> bool:
+        selected_row = -1
+        for row, source in enumerate(self._sources):
+            if int(source.get("id", 0) or 0) == int(source_id):
+                selected_row = row
+                break
+        if selected_row < 0:
+            return False
+        self._source_table.blockSignals(True)
+        self._source_table.setCurrentCell(selected_row, self._SRC_STATE)
+        self._source_table.blockSignals(False)
+        return True
+
     def _render_sources(self):
         self._source_render_timer.stop()
         self._source_render_index = 0
@@ -385,7 +520,47 @@ class SubscriptionInterface(QWidget):
         )
 
     def _load_items(self, source_id: int | None):
-        self._visible_items = download_manager.get_subscription_items(source_id)
+        self._current_source_id = source_id
+        self._all_items = download_manager.get_subscription_items(source_id)
+        self._apply_item_filters()
+
+    def _apply_item_filters(self, *_args):
+        items = list(self._all_items)
+        install_idx = self._install_filter_combo.currentIndex() if hasattr(self, "_install_filter_combo") else 0
+        new_idx = self._new_filter_combo.currentIndex() if hasattr(self, "_new_filter_combo") else 0
+        sort_idx = self._item_sort_combo.currentIndex() if hasattr(self, "_item_sort_combo") else 0
+
+        def is_downloaded(item: dict[str, Any]) -> bool:
+            return bool(item.get("downloaded"))
+
+        def file_exists(item: dict[str, Any]) -> bool:
+            return bool(item.get("download_file_exists"))
+
+        if install_idx == 1:
+            items = [item for item in items if not is_downloaded(item) and not item.get("queued")]
+        elif install_idx == 2:
+            items = [item for item in items if is_downloaded(item) and file_exists(item)]
+        elif install_idx == 3:
+            items = [item for item in items if is_downloaded(item) and not file_exists(item)]
+        elif install_idx == 4:
+            items = [item for item in items if item.get("queued")]
+
+        if new_idx == 1:
+            items = [item for item in items if int(item.get("is_new", 0) or 0)]
+        elif new_idx == 2:
+            items = [item for item in items if not int(item.get("is_new", 0) or 0)]
+
+        if sort_idx == 1:
+            items.sort(key=_item_date_key)
+        elif sort_idx == 2:
+            items.sort(key=_item_date_key, reverse=True)
+            items.sort(key=lambda item: 0 if int(item.get("is_new", 0) or 0) else 1)
+        elif sort_idx == 3:
+            items.sort(key=lambda item: str(item.get("title", "") or item.get("video_id", "") or "").lower())
+        else:
+            items.sort(key=_item_date_key, reverse=True)
+
+        self._visible_items = items
         self._render_items()
 
     def _render_items(self):
@@ -394,23 +569,26 @@ class SubscriptionInterface(QWidget):
         self._item_table.setUpdatesEnabled(False)
         self._item_table.clearContents()
         self._item_table.setRowCount(len(self._visible_items))
-        new_count = downloaded_count = queued_count = 0
-        for item_data in self._visible_items:
+        new_count = downloaded_count = moved_count = queued_count = 0
+        for item_data in self._all_items:
             downloaded = bool(item_data.get("downloaded"))
+            file_exists = bool(item_data.get("download_file_exists"))
             queued = bool(item_data.get("queued"))
             is_new = bool(int(item_data.get("is_new", 0) or 0))
             if is_new:
                 new_count += 1
-            if downloaded:
+            if downloaded and file_exists:
                 downloaded_count += 1
+            if downloaded and not file_exists:
+                moved_count += 1
             if queued:
                 queued_count += 1
         self._item_table.setUpdatesEnabled(True)
         self._summary_label.setText(
             tr(
-                f"Visible: {len(self._visible_items)} | new: {new_count} | downloaded: {downloaded_count} | queued: {queued_count}",
-                f"当前显示: {len(self._visible_items)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已在队列: {queued_count}",
-                f"表示: {len(self._visible_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | キュー内: {queued_count}",
+                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count}",
+                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count}",
+                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count}",
             )
         )
         self._item_render_timer.start()
@@ -438,7 +616,7 @@ class SubscriptionInterface(QWidget):
         is_new = bool(int(item_data.get("is_new", 0) or 0))
         file_exists = bool(item_data.get("download_file_exists"))
         source_title = str(item_data.get("source_title", "") or "")
-        state = _item_state_text(downloaded=downloaded, queued=queued)
+        state = _item_state_text(downloaded=downloaded, queued=queued, file_exists=file_exists)
         values = [
             state,
             tr("Yes", "是", "はい") if is_new else "",
@@ -461,7 +639,7 @@ class SubscriptionInterface(QWidget):
             if col in (self._ITEM_STATE, self._ITEM_NEW):
                 cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if col == self._ITEM_STATE:
-                cell.setForeground(_state_color(downloaded=downloaded, queued=queued))
+                cell.setForeground(_state_color(downloaded=downloaded, queued=queued, file_exists=file_exists))
             elif col == self._ITEM_NEW and is_new:
                 cell.setForeground(QColor("#c17d00"))
             self._item_table.setItem(row, col, cell)
@@ -673,7 +851,7 @@ class SubscriptionInterface(QWidget):
         self._worker.start()
 
     def _on_refresh_finished(self, summary: dict):
-        self._load_sources()
+        self._refresh_sources_keep_current_items()
         errors = summary.get("errors") or []
         if errors:
             first = errors[0]
@@ -717,14 +895,56 @@ class SubscriptionInterface(QWidget):
             return
         enabled = bool(int(source.get("enabled", 1) or 0))
         download_manager.set_subscription_enabled(source_id, not enabled)
-        self._load_sources()
+        self._refresh_sources_keep_current_items()
 
     def _mark_selected_seen(self):
         ids = self._selected_video_ids()
         if not ids:
             ids = [str(item.get("video_id", "") or "") for item in self._visible_items if item.get("is_new")]
         download_manager.mark_subscription_items_seen(ids)
-        self._load_sources()
+        self._refresh_sources_keep_current_items()
+
+    def _mark_selected_downloaded_moved(self):
+        ids = self._selected_video_ids()
+        if not ids:
+            self._show_error(tr("Select videos first", "请先选择视频", "動画を選択してください"))
+            return
+        marked = download_manager.mark_subscription_items_downloaded(ids)
+        self._refresh_sources_keep_current_items()
+        InfoBar.success(
+            title=tr("Marked", "已标记", "マーク完了"),
+            content=tr(
+                f"Marked {marked} videos as downloaded/moved",
+                f"已将 {marked} 个视频标记为已下载（移走）",
+                f"{marked} 件を保存済み（移動済み）にしました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self,
+        )
+
+    def _restore_selected_downloaded_moved(self):
+        ids = self._selected_video_ids()
+        if not ids:
+            self._show_error(tr("Select moved videos first", "请先选择已移走的视频", "移動済み動画を選択してください"))
+            return
+        restored = download_manager.restore_subscription_items_downloaded(ids)
+        self._refresh_sources_keep_current_items()
+        InfoBar.success(
+            title=tr("Restored", "已还原", "解除完了"),
+            content=tr(
+                f"Restored {restored} moved records",
+                f"已还原 {restored} 个已移走记录",
+                f"移動済み記録を {restored} 件解除しました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self,
+        )
 
     def _download_selected(self):
         ids = self._selected_video_ids()
@@ -763,15 +983,30 @@ class SubscriptionInterface(QWidget):
 
     def _on_enqueue_finished(self, result: dict):
         queued = int(result.get("queued", 0) or 0)
+        marked = int(result.get("marked", 0) or 0)
+        thumbnail = int(result.get("thumbnail", 0) or 0)
+        nfo = int(result.get("nfo", 0) or 0)
+        failed = int(result.get("failed", 0) or 0)
+        mode = str(result.get("mode", "") or "")
         self._enqueue_worker = None
-        self._load_sources()
-        InfoBar.success(
-            title=tr("Added To Queue", "已加入队列", "キューに追加"),
-            content=tr(
+        self._refresh_sources_keep_current_items()
+        if mode == "metadata":
+            title = tr("Processed", "已处理", "処理完了")
+            content = tr(
+                f"Marked {marked}, thumbnails {thumbnail}, NFO {nfo}, failed {failed}",
+                f"已标记 {marked}，封面 {thumbnail}，NFO {nfo}，失败 {failed}",
+                f"記録 {marked}、サムネイル {thumbnail}、NFO {nfo}、失敗 {failed}",
+            )
+        else:
+            title = tr("Added To Queue", "已加入队列", "キューに追加")
+            content = tr(
                 f"Queued {queued} videos",
                 f"已加入 {queued} 个视频",
                 f"{queued} 件を追加しました",
-            ),
+            )
+        InfoBar.success(
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -798,7 +1033,7 @@ class SubscriptionInterface(QWidget):
 
     def _refresh_visible_items_after_task_change(self):
         self._items_refresh_pending = False
-        self._load_items(self._selected_source_id())
+        self._load_items(self._current_source_id)
 
 
 def _source_type_label(source_type: str) -> str:
@@ -811,20 +1046,33 @@ def _source_type_label(source_type: str) -> str:
     return source_type
 
 
-def _item_state_text(*, downloaded: bool, queued: bool) -> str:
-    if downloaded:
+def _item_state_text(*, downloaded: bool, queued: bool, file_exists: bool) -> str:
+    if downloaded and file_exists:
         return tr("Downloaded", "已下载", "保存済み")
+    if downloaded:
+        return tr("Moved", "已移走", "移動済み")
     if queued:
         return tr("Queued", "已入队", "キュー内")
     return tr("Ready", "可下载", "保存可能")
 
 
-def _state_color(*, downloaded: bool, queued: bool) -> QColor:
-    if downloaded:
+def _state_color(*, downloaded: bool, queued: bool, file_exists: bool) -> QColor:
+    if downloaded and file_exists:
         return QColor("#107c10")
+    if downloaded:
+        return QColor("#c17d00")
     if queued:
         return QColor("#0078d4")
     return QColor("#555555")
+
+
+def _item_date_key(item: dict[str, Any]) -> str:
+    return str(
+        item.get("published_at", "")
+        or item.get("discovered_at", "")
+        or item.get("updated_at", "")
+        or ""
+    )
 
 
 def _extract_author_key(text: str) -> str:

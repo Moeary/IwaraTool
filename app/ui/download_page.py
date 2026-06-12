@@ -4,7 +4,18 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget, QSizePolicy
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QMessageBox,
+    QPlainTextEdit,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qfluentwidgets import (
     BodyLabel,
@@ -209,6 +220,7 @@ class DownloadInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("DownloadInterface")
         self._pending_logs: list[str] = []
+        self._syncing_options = False
         self._log_flush_timer = QTimer(self)
         self._log_flush_timer.setInterval(200)
         self._log_flush_timer.timeout.connect(self._flush_logs)
@@ -250,6 +262,37 @@ class DownloadInterface(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([390, 1180])
+
+        option_card = CardWidget(left_panel)
+        option_layout = QGridLayout(option_card)
+        option_layout.setContentsMargins(14, 10, 14, 10)
+        option_layout.setHorizontalSpacing(12)
+        option_layout.setVerticalSpacing(8)
+
+        self._download_video_switch = SwitchButton(option_card)
+        self._download_video_switch.setChecked(app_config.download_video_file)
+        self._download_video_switch.checkedChanged.connect(self._on_download_video_toggle)
+        option_layout.addWidget(BodyLabel(tr("Download Video", "下载视频", "動画を保存"), option_card), 0, 0)
+        option_layout.addWidget(self._download_video_switch, 0, 1)
+
+        self._download_thumb_switch = SwitchButton(option_card)
+        self._download_thumb_switch.setChecked(app_config.download_thumbnail)
+        self._download_thumb_switch.checkedChanged.connect(self._on_download_thumb_toggle)
+        option_layout.addWidget(BodyLabel(tr("Thumbnail", "下载封面", "サムネイル"), option_card), 0, 2)
+        option_layout.addWidget(self._download_thumb_switch, 0, 3)
+
+        self._collect_nfo_switch = SwitchButton(option_card)
+        self._collect_nfo_switch.setChecked(app_config.collect_nfo_info)
+        self._collect_nfo_switch.checkedChanged.connect(self._on_collect_nfo_toggle)
+        option_layout.addWidget(BodyLabel("NFO", option_card), 1, 0)
+        option_layout.addWidget(self._collect_nfo_switch, 1, 1)
+
+        self._mark_downloaded_switch = SwitchButton(option_card)
+        self._mark_downloaded_switch.setChecked(app_config.mark_submitted_as_downloaded)
+        self._mark_downloaded_switch.checkedChanged.connect(self._on_mark_downloaded_toggle)
+        option_layout.addWidget(BodyLabel(tr("Mark Only", "仅标记已下载", "マークのみ"), option_card), 1, 2)
+        option_layout.addWidget(self._mark_downloaded_switch, 1, 3)
+        left_layout.addWidget(option_card)
 
         quick_row = QHBoxLayout()
         quick_row.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), left_panel))
@@ -369,11 +412,20 @@ class DownloadInterface(QWidget):
                 parent=self,
             )
             return
-        download_manager.add_url(url)
+        self._maybe_add_download_source_to_subscription(url)
+        mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
+        if mark_only:
+            download_manager.add_url_mark_downloaded(url)
+        else:
+            download_manager.add_url(url)
         self._url_edit.clear()
         InfoBar.success(
-            title=tr("Added to Queue", "已加入队列", "キューに追加しました"),
-            content=tr("Submitted for parsing: ", "已提交解析：", "解析キューに送信: ")
+            title=tr("Submitted", "已提交", "送信しました"),
+            content=(
+                tr("Submitted for marking: ", "已提交标记：", "マーク処理へ送信: ")
+                if mark_only
+                else tr("Submitted for parsing: ", "已提交解析：", "解析キューに送信: ")
+            )
             + f"{url[:70]}{'…' if len(url) > 70 else ''}",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
@@ -427,6 +479,101 @@ class DownloadInterface(QWidget):
                 f"[フィルター] {state}",
             )
         )
+
+    def _on_download_video_toggle(self, checked: bool):
+        if self._syncing_options:
+            return
+        app_config.download_video_file = checked
+        if checked and self._mark_downloaded_switch.isChecked():
+            self._syncing_options = True
+            self._mark_downloaded_switch.setChecked(False)
+            app_config.mark_submitted_as_downloaded = False
+            self._syncing_options = False
+        if not checked and not self._mark_downloaded_switch.isChecked():
+            self._syncing_options = True
+            self._mark_downloaded_switch.setChecked(True)
+            app_config.mark_submitted_as_downloaded = True
+            self._syncing_options = False
+
+    def _on_download_thumb_toggle(self, checked: bool):
+        app_config.download_thumbnail = checked
+
+    def _on_collect_nfo_toggle(self, checked: bool):
+        app_config.collect_nfo_info = checked
+
+    def _on_mark_downloaded_toggle(self, checked: bool):
+        if self._syncing_options:
+            return
+        app_config.mark_submitted_as_downloaded = checked
+        if checked and self._download_video_switch.isChecked():
+            self._syncing_options = True
+            self._download_video_switch.setChecked(False)
+            app_config.download_video_file = False
+            self._syncing_options = False
+        if not checked and not self._download_video_switch.isChecked():
+            self._syncing_options = True
+            self._download_video_switch.setChecked(True)
+            app_config.download_video_file = True
+            self._syncing_options = False
+
+    def _maybe_add_download_source_to_subscription(self, url: str):
+        candidate = download_manager.detect_subscription_source(url)
+        if not candidate:
+            return
+        kind, key = candidate
+        mode = app_config.subscription_prompt_mode
+        if mode == "never":
+            return
+        if mode == "always":
+            self._add_subscription_source(kind, key)
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Add Subscription", "加入订阅列表", "購読に追加"))
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            tr(
+                "Add this author/playlist to the local subscription list?",
+                "是否把这个作者/播放列表加入本地订阅列表？",
+                "この作者/プレイリストをローカル購読に追加しますか？",
+            )
+        )
+        box.setInformativeText(
+            tr(
+                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
+                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
+                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
+            )
+        )
+        no_remind = QCheckBox(tr("Do not ask again", "下次不再提醒", "次回から確認しない"), box)
+        box.setCheckBox(no_remind)
+        yes_btn = box.addButton(tr("Add This Time", "本次加入", "今回追加"), QMessageBox.ButtonRole.YesRole)
+        always_btn = box.addButton(tr("Always Add", "以后都自动加入", "常に追加"), QMessageBox.ButtonRole.AcceptRole)
+        no_btn = box.addButton(tr("No", "不加入", "追加しない"), QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(yes_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == always_btn:
+            app_config.subscription_prompt_mode = "always"
+            self._add_subscription_source(kind, key)
+        elif clicked == yes_btn:
+            if no_remind.isChecked():
+                app_config.subscription_prompt_mode = "never"
+            self._add_subscription_source(kind, key)
+        elif clicked == no_btn and no_remind.isChecked():
+            app_config.subscription_prompt_mode = "never"
+
+    def _add_subscription_source(self, kind: str, key: str):
+        source_id = download_manager.add_detected_subscription_source(kind, key)
+        if source_id:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Subscriptions] added local source: {kind}:{key}",
+                    f"[订阅] 已加入本地订阅源：{kind}:{key}",
+                    f"[購読] ローカル購読元を追加: {kind}:{key}",
+                )
+            )
 
     def _open_filter_dialog(self):
         dlg = FilterDialog(self)
