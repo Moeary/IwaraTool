@@ -57,11 +57,12 @@ class HistoryInterface(QWidget):
     _COL_DOWNLOADED = 7
     _COL_ID = 8
     _COL_PATH = 9
-    _COL_OPEN_URL = 10
-    _COL_OPEN_FOLDER = 11
-    _COL_OPEN_FILE = 12
-    _COL_RENAME = 13
-    _COL_REMOVE = 14
+    _COL_SOURCE_URL = 10
+    _COL_OPEN_URL = 11
+    _COL_OPEN_FOLDER = 12
+    _COL_OPEN_FILE = 13
+    _COL_RENAME = 14
+    _COL_REMOVE = 15
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -170,7 +171,7 @@ class HistoryInterface(QWidget):
 
         self._table = TableWidget(self)
         self._table.setObjectName("historyTable")
-        self._table.setColumnCount(15)
+        self._table.setColumnCount(16)
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -183,6 +184,7 @@ class HistoryInterface(QWidget):
                 tr("Downloaded At", "下载时间", "保存日時"),
                 "ID",
                 tr("File Path", "文件路径", "ファイルパス"),
+                "URL",
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
@@ -221,6 +223,7 @@ class HistoryInterface(QWidget):
             self._COL_DOWNLOADED: 150,
             self._COL_ID: 135,
             self._COL_PATH: 520,
+            self._COL_SOURCE_URL: 68,
             self._COL_OPEN_URL: 58,
             self._COL_OPEN_FOLDER: 58,
             self._COL_OPEN_FILE: 58,
@@ -316,6 +319,17 @@ class HistoryInterface(QWidget):
                         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     self._table.setItem(row_idx, col_idx, item)
 
+                source_url = str(record.get("source_url", "") or _video_url(video_id))
+                self._set_action_item(
+                    row_idx,
+                    self._COL_SOURCE_URL,
+                    tr("Open", "打开", "開く"),
+                    source_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
+                    "open_url",
+                    bool(source_url),
+                    video_id,
+                    action_url=source_url,
+                )
                 self._set_action_item(
                     row_idx,
                     self._COL_OPEN_URL,
@@ -324,6 +338,7 @@ class HistoryInterface(QWidget):
                     "open_url",
                     bool(video_id),
                     video_id,
+                    action_url=_video_url(video_id),
                 )
                 self._set_action_item(
                     row_idx,
@@ -366,6 +381,7 @@ class HistoryInterface(QWidget):
 
     def _on_cell_clicked(self, row: int, column: int):
         if column not in {
+            self._COL_SOURCE_URL,
             self._COL_OPEN_URL,
             self._COL_OPEN_FOLDER,
             self._COL_OPEN_FILE,
@@ -381,7 +397,8 @@ class HistoryInterface(QWidget):
         if not action or not video_id:
             return
         if action == "open_url":
-            self._open_video_url(video_id)
+            url = str(item.data(Qt.ItemDataRole.UserRole + 2) or "")
+            self._open_video_url(video_id, url=url)
         elif action == "folder":
             self._open_record(video_id, open_file=False)
         elif action == "file":
@@ -393,6 +410,7 @@ class HistoryInterface(QWidget):
 
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         if item.column() in {
+            self._COL_SOURCE_URL,
             self._COL_OPEN_URL,
             self._COL_OPEN_FOLDER,
             self._COL_OPEN_FILE,
@@ -438,6 +456,7 @@ class HistoryInterface(QWidget):
             self._COL_DOWNLOADED,
             self._COL_ID,
             self._COL_PATH,
+            self._COL_SOURCE_URL,
         }
 
     def _sort_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -472,6 +491,8 @@ class HistoryInterface(QWidget):
                 return text(record.get("video_id"))
             if self._sort_column == self._COL_PATH:
                 return text(record.get("file_path"))
+            if self._sort_column == self._COL_SOURCE_URL:
+                return text(record.get("source_url") or _video_url(record.get("video_id", "")))
             return text(record.get("downloaded_at"))
 
         return sorted(records, key=key, reverse=self._sort_reverse)
@@ -485,11 +506,14 @@ class HistoryInterface(QWidget):
         action: str,
         enabled: bool,
         video_id: str,
+        *,
+        action_url: str = "",
     ):
         item = QTableWidgetItem(text if enabled else "-")
         item.setData(Qt.ItemDataRole.UserRole, video_id)
         item.setToolTip(tooltip if enabled else "")
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         if enabled:
             item.setData(Qt.ItemDataRole.UserRole + 1, action)
             item.setForeground(QColor("#0078d4"))
@@ -575,9 +599,9 @@ class HistoryInterface(QWidget):
         if not ok:
             self._show_error(msg)
 
-    def _open_video_url(self, video_id: str):
+    def _open_video_url(self, video_id: str, *, url: str = ""):
         record = self._records_by_id.get(video_id, {})
-        url = str(record.get("source_url", "") or _video_url(video_id))
+        url = str(url or record.get("source_url", "") or _video_url(video_id))
         if url:
             webbrowser.open(url)
 

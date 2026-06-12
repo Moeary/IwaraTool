@@ -10,6 +10,7 @@ from PySide6.QtCore import QTimer, Qt, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
@@ -30,9 +31,11 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
+from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .download_page import FilterDialog, _OPTION_OFF_STYLE, _OPTION_ON_STYLE
 from .ui_state import (
     connect_splitter_saver,
     connect_table_column_saver,
@@ -107,7 +110,8 @@ class SubscriptionInterface(QWidget):
     _SRC_ITEMS = 4
     _SRC_CHECKED = 5
     _SRC_KEY = 6
-    _SRC_OPEN = 7
+    _SRC_URL = 7
+    _SRC_OPEN = 8
 
     _ITEM_STATE = 0
     _ITEM_NEW = 1
@@ -115,9 +119,10 @@ class SubscriptionInterface(QWidget):
     _ITEM_AUTHOR = 3
     _ITEM_PUBLISHED = 4
     _ITEM_ID = 5
-    _ITEM_URL = 6
-    _ITEM_FOLDER = 7
-    _ITEM_FILE = 8
+    _ITEM_SOURCE_URL = 6
+    _ITEM_URL = 7
+    _ITEM_FOLDER = 8
+    _ITEM_FILE = 9
 
     _RENDER_BATCH_SIZE = 80
 
@@ -134,6 +139,7 @@ class SubscriptionInterface(QWidget):
         self._source_render_index = 0
         self._item_render_index = 0
         self._items_refresh_pending = False
+        self._syncing_download_options = False
         self._source_render_timer = QTimer(self)
         self._source_render_timer.setInterval(0)
         self._source_render_timer.timeout.connect(self._render_source_batch)
@@ -143,6 +149,8 @@ class SubscriptionInterface(QWidget):
         self._build_ui()
         self._load_sources()
         signal_bus.task_status_changed.connect(self._on_task_status_changed)
+        signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
+        self._sync_download_option_buttons()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -237,16 +245,17 @@ class SubscriptionInterface(QWidget):
         left_layout.addLayout(source_meta_row)
 
         self._source_table = TableWidget(self)
-        self._source_table.setColumnCount(8)
+        self._source_table.setColumnCount(9)
         self._source_table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
                 tr("Type", "类型", "種類"),
-                tr("Title", "名称", "名前"),
+                tr("Display Name", "名称（作者名）", "表示名"),
                 tr("New", "新增", "新規"),
                 tr("Items", "项目", "項目"),
                 tr("Last Check", "上次刷新", "最終確認"),
-                tr("Key", "标识", "キー"),
+                tr("Username", "名称（username）", "ユーザー名"),
+                "URL",
                 tr("Page", "主页", "ページ"),
             ]
         )
@@ -270,24 +279,26 @@ class SubscriptionInterface(QWidget):
             self._SRC_NEW: 52,
             self._SRC_ITEMS: 58,
             self._SRC_CHECKED: 150,
-            self._SRC_KEY: 260,
+            self._SRC_KEY: 170,
+            self._SRC_URL: 68,
             self._SRC_OPEN: 68,
         }
         restore_table_widths(self._source_table, "subscription_source_widths", source_widths)
         connect_table_width_saver(self._source_table, "subscription_source_widths")
         restore_table_columns(
             self._source_table,
-            "subscription_source_table",
+            "subscription_source_table_v2",
             default_visible=[
                 self._SRC_STATE,
                 self._SRC_TYPE,
                 self._SRC_TITLE,
+                self._SRC_KEY,
                 self._SRC_NEW,
                 self._SRC_ITEMS,
-                self._SRC_OPEN,
+                self._SRC_URL,
             ],
         )
-        connect_table_column_saver(self._source_table, "subscription_source_table")
+        connect_table_column_saver(self._source_table, "subscription_source_table_v2")
         left_layout.addWidget(self._source_table, stretch=1)
 
         item_summary_row = QHBoxLayout()
@@ -305,32 +316,49 @@ class SubscriptionInterface(QWidget):
         all_sources_btn.clicked.connect(lambda: self._load_items(None))
         item_actions_top.addWidget(all_sources_btn)
 
-        mark_downloaded_btn = PrimaryPushButton(
+        self._mark_downloaded_btn = PrimaryPushButton(
             tr("Mark Downloaded (Moved)", "标为已下载（移走）", "保存済み（移動済み）"),
             self,
             FluentIcon.CHECKBOX,
         )
-        _style_action_button(mark_downloaded_btn, min_width=176)
-        mark_downloaded_btn.clicked.connect(self._mark_selected_downloaded_moved)
-        item_actions_top.addWidget(mark_downloaded_btn)
+        self._mark_downloaded_btn.setToolTip(
+            tr(
+                "Select one or more videos, then mark them as already downloaded/moved in history.",
+                "需要先选中右侧列表里的一个或多个视频；会同步写入历史库为已下载（移走）。",
+                "右側リストで1件以上選択してから、履歴上で保存済み（移動済み）にします。",
+            )
+        )
+        _style_action_button(self._mark_downloaded_btn, min_width=176)
+        self._mark_downloaded_btn.clicked.connect(self._mark_selected_downloaded_moved)
+        item_actions_top.addWidget(self._mark_downloaded_btn)
 
-        restore_moved_btn = PrimaryPushButton(
+        self._restore_moved_btn = PrimaryPushButton(
             tr("Restore Moved", "还原已移走", "移動済み解除"),
             self,
             FluentIcon.RETURN,
         )
-        _style_action_button(restore_moved_btn, min_width=136)
-        restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
-        item_actions_top.addWidget(restore_moved_btn)
+        self._restore_moved_btn.setToolTip(
+            tr(
+                "Select moved records, then remove their moved/downloaded marker from history.",
+                "需要先选中已移走的视频；会从历史库移除对应的已下载标记。",
+                "移動済みの動画を選択して、履歴の保存済みマークを解除します。",
+            )
+        )
+        _style_action_button(self._restore_moved_btn, min_width=136)
+        self._restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
+        item_actions_top.addWidget(self._restore_moved_btn)
         item_actions_top.addStretch()
         right_layout.addLayout(item_actions_top)
 
         item_actions_bottom = QHBoxLayout()
         item_actions_bottom.setSpacing(_ROW_SPACING)
-        download_selected_btn = PrimaryPushButton(tr("Download Selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
-        _style_action_button(download_selected_btn, min_width=126)
-        download_selected_btn.clicked.connect(self._download_selected)
-        item_actions_bottom.addWidget(download_selected_btn)
+        self._download_selected_btn = PrimaryPushButton(tr("Download Selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
+        self._download_selected_btn.setToolTip(
+            tr("Select one or more videos before downloading.", "需要先选中右侧列表里的一个或多个视频。", "右側リストで1件以上選択してください。")
+        )
+        _style_action_button(self._download_selected_btn, min_width=126)
+        self._download_selected_btn.clicked.connect(self._download_selected)
+        item_actions_bottom.addWidget(self._download_selected_btn)
 
         download_new_btn = PrimaryPushButton(tr("Download New", "下载新增", "新規を保存"), self, FluentIcon.DOWNLOAD)
         _style_action_button(download_new_btn, min_width=126)
@@ -343,6 +371,54 @@ class SubscriptionInterface(QWidget):
         item_actions_bottom.addWidget(download_all_btn)
         item_actions_bottom.addStretch()
         right_layout.addLayout(item_actions_bottom)
+
+        download_options_row = QHBoxLayout()
+        download_options_row.setSpacing(_ROW_SPACING)
+        options_label = BodyLabel(tr("Download Mode", "下载设置", "保存設定"), self)
+        _style_inline_label(options_label)
+        download_options_row.addWidget(options_label)
+
+        filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), self, FluentIcon.FILTER)
+        filter_btn.setToolTip(
+            tr(
+                "Open the same filter dialog used by the download workbench.",
+                "打开和下载工作台共用的筛选设置；保存后会同步影响新任务。",
+                "ダウンロード画面と同じフィルター設定を開きます。",
+            )
+        )
+        _style_action_button(filter_btn, min_width=108)
+        filter_btn.clicked.connect(self._open_filter_dialog)
+        download_options_row.addWidget(filter_btn)
+
+        self._option_download_video_btn = self._make_download_option_button(
+            tr("Download Video", "下载视频", "動画保存"),
+            tr("Queue real video downloads. This is mutually exclusive with mark-only.", "下载真实视频文件；和仅标记已下载互斥。", "動画ファイルを保存します。マークのみとは排他です。"),
+        )
+        self._option_download_video_btn.clicked.connect(self._on_download_video_option_clicked)
+        download_options_row.addWidget(self._option_download_video_btn)
+
+        self._option_mark_downloaded_btn = self._make_download_option_button(
+            tr("Mark Only", "仅标记已下载", "マークのみ"),
+            tr("Do not download video; only fetch metadata/sidecars and mark as downloaded.", "不下载视频，只拉取元数据/附属文件并标记为已下载。", "動画を保存せず、メタデータ/関連ファイルのみ取得して保存済みにします。"),
+        )
+        self._option_mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_option_clicked)
+        download_options_row.addWidget(self._option_mark_downloaded_btn)
+
+        self._option_download_thumb_btn = self._make_download_option_button(
+            tr("Thumbnail", "下载封面", "サムネイル"),
+            tr("Download thumbnail images when metadata is available.", "有元数据时下载封面图。", "メタデータ取得時にサムネイルを保存します。"),
+        )
+        self._option_download_thumb_btn.clicked.connect(self._on_download_thumb_option_clicked)
+        download_options_row.addWidget(self._option_download_thumb_btn)
+
+        self._option_collect_nfo_btn = self._make_download_option_button(
+            "NFO",
+            tr("Write Kodi/Jellyfin compatible NFO metadata.", "写出兼容 Kodi/Jellyfin 的 NFO 元数据。", "Kodi/Jellyfin互換のNFOを書き出します。"),
+        )
+        self._option_collect_nfo_btn.clicked.connect(self._on_collect_nfo_option_clicked)
+        download_options_row.addWidget(self._option_collect_nfo_btn)
+        download_options_row.addStretch()
+        right_layout.addLayout(download_options_row)
 
         item_filter_row = QHBoxLayout()
         item_filter_row.setSpacing(_ROW_SPACING)
@@ -402,7 +478,7 @@ class SubscriptionInterface(QWidget):
         right_layout.addLayout(item_filter_row)
 
         self._item_table = TableWidget(self)
-        self._item_table.setColumnCount(9)
+        self._item_table.setColumnCount(10)
         self._item_table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -411,6 +487,7 @@ class SubscriptionInterface(QWidget):
                 tr("Author", "作者", "作者"),
                 tr("Published", "发布时间", "公開日"),
                 "ID",
+                "URL",
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
@@ -437,6 +514,7 @@ class SubscriptionInterface(QWidget):
             self._ITEM_AUTHOR: 140,
             self._ITEM_PUBLISHED: 130,
             self._ITEM_ID: 130,
+            self._ITEM_SOURCE_URL: 260,
             self._ITEM_URL: 68,
             self._ITEM_FOLDER: 68,
             self._ITEM_FILE: 68,
@@ -445,20 +523,23 @@ class SubscriptionInterface(QWidget):
         connect_table_width_saver(self._item_table, "subscription_item_widths")
         restore_table_columns(self._item_table, "subscription_item_table")
         connect_table_column_saver(self._item_table, "subscription_item_table")
+        self._item_table.selectionModel().selectionChanged.connect(lambda *_args: self._update_selection_actions())
         right_layout.addWidget(self._item_table, stretch=1)
+        self._update_selection_actions()
 
     def _configure_source_columns(self):
         open_table_column_dialog(
             self._source_table,
-            "subscription_source_table",
+            "subscription_source_table_v2",
             title=tr("Source Columns", "订阅源字段", "購読元列設定"),
             default_visible=[
                 self._SRC_STATE,
                 self._SRC_TYPE,
                 self._SRC_TITLE,
+                self._SRC_KEY,
                 self._SRC_NEW,
                 self._SRC_ITEMS,
-                self._SRC_OPEN,
+                self._SRC_URL,
             ],
             parent=self,
         )
@@ -542,6 +623,7 @@ class SubscriptionInterface(QWidget):
     def _render_source_row(self, row: int, source: dict[str, Any]):
         source_id = int(source.get("id", 0) or 0)
         enabled = bool(int(source.get("enabled", 1) or 0))
+        source_url = _source_url(source)
         values = [
             tr("Enabled", "启用", "有効") if enabled else tr("Disabled", "停用", "無効"),
             _source_type_label(str(source.get("source_type", "") or "")),
@@ -564,12 +646,24 @@ class SubscriptionInterface(QWidget):
         self._set_action_item(
             self._source_table,
             row,
+            self._SRC_URL,
+            source_id,
+            "open_source",
+            tr("Open", "打开", "開く"),
+            source_url or tr("No source URL", "没有订阅源链接", "購読元URLがありません"),
+            bool(source_url),
+            action_url=source_url,
+        )
+        self._set_action_item(
+            self._source_table,
+            row,
             self._SRC_OPEN,
             source_id,
             "open_source",
             tr("Open", "打开", "開く"),
             tr("Open source page", "打开订阅源页面", "購読元ページを開く"),
-            bool(_source_url(source)),
+            bool(source_url),
+            action_url=source_url,
         )
 
     def _load_items(self, source_id: int | None):
@@ -644,6 +738,7 @@ class SubscriptionInterface(QWidget):
                 f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count}",
             )
         )
+        self._update_selection_actions()
         self._item_render_timer.start()
 
     def _render_item_batch(self):
@@ -669,6 +764,7 @@ class SubscriptionInterface(QWidget):
         is_new = bool(int(item_data.get("is_new", 0) or 0))
         file_exists = bool(item_data.get("download_file_exists"))
         source_title = str(item_data.get("source_title", "") or "")
+        source_url = str(item_data.get("source_url", "") or _video_url(video_id))
         state = _item_state_text(downloaded=downloaded, queued=queued, file_exists=file_exists)
         values = [
             state,
@@ -700,12 +796,24 @@ class SubscriptionInterface(QWidget):
         self._set_action_item(
             self._item_table,
             row,
+            self._ITEM_SOURCE_URL,
+            video_id,
+            "open_url",
+            tr("Open", "打开", "開く"),
+            source_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
+            bool(source_url),
+            action_url=source_url,
+        )
+        self._set_action_item(
+            self._item_table,
+            row,
             self._ITEM_URL,
             video_id,
             "open_url",
             tr("Page", "页面", "ページ"),
             tr("Open video page", "打开视频页", "動画ページを開く"),
             bool(video_id),
+            action_url=_video_url(video_id),
         )
         self._set_action_item(
             self._item_table,
@@ -738,10 +846,13 @@ class SubscriptionInterface(QWidget):
         text: str,
         tooltip: str,
         enabled: bool,
+        *,
+        action_url: str = "",
     ):
         cell = QTableWidgetItem(text if enabled else "—")
         cell.setData(Qt.ItemDataRole.UserRole, entity_id)
         cell.setData(Qt.ItemDataRole.UserRole + 1, action if enabled else "")
+        cell.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         cell.setToolTip(tooltip)
         cell.setForeground(QColor("#0078d4" if enabled else "#999999"))
@@ -766,12 +877,17 @@ class SubscriptionInterface(QWidget):
         return ids
 
     def _on_source_cell_clicked(self, row: int, column: int):
-        if column != self._SRC_OPEN or row < 0 or row >= len(self._sources):
+        if column not in (self._SRC_URL, self._SRC_OPEN) or row < 0 or row >= len(self._sources):
             return
-        self._open_source_page(self._sources[row])
+        item = self._source_table.item(row, column)
+        url = str(item.data(Qt.ItemDataRole.UserRole + 2) or "") if item else ""
+        if url:
+            _open_url(url)
+        else:
+            self._open_source_page(self._sources[row])
 
     def _on_item_cell_clicked(self, row: int, column: int):
-        if column not in (self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
+        if column not in (self._ITEM_SOURCE_URL, self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
             return
         item = self._item_table.item(row, column)
         if not item:
@@ -781,7 +897,7 @@ class SubscriptionInterface(QWidget):
         if not video_id or not action:
             return
         if action == "open_url":
-            _open_url(_video_url(video_id))
+            _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
         elif action == "open_folder":
             self._open_history_item(video_id, open_file=False)
         elif action == "open_file":
@@ -790,8 +906,10 @@ class SubscriptionInterface(QWidget):
     def _open_item_from_cell(self, item: QTableWidgetItem, *, open_file: bool):
         video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
         if video_id:
-            if item.column() == self._ITEM_URL:
-                _open_url(_video_url(video_id))
+            if item.column() == self._ITEM_SOURCE_URL:
+                _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
+            elif item.column() == self._ITEM_URL:
+                _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
             elif item.column() == self._ITEM_FOLDER:
                 self._open_history_item(video_id, open_file=False)
             else:
@@ -837,10 +955,23 @@ class SubscriptionInterface(QWidget):
             self._show_error(tr("Invalid subscription input", "订阅输入无效", "購読入力が不正です"))
             return
         if kind == "playlist":
-            download_manager.add_playlist_subscription(key)
+            source_id = download_manager.add_playlist_subscription(key)
         else:
-            download_manager.add_author_subscription(key)
+            source_id = download_manager.add_author_subscription(key)
         self._load_sources()
+        if source_id:
+            self._select_source_id(source_id)
+            self._load_items(source_id)
+            self._start_refresh(source_id)
+            InfoBar.success(
+                title=tr("Subscription Added", "订阅已添加", "購読を追加しました"),
+                content=tr("Refreshing this source now", "正在立即刷新该订阅源", "この購読元を更新しています"),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
 
     def _import_followed_authors(self):
         if self._import_worker and self._import_worker.isRunning():
@@ -960,7 +1091,7 @@ class SubscriptionInterface(QWidget):
     def _mark_selected_downloaded_moved(self):
         ids = self._selected_video_ids()
         if not ids:
-            self._show_error(tr("Select videos first", "请先选择视频", "動画を選択してください"))
+            self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
         marked = download_manager.mark_subscription_items_downloaded(ids)
         self._refresh_sources_keep_current_items()
@@ -981,7 +1112,7 @@ class SubscriptionInterface(QWidget):
     def _restore_selected_downloaded_moved(self):
         ids = self._selected_video_ids()
         if not ids:
-            self._show_error(tr("Select moved videos first", "请先选择已移走的视频", "移動済み動画を選択してください"))
+            self._show_error(tr("Select one or more moved videos first", "请先选中一个或多个已移走的视频", "先に移動済み動画を選択してください"))
             return
         restored = download_manager.restore_subscription_items_downloaded(ids)
         self._refresh_sources_keep_current_items()
@@ -1002,9 +1133,106 @@ class SubscriptionInterface(QWidget):
     def _download_selected(self):
         ids = self._selected_video_ids()
         if not ids:
-            self._show_error(tr("Select videos first", "请先选择视频", "動画を選択してください"))
+            self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
         self._enqueue_ids(ids)
+
+    def _update_selection_actions(self):
+        count = len(self._selected_video_ids()) if hasattr(self, "_item_table") else 0
+        has_selection = count > 0
+        if hasattr(self, "_download_selected_btn"):
+            self._download_selected_btn.setEnabled(has_selection)
+            self._download_selected_btn.setText(
+                tr(f"Download Selected ({count})", f"下载选中（{count}）", f"選択を保存（{count}）")
+                if has_selection else tr("Download Selected", "下载选中", "選択を保存")
+            )
+        if hasattr(self, "_mark_downloaded_btn"):
+            self._mark_downloaded_btn.setEnabled(has_selection)
+            self._mark_downloaded_btn.setText(
+                tr(f"Mark Downloaded ({count})", f"标为已下载（{count}）", f"保存済み（{count}）")
+                if has_selection else tr("Mark Downloaded (Moved)", "标为已下载（移走）", "保存済み（移動済み）")
+            )
+        if hasattr(self, "_restore_moved_btn"):
+            self._restore_moved_btn.setEnabled(has_selection)
+            self._restore_moved_btn.setText(
+                tr(f"Restore Moved ({count})", f"还原已移走（{count}）", f"移動済み解除（{count}）")
+                if has_selection else tr("Restore Moved", "还原已移走", "移動済み解除")
+            )
+
+    def _open_filter_dialog(self):
+        dlg = FilterDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            signal_bus.download_options_changed.emit()
+            InfoBar.success(
+                title=tr("Filter rules saved", "筛选条件已保存", "フィルター条件を保存しました"),
+                content=tr(
+                    "Subscription downloads will use the same filter rules as the download workbench.",
+                    "订阅下载会使用和下载工作台相同的筛选规则。",
+                    "購読保存にもダウンロード画面と同じフィルター条件を使います。",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+
+    def _make_download_option_button(self, text: str, tooltip: str) -> PrimaryPushButton:
+        button = PrimaryPushButton(text, self)
+        button._base_text = text
+        button.setCheckable(True)
+        button.setMinimumWidth(126)
+        button.setFixedHeight(_CONTROL_HEIGHT)
+        button.setToolTip(tooltip)
+        return button
+
+    def _sync_download_option_buttons(self):
+        if app_config.mark_submitted_as_downloaded and app_config.download_video_file:
+            app_config.download_video_file = False
+        if not app_config.mark_submitted_as_downloaded and not app_config.download_video_file:
+            app_config.download_video_file = True
+        if not hasattr(self, "_option_download_video_btn"):
+            return
+        self._syncing_download_options = True
+        try:
+            self._set_download_option_button_state(self._option_download_video_btn, app_config.download_video_file)
+            self._set_download_option_button_state(self._option_mark_downloaded_btn, app_config.mark_submitted_as_downloaded)
+            self._set_download_option_button_state(self._option_download_thumb_btn, app_config.download_thumbnail)
+            self._set_download_option_button_state(self._option_collect_nfo_btn, app_config.collect_nfo_info)
+        finally:
+            self._syncing_download_options = False
+
+    def _set_download_option_button_state(self, button: PrimaryPushButton, checked: bool):
+        button.setChecked(checked)
+        base_text = str(getattr(button, "_base_text", button.text()) or "")
+        button.setText(f"{base_text}  {'On' if checked else 'Off'}")
+        button.setStyleSheet(_OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE)
+
+    def _on_download_video_option_clicked(self, checked: bool):
+        if self._syncing_download_options:
+            return
+        app_config.download_video_file = bool(checked)
+        app_config.mark_submitted_as_downloaded = not bool(checked)
+        signal_bus.download_options_changed.emit()
+
+    def _on_mark_downloaded_option_clicked(self, checked: bool):
+        if self._syncing_download_options:
+            return
+        app_config.mark_submitted_as_downloaded = bool(checked)
+        app_config.download_video_file = not bool(checked)
+        signal_bus.download_options_changed.emit()
+
+    def _on_download_thumb_option_clicked(self, checked: bool):
+        if self._syncing_download_options:
+            return
+        app_config.download_thumbnail = bool(checked)
+        signal_bus.download_options_changed.emit()
+
+    def _on_collect_nfo_option_clicked(self, checked: bool):
+        if self._syncing_download_options:
+            return
+        app_config.collect_nfo_info = bool(checked)
+        signal_bus.download_options_changed.emit()
 
     def _download_new(self):
         ids = [

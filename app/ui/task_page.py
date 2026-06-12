@@ -1,6 +1,7 @@
 """Task Center Interface — table-based download task list."""
 from __future__ import annotations
 
+import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
@@ -260,7 +261,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE: 142,
             self._COL_SPEED: 96,
             self._COL_QUALITY: 72,
-            self._COL_URL: 240,
+            self._COL_URL: 68,
             self._COL_ID: 126,
             self._COL_ACTION: 66,
             self._COL_REMOVE: 66,
@@ -356,6 +357,17 @@ class TaskCenterInterface(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         action_key, action_text, action_tip, action_enabled = self._primary_action(task)
+        task_url = _video_url(task.video_id)
+        self._set_action_item(
+            row_idx,
+            self._COL_URL,
+            task.task_id,
+            "open_url",
+            tr("Open", "打开", "開く"),
+            task_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
+            bool(task_url),
+            action_url=task_url,
+        )
         self._set_action_item(
             row_idx,
             self._COL_ACTION,
@@ -384,6 +396,8 @@ class TaskCenterInterface(QWidget):
         text: str,
         tooltip: str,
         enabled: bool,
+        *,
+        action_url: str = "",
     ):
         item = self._table.item(row, column)
         if item is None:
@@ -392,6 +406,7 @@ class TaskCenterInterface(QWidget):
         item.setText(text if enabled else "—")
         item.setData(Qt.ItemDataRole.UserRole, task_id)
         item.setData(Qt.ItemDataRole.UserRole + 1, action if enabled else "")
+        item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(tooltip)
         item.setForeground(QColor("#0078d4" if enabled else "#999999"))
@@ -670,7 +685,7 @@ class TaskCenterInterface(QWidget):
         )
 
     def _on_cell_clicked(self, row: int, column: int):
-        if column not in (self._COL_ACTION, self._COL_REMOVE):
+        if column not in (self._COL_URL, self._COL_ACTION, self._COL_REMOVE):
             return
         item = self._table.item(row, column)
         if not item:
@@ -679,7 +694,9 @@ class TaskCenterInterface(QWidget):
         action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
         if not task_id or not action:
             return
-        if action == "retry":
+        if action == "open_url":
+            self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
+        elif action == "retry":
             self._retry_task(task_id)
         elif action == "open":
             self._open_task(task_id)
@@ -710,8 +727,15 @@ class TaskCenterInterface(QWidget):
                 parent=self,
             )
 
+    def _open_url(self, url: str):
+        if url:
+            webbrowser.open(url)
+
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         task_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if item.column() == self._COL_URL:
+            self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
+            return
         task = self._tasks_by_id.get(task_id)
         if task and task.status == TaskStatus.COMPLETED:
             self._open_task(task_id)

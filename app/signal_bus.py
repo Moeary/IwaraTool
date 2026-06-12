@@ -33,6 +33,9 @@ class TaskSignalBus(QObject):
     # Emitted when UI language changes (str: language code)
     language_changed = Signal(str)
 
+    # Emitted when shared download options change from any page.
+    download_options_changed = Signal()
+
 
 # Module-level singleton — import this everywhere
 signal_bus = TaskSignalBus()

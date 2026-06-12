@@ -37,6 +37,39 @@ from ..signal_bus import signal_bus
 from .task_page import TaskCenterInterface
 
 
+_OPTION_ON_STYLE = """
+QPushButton {
+    background-color: #009faa;
+    color: white;
+    border: 1px solid #008c96;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover {
+    background-color: #00aeba;
+}
+QPushButton:pressed {
+    background-color: #008c96;
+}
+"""
+
+_OPTION_OFF_STYLE = """
+QPushButton {
+    background-color: #f5f7fa;
+    color: #32363a;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover {
+    background-color: #edf1f5;
+}
+QPushButton:pressed {
+    background-color: #e3e8ef;
+}
+"""
+
+
 class FilterDialog(QDialog):
     """Simple filter configuration dialog for likes/date/views."""
 
@@ -52,6 +85,15 @@ class FilterDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
+
+        enable_row = QHBoxLayout()
+        enable_row.addWidget(
+            BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), self)
+        )
+        self._filter_enabled_switch = SwitchButton(self)
+        enable_row.addWidget(self._filter_enabled_switch)
+        enable_row.addStretch()
+        layout.addLayout(enable_row)
 
         likes_row = QHBoxLayout()
         likes_row.addWidget(
@@ -153,6 +195,7 @@ class FilterDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _load(self):
+        self._filter_enabled_switch.setChecked(app_config.filter_enabled)
         self._likes_switch.setChecked(app_config.filter_min_likes_enabled)
         self._views_switch.setChecked(app_config.filter_min_views_enabled)
         self._date_switch.setChecked(app_config.filter_date_enabled)
@@ -195,6 +238,7 @@ class FilterDialog(QDialog):
             )
             return
 
+        app_config.filter_enabled = self._filter_enabled_switch.isChecked()
         app_config.filter_min_likes_enabled = self._likes_switch.isChecked()
         app_config.filter_min_views_enabled = self._views_switch.isChecked()
         app_config.filter_date_enabled = self._date_switch.isChecked()
@@ -228,7 +272,9 @@ class DownloadInterface(QWidget):
         self._build_ui()
         signal_bus.log_message.connect(self._append_log)
         signal_bus.login_state_changed.connect(self._on_login_state)
+        signal_bus.download_options_changed.connect(self._sync_option_controls)
         self._on_login_state(bool(download_manager.api.token))
+        self._sync_option_controls()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -266,44 +312,45 @@ class DownloadInterface(QWidget):
         option_card = CardWidget(left_panel)
         option_layout = QGridLayout(option_card)
         option_layout.setContentsMargins(14, 10, 14, 10)
-        option_layout.setHorizontalSpacing(12)
+        option_layout.setHorizontalSpacing(10)
         option_layout.setVerticalSpacing(8)
 
-        self._download_video_switch = SwitchButton(option_card)
-        self._download_video_switch.setChecked(app_config.download_video_file)
-        self._download_video_switch.checkedChanged.connect(self._on_download_video_toggle)
-        option_layout.addWidget(BodyLabel(tr("Download Video", "下载视频", "動画を保存"), option_card), 0, 0)
-        option_layout.addWidget(self._download_video_switch, 0, 1)
+        self._download_video_btn = self._make_option_button(
+            tr("Download Video", "下载视频", "動画を保存"),
+            tr("Queue real video downloads. This is mutually exclusive with mark-only.", "下载真实视频文件；和仅标记已下载互斥。", "動画ファイルを保存します。マークのみとは排他です。"),
+            option_card,
+            FluentIcon.DOWNLOAD,
+        )
+        self._download_video_btn.clicked.connect(self._on_download_video_clicked)
+        option_layout.addWidget(self._download_video_btn, 0, 0)
 
-        self._download_thumb_switch = SwitchButton(option_card)
-        self._download_thumb_switch.setChecked(app_config.download_thumbnail)
-        self._download_thumb_switch.checkedChanged.connect(self._on_download_thumb_toggle)
-        option_layout.addWidget(BodyLabel(tr("Thumbnail", "下载封面", "サムネイル"), option_card), 0, 2)
-        option_layout.addWidget(self._download_thumb_switch, 0, 3)
+        self._mark_downloaded_btn = self._make_option_button(
+            tr("Mark Only", "仅标记已下载", "マークのみ"),
+            tr("Do not download video; only fetch metadata/sidecars and mark as downloaded.", "不下载视频，只拉取元数据/附属文件并标记为已下载。", "動画を保存せず、メタデータ/関連ファイルのみ取得して保存済みにします。"),
+            option_card,
+            FluentIcon.CHECKBOX,
+        )
+        self._mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_clicked)
+        option_layout.addWidget(self._mark_downloaded_btn, 0, 1)
 
-        self._collect_nfo_switch = SwitchButton(option_card)
-        self._collect_nfo_switch.setChecked(app_config.collect_nfo_info)
-        self._collect_nfo_switch.checkedChanged.connect(self._on_collect_nfo_toggle)
-        option_layout.addWidget(BodyLabel("NFO", option_card), 1, 0)
-        option_layout.addWidget(self._collect_nfo_switch, 1, 1)
+        self._download_thumb_btn = self._make_option_button(
+            tr("Thumbnail", "下载封面", "サムネイル"),
+            tr("Download thumbnail images when metadata is available.", "有元数据时下载封面图。", "メタデータ取得時にサムネイルを保存します。"),
+            option_card,
+            FluentIcon.PHOTO,
+        )
+        self._download_thumb_btn.clicked.connect(self._on_download_thumb_clicked)
+        option_layout.addWidget(self._download_thumb_btn, 1, 0)
 
-        self._mark_downloaded_switch = SwitchButton(option_card)
-        self._mark_downloaded_switch.setChecked(app_config.mark_submitted_as_downloaded)
-        self._mark_downloaded_switch.checkedChanged.connect(self._on_mark_downloaded_toggle)
-        option_layout.addWidget(BodyLabel(tr("Mark Only", "仅标记已下载", "マークのみ"), option_card), 1, 2)
-        option_layout.addWidget(self._mark_downloaded_switch, 1, 3)
+        self._collect_nfo_btn = self._make_option_button(
+            "NFO",
+            tr("Write Kodi/Jellyfin compatible NFO metadata.", "写出兼容 Kodi/Jellyfin 的 NFO 元数据。", "Kodi/Jellyfin互換のNFOを書き出します。"),
+            option_card,
+            FluentIcon.DOCUMENT,
+        )
+        self._collect_nfo_btn.clicked.connect(self._on_collect_nfo_clicked)
+        option_layout.addWidget(self._collect_nfo_btn, 1, 1)
         left_layout.addWidget(option_card)
-
-        quick_row = QHBoxLayout()
-        quick_row.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), left_panel))
-        self._filter_switch = SwitchButton(left_panel)
-        self._filter_switch.setChecked(app_config.filter_enabled)
-        self._filter_switch.checkedChanged.connect(self._on_filter_toggle)
-        quick_row.addWidget(self._filter_switch)
-        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel)
-        self._filter_btn.clicked.connect(self._open_filter_dialog)
-        quick_row.addWidget(self._filter_btn)
-        left_layout.addLayout(quick_row)
 
         # ── Login status banner ───────────────────────────────────────────────
         self._login_banner = CardWidget(left_panel)
@@ -350,17 +397,21 @@ class DownloadInterface(QWidget):
         self._url_edit.setClearButtonEnabled(True)
         self._url_edit.returnPressed.connect(self._submit)
 
+        url_layout.addWidget(self._url_edit)
+        left_layout.addWidget(url_card)
+
+        submit_row = QHBoxLayout()
+        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel, FluentIcon.FILTER)
+        self._filter_btn.clicked.connect(self._open_filter_dialog)
+        submit_row.addWidget(self._filter_btn)
         self._submit_btn = PrimaryPushButton(
             tr("Download", "解析并下载", "解析してダウンロード"),
-            url_card,
+            left_panel,
             FluentIcon.DOWNLOAD,
         )
         self._submit_btn.clicked.connect(self._submit)
-        self._submit_btn.setFixedWidth(130)
-
-        url_layout.addWidget(self._url_edit)
-        url_layout.addWidget(self._submit_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        left_layout.addWidget(url_card)
+        submit_row.addWidget(self._submit_btn)
+        left_layout.addLayout(submit_row)
 
         # ── Operation log card ────────────────────────────────────────────────
         log_card = CardWidget(left_panel)
@@ -396,6 +447,14 @@ class DownloadInterface(QWidget):
 
         self._task_center = TaskCenterInterface(right_panel, embedded=True)
         right_layout.addWidget(self._task_center, stretch=1)
+
+    def _make_option_button(self, text: str, tooltip: str, parent: QWidget, _icon: FluentIcon) -> PrimaryPushButton:
+        button = PrimaryPushButton(text, parent)
+        button._base_text = text
+        button.setCheckable(True)
+        button.setMinimumHeight(48)
+        button.setToolTip(tooltip)
+        return button
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
@@ -469,8 +528,10 @@ class DownloadInterface(QWidget):
         self._pending_logs.clear()
         self._log_edit.clear()
 
-    def _on_filter_toggle(self, checked: bool):
-        app_config.filter_enabled = checked
+    def _emit_options_changed(self):
+        signal_bus.download_options_changed.emit()
+
+    def _on_filter_state_changed(self):
         state = tr("enabled", "启用", "有効") if app_config.filter_enabled else tr("disabled", "关闭", "無効")
         signal_bus.log_message.emit(
             tr(
@@ -480,41 +541,55 @@ class DownloadInterface(QWidget):
             )
         )
 
-    def _on_download_video_toggle(self, checked: bool):
+    def _on_download_video_clicked(self, checked: bool):
         if self._syncing_options:
             return
-        app_config.download_video_file = checked
-        if checked and self._mark_downloaded_switch.isChecked():
-            self._syncing_options = True
-            self._mark_downloaded_switch.setChecked(False)
-            app_config.mark_submitted_as_downloaded = False
-            self._syncing_options = False
-        if not checked and not self._mark_downloaded_switch.isChecked():
-            self._syncing_options = True
-            self._mark_downloaded_switch.setChecked(True)
-            app_config.mark_submitted_as_downloaded = True
-            self._syncing_options = False
+        app_config.download_video_file = bool(checked)
+        app_config.mark_submitted_as_downloaded = not bool(checked)
+        self._emit_options_changed()
 
-    def _on_download_thumb_toggle(self, checked: bool):
-        app_config.download_thumbnail = checked
-
-    def _on_collect_nfo_toggle(self, checked: bool):
-        app_config.collect_nfo_info = checked
-
-    def _on_mark_downloaded_toggle(self, checked: bool):
+    def _on_download_thumb_clicked(self, checked: bool):
         if self._syncing_options:
             return
-        app_config.mark_submitted_as_downloaded = checked
-        if checked and self._download_video_switch.isChecked():
-            self._syncing_options = True
-            self._download_video_switch.setChecked(False)
+        app_config.download_thumbnail = bool(checked)
+        self._emit_options_changed()
+
+    def _on_collect_nfo_clicked(self, checked: bool):
+        if self._syncing_options:
+            return
+        app_config.collect_nfo_info = bool(checked)
+        self._emit_options_changed()
+
+    def _on_mark_downloaded_clicked(self, checked: bool):
+        if self._syncing_options:
+            return
+        app_config.mark_submitted_as_downloaded = bool(checked)
+        app_config.download_video_file = not bool(checked)
+        self._emit_options_changed()
+
+    def _sync_option_controls(self):
+        if app_config.mark_submitted_as_downloaded and app_config.download_video_file:
             app_config.download_video_file = False
-            self._syncing_options = False
-        if not checked and not self._download_video_switch.isChecked():
-            self._syncing_options = True
-            self._download_video_switch.setChecked(True)
+        if not app_config.mark_submitted_as_downloaded and not app_config.download_video_file:
             app_config.download_video_file = True
+
+        self._syncing_options = True
+        try:
+            self._set_option_button_state(self._download_video_btn, app_config.download_video_file)
+            self._set_option_button_state(self._mark_downloaded_btn, app_config.mark_submitted_as_downloaded)
+            self._set_option_button_state(self._download_thumb_btn, app_config.download_thumbnail)
+            self._set_option_button_state(self._collect_nfo_btn, app_config.collect_nfo_info)
+            filter_state = tr("On", "开", "有効") if app_config.filter_enabled else tr("Off", "关", "無効")
+            self._filter_btn.setText(tr(f"Filter Rules ({filter_state})", f"筛选项（{filter_state}）", f"フィルター条件（{filter_state}）"))
+        finally:
             self._syncing_options = False
+
+    def _set_option_button_state(self, button: PrimaryPushButton, checked: bool):
+        button.setChecked(checked)
+        state = tr("On", "On", "On") if checked else tr("Off", "Off", "Off")
+        base_text = str(getattr(button, "_base_text", button.text()) or "")
+        button.setText(f"{base_text}  {state}")
+        button.setStyleSheet(_OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE)
 
     def _maybe_add_download_source_to_subscription(self, url: str):
         candidate = download_manager.detect_subscription_source(url)
@@ -578,6 +653,8 @@ class DownloadInterface(QWidget):
     def _open_filter_dialog(self):
         dlg = FilterDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._on_filter_state_changed()
+            self._emit_options_changed()
             InfoBar.success(
                 title=tr("Filter rules saved", "筛选条件已保存", "フィルター条件を保存しました"),
                 content=tr(
