@@ -15,6 +15,7 @@ This ensures download URLs are never resolved too early and expire before use.
 
 from __future__ import annotations
 
+import gc
 import os
 import json
 import re
@@ -61,8 +62,9 @@ _TERMINAL_STATUSES = frozenset(
     ]
 )
 
-_LIVE_TERMINAL_KEEP_LIMIT = 500
+_LIVE_TERMINAL_KEEP_LIMIT = 100
 _EXISTING_FILE_INDEX_TTL_SECONDS = 60
+_MAX_STORED_TEXT_CHARS = 20000
 
 
 class DownloadManager:
@@ -83,6 +85,7 @@ class DownloadManager:
         self._queued_meta_ids: deque[str] = deque()
         self._active_task_ids: set[str] = set()
         self._terminal_task_ids: deque[str] = deque()
+        self._terminal_task_id_set: set[str] = set()
         self._lock = threading.Lock()
         self._api_lock = threading.RLock()
         self._existing_file_index_lock = threading.Lock()
@@ -90,6 +93,8 @@ class DownloadManager:
         self._existing_file_index_root = ""
         self._existing_file_index_built_at = 0.0
         self._terminal_keep_limit = _LIVE_TERMINAL_KEEP_LIMIT
+        self._terminal_events_since_gc = 0
+        self._last_gc_at = 0.0
 
         # Keep parse, resolve, and download work isolated so a large batch cannot
         # starve metadata resolution or leave the UI looking stuck.
@@ -158,6 +163,7 @@ class DownloadManager:
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                self._unmark_terminal_locked(task_id)
                 self._queued_meta_ids.append(task_id)
                 requeued = True
         if not requeued:
@@ -220,6 +226,7 @@ class DownloadManager:
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                self._unmark_terminal_locked(tid)
                 self._queued_meta_ids.append(tid)
             retried_count += 1
             signal_bus.task_status_changed.emit(tid, TaskStatus.QUEUED_META.value)
@@ -1211,7 +1218,7 @@ class DownloadManager:
         comments = int(video_info.get("numComments", 0) or 0)
         raw_tags = video_info.get("tags", [])
         tags_json = json.dumps(raw_tags, ensure_ascii=False)
-        raw_json = json.dumps(video_info, ensure_ascii=False)
+        raw_json = _compact_video_raw_json(video_info)
         file_url = str(video_info.get("fileUrl", "") or "")
         file_id = str(file_info.get("id", "") or "")
         thumbnail_index = int(video_info.get("thumbnail", 0) or 0)
@@ -1707,6 +1714,7 @@ class DownloadManager:
             )
             return
 
+        resp = None
         try:
             headers: dict[str, str] = {}
             token = self._current_token()
@@ -1847,6 +1855,12 @@ class DownloadManager:
                 )
             )
             self._fail_task(task_id, str(exc))
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     # ── Local file / filename helpers ────────────────────────────────────────
 
@@ -1971,7 +1985,12 @@ class DownloadManager:
             return None
         self._task_id_by_video_id.pop(task.video_id.lower(), None)
         self._active_task_ids.discard(task_id)
+        self._terminal_task_id_set.discard(task_id)
         return task
+
+    def _unmark_terminal_locked(self, task_id: str):
+        """Mark a previously-terminal task as live again. Must hold self._lock."""
+        self._terminal_task_id_set.discard(task_id)
 
     def _mark_terminal_locked(self, task: DownloadTask):
         """Track terminal tasks for bounded live-memory retention."""
@@ -1979,23 +1998,44 @@ class DownloadManager:
         task.download_url = ""
         task.file_url = ""
         task.raw_json = ""
-        if len(task.tags_json) > 4096:
-            task.tags_json = ""
-        self._terminal_task_ids.append(task.task_id)
+        task.tags_json = ""
+        task.thumbnail_url = ""
+        task.speed_str = ""
+        task.aria2_gid = ""
+        task.file_id = ""
+        self._terminal_events_since_gc += 1
+        if task.task_id not in self._terminal_task_id_set:
+            self._terminal_task_ids.append(task.task_id)
+            self._terminal_task_id_set.add(task.task_id)
 
     def _prune_terminal_tasks(self) -> list[str]:
         removed: list[str] = []
         with self._lock:
-            while len(self._terminal_task_ids) > self._terminal_keep_limit:
+            while self._terminal_task_ids and len(self._terminal_task_id_set) > self._terminal_keep_limit:
                 task_id = self._terminal_task_ids.popleft()
+                if task_id not in self._terminal_task_id_set:
+                    continue
                 task = self._tasks.get(task_id)
                 if not task or task.status not in _TERMINAL_STATUSES:
+                    self._terminal_task_id_set.discard(task_id)
                     continue
                 if self._forget_task_locked(task_id):
                     removed.append(task_id)
         if removed:
             signal_bus.tasks_removed.emit(removed)
+        self._maybe_collect_garbage()
         return removed
+
+    def _maybe_collect_garbage(self):
+        should_collect = False
+        now = time.monotonic()
+        with self._lock:
+            if self._terminal_events_since_gc >= 20 and now - self._last_gc_at >= 15:
+                self._terminal_events_since_gc = 0
+                self._last_gc_at = now
+                should_collect = True
+        if should_collect:
+            gc.collect()
 
     def _is_cancel_requested(self, task_id: str) -> bool:
         with self._lock:
@@ -2345,12 +2385,19 @@ class DownloadManager:
             "params": payload_params,
         }
 
+        resp = None
         try:
             resp = self.api.scraper.post(rpc_url, json=payload, timeout=15)
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:
             return None, str(exc)
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
         if data.get("error"):
             return None, str(data.get("error"))
@@ -2428,6 +2475,7 @@ class DownloadManager:
 
         index = max(0, int(task.thumbnail_index))
         thumb_url = f"https://{host}/image/original/{task.file_id}/thumbnail-{index:02d}.jpg"
+        resp = None
         try:
             resp = self.api.scraper.get(thumb_url, stream=True, timeout=60)
             if resp.status_code != 200:
@@ -2466,6 +2514,12 @@ class DownloadManager:
                     f"  [サムネイル] 「{task.title}」エラー: {exc}",
                 )
             )
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     def _write_nfo(self, task: DownloadTask):
         if not task.file_path or not os.path.exists(task.file_path):
@@ -2589,6 +2643,65 @@ def _fmt_bytes(n: int) -> str:
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _clip_stored_text(value: Any, limit: int = _MAX_STORED_TEXT_CHARS) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def _copy_compact_fields(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in keys:
+        value = data.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, str):
+            compact[key] = _clip_stored_text(value)
+        elif isinstance(value, (int, float, bool)):
+            compact[key] = value
+    return compact
+
+
+def _compact_video_raw_json(video_info: dict[str, Any]) -> str:
+    """Keep only NFO-relevant API fields instead of the full video payload."""
+    if not isinstance(video_info, dict):
+        return "{}"
+
+    compact = _copy_compact_fields(
+        video_info,
+        (
+            "id",
+            "title",
+            "slug",
+            "rating",
+            "createdAt",
+            "body",
+            "description",
+            "message",
+        ),
+    )
+
+    user = _dict_or_empty(video_info.get("user"))
+    if user:
+        compact_user = _copy_compact_fields(
+            user,
+            ("id", "username", "name", "body", "description", "bio", "about"),
+        )
+        profile = _dict_or_empty(user.get("profile"))
+        if profile:
+            compact_profile = _copy_compact_fields(
+                profile,
+                ("body", "description", "bio", "about"),
+            )
+            if compact_profile:
+                compact_user["profile"] = compact_profile
+        if compact_user:
+            compact["user"] = compact_user
+
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
 
 
 def _subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:

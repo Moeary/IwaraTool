@@ -31,6 +31,24 @@ class DownloadHistory:
         "quality",
         "downloaded_at",
     )
+    _HEAVY_COLUMNS = frozenset(("tags_json", "raw_json"))
+    _LIGHT_COLUMNS = (
+        "video_id",
+        "title",
+        "author",
+        "published_at",
+        "likes",
+        "views",
+        "slug",
+        "rating",
+        "duration",
+        "comments",
+        "source_url",
+        "file_path",
+        "thumbnail_path",
+        "quality",
+        "downloaded_at",
+    )
 
     def __init__(self, db_path: str | None = None):
         if db_path is None:
@@ -219,18 +237,23 @@ class DownloadHistory:
                     )
                     conn.commit()
 
-    def get_record(self, video_id: str) -> dict[str, Any] | None:
+    @classmethod
+    def _select_columns(cls, *, include_raw: bool = False) -> tuple[str, ...]:
+        return cls._COLUMNS if include_raw else cls._LIGHT_COLUMNS
+
+    def get_record(self, video_id: str, *, include_raw: bool = False) -> dict[str, Any] | None:
         """Return one history row as a dict."""
         video_id = str(video_id or "").strip()
         if not video_id:
             return None
+        columns = self._select_columns(include_raw=include_raw)
         with self._lock:
             self._ensure_db_ready()
             try:
                 with sqlite3.connect(self._db_path) as conn:
                     conn.row_factory = sqlite3.Row
                     row = conn.execute(
-                        f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id=?",
+                        f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id=?",
                         (video_id,),
                     ).fetchone()
                     return dict(row) if row else None
@@ -241,16 +264,19 @@ class DownloadHistory:
                 with sqlite3.connect(self._db_path) as conn:
                     conn.row_factory = sqlite3.Row
                     row = conn.execute(
-                        f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id=?",
+                        f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id=?",
                         (video_id,),
                     ).fetchone()
                     return dict(row) if row else None
 
-    def get_records(self, video_ids: list[str]) -> dict[str, dict[str, Any]]:
+    def get_records(
+        self, video_ids: list[str], *, include_raw: bool = False
+    ) -> dict[str, dict[str, Any]]:
         """Return history rows keyed by video_id for a batch of ids."""
         ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
         if not ids:
             return {}
+        columns = self._select_columns(include_raw=include_raw)
         result: dict[str, dict[str, Any]] = {}
         with self._lock:
             self._ensure_db_ready()
@@ -261,7 +287,7 @@ class DownloadHistory:
                         chunk = ids[start:start + 500]
                         placeholders = ",".join("?" for _ in chunk)
                         rows = conn.execute(
-                            f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id IN ({placeholders})",
+                            f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id IN ({placeholders})",
                             chunk,
                         ).fetchall()
                         for row in rows:
@@ -277,7 +303,7 @@ class DownloadHistory:
                         chunk = ids[start:start + 500]
                         placeholders = ",".join("?" for _ in chunk)
                         rows = conn.execute(
-                            f"SELECT {', '.join(self._COLUMNS)} FROM downloaded WHERE video_id IN ({placeholders})",
+                            f"SELECT {', '.join(columns)} FROM downloaded WHERE video_id IN ({placeholders})",
                             chunk,
                         ).fetchall()
                         for row in rows:
@@ -285,15 +311,16 @@ class DownloadHistory:
                             result[str(data.get("video_id", "") or "")] = data
         return result
 
-    def list_records(self) -> list[dict[str, Any]]:
+    def list_records(self, *, include_raw: bool = False) -> list[dict[str, Any]]:
         """Return all history rows, newest first."""
+        columns = self._select_columns(include_raw=include_raw)
         with self._lock:
             self._ensure_db_ready()
             try:
                 with sqlite3.connect(self._db_path) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
-                        f"SELECT {', '.join(self._COLUMNS)} FROM downloaded "
+                        f"SELECT {', '.join(columns)} FROM downloaded "
                         "ORDER BY downloaded_at DESC"
                     ).fetchall()
                     return [dict(row) for row in rows]
@@ -304,7 +331,7 @@ class DownloadHistory:
                 with sqlite3.connect(self._db_path) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
-                        f"SELECT {', '.join(self._COLUMNS)} FROM downloaded "
+                        f"SELECT {', '.join(columns)} FROM downloaded "
                         "ORDER BY downloaded_at DESC"
                     ).fetchall()
                     return [dict(row) for row in rows]

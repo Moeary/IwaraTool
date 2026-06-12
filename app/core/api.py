@@ -41,8 +41,11 @@ class IwaraAPI:
     def _get_json(self, url: str, **kwargs) -> Any:
         """GET request returning parsed JSON, or raises on failure."""
         resp = self.scraper.get(url, headers=self._auth_headers(), timeout=30, **kwargs)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp.raise_for_status()
+            return resp.json()
+        finally:
+            resp.close()
 
     # ── X-Version computation ────────────────────────────────────────────────
 
@@ -64,6 +67,7 @@ class IwaraAPI:
         Returns (success, error_message).
         The token is stored in self.token on success.
         """
+        resp = None
         try:
             resp = self.scraper.post(
                 f"{BASE_API}/user/login",
@@ -80,6 +84,9 @@ class IwaraAPI:
             return False, msg
         except Exception as exc:
             return False, str(exc)
+        finally:
+            if resp is not None:
+                resp.close()
 
     def logout(self):
         self.token = None
@@ -176,6 +183,7 @@ class IwaraAPI:
         for idx, salt in enumerate(_X_VERSION_SALTS, start=1):
             x_version = self.compute_x_version(file_url, salt)
             _log(f"  X-Version[{idx}]: {x_version}")
+            resp = None
             try:
                 resp = self.scraper.get(
                     file_url,
@@ -196,6 +204,9 @@ class IwaraAPI:
                 )
             except Exception as exc:
                 last_error = str(exc)
+            finally:
+                if resp is not None:
+                    resp.close()
 
         if sources is None:
             return None, None, tr(

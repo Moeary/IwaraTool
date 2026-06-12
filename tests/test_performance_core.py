@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager, download_manager
+from app.core.manager import DownloadManager, _compact_video_raw_json, download_manager
 from app.core.models import DownloadTask, TaskStatus
 from app.ui.download_page import DownloadInterface
 from app.ui.task_page import TaskCenterInterface
@@ -104,6 +105,57 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertIn("active", statuses)
         self.assertEqual(sum(1 for s in statuses.values() if s == TaskStatus.COMPLETED), 5)
         self.assertEqual(len(mgr._task_id_by_video_id), 7)
+        self.assertEqual(len(mgr._terminal_task_id_set), 5)
+        self.assertTrue(
+            all(task.raw_json == "" and task.tags_json == "" for task in mgr.get_tasks() if task.status == TaskStatus.COMPLETED)
+        )
+
+    def test_history_list_and_batch_queries_omit_heavy_fields_by_default(self):
+        tmp_dir = tempfile.mkdtemp(prefix="iwaratool-history-")
+        TEMP_DIRS.append(tmp_dir)
+        history = DownloadHistory(os.path.join(tmp_dir, "history.db"))
+        history.upsert_downloaded(
+            {
+                "video_id": "heavy01",
+                "title": "Heavy",
+                "tags_json": json.dumps([{"name": "tag"}]),
+                "raw_json": json.dumps({"body": "x" * 10000}),
+                "file_path": os.path.join(tmp_dir, "heavy01.mp4"),
+            }
+        )
+
+        listed = history.list_records()[0]
+        batched = history.get_records(["heavy01"])["heavy01"]
+        full = history.get_record("heavy01", include_raw=True)
+
+        self.assertNotIn("raw_json", listed)
+        self.assertNotIn("tags_json", listed)
+        self.assertNotIn("raw_json", batched)
+        self.assertNotIn("tags_json", batched)
+        self.assertIn("raw_json", full)
+        self.assertIn("tags_json", full)
+
+    def test_compact_raw_json_keeps_nfo_fields_without_full_payload(self):
+        raw = _compact_video_raw_json(
+            {
+                "id": "video01",
+                "title": "Title",
+                "body": "video body",
+                "download": {"urls": ["x" * 10000]},
+                "file": {"huge": "y" * 10000},
+                "user": {
+                    "username": "author",
+                    "profile": {"description": "author profile"},
+                },
+            }
+        )
+        data = json.loads(raw)
+
+        self.assertEqual(data["body"], "video body")
+        self.assertEqual(data["user"]["profile"]["description"], "author profile")
+        self.assertNotIn("download", data)
+        self.assertNotIn("file", data)
+        self.assertLess(len(raw), 1000)
 
 
 class UiPerformanceTests(unittest.TestCase):
@@ -126,6 +178,8 @@ class UiPerformanceTests(unittest.TestCase):
             download_manager._task_id_by_video_id.clear()
             download_manager._queued_meta_ids.clear()
             download_manager._active_task_ids.clear()
+            download_manager._terminal_task_ids.clear()
+            download_manager._terminal_task_id_set.clear()
             task = DownloadTask(
                 task_id="active",
                 url="",
@@ -152,6 +206,8 @@ class UiPerformanceTests(unittest.TestCase):
             download_manager._task_id_by_video_id.clear()
             download_manager._queued_meta_ids.clear()
             download_manager._active_task_ids.clear()
+            download_manager._terminal_task_ids.clear()
+            download_manager._terminal_task_id_set.clear()
 
         page = TaskCenterInterface()
         infos = []

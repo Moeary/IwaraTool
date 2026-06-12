@@ -28,7 +28,6 @@ from qfluentwidgets import (
     PrimaryPushButton,
     TableWidget,
     TitleLabel,
-    ToolButton,
 )
 
 from ..config import app_config
@@ -191,7 +190,8 @@ class HistoryInterface(QWidget):
         self._table.setShowGrid(False)
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(42)
-        self._table.itemDoubleClicked.connect(lambda _item: self._open_selected(open_file=True))
+        self._table.cellClicked.connect(self._on_cell_clicked)
+        self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -263,77 +263,124 @@ class HistoryInterface(QWidget):
         )
 
     def _render_table(self, records: list[dict[str, Any]]):
-        self._table.setRowCount(0)
-        self._table.setRowCount(len(records))
-        for row_idx, record in enumerate(records):
-            state, state_key, state_detail = self._record_state(record)
-            video_id = str(record.get("video_id", "") or "")
-            file_path = str(record.get("file_path", "") or "")
-            file_exists = bool(file_path and os.path.isfile(file_path))
-            values = [
-                state,
-                str(record.get("title", "") or video_id),
-                str(record.get("author", "") or ""),
-                str(record.get("quality", "") or ""),
-                _date_only(str(record.get("published_at", "") or "")),
-                str(record.get("likes", 0) or 0),
-                str(record.get("views", 0) or 0),
-                str(record.get("downloaded_at", "") or ""),
-                video_id,
-                file_path,
-            ]
+        self._table.setUpdatesEnabled(False)
+        try:
+            self._table.clearContents()
+            self._table.setRowCount(len(records))
+            for row_idx, record in enumerate(records):
+                state, state_key, state_detail = self._record_state(record)
+                video_id = str(record.get("video_id", "") or "")
+                file_path = str(record.get("file_path", "") or "")
+                file_exists = bool(file_path and os.path.isfile(file_path))
+                values = [
+                    state,
+                    str(record.get("title", "") or video_id),
+                    str(record.get("author", "") or ""),
+                    str(record.get("quality", "") or ""),
+                    _date_only(str(record.get("published_at", "") or "")),
+                    str(record.get("likes", 0) or 0),
+                    str(record.get("views", 0) or 0),
+                    str(record.get("downloaded_at", "") or ""),
+                    video_id,
+                    file_path,
+                ]
 
-            for col_idx, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setData(Qt.ItemDataRole.UserRole, video_id)
-                item.setToolTip(state_detail if col_idx == self._COL_STATE else value)
-                if col_idx == self._COL_STATE:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    item.setForeground(QColor("#107c10" if state_key == "ok" else "#c17d00"))
-                elif col_idx in (self._COL_LIKES, self._COL_VIEWS):
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                self._table.setItem(row_idx, col_idx, item)
+                for col_idx, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    item.setData(Qt.ItemDataRole.UserRole, video_id)
+                    item.setToolTip(state_detail if col_idx == self._COL_STATE else value)
+                    if col_idx == self._COL_STATE:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                        item.setForeground(QColor("#107c10" if state_key == "ok" else "#c17d00"))
+                    elif col_idx in (self._COL_LIKES, self._COL_VIEWS):
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    self._table.setItem(row_idx, col_idx, item)
 
-            self._set_row_action(
-                row_idx,
-                self._COL_OPEN_URL,
-                FluentIcon.HISTORY,
-                tr("Open video page", "打开视频页", "動画ページを開く"),
-                bool(video_id),
-                lambda _checked=False, vid=video_id: self._open_video_url(vid),
-            )
-            self._set_row_action(
-                row_idx,
-                self._COL_OPEN_FOLDER,
-                FluentIcon.FOLDER,
-                tr("Open folder", "打开文件夹", "フォルダーを開く"),
-                file_exists,
-                lambda _checked=False, vid=video_id: self._open_record(vid, open_file=False),
-            )
-            self._set_row_action(
-                row_idx,
-                self._COL_OPEN_FILE,
-                FluentIcon.VIDEO,
-                tr("Open file", "打开文件", "ファイルを開く"),
-                file_exists,
-                lambda _checked=False, vid=video_id: self._open_record(vid, open_file=True),
-            )
-            self._set_row_action(
-                row_idx,
-                self._COL_RENAME,
-                FluentIcon.EDIT,
-                tr("Rename file", "重命名文件", "ファイル名を変更"),
-                file_exists,
-                lambda _checked=False, vid=video_id: self._rename_record(vid),
-            )
-            self._set_row_action(
-                row_idx,
-                self._COL_REMOVE,
-                FluentIcon.DELETE,
-                tr("Remove DB record", "删除数据库记录", "DB履歴を削除"),
-                bool(video_id),
-                lambda _checked=False, vid=video_id: self._remove_record(vid),
-            )
+                self._set_action_item(
+                    row_idx,
+                    self._COL_OPEN_URL,
+                    tr("Page", "页面", "ページ"),
+                    tr("Open video page", "打开视频页", "動画ページを開く"),
+                    "open_url",
+                    bool(video_id),
+                    video_id,
+                )
+                self._set_action_item(
+                    row_idx,
+                    self._COL_OPEN_FOLDER,
+                    tr("Folder", "目录", "フォルダー"),
+                    tr("Open folder", "打开文件夹", "フォルダーを開く"),
+                    "folder",
+                    file_exists,
+                    video_id,
+                )
+                self._set_action_item(
+                    row_idx,
+                    self._COL_OPEN_FILE,
+                    tr("File", "文件", "ファイル"),
+                    tr("Open file", "打开文件", "ファイルを開く"),
+                    "file",
+                    file_exists,
+                    video_id,
+                )
+                self._set_action_item(
+                    row_idx,
+                    self._COL_RENAME,
+                    tr("Rename", "改名", "名前変更"),
+                    tr("Rename file", "重命名文件", "ファイル名を変更"),
+                    "rename",
+                    file_exists,
+                    video_id,
+                )
+                self._set_action_item(
+                    row_idx,
+                    self._COL_REMOVE,
+                    tr("Delete", "删除", "削除"),
+                    tr("Remove DB record", "删除数据库记录", "DB履歴を削除"),
+                    "remove",
+                    bool(video_id),
+                    video_id,
+                )
+        finally:
+            self._table.setUpdatesEnabled(True)
+
+    def _on_cell_clicked(self, row: int, column: int):
+        if column not in {
+            self._COL_OPEN_URL,
+            self._COL_OPEN_FOLDER,
+            self._COL_OPEN_FILE,
+            self._COL_RENAME,
+            self._COL_REMOVE,
+        }:
+            return
+        item = self._table.item(row, column)
+        if not item:
+            return
+        action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+        video_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if not action or not video_id:
+            return
+        if action == "open_url":
+            self._open_video_url(video_id)
+        elif action == "folder":
+            self._open_record(video_id, open_file=False)
+        elif action == "file":
+            self._open_record(video_id, open_file=True)
+        elif action == "rename":
+            self._rename_record(video_id)
+        elif action == "remove":
+            self._remove_record(video_id)
+
+    def _on_item_double_clicked(self, item: QTableWidgetItem):
+        if item.column() in {
+            self._COL_OPEN_URL,
+            self._COL_OPEN_FOLDER,
+            self._COL_OPEN_FILE,
+            self._COL_RENAME,
+            self._COL_REMOVE,
+        }:
+            return
+        self._open_selected(open_file=True)
 
     def _on_header_clicked(self, column: int):
         if column not in self._sortable_columns():
@@ -409,20 +456,26 @@ class HistoryInterface(QWidget):
 
         return sorted(records, key=key, reverse=self._sort_reverse)
 
-    def _set_row_action(
+    def _set_action_item(
         self,
         row: int,
         column: int,
-        icon: FluentIcon,
+        text: str,
         tooltip: str,
+        action: str,
         enabled: bool,
-        callback,
+        video_id: str,
     ):
-        btn = ToolButton(icon, self._table)
-        btn.setToolTip(tooltip)
-        btn.setEnabled(enabled)
-        btn.clicked.connect(callback)
-        self._table.setCellWidget(row, column, btn)
+        item = QTableWidgetItem(text if enabled else "-")
+        item.setData(Qt.ItemDataRole.UserRole, video_id)
+        item.setToolTip(tooltip if enabled else "")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        if enabled:
+            item.setData(Qt.ItemDataRole.UserRole + 1, action)
+            item.setForeground(QColor("#0078d4"))
+        else:
+            item.setForeground(QColor("#9aa0a6"))
+        self._table.setItem(row, column, item)
 
     def _record_state(self, record: dict[str, Any]) -> tuple[str, str, str]:
         file_path = str(record.get("file_path", "") or "")
