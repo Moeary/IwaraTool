@@ -16,7 +16,12 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.task_page import TaskCenterInterface
-from app.ui.ui_state import connect_table_width_saver, restore_table_widths
+from app.ui.ui_state import (
+    apply_table_column_layout,
+    connect_table_width_saver,
+    restore_table_columns,
+    restore_table_widths,
+)
 
 TEMP_DIRS: list[str] = []
 
@@ -397,6 +402,34 @@ class UiPerformanceTests(unittest.TestCase):
         raw = str(app_config.get_ui_value(key, "") or "")
 
         self.assertEqual(raw.split(","), [str(table.columnWidth(i)) for i in range(3)])
+
+    def test_table_column_layout_persists_order_and_visibility(self):
+        key = f"test_table_columns_{id(self)}"
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["A", "B", "C", "D"])
+
+        restore_table_columns(table, key, default_visible=[0, 1, 2, 3])
+        apply_table_column_layout(table, key, order=[2, 0, 3, 1], visible=[2, 3], sync=True)
+
+        header = table.horizontalHeader()
+        self.assertEqual([header.logicalIndex(i) for i in range(4)], [2, 0, 3, 1])
+        self.assertFalse(table.isColumnHidden(2))
+        self.assertFalse(table.isColumnHidden(3))
+        self.assertTrue(table.isColumnHidden(0))
+        self.assertTrue(table.isColumnHidden(1))
+
+        restored = QTableWidget()
+        restored.setColumnCount(4)
+        restored.setHorizontalHeaderLabels(["A", "B", "C", "D"])
+        restore_table_columns(restored, key, default_visible=[0, 1, 2, 3])
+        restored_header = restored.horizontalHeader()
+
+        self.assertEqual([restored_header.logicalIndex(i) for i in range(4)], [2, 0, 3, 1])
+        self.assertFalse(restored.isColumnHidden(2))
+        self.assertFalse(restored.isColumnHidden(3))
+        self.assertTrue(restored.isColumnHidden(0))
+        self.assertTrue(restored.isColumnHidden(1))
 
 
 def tearDownModule():

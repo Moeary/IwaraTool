@@ -32,7 +32,13 @@ from ..core.manager import download_manager
 from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .ui_state import connect_table_width_saver, restore_table_widths
+from .ui_state import (
+    connect_table_column_saver,
+    connect_table_width_saver,
+    open_table_column_dialog,
+    restore_table_columns,
+    restore_table_widths,
+)
 
 
 _STATUS_COLORS: dict[TaskStatus, str] = {
@@ -150,6 +156,10 @@ class TaskCenterInterface(QWidget):
         )
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
+
+        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
+        columns_btn.clicked.connect(self._configure_columns)
+        title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
         filter_row = QHBoxLayout()
@@ -257,8 +267,18 @@ class TaskCenterInterface(QWidget):
         }
         restore_table_widths(self._table, "task_table_widths", default_widths)
         connect_table_width_saver(self._table, "task_table_widths")
+        restore_table_columns(self._table, "task_table")
+        connect_table_column_saver(self._table, "task_table")
 
         root.addWidget(self._table, stretch=1)
+
+    def _configure_columns(self):
+        open_table_column_dialog(
+            self._table,
+            "task_table",
+            title=tr("Task Columns", "任务列表字段", "タスク列設定"),
+            parent=self,
+        )
 
     # ── Signals ───────────────────────────────────────────────────────────────
 

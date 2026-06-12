@@ -35,7 +35,13 @@ from ..core.manager import download_manager
 from ..core.models import TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .ui_state import connect_table_width_saver, restore_table_widths
+from .ui_state import (
+    connect_table_column_saver,
+    connect_table_width_saver,
+    open_table_column_dialog,
+    restore_table_columns,
+    restore_table_widths,
+)
 
 
 class HistoryInterface(QWidget):
@@ -103,6 +109,10 @@ class HistoryInterface(QWidget):
         )
         clean_btn.clicked.connect(self._sync_with_download_folder)
         title_row.addWidget(clean_btn)
+
+        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
+        columns_btn.clicked.connect(self._configure_columns)
+        title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
         self._db_label = BodyLabel(
@@ -219,7 +229,17 @@ class HistoryInterface(QWidget):
         }
         restore_table_widths(self._table, "history_table_widths", initial_widths)
         connect_table_width_saver(self._table, "history_table_widths")
+        restore_table_columns(self._table, "history_table")
+        connect_table_column_saver(self._table, "history_table")
         root.addWidget(self._table, stretch=1)
+
+    def _configure_columns(self):
+        open_table_column_dialog(
+            self._table,
+            "history_table",
+            title=tr("History Columns", "历史列表字段", "履歴列設定"),
+            parent=self,
+        )
 
     def _load_history(self):
         self._all_records = download_manager.get_history_records()

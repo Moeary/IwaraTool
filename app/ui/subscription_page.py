@@ -35,7 +35,10 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import (
     connect_splitter_saver,
+    connect_table_column_saver,
     connect_table_width_saver,
+    open_table_column_dialog,
+    restore_table_columns,
     restore_splitter_sizes,
     restore_table_widths,
 )
@@ -223,7 +226,15 @@ class SubscriptionInterface(QWidget):
                 f"DB: {storage.get('db_path', '')}\nバックアップ: {storage.get('backup_path', '')}",
             )
         )
-        left_layout.addWidget(storage_label)
+        source_meta_row = QHBoxLayout()
+        source_meta_row.setSpacing(_ROW_SPACING)
+        source_meta_row.addWidget(storage_label)
+        source_meta_row.addStretch()
+        source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
+        _style_action_button(source_columns_btn, min_width=96)
+        source_columns_btn.clicked.connect(self._configure_source_columns)
+        source_meta_row.addWidget(source_columns_btn)
+        left_layout.addLayout(source_meta_row)
 
         self._source_table = TableWidget(self)
         self._source_table.setColumnCount(8)
@@ -264,8 +275,19 @@ class SubscriptionInterface(QWidget):
         }
         restore_table_widths(self._source_table, "subscription_source_widths", source_widths)
         connect_table_width_saver(self._source_table, "subscription_source_widths")
-        self._source_table.setColumnHidden(self._SRC_CHECKED, True)
-        self._source_table.setColumnHidden(self._SRC_KEY, True)
+        restore_table_columns(
+            self._source_table,
+            "subscription_source_table",
+            default_visible=[
+                self._SRC_STATE,
+                self._SRC_TYPE,
+                self._SRC_TITLE,
+                self._SRC_NEW,
+                self._SRC_ITEMS,
+                self._SRC_OPEN,
+            ],
+        )
+        connect_table_column_saver(self._source_table, "subscription_source_table")
         left_layout.addWidget(self._source_table, stretch=1)
 
         item_summary_row = QHBoxLayout()
@@ -371,6 +393,11 @@ class SubscriptionInterface(QWidget):
         self._item_sort_combo.setFixedSize(130, _CONTROL_HEIGHT)
         self._item_sort_combo.currentIndexChanged.connect(self._apply_item_filters)
         item_filter_row.addWidget(self._item_sort_combo)
+
+        item_columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
+        _style_action_button(item_columns_btn, min_width=96)
+        item_columns_btn.clicked.connect(self._configure_item_columns)
+        item_filter_row.addWidget(item_columns_btn)
         item_filter_row.addStretch()
         right_layout.addLayout(item_filter_row)
 
@@ -416,7 +443,33 @@ class SubscriptionInterface(QWidget):
         }
         restore_table_widths(self._item_table, "subscription_item_widths", item_widths)
         connect_table_width_saver(self._item_table, "subscription_item_widths")
+        restore_table_columns(self._item_table, "subscription_item_table")
+        connect_table_column_saver(self._item_table, "subscription_item_table")
         right_layout.addWidget(self._item_table, stretch=1)
+
+    def _configure_source_columns(self):
+        open_table_column_dialog(
+            self._source_table,
+            "subscription_source_table",
+            title=tr("Source Columns", "订阅源字段", "購読元列設定"),
+            default_visible=[
+                self._SRC_STATE,
+                self._SRC_TYPE,
+                self._SRC_TITLE,
+                self._SRC_NEW,
+                self._SRC_ITEMS,
+                self._SRC_OPEN,
+            ],
+            parent=self,
+        )
+
+    def _configure_item_columns(self):
+        open_table_column_dialog(
+            self._item_table,
+            "subscription_item_table",
+            title=tr("Video Columns", "作品列表字段", "動画列設定"),
+            parent=self,
+        )
 
     def _load_sources(self):
         previous_source_id = self._selected_source_id()
