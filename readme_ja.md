@@ -25,6 +25,7 @@
 
 ## クイックスタート
 1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得。
+   - Linux バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
 2. 起動後、先にログイン。
 3. `新規ダウンロード` に URL を貼り付けてキュー投入。
 

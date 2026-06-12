@@ -27,6 +27,7 @@
 
 ## 快速开始
 1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本。
+   - Linux 预编译包基于 GitHub 的 `ubuntu-latest` 构建，不支持 glibc 较老的系统；老版本发行版建议下载源码后在本机编译。
 2. 打开程序后先登录。
 3. 在 `新建下载` 粘贴链接并开始排队。
 

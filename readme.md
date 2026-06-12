@@ -25,6 +25,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 
 ## Quick Start
 1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
+   - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
 2. Open app and sign in first.
 3. Paste URLs in `New Download` and start queueing.
 
