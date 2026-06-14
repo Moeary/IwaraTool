@@ -15,6 +15,7 @@ from app.core.manager import DownloadManager, _compact_video_raw_json, download_
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
+from app.ui.subscription_page import _source_search_text, _source_sort_key
 from app.ui.task_page import TaskCenterInterface
 from app.ui.ui_state import (
     apply_table_column_layout,
@@ -118,6 +119,67 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertTrue(
             all(task.raw_json == "" and task.tags_json == "" for task in mgr.get_tasks() if task.status == TaskStatus.COMPLETED)
         )
+
+    def test_cancel_terminal_frees_slot_for_next_queued_task(self):
+        with ConfigGuard():
+            app_config.max_concurrent = 1
+            mgr = make_manager()
+            active = DownloadTask("active", "", "active", status=TaskStatus.DOWNLOADING)
+            queued = DownloadTask("queued", "", "queued", status=TaskStatus.QUEUED_META)
+            with mgr._lock:
+                mgr._tasks[active.task_id] = active
+                mgr._tasks[queued.task_id] = queued
+                mgr._task_id_by_video_id[active.video_id] = active.task_id
+                mgr._task_id_by_video_id[queued.video_id] = queued.task_id
+                mgr._active_task_ids.add(active.task_id)
+                mgr._queued_meta_ids.append(queued.task_id)
+
+            mgr._cancel_task_terminal("active", "cancelled")
+
+            self.assertEqual(active.status, TaskStatus.CANCELLED)
+            self.assertEqual(queued.status, TaskStatus.RESOLVING)
+            self.assertEqual(len(mgr._resolve_executor.submitted), 1)
+            self.assertEqual(mgr._resolve_executor.submitted[0][1], ("queued",))
+
+    def test_cancelled_task_can_be_restored_without_deleting_temp(self):
+        with ConfigGuard():
+            mgr = make_manager()
+            tmp_dir = os.path.dirname(mgr.history._db_path)
+            final_path = os.path.join(tmp_dir, "cancelled.mp4")
+            temp_path = f"{final_path}_temp"
+            with open(temp_path, "wb") as fh:
+                fh.write(b"partial")
+            task = DownloadTask(
+                "cancelled",
+                "https://www.iwara.tv/video/cancelled",
+                "cancelled",
+                title="Cancelled Video",
+                status=TaskStatus.CANCELLED,
+                file_path=final_path,
+                downloaded_bytes=7,
+                total_bytes=99,
+                error_msg="cancelled by test",
+                cancel_requested=True,
+                delete_temp_on_cancel=True,
+                remove_after_cancel=True,
+            )
+            with mgr._lock:
+                mgr._tasks[task.task_id] = task
+                mgr._task_id_by_video_id[task.video_id] = task.task_id
+                mgr._mark_terminal_locked(task)
+
+            restored = mgr.restore_cancelled_task("cancelled")
+
+            self.assertTrue(restored)
+            self.assertEqual(task.status, TaskStatus.RESOLVING)
+            self.assertFalse(task.cancel_requested)
+            self.assertFalse(task.delete_temp_on_cancel)
+            self.assertFalse(task.remove_after_cancel)
+            self.assertEqual(task.error_msg, "")
+            self.assertTrue(os.path.exists(temp_path))
+            self.assertNotIn("cancelled", mgr._terminal_task_id_set)
+            self.assertEqual(len(mgr._resolve_executor.submitted), 1)
+            self.assertEqual(mgr._resolve_executor.submitted[0][1], ("cancelled",))
 
     def test_history_list_and_batch_queries_omit_heavy_fields_by_default(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-history-")
@@ -430,6 +492,19 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertFalse(restored.isColumnHidden(3))
         self.assertTrue(restored.isColumnHidden(0))
         self.assertTrue(restored.isColumnHidden(1))
+
+    def test_subscription_source_sort_and_filter_text_use_author_names(self):
+        sources = [
+            {"source_type": "author", "source_key": "zeta", "title": "Zeta"},
+            {"source_type": "author", "source_key": "alice", "title": "Alice"},
+            {"source_type": "playlist", "source_key": "plist01", "title": "Playlist B"},
+        ]
+
+        ordered = sorted(sources, key=_source_sort_key)
+
+        self.assertEqual([source["source_key"] for source in ordered], ["alice", "plist01", "zeta"])
+        self.assertIn("alice", _source_search_text(sources[1]))
+        self.assertIn("iwara.tv/profile/alice", _source_search_text(sources[1]))
 
 
 def tearDownModule():

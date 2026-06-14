@@ -26,6 +26,7 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBar,
     InfoBarPosition,
+    LineEdit,
     PrimaryPushButton,
     TableWidget,
     TitleLabel,
@@ -132,6 +133,7 @@ class SubscriptionInterface(QWidget):
         self._worker: SubscriptionRefreshWorker | None = None
         self._import_worker: SubscriptionImportAuthorsWorker | None = None
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
+        self._all_sources: list[dict[str, Any]] = []
         self._sources: list[dict[str, Any]] = []
         self._all_items: list[dict[str, Any]] = []
         self._visible_items: list[dict[str, Any]] = []
@@ -150,6 +152,7 @@ class SubscriptionInterface(QWidget):
         self._load_sources()
         signal_bus.task_status_changed.connect(self._on_task_status_changed)
         signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
+        signal_bus.subscription_source_added.connect(self._on_subscription_source_added)
         self._sync_download_option_buttons()
 
     def _build_ui(self):
@@ -237,7 +240,18 @@ class SubscriptionInterface(QWidget):
         source_meta_row = QHBoxLayout()
         source_meta_row.setSpacing(_ROW_SPACING)
         source_meta_row.addWidget(storage_label)
-        source_meta_row.addStretch()
+        self._source_search_edit = LineEdit(self)
+        self._source_search_edit.setPlaceholderText(
+            tr(
+                "Filter author / username...",
+                "筛选作者名 / username...",
+                "作者名 / ユーザー名で絞り込み...",
+            )
+        )
+        self._source_search_edit.setClearButtonEnabled(True)
+        self._source_search_edit.setMinimumWidth(240)
+        self._source_search_edit.textChanged.connect(self._apply_source_filters)
+        source_meta_row.addWidget(self._source_search_edit, stretch=1)
         source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
         _style_action_button(source_columns_btn, min_width=96)
         source_columns_btn.clicked.connect(self._configure_source_columns)
@@ -554,31 +568,33 @@ class SubscriptionInterface(QWidget):
 
     def _load_sources(self):
         previous_source_id = self._selected_source_id()
-        self._sources = download_manager.get_subscription_sources()
-        self._render_sources()
-        selected_row = -1
-        if previous_source_id:
-            for row, source in enumerate(self._sources):
-                if int(source.get("id", 0) or 0) == previous_source_id:
-                    selected_row = row
-                    break
-        if selected_row < 0 and self._sources:
-            selected_row = 0
-        if selected_row >= 0:
-            self._source_table.blockSignals(True)
-            self._source_table.setCurrentCell(selected_row, self._SRC_STATE)
-            self._source_table.blockSignals(False)
-            self._load_items(self._selected_source_id())
-            return
-        self._load_items(None)
+        self._all_sources = download_manager.get_subscription_sources()
+        self._apply_source_filters(preferred_source_id=previous_source_id)
 
     def _refresh_sources_keep_current_items(self):
         source_id = self._current_source_id
-        self._sources = download_manager.get_subscription_sources()
+        self._all_sources = download_manager.get_subscription_sources()
+        self._apply_source_filters(preferred_source_id=source_id)
+
+    def _apply_source_filters(self, *_args, preferred_source_id: int | None = None):
+        selected_source_id = preferred_source_id if preferred_source_id is not None else self._selected_source_id()
+        query = self._source_search_edit.text().strip().casefold() if hasattr(self, "_source_search_edit") else ""
+        sources = sorted(self._all_sources, key=_source_sort_key)
+        if query:
+            sources = [source for source in sources if query in _source_search_text(source)]
+        self._sources = sources
         self._render_sources()
-        if source_id is not None and not self._select_source_id(source_id):
-            source_id = None
-        self._load_items(source_id)
+        if selected_source_id is not None and self._select_source_id(selected_source_id):
+            self._load_items(selected_source_id)
+            return
+        if self._sources:
+            first_source_id = int(self._sources[0].get("id", 0) or 0)
+            self._source_table.blockSignals(True)
+            self._source_table.setCurrentCell(0, self._SRC_STATE)
+            self._source_table.blockSignals(False)
+            self._load_items(first_source_id or None)
+            return
+        self._load_items(None)
 
     def _select_source_id(self, source_id: int) -> bool:
         selected_row = -1
@@ -973,6 +989,18 @@ class SubscriptionInterface(QWidget):
                 parent=self,
             )
 
+    def _on_subscription_source_added(self, source_id: int):
+        source_id = int(source_id or 0)
+        if not source_id:
+            return
+        if hasattr(self, "_source_search_edit") and self._source_search_edit.text():
+            self._source_search_edit.blockSignals(True)
+            self._source_search_edit.clear()
+            self._source_search_edit.blockSignals(False)
+        self._all_sources = download_manager.get_subscription_sources()
+        self._apply_source_filters(preferred_source_id=source_id)
+        self._start_refresh(source_id)
+
     def _import_followed_authors(self):
         if self._import_worker and self._import_worker.isRunning():
             return
@@ -1325,6 +1353,24 @@ def _source_type_label(source_type: str) -> str:
     if source_type == "playlist":
         return tr("Playlist", "播放列表", "リスト")
     return source_type
+
+
+def _source_sort_key(source: dict[str, Any]) -> tuple[str, str, str]:
+    title = str(source.get("title", "") or "").casefold()
+    source_key = str(source.get("source_key", "") or "").casefold()
+    source_type = str(source.get("source_type", "") or "").casefold()
+    return (title or source_key, source_key, source_type)
+
+
+def _source_search_text(source: dict[str, Any]) -> str:
+    values = [
+        source.get("title", ""),
+        source.get("source_key", ""),
+        source.get("source_type", ""),
+        _source_type_label(str(source.get("source_type", "") or "")),
+        _source_url(source),
+    ]
+    return " ".join(str(value or "") for value in values).casefold()
 
 
 def _item_state_text(*, downloaded: bool, queued: bool, file_exists: bool) -> str:

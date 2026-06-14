@@ -143,10 +143,19 @@ class TaskCard(CardWidget):
         self._status_lbl.setStyleSheet(
             f"color: {color}; font-weight: bold;"
         )
-        # Show retry button for failed tasks, delete button otherwise
+        # Show retry/restore for recoverable terminal tasks, delete otherwise.
         if status == TaskStatus.FAILED:
             self._action_btn.setIcon(FluentIcon.SYNC)
             self._action_btn.setToolTip(tr("Retry", "重试", "再試行"))
+        elif status == TaskStatus.CANCELLED:
+            self._action_btn.setIcon(FluentIcon.RETURN)
+            self._action_btn.setToolTip(
+                tr(
+                    "Restore cancelled task",
+                    "复原已中断任务",
+                    "中断済みタスクを復元",
+                )
+            )
         else:
             self._action_btn.setIcon(FluentIcon.DELETE)
             self._action_btn.setToolTip(tr("Remove task", "移除任务", "タスクを削除"))
@@ -230,6 +239,8 @@ class TaskCard(CardWidget):
         )
         if task and task.status == TaskStatus.FAILED:
             download_manager.retry_task(self.task_id)
+        elif task and task.status == TaskStatus.CANCELLED:
+            download_manager.restore_cancelled_task(self.task_id)
         else:
             download_manager.remove_task(self.task_id)
 

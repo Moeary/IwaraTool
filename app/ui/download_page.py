@@ -649,6 +649,7 @@ class DownloadInterface(QWidget):
                     f"[購読] ローカル購読元を追加: {kind}:{key}",
                 )
             )
+            signal_bus.subscription_source_added.emit(source_id)
 
     def _open_filter_dialog(self):
         dlg = FilterDialog(self)

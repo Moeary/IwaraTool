@@ -670,6 +670,17 @@ class TaskCenterInterface(QWidget):
                 tr("Open downloaded file", "打开下载文件", "保存ファイルを開く"),
                 bool(task.file_path),
             )
+        if task.status == TaskStatus.CANCELLED:
+            return (
+                "restore",
+                tr("Restore", "复原", "復元"),
+                tr(
+                    "Put cancelled task back into the queue",
+                    "将已中断任务重新加入队列",
+                    "中断済みタスクをキューに戻します",
+                ),
+                True,
+            )
         if task.status in _TERMINAL_STATUSES:
             return (
                 "",
@@ -702,6 +713,8 @@ class TaskCenterInterface(QWidget):
             self._open_task(task_id)
         elif action == "cancel":
             self._cancel_task(task_id)
+        elif action == "restore":
+            self._restore_task(task_id)
         elif action == "remove":
             self._remove_task(task_id)
 
@@ -710,6 +723,23 @@ class TaskCenterInterface(QWidget):
 
     def _cancel_task(self, task_id: str):
         download_manager.cancel_task(task_id)
+
+    def _restore_task(self, task_id: str):
+        restored = download_manager.restore_cancelled_task(task_id)
+        if not restored:
+            InfoBar.warning(
+                title=tr("Cannot restore", "无法复原", "復元できません"),
+                content=tr(
+                    "Only cancelled tasks can be restored",
+                    "只有已中断任务可以复原",
+                    "中断済みタスクのみ復元できます",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
 
     def _remove_task(self, task_id: str):
         download_manager.remove_task(task_id)

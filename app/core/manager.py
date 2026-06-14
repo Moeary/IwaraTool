@@ -175,6 +175,42 @@ class DownloadManager:
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
         self._try_activate()
 
+    def restore_cancelled_task(self, task_id: str) -> bool:
+        """Put a cancelled task back into the queue without deleting temp data."""
+        title = ""
+        requeued = False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.status != TaskStatus.CANCELLED:
+                return False
+            title = task.title or task.video_id
+            task.status = TaskStatus.QUEUED_META
+            task.cancel_requested = False
+            task.delete_temp_on_cancel = False
+            task.remove_after_cancel = False
+            task.aria2_gid = ""
+            task.error_msg = ""
+            task.speed_str = ""
+            task.downloaded_bytes = 0
+            task.total_bytes = 0
+            task.download_url = ""
+            self._unmark_terminal_locked(task_id)
+            self._queued_meta_ids.append(task_id)
+            requeued = True
+
+        if not requeued:
+            return False
+        signal_bus.log_message.emit(
+            tr(
+                f"[Restore] \"{title}\" re-queued",
+                f"[复原] 《{title}》已重新加入队列",
+                f"[復元] 「{title}」をキューに戻しました",
+            )
+        )
+        signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        self._try_activate()
+        return True
+
     def retry_all_failed(self, exclude_downloaded: bool = True) -> tuple[int, int]:
         """Retry all failed tasks.
 

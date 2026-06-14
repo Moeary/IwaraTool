@@ -36,6 +36,9 @@ class TaskSignalBus(QObject):
     # Emitted when shared download options change from any page.
     download_options_changed = Signal()
 
+    # source_id
+    subscription_source_added = Signal(int)
+
 
 # Module-level singleton — import this everywhere
 signal_bus = TaskSignalBus()
