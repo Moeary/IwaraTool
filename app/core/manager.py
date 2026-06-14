@@ -15,6 +15,7 @@ This ensures download URLs are never resolved too early and expire before use.
 
 from __future__ import annotations
 
+import gc
 import os
 import json
 import re
@@ -23,7 +24,8 @@ import subprocess
 import threading
 import time
 import uuid
-from xml.sax.saxutils import escape
+import xml.etree.ElementTree as ET
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -35,14 +37,34 @@ from ..signal_bus import signal_bus
 from .api import IwaraAPI
 from .history import DownloadHistory
 from .models import DownloadTask, TaskStatus
+from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
+from .subscriptions import SubscriptionStore
 
 if TYPE_CHECKING:
     pass
 
 
 _ACTIVE_STATUSES = frozenset(
-    [TaskStatus.RESOLVING, TaskStatus.QUEUED_DOWNLOAD, TaskStatus.DOWNLOADING]
+    [
+        TaskStatus.RESOLVING,
+        TaskStatus.QUEUED_DOWNLOAD,
+        TaskStatus.DOWNLOADING,
+        TaskStatus.CANCELLING,
+    ]
 )
+
+_TERMINAL_STATUSES = frozenset(
+    [
+        TaskStatus.COMPLETED,
+        TaskStatus.SKIPPED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    ]
+)
+
+_LIVE_TERMINAL_KEEP_LIMIT = 100
+_EXISTING_FILE_INDEX_TTL_SECONDS = 60
+_MAX_STORED_TEXT_CHARS = 20000
 
 
 class DownloadManager:
@@ -55,13 +77,30 @@ class DownloadManager:
     def __init__(self):
         self.api = IwaraAPI()
         self.history = DownloadHistory()
+        self.subscriptions = SubscriptionStore()
 
         # task_id → DownloadTask
         self._tasks: dict[str, DownloadTask] = {}
+        self._task_id_by_video_id: dict[str, str] = {}
+        self._queued_meta_ids: deque[str] = deque()
+        self._active_task_ids: set[str] = set()
+        self._terminal_task_ids: deque[str] = deque()
+        self._terminal_task_id_set: set[str] = set()
         self._lock = threading.Lock()
+        self._api_lock = threading.RLock()
+        self._existing_file_index_lock = threading.Lock()
+        self._existing_file_index: dict[str, str] = {}
+        self._existing_file_index_root = ""
+        self._existing_file_index_built_at = 0.0
+        self._terminal_keep_limit = _LIVE_TERMINAL_KEEP_LIMIT
+        self._terminal_events_since_gc = 0
+        self._last_gc_at = 0.0
 
-        # Large pool: some threads will be idle most of the time
-        self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="iwara")
+        # Keep parse, resolve, and download work isolated so a large batch cannot
+        # starve metadata resolution or leave the UI looking stuck.
+        self._parse_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="iwara-parse")
+        self._resolve_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-resolve")
+        self._download_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-download")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -69,22 +108,108 @@ class DownloadManager:
         with self._lock:
             return list(self._tasks.values())
 
+    def get_task(self, task_id: str) -> DownloadTask | None:
+        with self._lock:
+            return self._tasks.get(task_id)
+
     def add_url(self, url: str):
         """Parse URL and enqueue tasks (runs in background thread)."""
-        self._executor.submit(self._parse_and_enqueue, url)
+        self._parse_executor.submit(self._parse_and_enqueue, url)
+
+    def add_url_mark_downloaded(self, url: str):
+        """Parse URL and mark resolved videos as already downloaded in history."""
+        self._parse_executor.submit(self._parse_and_mark_downloaded, url)
+
+    def enqueue_video_ids(self, video_ids: list[str], *, source_label: str = "") -> int:
+        """Queue a list of video ids and return how many were accepted for parsing."""
+        items = [
+            (str(raw_id or "").strip(), f"https://www.iwara.tv/video/{str(raw_id or '').strip()}")
+            for raw_id in video_ids
+            if str(raw_id or "").strip()
+        ]
+        summary = self._enqueue_video_ids_bulk(items, source_label=source_label)
+        return int(summary.get("queued", 0) or 0)
 
     def retry_task(self, task_id: str):
         """Re-queue a failed task."""
+        temp_file_path = ""
+        temp_title = ""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task and task.status == TaskStatus.FAILED:
+                temp_file_path = task.file_path
+                temp_title = task.title or task.video_id
+        if not temp_title:
+            return
+
+        _, cleanup_failed = self._log_retry_temp_cleanup(temp_title, temp_file_path)
+        if cleanup_failed:
+            signal_bus.task_error.emit(
+                task_id,
+                tr(
+                    "Temp cache cleanup failed; retry was not started",
+                    "临时缓存清理失败，未开始重试",
+                    "一時キャッシュ削除に失敗したため再試行しません",
+                ),
+            )
+            return
+
+        requeued = False
         with self._lock:
             task = self._tasks.get(task_id)
             if task and task.status == TaskStatus.FAILED:
                 task.status = TaskStatus.QUEUED_META
+                task.cancel_requested = False
+                task.delete_temp_on_cancel = False
+                task.remove_after_cancel = False
+                task.aria2_gid = ""
                 task.error_msg = ""
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                self._unmark_terminal_locked(task_id)
+                self._queued_meta_ids.append(task_id)
+                requeued = True
+        if not requeued:
+            return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
         self._try_activate()
+
+    def restore_cancelled_task(self, task_id: str) -> bool:
+        """Put a cancelled task back into the queue without deleting temp data."""
+        title = ""
+        requeued = False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.status != TaskStatus.CANCELLED:
+                return False
+            title = task.title or task.video_id
+            task.status = TaskStatus.QUEUED_META
+            task.cancel_requested = False
+            task.delete_temp_on_cancel = False
+            task.remove_after_cancel = False
+            task.aria2_gid = ""
+            task.error_msg = ""
+            task.speed_str = ""
+            task.downloaded_bytes = 0
+            task.total_bytes = 0
+            task.download_url = ""
+            self._unmark_terminal_locked(task_id)
+            self._queued_meta_ids.append(task_id)
+            requeued = True
+
+        if not requeued:
+            return False
+        signal_bus.log_message.emit(
+            tr(
+                f"[Restore] \"{title}\" re-queued",
+                f"[复原] 《{title}》已重新加入队列",
+                f"[復元] 「{title}」をキューに戻しました",
+            )
+        )
+        signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        self._try_activate()
+        return True
 
     def retry_all_failed(self, exclude_downloaded: bool = True) -> tuple[int, int]:
         """Retry all failed tasks.
@@ -96,7 +221,7 @@ class DownloadManager:
         Returns:
             (retried_count, skipped_as_completed_count)
         """
-        to_retry: list[str] = []
+        to_retry: list[tuple[str, str, str]] = []
         to_complete: list[str] = []
 
         with self._lock:
@@ -104,29 +229,106 @@ class DownloadManager:
                 t for t in self._tasks.values() if t.status == TaskStatus.FAILED
             ]
 
-            for task in failed_tasks:
-                if exclude_downloaded and self._find_existing_local_file(task.video_id):
-                    to_complete.append(task.task_id)
-                    continue
+        for task in failed_tasks:
+            if exclude_downloaded and self._find_existing_local_file(task.video_id):
+                to_complete.append(task.task_id)
+                continue
 
+            to_retry.append(
+                (task.task_id, task.file_path, task.title or task.video_id)
+            )
+
+        retried_count = 0
+        for tid in to_complete:
+            self._complete_task(tid)
+        for tid, file_path, title in to_retry:
+            _, cleanup_failed = self._log_retry_temp_cleanup(title, file_path)
+            if cleanup_failed:
+                signal_bus.task_error.emit(
+                    tid,
+                    tr(
+                        "Temp cache cleanup failed; retry was not started",
+                        "临时缓存清理失败，未开始重试",
+                        "一時キャッシュ削除に失敗したため再試行しません",
+                    ),
+                )
+                continue
+            with self._lock:
+                task = self._tasks.get(tid)
+                if not task or task.status != TaskStatus.FAILED:
+                    continue
                 task.status = TaskStatus.QUEUED_META
+                task.cancel_requested = False
+                task.delete_temp_on_cancel = False
+                task.remove_after_cancel = False
+                task.aria2_gid = ""
                 task.error_msg = ""
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
-                to_retry.append(task.task_id)
-
-        for tid in to_complete:
-            self._complete_task(tid)
-        for tid in to_retry:
+                self._unmark_terminal_locked(tid)
+                self._queued_meta_ids.append(tid)
+            retried_count += 1
             signal_bus.task_status_changed.emit(tid, TaskStatus.QUEUED_META.value)
 
         self._try_activate()
-        return len(to_retry), len(to_complete)
+        return retried_count, len(to_complete)
+
+    def cancel_task(
+        self,
+        task_id: str,
+        *,
+        delete_temp: bool = False,
+        remove_after_cancel: bool = False,
+    ) -> bool:
+        """Request cancellation for a queued or active task."""
+        finalize_now = False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+            if task.status in _TERMINAL_STATUSES:
+                return False
+            task.cancel_requested = True
+            task.delete_temp_on_cancel = task.delete_temp_on_cancel or delete_temp
+            task.remove_after_cancel = task.remove_after_cancel or remove_after_cancel
+            if task.status in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD):
+                finalize_now = True
+            else:
+                task.status = TaskStatus.CANCELLING
+
+        if finalize_now:
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+        else:
+            signal_bus.task_status_changed.emit(task_id, TaskStatus.CANCELLING.value)
+        return True
+
+    def cancel_all_active(self) -> int:
+        with self._lock:
+            ids = [
+                tid
+                for tid, task in self._tasks.items()
+                if task.status not in _TERMINAL_STATUSES
+            ]
+        for task_id in ids:
+            self.cancel_task(task_id)
+        return len(ids)
 
     def remove_task(self, task_id: str):
+        should_cancel = False
         with self._lock:
-            removed = self._tasks.pop(task_id, None)
+            task = self._tasks.get(task_id)
+            if task and task.status not in _TERMINAL_STATUSES:
+                should_cancel = True
+                removed = None
+            else:
+                removed = self._forget_task_locked(task_id)
+        if should_cancel:
+            self.cancel_task(task_id, remove_after_cancel=True)
+            return
         if removed:
             signal_bus.task_removed.emit(task_id)
 
@@ -137,13 +339,623 @@ class DownloadManager:
             to_remove = [
                 tid
                 for tid, t in self._tasks.items()
-                if t.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED)
+                if t.status in _TERMINAL_STATUSES
             ]
             for tid in to_remove:
-                del self._tasks[tid]
-                removed_ids.append(tid)
+                if self._forget_task_locked(tid):
+                    removed_ids.append(tid)
         for tid in removed_ids:
             signal_bus.task_removed.emit(tid)
+
+    def get_history_records(self) -> list[dict[str, Any]]:
+        return self.history.list_records()
+
+    def sync_history_with_download_folder(self) -> dict[str, int]:
+        return self.history.sync_with_download_folder(app_config.download_dir)
+
+    def remove_history_record(self, video_id: str):
+        self.history.remove(video_id)
+
+    # ── Subscriptions ────────────────────────────────────────────────────────
+
+    def add_following_subscription(self) -> int:
+        return self.subscriptions.add_source(
+            "feed",
+            "subscribed",
+            tr("Following Feed", "账号订阅流", "購読フィード"),
+        )
+
+    def import_followed_author_subscriptions(self) -> dict[str, Any]:
+        """Import followed authors from the logged-in account.
+
+        Prefer the explicit following-user endpoint. If it cannot be used
+        (usually because the saved credential is an email rather than username),
+        fall back to deriving authors from the subscribed video feed.
+        """
+        if not self.api.token:
+            return {
+                "imported": 0,
+                "method": "",
+                "error": tr("Please login first", "请先登录账号", "先にログインしてください"),
+            }
+
+        username = (app_config.username or "").strip()
+        if username and "@" not in username:
+            user_id, err = self._api_call("get_user_id", username)
+            if user_id:
+                users, follow_err = self._api_call("get_user_following", user_id)
+                if not follow_err:
+                    imported = self._add_author_sources_from_users(users)
+                    return {
+                        "imported": imported,
+                        "method": "following",
+                        "error": "",
+                    }
+                err = follow_err
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Subscriptions] following endpoint failed, fallback to feed authors: {err}",
+                    f"[订阅] 关注作者接口失败，回退为从订阅视频流提取作者: {err}",
+                    f"[購読] フォロー取得失敗、購読フィードから作者を抽出: {err}",
+                )
+            )
+
+        cap = max(500, self._subscription_fetch_limit() or 500)
+        videos, err = self._api_call("get_subscribed_videos", max_results=cap)
+        if err:
+            return {"imported": 0, "method": "feed", "error": err}
+        imported = self._add_author_sources_from_videos(videos)
+        return {
+            "imported": imported,
+            "method": "feed",
+            "error": "" if imported else tr(
+                "No authors found in subscribed feed",
+                "订阅视频流里没有提取到作者",
+                "購読フィードから作者を抽出できませんでした",
+            ),
+        }
+
+    def add_author_subscription(self, username: str) -> int:
+        username = username.strip().strip("/")
+        return self.subscriptions.add_source("author", username, username)
+
+    def add_playlist_subscription(self, playlist_id: str) -> int:
+        playlist_id = playlist_id.strip().strip("/")
+        return self.subscriptions.add_source(
+            "playlist",
+            playlist_id,
+            tr(f"Playlist {playlist_id}", f"播放列表 {playlist_id}", f"プレイリスト {playlist_id}"),
+        )
+
+    def detect_subscription_source(self, raw: str) -> tuple[str, str] | None:
+        parsed = self._parse_iwara_url(raw)
+        if not parsed:
+            return None
+        kind, value = parsed
+        if kind == "user":
+            return "author", str(value)
+        if kind == "playlist":
+            return "playlist", str(value)
+        return None
+
+    def add_detected_subscription_source(self, kind: str, key: str) -> int:
+        if kind == "playlist":
+            return self.add_playlist_subscription(key)
+        if kind == "author":
+            return self.add_author_subscription(key)
+        return 0
+
+    def get_subscription_sources(self) -> list[dict[str, Any]]:
+        return self.subscriptions.list_sources()
+
+    def get_subscription_storage_info(self) -> dict[str, str]:
+        return {
+            "db_path": self.subscriptions.db_path,
+            "backup_path": self.subscriptions.backup_path,
+        }
+
+    def get_subscription_items(self, source_id: int | None = None) -> list[dict[str, Any]]:
+        items = self.subscriptions.list_items(source_id)
+        video_ids = [str(item.get("video_id", "") or "") for item in items]
+        history_records = self.history.get_records(video_ids)
+        with self._lock:
+            queued_ids = {task.video_id.lower() for task in self._tasks.values()}
+        for item in items:
+            video_id = str(item.get("video_id", "") or "")
+            history_record = history_records.get(video_id)
+            file_path = str(history_record.get("file_path", "") or "") if history_record else ""
+            item["downloaded"] = bool(history_record)
+            item["download_file_path"] = file_path
+            item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
+            item["queued"] = video_id.lower() in queued_ids
+        return items
+
+    def remove_subscription_source(self, source_id: int):
+        self.subscriptions.remove_source(source_id)
+
+    def set_subscription_enabled(self, source_id: int, enabled: bool):
+        self.subscriptions.set_source_enabled(source_id, enabled)
+
+    def mark_subscription_items_seen(self, video_ids: list[str]):
+        self.subscriptions.mark_items_seen(video_ids)
+
+    def mark_subscription_items_downloaded(self, video_ids: list[str]) -> int:
+        ids = [str(v or "").strip() for v in video_ids if str(v or "").strip()]
+        if not ids:
+            return 0
+        items = self.subscriptions.get_items_by_video_ids(ids)
+        known = {str(item.get("video_id", "") or "") for item in items}
+        for video_id in ids:
+            if video_id not in known:
+                items.append({"video_id": video_id, "source_url": f"https://www.iwara.tv/video/{video_id}"})
+        marked = self.mark_video_items_downloaded(items)
+        if marked:
+            self.subscriptions.mark_items_seen(ids)
+        return marked
+
+    def restore_subscription_items_downloaded(self, video_ids: list[str]) -> int:
+        ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
+        restored = 0
+        for video_id in ids:
+            record = self.history.get_record(video_id)
+            if not record:
+                continue
+            file_path = str(record.get("file_path", "") or "")
+            if file_path and os.path.exists(file_path):
+                continue
+            self.history.remove(video_id)
+            restored += 1
+        if restored:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[History] restored {restored} moved subscription videos",
+                    f"[历史] 已还原 {restored} 个订阅视频的已移走状态",
+                    f"[履歴] 移動済み状態を {restored} 件解除しました",
+                )
+            )
+        return restored
+
+    def mark_video_items_downloaded(self, items: list[dict[str, Any]]) -> int:
+        marked = 0
+        seen: set[str] = set()
+        for item in items:
+            video_id = str(item.get("video_id", "") or item.get("id", "") or "").strip()
+            if not video_id or video_id.lower() in seen:
+                continue
+            seen.add(video_id.lower())
+            existing = self.history.get_record(video_id, include_raw=True)
+            meta = self._history_meta_from_item(item, existing)
+            self.history.upsert_downloaded(meta)
+            marked += 1
+        if marked:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[History] marked {marked} videos as downloaded/moved",
+                    f"[历史] 已标记 {marked} 个视频为已下载/已移走",
+                    f"[履歴] {marked} 件を保存済み/移動済みとしてマーク",
+                )
+            )
+        return marked
+
+    def mark_subscription_source_seen(self, source_id: int):
+        self.subscriptions.mark_source_seen(source_id)
+
+    def enqueue_subscription_items(self, video_ids: list[str]) -> int:
+        queued = self.enqueue_video_ids(video_ids, source_label=tr("Subscriptions", "订阅页", "購読"))
+        self.mark_subscription_items_seen(video_ids)
+        return queued
+
+    def submit_subscription_items(self, video_ids: list[str]) -> dict[str, int | str]:
+        ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
+        if not ids:
+            return {"mode": "empty", "queued": 0, "marked": 0, "thumbnail": 0, "nfo": 0, "failed": 0}
+        if app_config.download_video_file and not app_config.mark_submitted_as_downloaded:
+            queued = self.enqueue_subscription_items(ids)
+            return {
+                "mode": "download",
+                "queued": queued,
+                "marked": 0,
+                "thumbnail": 0,
+                "nfo": 0,
+                "failed": 0,
+            }
+        return self._process_subscription_items_metadata_only(ids)
+
+    def _process_subscription_items_metadata_only(self, video_ids: list[str]) -> dict[str, int | str]:
+        items = self.subscriptions.get_items_by_video_ids(video_ids)
+        fallback_by_id = {
+            str(item.get("video_id", "") or ""): item
+            for item in items
+            if str(item.get("video_id", "") or "")
+        }
+        result: dict[str, int | str] = {
+            "mode": "metadata",
+            "queued": 0,
+            "marked": 0,
+            "thumbnail": 0,
+            "nfo": 0,
+            "failed": 0,
+        }
+        for video_id in video_ids:
+            source_url = str(fallback_by_id.get(video_id, {}).get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
+            video_info, err = self._api_call("get_video_info", video_id)
+            if not video_info:
+                fallback = fallback_by_id.get(video_id) or {
+                    "video_id": video_id,
+                    "source_url": source_url,
+                }
+                result["marked"] = int(result["marked"]) + self.mark_video_items_downloaded([fallback])
+                result["failed"] = int(result["failed"]) + 1
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Subscriptions] metadata fetch failed for {video_id}, marked from cached row: {err}",
+                        f"[订阅] {video_id} 元数据获取失败，已按缓存行标记：{err}",
+                        f"[購読] {video_id} のメタデータ取得失敗、キャッシュ行で記録: {err}",
+                    )
+                )
+                continue
+
+            unavailable_reason = self._video_unavailable_reason(video_info)
+            if unavailable_reason:
+                fallback = fallback_by_id.get(video_id) or {
+                    "video_id": video_id,
+                    "source_url": source_url,
+                }
+                result["marked"] = int(result["marked"]) + self.mark_video_items_downloaded([fallback])
+                result["failed"] = int(result["failed"]) + 1
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Subscriptions] metadata unavailable for {video_id}: {unavailable_reason}",
+                        f"[订阅] {video_id} 元数据不可用：{unavailable_reason}",
+                        f"[購読] {video_id} のメタデータ利用不可: {unavailable_reason}",
+                    )
+                )
+                continue
+
+            task = self._metadata_task_from_video_info(video_id, video_info, source_url)
+            if app_config.download_thumbnail and self._download_thumbnail(task, require_video_file=False):
+                result["thumbnail"] = int(result["thumbnail"]) + 1
+            if app_config.collect_nfo_info and self._write_nfo(task, require_video_file=False):
+                result["nfo"] = int(result["nfo"]) + 1
+
+            existing = self.history.get_record(task.video_id, include_raw=True)
+            history_item = dict(video_info)
+            history_item["video_id"] = task.video_id
+            history_item["source_url"] = source_url
+            meta = self._history_meta_from_item(history_item, existing)
+            meta["thumbnail_path"] = task.thumbnail_path or meta.get("thumbnail_path", "")
+            meta["quality"] = task.quality
+            self.history.upsert_downloaded(meta)
+            result["marked"] = int(result["marked"]) + 1
+
+        if int(result["marked"]):
+            self.subscriptions.mark_items_seen(video_ids)
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Subscriptions] metadata-only done: marked={result['marked']}, thumbnails={result['thumbnail']}, nfo={result['nfo']}, failed={result['failed']}",
+                    f"[订阅] 仅元数据处理完成：标记={result['marked']}，封面={result['thumbnail']}，NFO={result['nfo']}，失败={result['failed']}",
+                    f"[購読] メタデータのみ完了: 記録={result['marked']}、サムネイル={result['thumbnail']}、NFO={result['nfo']}、失敗={result['failed']}",
+                )
+            )
+        return result
+
+    def refresh_all_subscriptions(self) -> dict[str, Any]:
+        summaries: list[dict[str, Any]] = []
+        for source in self.get_subscription_sources():
+            if not int(source.get("enabled", 1) or 0):
+                continue
+            summaries.append(self.refresh_subscription_source(int(source["id"])))
+        return self._subscription_refresh_summary(summaries)
+
+    def refresh_subscription_source(self, source_id: int) -> dict[str, Any]:
+        source = self.subscriptions.get_source(source_id)
+        if not source:
+            return {
+                "source_id": source_id,
+                "title": "",
+                "new": 0,
+                "total": 0,
+                "downloaded": 0,
+                "fetched": 0,
+                "error": tr("Subscription source does not exist", "订阅源不存在", "購読元が存在しません"),
+            }
+        if not int(source.get("enabled", 1) or 0):
+            return {
+                "source_id": source_id,
+                "title": str(source.get("title", "") or ""),
+                "new": 0,
+                "total": self.subscriptions.count_items(source_id),
+                "downloaded": 0,
+                "fetched": 0,
+                "error": tr("Subscription source is disabled", "订阅源已停用", "購読元は無効です"),
+            }
+
+        source_type = str(source.get("source_type", "") or "")
+        source_key = str(source.get("source_key", "") or "")
+        title = str(source.get("title", "") or source_key)
+        videos: list[dict] = []
+        err = ""
+        cap = self._subscription_fetch_limit()
+
+        if source_type == "feed":
+            videos, err = self._api_call("get_subscribed_videos", max_results=cap)
+        elif source_type == "author":
+            remote_id = str(source.get("remote_id", "") or "")
+            if not remote_id:
+                remote_id, err = self._api_call("get_user_id", source_key)
+                if remote_id:
+                    self.subscriptions.update_source_remote_id(source_id, remote_id)
+            if remote_id:
+                videos = self._api_call("get_user_videos", remote_id)
+        elif source_type == "playlist":
+            videos = self._api_call("get_playlist_videos", source_key)
+        else:
+            err = tr(
+                f"Unknown subscription type: {source_type}",
+                f"未知订阅类型: {source_type}",
+                f"不明な購読タイプ: {source_type}",
+            )
+
+        if err:
+            self.subscriptions.touch_source_checked(source_id)
+            return {
+                "source_id": source_id,
+                "title": title,
+                "new": 0,
+                "total": self.subscriptions.count_items(source_id),
+                "downloaded": 0,
+                "fetched": len(videos),
+                "error": err,
+            }
+
+        normalized_items = [_subscription_item_from_video(video) for video in videos]
+        new_count, total_count = self.subscriptions.upsert_items(source_id, normalized_items)
+        self.subscriptions.touch_source_checked(source_id)
+        items = self.get_subscription_items(source_id)
+        downloaded_count = sum(1 for item in items if item.get("downloaded"))
+        return {
+            "source_id": source_id,
+            "title": title,
+            "new": new_count,
+            "total": total_count,
+            "downloaded": downloaded_count,
+            "fetched": len(videos),
+            "error": "",
+        }
+
+    @staticmethod
+    def _subscription_refresh_summary(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "sources": len(summaries),
+            "new": sum(int(s.get("new", 0) or 0) for s in summaries),
+            "total": sum(int(s.get("total", 0) or 0) for s in summaries),
+            "downloaded": sum(int(s.get("downloaded", 0) or 0) for s in summaries),
+            "errors": [s for s in summaries if s.get("error")],
+            "details": summaries,
+        }
+
+    @staticmethod
+    def _subscription_fetch_limit() -> int:
+        if not app_config.search_limit_enabled:
+            return 0
+        return max(1, int(app_config.search_limit_count or 100))
+
+    def _add_author_sources_from_users(self, users: list[dict]) -> int:
+        imported = 0
+        for entry in users:
+            user = entry.get("user") if isinstance(entry, dict) else None
+            if not isinstance(user, dict):
+                user = entry if isinstance(entry, dict) else {}
+            username = str(user.get("username") or "").strip()
+            if not username:
+                continue
+            title = str(user.get("name") or username).strip()
+            remote_id = str(user.get("id") or "").strip()
+            if self.subscriptions.add_source("author", username, title, remote_id):
+                imported += 1
+        return imported
+
+    def _add_author_sources_from_videos(self, videos: list[dict]) -> int:
+        users_by_name: dict[str, dict] = {}
+        for video in videos:
+            user = video.get("user")
+            if not isinstance(user, dict):
+                continue
+            username = str(user.get("username") or "").strip()
+            if username:
+                users_by_name[username.lower()] = user
+        return self._add_author_sources_from_users(list(users_by_name.values()))
+
+    def _history_meta_from_item(
+        self, item: dict[str, Any], existing: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        video_id = str(item.get("video_id", "") or item.get("id", "") or "").strip()
+        user = _dict_or_empty(item.get("user"))
+        file_info = _dict_or_empty(item.get("file"))
+
+        def value(*keys: str, default: Any = "") -> Any:
+            for key in keys:
+                raw = item.get(key)
+                if raw not in (None, ""):
+                    return raw
+            if existing:
+                for key in keys:
+                    raw = existing.get(key)
+                    if raw not in (None, ""):
+                        return raw
+            return default
+
+        author = str(value("author", default="") or "")
+        if not author:
+            author = str(user.get("username") or user.get("name") or "")
+
+        raw_tags = item.get("tags", [])
+        tags_json = json.dumps(raw_tags, ensure_ascii=False) if isinstance(raw_tags, list) else ""
+        raw_json = _compact_video_raw_json(item) if "user" in item or "body" in item else ""
+        if existing:
+            tags_json = tags_json or str(existing.get("tags_json", "") or "")
+            raw_json = raw_json or str(existing.get("raw_json", "") or "")
+        return {
+            "video_id": video_id,
+            "title": str(value("title", default=video_id) or video_id),
+            "author": author,
+            "published_at": str(value("published_at", "createdAt", "updatedAt", default="") or ""),
+            "likes": int(value("likes", "numLikes", default=0) or 0),
+            "views": int(value("views", "numViews", default=0) or 0),
+            "slug": str(value("slug", default="") or ""),
+            "rating": str(value("rating", default="") or ""),
+            "duration": int(value("duration", default=file_info.get("duration", 0) or 0) or 0),
+            "comments": int(value("comments", "numComments", default=0) or 0),
+            "tags_json": tags_json,
+            "raw_json": raw_json,
+            "source_url": str(value("source_url", default=f"https://www.iwara.tv/video/{video_id}") or ""),
+            "file_path": str(existing.get("file_path", "") or "") if existing else "",
+            "thumbnail_path": str(existing.get("thumbnail_path", "") or "") if existing else "",
+            "quality": str(existing.get("quality", "") or "") if existing else "",
+        }
+
+    def _metadata_task_from_video_info(
+        self, video_id: str, video_info: dict[str, Any], source_url: str
+    ) -> DownloadTask:
+        user = _dict_or_empty(video_info.get("user"))
+        file_info = _dict_or_empty(video_info.get("file"))
+        task_video_id = str(video_info.get("id", "") or video_info.get("video_id", "") or video_id)
+        title = str(video_info.get("title", "") or task_video_id)
+        author = str(user.get("username", "") or user.get("name", "") or "")
+        published_at = str(video_info.get("createdAt", "") or "")
+        likes = int(video_info.get("numLikes", 0) or 0)
+        views = int(video_info.get("numViews", 0) or 0)
+        slug = str(video_info.get("slug", "") or "")
+        rating = str(video_info.get("rating", "") or "")
+        duration = int(file_info.get("duration", 0) or 0)
+        comments = int(video_info.get("numComments", 0) or 0)
+        raw_tags = video_info.get("tags", [])
+        tags_json = json.dumps(raw_tags, ensure_ascii=False) if isinstance(raw_tags, list) else ""
+        raw_json = _compact_video_raw_json(video_info)
+        file_url = str(video_info.get("fileUrl", "") or "")
+        file_id = str(file_info.get("id", "") or "")
+        thumbnail_index = int(video_info.get("thumbnail", 0) or 0)
+        quality = str(app_config.preferred_quality or "metadata")
+
+        task = DownloadTask(str(uuid.uuid4()), source_url, task_video_id)
+        self._apply_task_metadata(
+            task,
+            title=title,
+            author=author,
+            published_at=published_at,
+            likes=likes,
+            views=views,
+            slug=slug,
+            rating=rating,
+            duration=duration,
+            comments=comments,
+            tags_json=tags_json,
+            raw_json=raw_json,
+            file_url=file_url,
+            file_id=file_id,
+            thumbnail_index=thumbnail_index,
+        )
+        task.quality = quality
+        output_rel_path = self._build_output_relative_path(
+            title=title,
+            video_id=task_video_id,
+            author=author,
+            published_at=published_at,
+            quality=quality,
+            likes=likes,
+            views=views,
+            comments=comments,
+            duration=duration,
+            slug=slug,
+            rating=rating,
+        )
+        task.file_path = os.path.join(app_config.download_dir, output_rel_path)
+        task.filename = os.path.basename(task.file_path)
+        return task
+
+    def open_history_output(
+        self, video_id: str, *, open_file: bool = False
+    ) -> tuple[bool, str]:
+        record = self.history.get_record(video_id)
+        if not record:
+            return False, tr("History record does not exist", "历史记录不存在", "履歴が存在しません")
+
+        file_path = str(record.get("file_path", "") or "")
+        if not file_path or not os.path.exists(file_path):
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
+
+        target = file_path if open_file else os.path.dirname(file_path)
+        return self._open_system_path(target)
+
+    def rename_history_file(
+        self, video_id: str, new_filename: str
+    ) -> tuple[bool, str]:
+        record = self.history.get_record(video_id)
+        if not record:
+            return False, tr("History record does not exist", "历史记录不存在", "履歴が存在しません")
+
+        old_path = str(record.get("file_path", "") or "")
+        if not old_path or not os.path.isfile(old_path):
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
+
+        old_dir = os.path.dirname(old_path)
+        old_ext = os.path.splitext(old_path)[1] or ".mp4"
+        cleaned_name = self._sanitize_path_segment(new_filename.strip())
+        if cleaned_name in ("", "_"):
+            return False, tr("Invalid file name", "文件名无效", "ファイル名が不正です")
+        if not os.path.splitext(cleaned_name)[1]:
+            cleaned_name += old_ext
+
+        new_path = os.path.join(old_dir, cleaned_name)
+        if os.path.abspath(new_path) == os.path.abspath(old_path):
+            return False, tr("File name is unchanged", "文件名没有变化", "ファイル名は変更されていません")
+        if os.path.exists(new_path):
+            return False, tr("Target file already exists", "目标文件已存在", "変更先ファイルは既に存在します")
+
+        old_stem = os.path.splitext(old_path)[0]
+        new_stem = os.path.splitext(new_path)[0]
+        sidecars: list[tuple[str, str]] = []
+
+        old_thumbnail = str(record.get("thumbnail_path", "") or "")
+        if old_thumbnail and os.path.isfile(old_thumbnail):
+            thumb_ext = os.path.splitext(old_thumbnail)[1] or ".jpg"
+            sidecars.append((old_thumbnail, new_stem + thumb_ext))
+
+        nfo_path = old_stem + ".nfo"
+        if os.path.isfile(nfo_path):
+            sidecars.append((nfo_path, new_stem + ".nfo"))
+
+        for _, target in sidecars:
+            if os.path.exists(target):
+                return False, tr(
+                    f"Sidecar target already exists: {target}",
+                    f"同名附属文件已存在: {target}",
+                    f"関連ファイルの変更先が既に存在します: {target}",
+                )
+
+        new_thumbnail = old_thumbnail
+        try:
+            os.rename(old_path, new_path)
+            for source, target in sidecars:
+                os.rename(source, target)
+                if source == old_thumbnail:
+                    new_thumbnail = target
+        except Exception as exc:
+            return False, str(exc)
+
+        self.history.update_file_paths(
+            video_id,
+            file_path=new_path,
+            thumbnail_path=new_thumbnail if os.path.exists(new_thumbnail) else "",
+        )
+        signal_bus.log_message.emit(
+            tr(
+                f"[History] Renamed file: {old_path} -> {new_path}",
+                f"[历史] 已重命名文件: {old_path} -> {new_path}",
+                f"[履歴] ファイル名を変更しました: {old_path} -> {new_path}",
+            )
+        )
+        return True, new_path
 
     def open_task_output(self, task_id: str) -> tuple[bool, str]:
         with self._lock:
@@ -194,29 +1006,62 @@ class DownloadManager:
         )
         return True, ""
 
+    def _open_system_path(self, target: str) -> tuple[bool, str]:
+        if not target:
+            return False, tr("No openable path", "无可打开路径", "開けるパスがありません")
+        try:
+            if os.name == "nt":
+                os.startfile(target)
+            elif shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", target])
+            elif shutil.which("open"):
+                subprocess.Popen(["open", target])
+            else:
+                return False, tr(
+                    "System does not support auto-open",
+                    "系统不支持自动打开",
+                    "システムが自動オープンに対応していません",
+                )
+        except Exception as exc:
+            return False, str(exc)
+        return True, ""
+
     def set_login(self, logged_in: bool, token: str | None = None):
-        if logged_in and token:
-            self.api.token = token
-            app_config.auth_token = token
-            app_config.auth_token_saved_at = datetime.now().isoformat(timespec="seconds")
-        elif not logged_in:
-            self.api.token = None
-            app_config.auth_token = ""
-            app_config.auth_token_saved_at = ""
+        with self._api_lock:
+            if logged_in and token:
+                self.api.token = token
+                app_config.auth_token = token
+                app_config.auth_token_saved_at = datetime.now().isoformat(timespec="seconds")
+            elif not logged_in:
+                self.api.token = None
+                app_config.auth_token = ""
+                app_config.auth_token_saved_at = ""
 
     def restore_cached_login(self) -> bool:
         token = (app_config.auth_token or "").strip()
         if not (app_config.auth_enabled and token):
             return False
-        self.api.token = token
+        with self._api_lock:
+            self.api.token = token
         return True
 
     def apply_config(self):
         """Apply proxy settings from app_config to the scraper."""
-        if app_config.proxy_enabled and app_config.proxy_url:
-            self.api.set_proxy(app_config.proxy_url)
-        else:
-            self.api.set_proxy("")
+        with self._api_lock:
+            if app_config.proxy_enabled and app_config.proxy_url:
+                self.api.set_proxy(app_config.proxy_url)
+            else:
+                self.api.set_proxy("")
+
+    def _api_call(self, method_name: str, *args, **kwargs):
+        """Serialize access to the shared cloudscraper session."""
+        with self._api_lock:
+            method = getattr(self.api, method_name)
+            return method(*args, **kwargs)
+
+    def _current_token(self) -> str:
+        with self._api_lock:
+            return self.api.token or ""
 
     # ── URL parsing ───────────────────────────────────────────────────────────
 
@@ -286,6 +1131,90 @@ class DownloadManager:
         )
         self._enqueue_video_id(url, url)
 
+    def _parse_and_mark_downloaded(self, raw: str):
+        url = raw.strip()
+        if not url:
+            return
+        signal_bus.log_message.emit(
+            tr(
+                f"[Mark downloaded] parsing input: {url}",
+                f"[标记已下载] 解析输入：{url}",
+                f"[保存済みマーク] 入力を解析中: {url}",
+            )
+        )
+
+        parsed = self._parse_iwara_url(url)
+        items: list[dict[str, Any]] = []
+        if parsed:
+            kind, value = parsed
+            if kind == "video":
+                video_info, err = self._api_call("get_video_info", str(value))
+                if video_info:
+                    items = [video_info]
+                else:
+                    signal_bus.log_message.emit(
+                        tr(
+                            f"[Mark downloaded] video info failed, fallback to id only: {err}",
+                            f"[标记已下载] 获取视频信息失败，退回为仅按 ID 标记：{err}",
+                            f"[保存済みマーク] 動画情報取得失敗、IDのみで記録: {err}",
+                        )
+                    )
+                    items = [{"video_id": str(value), "source_url": url}]
+            elif kind == "user":
+                user_id, err = self._api_call("get_user_id", str(value))
+                if not user_id:
+                    signal_bus.log_message.emit(
+                        tr(
+                            f"[Mark downloaded] failed to get user id: {err}",
+                            f"[标记已下载] 无法获取用户 ID：{err}",
+                            f"[保存済みマーク] ユーザーID取得失敗: {err}",
+                        )
+                    )
+                    return
+                items = self._api_call("get_user_videos", user_id)
+            elif kind == "playlist":
+                items = self._api_call("get_playlist_videos", str(value))
+            elif kind == "search":
+                configured_cap = (
+                    max(0, int(app_config.search_limit_count))
+                    if app_config.search_limit_enabled
+                    else 0
+                )
+                videos, err = self._api_call(
+                    "get_videos_by_query",
+                    value,
+                    max_results=configured_cap,
+                )
+                if err:
+                    signal_bus.log_message.emit(
+                        tr(
+                            f"[Mark downloaded] search returned partial result: {err}",
+                            f"[标记已下载] 搜索返回部分结果：{err}",
+                            f"[保存済みマーク] 検索は部分結果を返しました: {err}",
+                        )
+                    )
+                items = videos
+        else:
+            video_info, err = self._api_call("get_video_info", url)
+            items = [video_info] if video_info else [{"video_id": url, "source_url": url}]
+            if err and not video_info:
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Mark downloaded] video info failed, fallback to id only: {err}",
+                        f"[标记已下载] 获取视频信息失败，退回为仅按 ID 标记：{err}",
+                        f"[保存済みマーク] 動画情報取得失敗、IDのみで記録: {err}",
+                    )
+                )
+
+        marked = self.mark_video_items_downloaded(items)
+        signal_bus.log_message.emit(
+            tr(
+                f"[Mark downloaded] done: {marked} videos",
+                f"[标记已下载] 完成：{marked} 个视频",
+                f"[保存済みマーク] 完了: {marked} 件",
+            )
+        )
+
     def _parse_iwara_url(
         self, raw_url: str
     ) -> tuple[str, str | dict[str, str]] | None:
@@ -347,59 +1276,98 @@ class DownloadManager:
         return None
 
     def _enqueue_video_id(self, video_id: str, original_url: str):
-        # Only local files are authoritative for skip-existing checks.
-        if app_config.skip_existing_files:
-            existing_path = self._find_existing_local_file(video_id)
-            if existing_path:
-                signal_bus.log_message.emit(
-                    tr(
-                        f"[Skipped] {video_id} local file already exists: {existing_path}",
-                        f"[跳过] {video_id} 已存在本地文件: {existing_path}",
-                        f"[スキップ] {video_id} はローカルに既存: {existing_path}",
-                    )
-                )
-                return
+        self._enqueue_video_ids_bulk([(video_id, original_url)])
 
+    def _enqueue_video_ids_bulk(
+        self,
+        items: list[tuple[str, str]],
+        *,
+        source_label: str = "",
+    ) -> dict[str, int]:
+        seen_input: set[str] = set()
+        normalized: list[tuple[str, str]] = []
+        skipped_empty = 0
+        skipped_input_duplicate = 0
+        for raw_video_id, original_url in items:
+            video_id = str(raw_video_id or "").strip()
+            if not video_id:
+                skipped_empty += 1
+                continue
+            key = video_id.lower()
+            if key in seen_input:
+                skipped_input_duplicate += 1
+                continue
+            seen_input.add(key)
+            normalized.append((video_id, original_url or f"https://www.iwara.tv/video/{video_id}"))
+
+        existing_paths: dict[str, str] = {}
+        if app_config.skip_existing_files and normalized:
+            history_records = self.history.get_records([video_id for video_id, _ in normalized])
+            file_index = self._get_existing_file_index()
+            for video_id, _ in normalized:
+                record = history_records.get(video_id)
+                if record:
+                    file_path = str(record.get("file_path", "") or "")
+                    if file_path and os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+                        existing_paths[video_id.lower()] = file_path
+                        continue
+                existing = file_index.get(video_id.lower())
+                if existing and os.path.isfile(existing):
+                    existing_paths[video_id.lower()] = existing
+
+        added_infos: list[dict[str, Any]] = []
+        skipped_existing = len(existing_paths)
+        skipped_duplicate = 0
+        queued_count = 0
+        active_count = 0
+        limit = app_config.max_concurrent
         with self._lock:
-            # Dedup: skip if already in current queue
-            for t in self._tasks.values():
-                if t.video_id == video_id:
-                    signal_bus.log_message.emit(
-                        tr(
-                            f"[Skipped] {video_id} already in queue",
-                            f"[跳过] {video_id} 已在队列中",
-                            f"[スキップ] {video_id} は既にキュー内です",
-                        )
-                    )
-                    return
-            task_id = str(uuid.uuid4())
-            task = DownloadTask(task_id=task_id, url=original_url, video_id=video_id)
-            self._tasks[task_id] = task
+            for video_id, original_url in normalized:
+                key = video_id.lower()
+                if key in existing_paths:
+                    continue
+                if key in self._task_id_by_video_id:
+                    skipped_duplicate += 1
+                    continue
+                task_id = str(uuid.uuid4())
+                task = DownloadTask(task_id=task_id, url=original_url, video_id=video_id)
+                self._tasks[task_id] = task
+                self._task_id_by_video_id[key] = task_id
+                self._queued_meta_ids.append(task_id)
+                added_infos.append(
+                    {
+                        "task_id": task_id,
+                        "video_id": video_id,
+                        "title": video_id,
+                        "author": "",
+                        "status": TaskStatus.QUEUED_META.value,
+                    }
+                )
+            queued_count = len(self._queued_meta_ids)
+            active_count = len(self._active_task_ids)
 
-            queued_count = sum(
-                1 for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META
-            )
-            active_count = self._count_active()
-            limit = app_config.max_concurrent
+        if added_infos:
+            signal_bus.tasks_added.emit(added_infos)
+            if len(added_infos) == 1:
+                info = dict(added_infos[0])
+                task_id = str(info.pop("task_id"))
+                signal_bus.task_added.emit(task_id, info)
 
+        label = f" from {source_label}" if source_label else ""
         signal_bus.log_message.emit(
             tr(
-                f"[Queued] {video_id} (queued: {queued_count}, active: {active_count}/{limit})",
-                f"[入队] {video_id}（当前排队: {queued_count}，活动: {active_count}/{limit}）",
-                f"[キュー追加] {video_id}（待機: {queued_count}、稼働: {active_count}/{limit}）",
+                f"[Queue] added {len(added_infos)}{label}; duplicate {skipped_duplicate + skipped_input_duplicate}; existing {skipped_existing}; queued {queued_count}; active {active_count}/{limit}",
+                f"[入队] 新增 {len(added_infos)} 个{('，来源: ' + source_label) if source_label else ''}；重复 {skipped_duplicate + skipped_input_duplicate}；本地已存在 {skipped_existing}；排队 {queued_count}；活动 {active_count}/{limit}",
+                f"[キュー] 追加 {len(added_infos)} 件{label}; 重複 {skipped_duplicate + skipped_input_duplicate}; 既存 {skipped_existing}; 待機 {queued_count}; 稼働 {active_count}/{limit}",
             )
         )
-
-        signal_bus.task_added.emit(
-            task_id,
-            {
-                "video_id": video_id,
-                "title": video_id,
-                "author": "",
-                "status": TaskStatus.QUEUED_META.value,
-            },
-        )
         self._try_activate()
+        return {
+            "queued": len(added_infos),
+            "duplicates": skipped_duplicate + skipped_input_duplicate,
+            "existing": skipped_existing,
+            "empty": skipped_empty,
+        }
 
     def _enqueue_user(self, username: str):
         signal_bus.log_message.emit(
@@ -409,7 +1377,7 @@ class DownloadManager:
                 f"ユーザー [{username}] の動画一覧を取得中...",
             )
         )
-        user_id, err = self.api.get_user_id(username)
+        user_id, err = self._api_call("get_user_id", username)
         if not user_id:
             signal_bus.log_message.emit(
                 tr(
@@ -419,7 +1387,7 @@ class DownloadManager:
                 )
             )
             return
-        videos = self.api.get_user_videos(user_id)
+        videos = self._api_call("get_user_videos", user_id)
         signal_bus.log_message.emit(
             tr(
                 f"Found {len(videos)} videos for user [{username}]",
@@ -427,10 +1395,14 @@ class DownloadManager:
                 f"ユーザー [{username}] で {len(videos)} 件の動画を検出",
             )
         )
-        for video in videos:
-            vid = video.get("id", "")
-            if vid:
-                self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
+        self._enqueue_video_ids_bulk(
+            [
+                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                for video in videos
+                if str(video.get("id", "") or "").strip()
+            ],
+            source_label=username,
+        )
 
     def _enqueue_playlist(self, playlist_id: str):
         signal_bus.log_message.emit(
@@ -440,7 +1412,7 @@ class DownloadManager:
                 f"プレイリスト [{playlist_id}] の動画を取得中...",
             )
         )
-        videos = self.api.get_playlist_videos(playlist_id)
+        videos = self._api_call("get_playlist_videos", playlist_id)
         signal_bus.log_message.emit(
             tr(
                 f"Found {len(videos)} videos in playlist",
@@ -448,10 +1420,14 @@ class DownloadManager:
                 f"プレイリストで {len(videos)} 件の動画を検出",
             )
         )
-        for video in videos:
-            vid = video.get("id", "")
-            if vid:
-                self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
+        self._enqueue_video_ids_bulk(
+            [
+                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                for video in videos
+                if str(video.get("id", "") or "").strip()
+            ],
+            source_label=tr("Playlist", "播放列表", "プレイリスト"),
+        )
 
     def _enqueue_search_query(self, query_params: dict[str, str]):
         if not query_params:
@@ -487,7 +1463,8 @@ class DownloadManager:
                 )
             )
 
-        videos, err = self.api.get_videos_by_query(
+        videos, err = self._api_call(
+            "get_videos_by_query",
             query_params,
             max_results=configured_cap,
         )
@@ -516,16 +1493,20 @@ class DownloadManager:
                 f"検索で {len(videos)} 件の動画を検出",
             )
         )
-        for video in videos:
-            vid = str(video.get("id", "") or "").strip()
-            if vid:
-                self._enqueue_video_id(vid, f"https://www.iwara.tv/video/{vid}")
+        self._enqueue_video_ids_bulk(
+            [
+                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                for video in videos
+                if str(video.get("id", "") or "").strip()
+            ],
+            source_label=tr("Search", "搜索", "検索"),
+        )
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
 
     def _count_active(self) -> int:
         """Must be called with self._lock held."""
-        return sum(1 for t in self._tasks.values() if t.status in _ACTIVE_STATUSES)
+        return len(self._active_task_ids)
 
     def _try_activate(self):
         """Promote QUEUED_META tasks into RESOLVING up to the concurrency limit."""
@@ -533,24 +1514,51 @@ class DownloadManager:
         with self._lock:
             active = self._count_active()
             limit = app_config.max_concurrent
-            queued = [
-                t for t in self._tasks.values() if t.status == TaskStatus.QUEUED_META
-            ]
-            while active < limit and queued:
-                task = queued.pop(0)
+            while active < limit and self._queued_meta_ids:
+                task_id = self._queued_meta_ids.popleft()
+                task = self._tasks.get(task_id)
+                if not task or task.status != TaskStatus.QUEUED_META:
+                    continue
                 task.status = TaskStatus.RESOLVING
+                self._active_task_ids.add(task.task_id)
                 to_resolve.append(task.task_id)
                 active += 1
 
         for tid in to_resolve:
             signal_bus.task_status_changed.emit(tid, TaskStatus.RESOLVING.value)
-            self._executor.submit(self._resolve_task, tid)
+            self._resolve_executor.submit(self._resolve_task, tid)
 
     # ── Resolution stage ──────────────────────────────────────────────────────
 
     def _resolve_task(self, task_id: str):
+        try:
+            self._resolve_task_impl(task_id)
+        except Exception as exc:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Resolve error] {task_id} -> {exc}",
+                    f"[解析异常] {task_id} → {exc}",
+                    f"[解析エラー] {task_id} -> {exc}",
+                )
+            )
+            self._fail_task(
+                task_id,
+                tr(
+                    f"Unexpected resolve error: {exc}",
+                    f"解析阶段异常: {exc}",
+                    f"解析中に予期しないエラー: {exc}",
+                ),
+            )
+
+    def _resolve_task_impl(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
+            return
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
             return
 
         signal_bus.log_message.emit(
@@ -561,7 +1569,13 @@ class DownloadManager:
             )
         )
 
-        video_info, err = self.api.get_video_info(task.video_id)
+        video_info, err = self._api_call("get_video_info", task.video_id)
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
         if not video_info:
             self._fail_task(
                 task_id,
@@ -580,59 +1594,34 @@ class DownloadManager:
             )
             return
 
-        # Re-try with login if private
-        if (
-            not video_info.get("fileUrl")
-            and video_info.get("message") == "errors.privateVideo"
-        ):
-            if not self.api.token:
-                self._fail_task(
-                    task_id,
-                    tr(
-                        "Private video. Please login and try again.",
-                        "私有视频，请先登录后重试",
-                        "非公開動画です。ログインして再試行してください。",
-                    ),
-                )
-                signal_bus.log_message.emit(
-                    tr(
-                        f"[Skipped] {task.video_id} is private, login required",
-                        f"[跳过] {task.video_id} 为私有视频，请先登录",
-                        f"[スキップ] {task.video_id} は非公開です。ログインが必要です",
-                    )
-                )
-                return
-            self._fail_task(
-                task_id,
-                tr(
-                    "Private video (logged in but no permission)",
-                    "私有视频（已登录但无权限）",
-                    "非公開動画（ログイン済みですが権限がありません）",
-                ),
-            )
+        unavailable_reason = self._video_unavailable_reason(video_info)
+        if unavailable_reason:
+            self._fail_task(task_id, unavailable_reason)
             signal_bus.log_message.emit(
                 tr(
-                    f"[Skipped] {task.video_id} private, no permission",
-                    f"[跳过] {task.video_id} 私有视频，无权限",
-                    f"[スキップ] {task.video_id} 非公開・権限なし",
+                    f"[Unavailable] {task.video_id} -> {unavailable_reason}",
+                    f"[不可用] {task.video_id} → {unavailable_reason}",
+                    f"[利用不可] {task.video_id} -> {unavailable_reason}",
                 )
             )
             return
 
+        user_info = _dict_or_empty(video_info.get("user"))
+        file_info = _dict_or_empty(video_info.get("file"))
         title: str = video_info.get("title", task.video_id) or task.video_id
-        author: str = video_info.get("user", {}).get("username", "") or ""
+        author: str = user_info.get("username", "") or ""
         published_at = str(video_info.get("createdAt", "") or "")
         likes = int(video_info.get("numLikes", 0) or 0)
         views = int(video_info.get("numViews", 0) or 0)
         slug = str(video_info.get("slug", "") or "")
         rating = str(video_info.get("rating", "") or "")
-        duration = int(video_info.get("file", {}).get("duration", 0) or 0)
+        duration = int(file_info.get("duration", 0) or 0)
         comments = int(video_info.get("numComments", 0) or 0)
         raw_tags = video_info.get("tags", [])
         tags_json = json.dumps(raw_tags, ensure_ascii=False)
-        raw_json = json.dumps(video_info, ensure_ascii=False)
+        raw_json = _compact_video_raw_json(video_info)
         file_url = str(video_info.get("fileUrl", "") or "")
-        file_id = str(video_info.get("file", {}).get("id", "") or "")
+        file_id = str(file_info.get("id", "") or "")
         thumbnail_index = int(video_info.get("thumbnail", 0) or 0)
 
         with self._lock:
@@ -653,6 +1642,13 @@ class DownloadManager:
                 file_id=file_id,
                 thumbnail_index=thumbnail_index,
             )
+
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
 
         passed_filter, filter_reason = self._passes_filters(
             likes=likes,
@@ -692,11 +1688,25 @@ class DownloadManager:
         def _log(msg: str):
             signal_bus.log_message.emit(msg)
 
-        dl_url, quality, err2 = self.api.get_download_info(
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
+
+        dl_url, quality, err2 = self._api_call(
+            "get_download_info",
             video_info,
             preferred_quality=pref_quality,
             log_cb=_log,
         )
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
         if not dl_url:
             self._fail_task(
                 task_id,
@@ -764,11 +1774,71 @@ class DownloadManager:
             task.quality = quality or ""
             task.filename = filename
             task.file_path = file_path
-            task.status = TaskStatus.QUEUED_DOWNLOAD
+            if task.cancel_requested:
+                task.status = TaskStatus.CANCELLING
+            else:
+                task.status = TaskStatus.QUEUED_DOWNLOAD
+
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
 
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_DOWNLOAD.value)
         # Immediately transition to download — slot is already counted
         self._start_downloading(task_id)
+
+    def _video_unavailable_reason(self, video_info: dict[str, Any]) -> str:
+        file_url = str(video_info.get("fileUrl", "") or "")
+        file_info = video_info.get("file")
+        message = str(video_info.get("message", "") or "")
+        embed = str(video_info.get("embedUrl", "") or "")
+        private = bool(video_info.get("private"))
+        status = str(video_info.get("status", "") or "")
+        unlisted = bool(video_info.get("unlisted"))
+
+        if file_url:
+            return ""
+        if "youtube" in embed or "youtu.be" in embed:
+            return tr(
+                f"This video is an external embed and cannot be downloaded: {embed}",
+                f"该作品是外部嵌入视频，无法直接下载：{embed}",
+                f"この動画は外部埋め込みのため直接保存できません: {embed}",
+            )
+        if message == "errors.privateVideo" or private:
+            if not self._current_token():
+                return tr(
+                    "Private video. Please login and try again.",
+                    "私有作品，请先登录后重试。",
+                    "非公開動画です。ログインして再試行してください。",
+                )
+            return tr(
+                "Private video. The current logged-in account has no permission to download it.",
+                "私有作品，当前登录账号没有权限下载。",
+                "非公開動画です。現在のログインアカウントには保存権限がありません。",
+            )
+        if not isinstance(file_info, dict):
+            detail = ", ".join(
+                part
+                for part in [
+                    f"status={status}" if status else "",
+                    "unlisted=true" if unlisted else "",
+                ]
+                if part
+            )
+            suffix = f" ({detail})" if detail else ""
+            return tr(
+                f"No downloadable file source was returned{suffix}. The author may have hidden/deleted the file, the video may still be processing, or your account may not have permission.",
+                f"站点没有返回可下载文件源{suffix}。可能是作者隐藏/删除了文件、作品仍在处理，或当前账号没有权限。",
+                f"保存可能なファイルソースが返されませんでした{suffix}。投稿者が非表示/削除した、処理中、または権限がない可能性があります。",
+            )
+        return tr(
+            "No downloadable fileUrl was returned by the API.",
+            "API 没有返回可下载 fileUrl。",
+            "API が保存可能な fileUrl を返しませんでした。",
+        )
 
     # ── Download stage ────────────────────────────────────────────────────────
 
@@ -777,13 +1847,30 @@ class DownloadManager:
             task = self._tasks.get(task_id)
             if not task:
                 return
-            task.status = TaskStatus.DOWNLOADING
+            if task.cancel_requested:
+                task.status = TaskStatus.CANCELLING
+                should_cancel = True
+            else:
+                task.status = TaskStatus.DOWNLOADING
+                should_cancel = False
+        if should_cancel:
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.DOWNLOADING.value)
-        self._executor.submit(self._download_task, task_id)
+        self._download_executor.submit(self._download_task, task_id)
 
     def _download_task(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
+            return
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
             return
 
         # Determine save path
@@ -832,6 +1919,13 @@ class DownloadManager:
             )
         )
 
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
+
         if app_config.aria2_rpc_enabled:
             self._download_task_aria2(
                 task_id,
@@ -874,8 +1968,9 @@ class DownloadManager:
         save_dir = os.path.dirname(temp_path)
         filename = os.path.basename(temp_path)
         headers: list[str] = []
-        if self.api.token:
-            headers.append(f"Authorization: Bearer {self.api.token}")
+        token = self._current_token()
+        if token:
+            headers.append(f"Authorization: Bearer {token}")
 
         options: dict[str, str | list[str]] = {
             "dir": save_dir,
@@ -915,8 +2010,25 @@ class DownloadManager:
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
 
+        with self._lock:
+            task.aria2_gid = gid
+        if self._is_cancel_requested(task_id):
+            self._aria2_rpc_cancel(gid)
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
+
         last_emit = 0.0
         while True:
+            if self._is_cancel_requested(task_id):
+                self._aria2_rpc_cancel(gid)
+                self._cancel_task_terminal(
+                    task_id,
+                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                )
+                return
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
                 self._fail_task(
@@ -945,6 +2057,13 @@ class DownloadManager:
                 last_emit = now
 
             if status == "complete":
+                if self._is_cancel_requested(task_id):
+                    self._aria2_rpc_cancel(gid)
+                    self._cancel_task_terminal(
+                        task_id,
+                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                    )
+                    return
                 downloaded = os.path.getsize(temp_path) if os.path.exists(temp_path) else done
                 if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
                     return
@@ -965,6 +2084,13 @@ class DownloadManager:
                 return
 
             if status in ("error", "removed"):
+                if self._is_cancel_requested(task_id):
+                    self._cancel_task_terminal(
+                        task_id,
+                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                    )
+                    self._aria2_rpc_remove_result(gid)
+                    return
                 err_msg = str(
                     status_info.get(
                         "errorMessage",
@@ -982,11 +2108,19 @@ class DownloadManager:
         task = self._tasks.get(task_id)
         if not task:
             return
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
 
+        resp = None
         try:
             headers: dict[str, str] = {}
-            if self.api.token:
-                headers["Authorization"] = f"Bearer {self.api.token}"
+            token = self._current_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
             # Resume support
             existing_size = 0
@@ -1005,6 +2139,12 @@ class DownloadManager:
             resp = self.api.scraper.get(
                 task.download_url, headers=headers, stream=True, timeout=60
             )
+            if self._is_cancel_requested(task_id):
+                self._cancel_task_terminal(
+                    task_id,
+                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                )
+                return
             signal_bus.log_message.emit(
                 f"  HTTP {resp.status_code}  Content-Length: {resp.headers.get('Content-Length', '?')}"
             )
@@ -1057,6 +2197,12 @@ class DownloadManager:
 
             with open(temp_path, mode) as fh:
                 for chunk in resp.iter_content(chunk_size=65536):
+                    if self._is_cancel_requested(task_id):
+                        self._cancel_task_terminal(
+                            task_id,
+                            tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                        )
+                        return
                     if not chunk:
                         continue
                     fh.write(chunk)
@@ -1079,6 +2225,12 @@ class DownloadManager:
                         )
 
             # Final progress update
+            if self._is_cancel_requested(task_id):
+                self._cancel_task_terminal(
+                    task_id,
+                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                )
+                return
             with self._lock:
                 task.downloaded_bytes = downloaded
             signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
@@ -1104,28 +2256,64 @@ class DownloadManager:
                 )
             )
             self._fail_task(task_id, str(exc))
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     # ── Local file / filename helpers ────────────────────────────────────────
 
     def _find_existing_local_file(self, video_id: str) -> str | None:
-        """Try to find an already-downloaded file by video ID in filename."""
+        """Try to find an already-downloaded file by video ID without per-task os.walk."""
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return None
+        record = self.history.get_record(video_id)
+        if record:
+            file_path = str(record.get("file_path", "") or "")
+            if file_path and os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+                return file_path
+        index = self._get_existing_file_index()
+        path = index.get(video_id.lower())
+        if path and os.path.isfile(path):
+            return path
+        return None
+
+    def _get_existing_file_index(self) -> dict[str, str]:
         root = app_config.download_dir
         if not os.path.isdir(root):
-            return None
-        needle = video_id.lower()
-        try:
-            for dirpath, _, filenames in os.walk(root):
-                for name in filenames:
-                    lower_name = name.lower()
-                    if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
-                        continue
-                    if needle in lower_name and lower_name.endswith(".mp4"):
+            return {}
+        now = time.monotonic()
+        with self._existing_file_index_lock:
+            if (
+                self._existing_file_index_root == root
+                and self._existing_file_index_built_at > 0
+                and now - self._existing_file_index_built_at < _EXISTING_FILE_INDEX_TTL_SECONDS
+            ):
+                return dict(self._existing_file_index)
+
+            index: dict[str, str] = {}
+            try:
+                for dirpath, _, filenames in os.walk(root):
+                    for name in filenames:
+                        lower_name = name.lower()
+                        if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
+                            continue
+                        if not lower_name.endswith(".mp4"):
+                            continue
                         full = os.path.join(dirpath, name)
-                        if os.path.getsize(full) > 0:
-                            return full
-        except Exception:
-            return None
-        return None
+                        if not os.path.isfile(full) or os.path.getsize(full) <= 0:
+                            continue
+                        for token in re.findall(r"[A-Za-z0-9_-]{8,}", os.path.splitext(name)[0]):
+                            index.setdefault(token.lower(), full)
+            except Exception:
+                return {}
+            self._existing_file_index = dict(index)
+            self._existing_file_index_root = root
+            self._existing_file_index_built_at = now
+            return dict(index)
 
     def _build_output_relative_path(
         self,
@@ -1191,18 +2379,166 @@ class DownloadManager:
 
     # ── Terminal state helpers ────────────────────────────────────────────────
 
-    def _fail_task(self, task_id: str, reason: str):
+    def _forget_task_locked(self, task_id: str) -> DownloadTask | None:
+        """Remove one live task and all side indexes. Must hold self._lock."""
+        task = self._tasks.pop(task_id, None)
+        if not task:
+            return None
+        self._task_id_by_video_id.pop(task.video_id.lower(), None)
+        self._active_task_ids.discard(task_id)
+        self._terminal_task_id_set.discard(task_id)
+        return task
+
+    def _unmark_terminal_locked(self, task_id: str):
+        """Mark a previously-terminal task as live again. Must hold self._lock."""
+        self._terminal_task_id_set.discard(task_id)
+
+    def _mark_terminal_locked(self, task: DownloadTask):
+        """Track terminal tasks for bounded live-memory retention."""
+        self._active_task_ids.discard(task.task_id)
+        task.download_url = ""
+        task.file_url = ""
+        task.raw_json = ""
+        task.tags_json = ""
+        task.thumbnail_url = ""
+        task.speed_str = ""
+        task.aria2_gid = ""
+        task.file_id = ""
+        self._terminal_events_since_gc += 1
+        if task.task_id not in self._terminal_task_id_set:
+            self._terminal_task_ids.append(task.task_id)
+            self._terminal_task_id_set.add(task.task_id)
+
+    def _prune_terminal_tasks(self) -> list[str]:
+        removed: list[str] = []
+        with self._lock:
+            while self._terminal_task_ids and len(self._terminal_task_id_set) > self._terminal_keep_limit:
+                task_id = self._terminal_task_ids.popleft()
+                if task_id not in self._terminal_task_id_set:
+                    continue
+                task = self._tasks.get(task_id)
+                if not task or task.status not in _TERMINAL_STATUSES:
+                    self._terminal_task_id_set.discard(task_id)
+                    continue
+                if self._forget_task_locked(task_id):
+                    removed.append(task_id)
+        if removed:
+            signal_bus.tasks_removed.emit(removed)
+        self._maybe_collect_garbage()
+        return removed
+
+    def _maybe_collect_garbage(self):
+        should_collect = False
+        now = time.monotonic()
+        with self._lock:
+            if self._terminal_events_since_gc >= 20 and now - self._last_gc_at >= 15:
+                self._terminal_events_since_gc = 0
+                self._last_gc_at = now
+                should_collect = True
+        if should_collect:
+            gc.collect()
+
+    def _is_cancel_requested(self, task_id: str) -> bool:
         with self._lock:
             task = self._tasks.get(task_id)
-            if task:
+            return bool(task and task.cancel_requested)
+
+    def _task_temp_candidates(self, task: DownloadTask) -> list[str]:
+        candidates: list[str] = []
+        if task.file_path:
+            for suffix in ("_temp", ".tmp"):
+                temp_path = f"{task.file_path}{suffix}"
+                candidates.append(temp_path)
+                candidates.append(f"{temp_path}.aria2")
+        return list(dict.fromkeys(candidates))
+
+    def _remove_task_temp_files(self, task: DownloadTask) -> tuple[int, int]:
+        removed = 0
+        failed = 0
+        for temp_path in self._task_temp_candidates(task):
+            if not os.path.exists(temp_path):
+                continue
+            try:
+                os.remove(temp_path)
+                removed += 1
+            except Exception:
+                failed += 1
+        return removed, failed
+
+    def _cancel_task_terminal(self, task_id: str, reason: str):
+        remove_after = False
+        delete_temp = False
+        removed_temp = failed_temp = 0
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return
+            task.status = TaskStatus.CANCELLED
+            task.error_msg = reason
+            task.speed_str = ""
+            task.aria2_gid = ""
+            remove_after = task.remove_after_cancel
+            delete_temp = task.delete_temp_on_cancel
+            if not remove_after:
+                self._mark_terminal_locked(task)
+        if delete_temp:
+            removed_temp, failed_temp = self._remove_task_temp_files(task)
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Cancelled] cleaned temp files for \"{task.title or task.video_id}\": removed {removed_temp}, failed {failed_temp}",
+                    f"[已中断] 已清理《{task.title or task.video_id}》临时文件: 删除 {removed_temp} 个，失败 {failed_temp} 个",
+                    f"[中断] 「{task.title or task.video_id}」一時ファイル削除: {removed_temp} / 失敗 {failed_temp}",
+                )
+            )
+
+        signal_bus.task_status_changed.emit(task_id, TaskStatus.CANCELLED.value)
+        signal_bus.log_message.emit(
+            tr(
+                f"[Cancelled] \"{task.title or task.video_id}\"",
+                f"[已中断] 《{task.title or task.video_id}》",
+                f"[中断] 「{task.title or task.video_id}」",
+            )
+        )
+        if remove_after:
+            with self._lock:
+                self._forget_task_locked(task_id)
+            signal_bus.task_removed.emit(task_id)
+        else:
+            self._prune_terminal_tasks()
+        self._try_activate()
+
+    def _fail_task(self, task_id: str, reason: str):
+        cancel_requested = False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return
+            cancel_requested = task.cancel_requested
+            if cancel_requested:
+                task.status = TaskStatus.CANCELLING
+            else:
                 task.status = TaskStatus.FAILED
                 task.error_msg = reason
+                self._mark_terminal_locked(task)
+        if cancel_requested:
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.FAILED.value)
         signal_bus.task_error.emit(task_id, reason)
+        self._prune_terminal_tasks()
         # Free concurrency slot
         self._try_activate()
 
     def _finalize_temp_file(self, task_id: str, temp_path: str, final_path: str) -> bool:
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return False
         if not os.path.exists(temp_path):
             self._fail_task(
                 task_id,
@@ -1240,6 +2576,41 @@ class DownloadManager:
                 ),
             )
             return False
+
+    def _log_retry_temp_cleanup(self, title: str, file_path: str) -> tuple[int, int]:
+        removed, failed = self._clear_retry_temp_files(file_path)
+        if not removed and not failed:
+            return removed, failed
+        signal_bus.log_message.emit(
+            tr(
+                f"[Retry] Cleaned temp cache for \"{title}\": removed {removed}, failed {failed}",
+                f"[重试] 已清理《{title}》对应临时缓存: 删除 {removed} 个，失败 {failed} 个",
+                f"[再試行] 「{title}」の一時キャッシュを削除: 削除 {removed} / 失敗 {failed}",
+            )
+        )
+        return removed, failed
+
+    @staticmethod
+    def _clear_retry_temp_files(file_path: str) -> tuple[int, int]:
+        if not file_path:
+            return 0, 0
+        candidates: list[str] = []
+        for suffix in ("_temp", ".tmp"):
+            temp_path = f"{file_path}{suffix}"
+            candidates.append(temp_path)
+            candidates.append(f"{temp_path}.aria2")
+
+        removed = 0
+        failed = 0
+        for temp_path in dict.fromkeys(candidates):
+            if not os.path.isfile(temp_path):
+                continue
+            try:
+                os.remove(temp_path)
+                removed += 1
+            except Exception:
+                failed += 1
+        return removed, failed
 
     def clear_temp_files(self) -> tuple[int, int]:
         """Delete all *_temp files under download directory.
@@ -1371,11 +2742,18 @@ class DownloadManager:
         return True, ""
 
     def _skip_task(self, task_id: str, reason: str):
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            return
         with self._lock:
             task = self._tasks.get(task_id)
             if task:
                 task.status = TaskStatus.SKIPPED
                 task.error_msg = reason
+                self._mark_terminal_locked(task)
         signal_bus.log_message.emit(
             tr(
                 f"[Filtered] {task_id} -> {reason}",
@@ -1384,6 +2762,7 @@ class DownloadManager:
             )
         )
         signal_bus.task_status_changed.emit(task_id, TaskStatus.SKIPPED.value)
+        self._prune_terminal_tasks()
         self._try_activate()
 
     def _aria2_rpc_call(self, method: str, params: list) -> tuple[dict | None, str]:
@@ -1407,12 +2786,19 @@ class DownloadManager:
             "params": payload_params,
         }
 
+        resp = None
         try:
             resp = self.api.scraper.post(rpc_url, json=payload, timeout=15)
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:
             return None, str(exc)
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
         if data.get("error"):
             return None, str(data.get("error"))
@@ -1448,11 +2834,22 @@ class DownloadManager:
     def _aria2_rpc_remove_result(self, gid: str):
         self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
 
-    def _download_thumbnail(self, task: DownloadTask):
-        if not task.file_path or not os.path.exists(task.file_path):
+    def _aria2_rpc_cancel(self, gid: str):
+        if not gid:
             return
-        if os.path.getsize(task.file_path) <= 0:
-            return
+        data, err = self._aria2_rpc_call("aria2.remove", [gid])
+        if not data and err:
+            self._aria2_rpc_call("aria2.forceRemove", [gid])
+        self._aria2_rpc_remove_result(gid)
+
+    def _download_thumbnail(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
+        if not task.file_path:
+            return False
+        if require_video_file:
+            if not os.path.exists(task.file_path):
+                return False
+            if os.path.getsize(task.file_path) <= 0:
+                return False
         if not task.file_id or not task.file_url:
             signal_bus.log_message.emit(
                 tr(
@@ -1461,7 +2858,7 @@ class DownloadManager:
                     f"  [サムネイル] 「{task.title}」file_id/file_url 欠落のためスキップ",
                 )
             )
-            return
+            return False
 
         host = urlparse(task.file_url).netloc
         if not host:
@@ -1472,16 +2869,18 @@ class DownloadManager:
                     f"  [サムネイル] 「{task.title}」無効な file_url のためスキップ",
                 )
             )
-            return
+            return False
 
         thumbnail_path = os.path.splitext(task.file_path)[0] + ".jpg"
         temp_path = f"{thumbnail_path}_temp"
+        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
         if os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 0:
             task.thumbnail_path = thumbnail_path
-            return
+            return True
 
         index = max(0, int(task.thumbnail_index))
         thumb_url = f"https://{host}/image/original/{task.file_id}/thumbnail-{index:02d}.jpg"
+        resp = None
         try:
             resp = self.api.scraper.get(thumb_url, stream=True, timeout=60)
             if resp.status_code != 200:
@@ -1492,7 +2891,7 @@ class DownloadManager:
                         f"  [サムネイル] 「{task.title}」HTTP {resp.status_code} 失敗",
                     )
                 )
-                return
+                return False
             with open(temp_path, "wb") as fh:
                 for chunk in resp.iter_content(chunk_size=65536):
                     if chunk:
@@ -1508,7 +2907,7 @@ class DownloadManager:
                         f"  [サムネイル] 保存完了: {thumbnail_path}",
                     )
                 )
-                return
+                return True
 
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -1520,19 +2919,31 @@ class DownloadManager:
                     f"  [サムネイル] 「{task.title}」エラー: {exc}",
                 )
             )
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+        return False
 
-    def _write_nfo(self, task: DownloadTask):
-        if not task.file_path or not os.path.exists(task.file_path):
-            return
-        if os.path.getsize(task.file_path) <= 0:
-            return
+    def _write_nfo(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
+        if not task.file_path:
+            return False
+        if require_video_file:
+            if not os.path.exists(task.file_path):
+                return False
+            if os.path.getsize(task.file_path) <= 0:
+                return False
 
         nfo_path = os.path.splitext(task.file_path)[0] + ".nfo"
-        tags = _parse_tags(task.tags_json)
-        nfo_text = _build_nfo_text(task, tags)
+        tags = parse_nfo_tags(task.tags_json)
+        nfo_text = build_nfo_text(task, tags)
 
         temp_path = f"{nfo_path}_temp"
         try:
+            os.makedirs(os.path.dirname(nfo_path), exist_ok=True)
+            ET.fromstring(nfo_text)
             with open(temp_path, "w", encoding="utf-8") as fh:
                 fh.write(nfo_text)
             os.replace(temp_path, nfo_path)
@@ -1543,6 +2954,7 @@ class DownloadManager:
                     f"  [NFO] 保存完了: {nfo_path}",
                 )
             )
+            return True
         except Exception as exc:
             signal_bus.log_message.emit(
                 tr(
@@ -1556,10 +2968,17 @@ class DownloadManager:
                     os.remove(temp_path)
                 except Exception:
                     pass
+        return False
 
     def _complete_task(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
+            return
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
             return
         with self._lock:
             task.status = TaskStatus.COMPLETED
@@ -1596,7 +3015,14 @@ class DownloadManager:
                     f"[警告] 履歴DB書き込み失敗（ダウンロードファイルには影響なし）: {exc}",
                 )
             )
+        with self._lock:
+            live_task = self._tasks.get(task_id)
+            if live_task:
+                with self._existing_file_index_lock:
+                    self._existing_file_index[live_task.video_id.lower()] = live_task.file_path
+                self._mark_terminal_locked(live_task)
         signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
+        self._prune_terminal_tasks()
         # Free concurrency slot
         self._try_activate()
 
@@ -1627,6 +3053,84 @@ def _fmt_bytes(n: int) -> str:
     return f"{n} B"
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _clip_stored_text(value: Any, limit: int = _MAX_STORED_TEXT_CHARS) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def _copy_compact_fields(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in keys:
+        value = data.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, str):
+            compact[key] = _clip_stored_text(value)
+        elif isinstance(value, (int, float, bool)):
+            compact[key] = value
+    return compact
+
+
+def _compact_video_raw_json(video_info: dict[str, Any]) -> str:
+    """Keep only NFO-relevant API fields instead of the full video payload."""
+    if not isinstance(video_info, dict):
+        return "{}"
+
+    compact = _copy_compact_fields(
+        video_info,
+        (
+            "id",
+            "title",
+            "slug",
+            "rating",
+            "createdAt",
+            "body",
+            "description",
+            "message",
+        ),
+    )
+
+    user = _dict_or_empty(video_info.get("user"))
+    if user:
+        compact_user = _copy_compact_fields(
+            user,
+            ("id", "username", "name", "body", "description", "bio", "about"),
+        )
+        profile = _dict_or_empty(user.get("profile"))
+        if profile:
+            compact_profile = _copy_compact_fields(
+                profile,
+                ("body", "description", "bio", "about"),
+            )
+            if compact_profile:
+                compact_user["profile"] = compact_profile
+        if compact_user:
+            compact["user"] = compact_user
+
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+
+
+def _subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
+    video_id = str(video.get("id", "") or video.get("videoId", "") or "").strip()
+    user = video.get("user")
+    author = ""
+    if isinstance(user, dict):
+        author = str(user.get("username") or user.get("name") or "").strip()
+    return {
+        "video_id": video_id,
+        "title": str(video.get("title", "") or video_id),
+        "author": author,
+        "published_at": str(video.get("createdAt", "") or video.get("updatedAt", "") or ""),
+        "source_url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
+    }
+
+
 def _extract_date_text(published_at: str) -> str:
     if not published_at:
         return ""
@@ -1641,10 +3145,6 @@ def _extract_date_text(published_at: str) -> str:
     except ValueError:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
         return m.group(1) if m else ""
-
-
-def _xml_text(value: str) -> str:
-    return escape(value or "", {'"': "&quot;", "'": "&apos;"})
 
 
 def _split_filter_tags(text: str) -> list[str]:
@@ -1672,111 +3172,3 @@ def _normalize_video_tags(tags: list[Any]) -> set[str]:
         if text:
             normalized.add(text)
     return normalized
-
-
-def _parse_tags(tags_json: str) -> list[str]:
-    if not tags_json:
-        return []
-    try:
-        data = json.loads(tags_json)
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    tags: list[str] = []
-    for item in data:
-        if isinstance(item, dict):
-            tag_text = str(item.get("id") or item.get("type") or "").strip()
-            if tag_text:
-                tags.append(tag_text)
-            continue
-        text = str(item).strip()
-        if text:
-            tags.append(text)
-    return tags
-
-
-def _build_nfo_text(task: DownloadTask, tags: list[str]) -> str:
-    author_message = _extract_author_message(task.raw_json)
-    tags_json_text = task.tags_json or json.dumps(tags, ensure_ascii=False)
-    date_only = _extract_date_text(task.published_at)
-
-    tag_lines = "\n".join(f"  <tag>{_xml_text(t)}</tag>" for t in tags)
-    genre_lines = "\n".join(f"  <genre>{_xml_text(t)}</genre>" for t in tags)
-    if tag_lines:
-        tag_lines = f"\n{tag_lines}"
-    if genre_lines:
-        genre_lines = f"\n{genre_lines}"
-
-    # Use movie-style XML for better media-library compatibility.
-    return (
-        "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n"
-        "<movie>\n"
-        f"  <title>{_xml_text(task.title or task.video_id)}</title>\n"
-        f"  <originaltitle>{_xml_text(task.title or task.video_id)}</originaltitle>\n"
-        f"  <author>{_xml_text(task.author)}</author>\n"
-        f"  <director>{_xml_text(task.author)}</director>\n"
-        f"  <studio>{_xml_text(task.author)}</studio>\n"
-        f"  <video_id>{_xml_text(task.video_id)}</video_id>\n"
-        f"  <id>{_xml_text(task.video_id)}</id>\n"
-        f"  <uniqueid type=\"iwara\" default=\"true\">{_xml_text(task.video_id)}</uniqueid>\n"
-        f"  <source_url>{_xml_text(task.url)}</source_url>\n"
-        f"  <slug>{_xml_text(task.slug)}</slug>\n"
-        f"  <rating>{_xml_text(task.rating)}</rating>\n"
-        f"  <duration>{task.duration}</duration>\n"
-        f"  <published_at>{_xml_text(task.published_at)}</published_at>\n"
-        f"  <premiered>{_xml_text(date_only)}</premiered>\n"
-        f"  <releasedate>{_xml_text(date_only)}</releasedate>\n"
-        f"  <likes>{task.likes}</likes>\n"
-        f"  <views>{task.views}</views>\n"
-        f"  <comments>{task.comments}</comments>\n"
-        f"  <plot>{_xml_text(author_message)}</plot>\n"
-        f"  <tags_json>{_xml_text(tags_json_text)}</tags_json>\n"
-        f"  <author_message>{_xml_text(author_message)}</author_message>{genre_lines}{tag_lines}\n"
-        "</movie>\n"
-    )
-
-
-def _extract_author_message(raw_json: str) -> str:
-    if not raw_json:
-        return ""
-    try:
-        data = json.loads(raw_json)
-    except Exception:
-        return ""
-    if not isinstance(data, dict):
-        return ""
-
-    # Iwara API schemas are not perfectly stable; try common text fields.
-    candidates = [
-        data.get("body"),
-        data.get("description"),
-        data.get("message"),
-    ]
-
-    user = data.get("user")
-    if isinstance(user, dict):
-        candidates.extend(
-            [
-                user.get("body"),
-                user.get("description"),
-                user.get("bio"),
-                user.get("about"),
-            ]
-        )
-        profile = user.get("profile")
-        if isinstance(profile, dict):
-            candidates.extend(
-                [
-                    profile.get("body"),
-                    profile.get("description"),
-                    profile.get("bio"),
-                    profile.get("about"),
-                ]
-            )
-
-    for value in candidates:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""

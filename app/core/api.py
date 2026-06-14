@@ -11,6 +11,7 @@ import cloudscraper
 from ..i18n import tr
 
 BASE_API = "https://api.iwara.tv"
+ALT_BASE_API = "https://apiq.iwara.tv"
 # X-Version shared secrets (new first, legacy fallback)
 _X_VERSION_SALTS = (
     "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
@@ -40,8 +41,11 @@ class IwaraAPI:
     def _get_json(self, url: str, **kwargs) -> Any:
         """GET request returning parsed JSON, or raises on failure."""
         resp = self.scraper.get(url, headers=self._auth_headers(), timeout=30, **kwargs)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp.raise_for_status()
+            return resp.json()
+        finally:
+            resp.close()
 
     # ── X-Version computation ────────────────────────────────────────────────
 
@@ -63,6 +67,7 @@ class IwaraAPI:
         Returns (success, error_message).
         The token is stored in self.token on success.
         """
+        resp = None
         try:
             resp = self.scraper.post(
                 f"{BASE_API}/user/login",
@@ -79,6 +84,9 @@ class IwaraAPI:
             return False, msg
         except Exception as exc:
             return False, str(exc)
+        finally:
+            if resp is not None:
+                resp.close()
 
     def logout(self):
         self.token = None
@@ -90,18 +98,34 @@ class IwaraAPI:
 
         Returns (data_dict, error_message).
         """
-        try:
-            data = self._get_json(f"{BASE_API}/video/{video_id}")
-            # If server returned HTML (bot protection) the first char is '<'
-            if isinstance(data, str) and data.startswith("<"):
-                return None, tr(
-                    "Received HTML response. Please enable proxy or Cloudflare bypass failed.",
-                    "收到 HTML 响应，请启用代理或 Cloudflare 绕过失败",
-                    "HTML レスポンスを受信しました。プロキシを有効化するか、Cloudflare 回避に失敗しています。",
-                )
-            return data, ""
-        except Exception as exc:
-            return None, str(exc)
+        last_error = ""
+        for root in (BASE_API, ALT_BASE_API):
+            try:
+                data = self._get_json(f"{root}/video/{video_id}")
+                # If server returned HTML (bot protection) the first char is '<'
+                if isinstance(data, str) and data.startswith("<"):
+                    return None, tr(
+                        "Received HTML response. Please enable proxy or Cloudflare bypass failed.",
+                        "收到 HTML 响应，请启用代理或 Cloudflare 绕过失败",
+                        "HTML レスポンスを受信しました。プロキシを有効化するか、Cloudflare 回避に失敗しています。",
+                    )
+                if not isinstance(data, dict):
+                    return None, tr(
+                        f"Unexpected API response type: {type(data).__name__}",
+                        f"API 返回类型异常: {type(data).__name__}",
+                        f"API 応答タイプが不正です: {type(data).__name__}",
+                    )
+                return data, ""
+            except Exception as exc:
+                last_error = str(exc)
+                if "404" in last_error or "not found" in last_error.lower():
+                    return None, tr(
+                        "Video not found or not visible to the current account. It may have been deleted, hidden, private, or require another account.",
+                        "作品不存在或当前账号不可见，可能已删除、隐藏、私有，或需要换有权限的账号登录。",
+                        "動画が存在しないか現在のアカウントでは表示できません。削除・非表示・非公開、または別アカウントが必要な可能性があります。",
+                    )
+                continue
+        return None, _friendly_request_error(last_error)
 
     def get_download_info(
         self,
@@ -159,6 +183,7 @@ class IwaraAPI:
         for idx, salt in enumerate(_X_VERSION_SALTS, start=1):
             x_version = self.compute_x_version(file_url, salt)
             _log(f"  X-Version[{idx}]: {x_version}")
+            resp = None
             try:
                 resp = self.scraper.get(
                     file_url,
@@ -179,6 +204,9 @@ class IwaraAPI:
                 )
             except Exception as exc:
                 last_error = str(exc)
+            finally:
+                if resp is not None:
+                    resp.close()
 
         if sources is None:
             return None, None, tr(
@@ -195,7 +223,10 @@ class IwaraAPI:
             )
 
         # Log all available qualities with their URL prefixes
-        available_names = [s.get("name", "<no name>") for s in sources]
+        available_names = [
+            s.get("name", "<no name>") if isinstance(s, dict) else "<invalid source>"
+            for s in sources
+        ]
         _log(
             tr(
                 f"  Available qualities: {available_names}",
@@ -206,7 +237,7 @@ class IwaraAPI:
 
         # Case-insensitive sources map
         sources_map: dict[str, dict] = {
-            s.get("name", "").lower(): s for s in sources
+            s.get("name", "").lower(): s for s in sources if isinstance(s, dict)
         }
 
         # Build preference order based on selected quality
@@ -223,7 +254,8 @@ class IwaraAPI:
         for quality in quality_order:
             entry = sources_map.get(quality.lower())
             if entry:
-                raw = entry.get("src", {}).get("download", "")
+                src = entry.get("src")
+                raw = src.get("download", "") if isinstance(src, dict) else ""
                 if raw:
                     dl_url = f"https:{raw}" if raw.startswith("//") else raw
                     # Use the original name from the entry (preserves casing)
@@ -286,6 +318,42 @@ class IwaraAPI:
             except Exception:
                 break
         return videos
+
+    def get_user_following(
+        self, user_id: str, max_pages: int = 100
+    ) -> tuple[list[dict], str]:
+        """Fetch users followed by the given user id."""
+        if not user_id:
+            return [], tr("Missing user id", "缺少用户 ID", "ユーザーIDがありません")
+        last_error = ""
+        for root in (BASE_API, ALT_BASE_API):
+            users: list[dict] = []
+            had_response = False
+            for page in range(max_pages + 1):
+                try:
+                    data = self._get_json(
+                        f"{root}/user/{user_id}/following",
+                        params={"page": page, "limit": 50},
+                    )
+                    had_response = True
+                except Exception as exc:
+                    last_error = f"{root}: {exc}"
+                    users = []
+                    break
+
+                results = data.get("results", [])
+                if not isinstance(results, list) or not results:
+                    break
+                users.extend(results)
+                if len(results) < 50:
+                    break
+            if had_response:
+                return users, ""
+        return [], last_error or tr(
+            "Failed to fetch following users",
+            "获取关注作者失败",
+            "フォロー中ユーザーの取得に失敗しました",
+        )
 
     # ── Playlist ─────────────────────────────────────────────────────────────
 
@@ -371,6 +439,25 @@ class IwaraAPI:
 
         return videos, ""
 
+    def get_subscribed_videos(
+        self,
+        *,
+        max_pages: int = 100,
+        max_results: int = 0,
+    ) -> tuple[list[dict], str]:
+        """Fetch the logged-in user's subscribed video feed."""
+        if not self.token:
+            return [], tr(
+                "Login is required for subscribed videos",
+                "拉取订阅视频需要先登录",
+                "購読動画の取得にはログインが必要です",
+            )
+        return self.get_videos_by_query(
+            {"subscribed": "true", "sort": "date"},
+            max_pages=max_pages,
+            max_results=max_results,
+        )
+
     # ── Proxy ────────────────────────────────────────────────────────────────
 
     def set_proxy(self, proxy_url: str):
@@ -378,3 +465,27 @@ class IwaraAPI:
             self.scraper.proxies = {"http": proxy_url, "https": proxy_url}
         else:
             self.scraper.proxies = {}
+
+
+def _friendly_request_error(error: str) -> str:
+    err = str(error or "").strip()
+    lower = err.lower()
+    if "ssleoferror" in lower or "unexpected_eof" in lower:
+        return tr(
+            f"Network/TLS connection was interrupted while fetching video info: {err}",
+            f"获取作品信息时网络/TLS 连接被中断：{err}",
+            f"動画情報の取得中にネットワーク/TLS 接続が中断されました: {err}",
+        )
+    if "403" in lower or "forbidden" in lower:
+        return tr(
+            "The current account has no permission to view this video.",
+            "当前账号没有权限查看该作品。",
+            "現在のアカウントにはこの動画を表示する権限がありません。",
+        )
+    if "timeout" in lower:
+        return tr(
+            f"Request timed out while fetching video info: {err}",
+            f"获取作品信息超时：{err}",
+            f"動画情報の取得がタイムアウトしました: {err}",
+        )
+    return err or tr("Unknown request error", "未知请求错误", "不明なリクエストエラー")

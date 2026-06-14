@@ -1,101 +1,138 @@
-"""Task Center Interface — three-column task board."""
+"""Task Center Interface — table-based download task list."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
-from shiboken6 import isValid
+import webbrowser
+from typing import Any
+
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QHBoxLayout,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qfluentwidgets import (
     BodyLabel,
+    ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
+    LineEdit,
     PrimaryPushButton,
-    ScrollArea,
     SwitchButton,
-    SubtitleLabel,
+    TableWidget,
     TitleLabel,
+    ToolButton,
 )
 
 from ..core.manager import download_manager
-from ..core.models import DownloadTask, TaskStatus
+from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .task_card import TaskCard
+from .ui_state import (
+    connect_table_column_saver,
+    connect_table_width_saver,
+    open_table_column_dialog,
+    restore_table_columns,
+    restore_table_widths,
+)
 
 
-# ── Scrollable list of task cards ─────────────────────────────────────────────
+_STATUS_COLORS: dict[TaskStatus, str] = {
+    TaskStatus.QUEUED_META: "#6b6b6b",
+    TaskStatus.RESOLVING: "#0078d4",
+    TaskStatus.QUEUED_DOWNLOAD: "#8764b8",
+    TaskStatus.DOWNLOADING: "#107c10",
+    TaskStatus.CANCELLING: "#c17d00",
+    TaskStatus.CANCELLED: "#666666",
+    TaskStatus.SKIPPED: "#c17d00",
+    TaskStatus.COMPLETED: "#107c10",
+    TaskStatus.FAILED: "#c42b1c",
+}
 
-class TaskListWidget(QWidget):
-    """Scrollable area that owns TaskCard children for a given set of statuses."""
+_DEFAULT_STATUS_PRIORITY: dict[TaskStatus, int] = {
+    TaskStatus.DOWNLOADING: 0,
+    TaskStatus.RESOLVING: 1,
+    TaskStatus.CANCELLING: 2,
+    TaskStatus.QUEUED_DOWNLOAD: 3,
+    TaskStatus.QUEUED_META: 4,
+    TaskStatus.FAILED: 5,
+    TaskStatus.SKIPPED: 6,
+    TaskStatus.CANCELLED: 7,
+    TaskStatus.COMPLETED: 8,
+}
 
-    def __init__(self, filter_statuses: frozenset[TaskStatus], parent: QWidget | None = None):
-        super().__init__(parent)
-        self._filter = filter_statuses
-        self._cards: dict[str, TaskCard] = {}  # task_id → card
+_ACTIVE_STATUSES = frozenset(
+    {
+        TaskStatus.RESOLVING,
+        TaskStatus.QUEUED_DOWNLOAD,
+        TaskStatus.DOWNLOADING,
+        TaskStatus.CANCELLING,
+    }
+)
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        self._scroll = ScrollArea(self)
-        self._scroll.setWidgetResizable(True)
-        outer.addWidget(self._scroll)
-
-        self._container = QWidget()
-        self._container.setObjectName("taskListContainer")
-        self._v_layout = QVBoxLayout(self._container)
-        self._v_layout.setContentsMargins(0, 0, 0, 0)
-        self._v_layout.setSpacing(6)
-        self._v_layout.addStretch()
-        self._scroll.setWidget(self._container)
-
-        self._empty_lbl = BodyLabel(tr("No tasks", "暂无任务", "タスクなし"), self._container)
-        self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._v_layout.insertWidget(0, self._empty_lbl)
-
-    def add_card(self, task: DownloadTask):
-        if task.task_id in self._cards:
-            return
-        card = TaskCard(task, self._container)
-        self._cards[task.task_id] = card
-        # Insert before the stretch
-        idx = self._v_layout.count() - 1
-        self._v_layout.insertWidget(idx, card)
-        self._empty_lbl.setVisible(False)
-
-    def remove_card(self, task_id: str):
-        card = self._cards.pop(task_id, None)
-        if card and isValid(card):
-            self._v_layout.removeWidget(card)
-            card.setParent(None)
-            card.deleteLater()
-        self._empty_lbl.setVisible(len(self._cards) == 0)
-
-    def contains(self, task_id: str) -> bool:
-        return task_id in self._cards
-
-    def count(self) -> int:
-        return len(self._cards)
+_TERMINAL_STATUSES = frozenset(
+    {
+        TaskStatus.COMPLETED,
+        TaskStatus.SKIPPED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    }
+)
 
 
 class TaskCenterInterface(QWidget):
-    """Page showing all download tasks in three side-by-side columns."""
+    """Single-list task center with filters, sorting, and row actions."""
 
-    def __init__(self, parent: QWidget | None = None):
+    _COL_STATE = 0
+    _COL_TITLE = 1
+    _COL_AUTHOR = 2
+    _COL_PROGRESS = 3
+    _COL_SIZE = 4
+    _COL_SPEED = 5
+    _COL_QUALITY = 6
+    _COL_URL = 7
+    _COL_ID = 8
+    _COL_ACTION = 9
+    _COL_REMOVE = 10
+
+    _SORT_DEFAULT = -1
+    _SORT_ADDED = -2
+
+    def __init__(self, parent: QWidget | None = None, *, embedded: bool = False):
         super().__init__(parent)
         self.setObjectName("TaskCenterInterface")
+        self._embedded = embedded
+        self._tasks_by_id: dict[str, DownloadTask] = {}
+        self._row_by_task_id: dict[str, int] = {}
+        self._visible_task_ids: list[str] = []
+        self._task_order: dict[str, int] = {}
+        self._next_order = 0
+        self._refresh_pending = False
+        self._progress_flush_pending = False
+        self._pending_progress_ids: set[str] = set()
+        self._sort_column = self._SORT_DEFAULT
+        self._sort_reverse = False
+
         self._build_ui()
         self._connect_signals()
+        self._refresh_tasks()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 16)
-        root.setSpacing(12)
+        if self._embedded:
+            root.setContentsMargins(0, 0, 0, 0)
+            root.setSpacing(8)
+        else:
+            root.setContentsMargins(36, 24, 36, 16)
+            root.setSpacing(12)
 
-        # Title row
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
         title_row.addStretch()
@@ -109,6 +146,10 @@ class TaskCenterInterface(QWidget):
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
 
+        cancel_all_btn = PrimaryPushButton(tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL)
+        cancel_all_btn.clicked.connect(self._cancel_all_active)
+        title_row.addWidget(cancel_all_btn)
+
         clear_btn = PrimaryPushButton(
             tr("Clear Done", "清除完成项", "完了項目をクリア"),
             self,
@@ -116,139 +157,659 @@ class TaskCenterInterface(QWidget):
         )
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
+
+        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
+        columns_btn.clicked.connect(self._configure_columns)
+        title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
-        # Three columns displayed simultaneously
-        board = QHBoxLayout()
-        board.setSpacing(12)
+        filter_row = QHBoxLayout()
+        self._search_edit = LineEdit(self)
+        self._search_edit.setPlaceholderText(tr("Search tasks...", "搜索任务...", "タスクを検索..."))
+        self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.textChanged.connect(self._apply_filters)
+        filter_row.addWidget(self._search_edit, stretch=1)
 
-        self._queued_list = TaskListWidget(
-            frozenset([TaskStatus.QUEUED_META]), self
+        self._state_combo = ComboBox(self)
+        self._state_combo.addItems(
+            [
+                tr("All States", "全部状态", "全状态"),
+                tr("Active", "进行中", "実行中"),
+                tr("Queued", "排队中", "待機中"),
+                tr("Failed", "失败", "失敗"),
+                tr("Completed", "已完成", "完了"),
+                tr("Cancelled", "已中断", "中断済み"),
+                tr("Skipped", "已跳过", "スキップ"),
+            ]
         )
-        self._active_list = TaskListWidget(
-            frozenset([TaskStatus.RESOLVING, TaskStatus.QUEUED_DOWNLOAD, TaskStatus.DOWNLOADING]),
-            self,
+        self._state_combo.setFixedWidth(130)
+        self._state_combo.currentIndexChanged.connect(self._apply_filters)
+        filter_row.addWidget(self._state_combo)
+
+        self._sort_combo = ComboBox(self)
+        self._sort_combo.addItems(
+            [
+                tr("Task Rank", "任务排行", "タスク順位"),
+                tr("State", "状态", "状態"),
+                tr("Title", "标题", "タイトル"),
+                tr("Author", "作者", "作者"),
+                tr("Progress", "进度", "進捗"),
+                tr("Size", "大小", "サイズ"),
+                tr("Added", "加入顺序", "追加順"),
+                tr("Quality", "画质", "画質"),
+                "ID",
+            ]
         )
-        self._done_list = TaskListWidget(
-            frozenset([TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED]), self
+        self._sort_combo.setFixedWidth(130)
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_combo_changed)
+        filter_row.addWidget(self._sort_combo)
+
+        self._sort_dir_btn = ToolButton(FluentIcon.UP, self)
+        self._sort_dir_btn.setToolTip(tr("Toggle sort direction", "切换升序/降序", "並び順を切替"))
+        self._sort_dir_btn.clicked.connect(self._toggle_sort_direction)
+        filter_row.addWidget(self._sort_dir_btn)
+
+        root.addLayout(filter_row)
+
+        self._summary_label = BodyLabel("", self)
+        root.addWidget(self._summary_label)
+
+        self._table = TableWidget(self)
+        self._table.setObjectName("taskTable")
+        self._table.setColumnCount(11)
+        self._table.setHorizontalHeaderLabels(
+            [
+                tr("State", "状态", "状態"),
+                tr("Title", "标题", "タイトル"),
+                tr("Author", "作者", "作者"),
+                tr("Progress", "进度", "進捗"),
+                tr("Size", "大小", "サイズ"),
+                tr("Speed", "速度", "速度"),
+                tr("Quality", "画质", "画質"),
+                "URL",
+                "ID",
+                tr("Action", "操作", "操作"),
+                tr("Remove", "移除", "削除"),
+            ]
+        )
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setBorderVisible(True)
+        self._table.setBorderRadius(8)
+        self._table.setWordWrap(False)
+        self._table.setShowGrid(False)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(34)
+        self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._table.cellClicked.connect(self._on_cell_clicked)
+
+        header = self._table.horizontalHeader()
+        header.setHighlightSections(False)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.sectionClicked.connect(self._on_header_clicked)
+        self._restore_sort_indicator()
+
+        default_widths = {
+            self._COL_STATE: 72,
+            self._COL_TITLE: 320,
+            self._COL_AUTHOR: 116,
+            self._COL_PROGRESS: 180,
+            self._COL_SIZE: 142,
+            self._COL_SPEED: 96,
+            self._COL_QUALITY: 72,
+            self._COL_URL: 68,
+            self._COL_ID: 126,
+            self._COL_ACTION: 66,
+            self._COL_REMOVE: 66,
+        }
+        restore_table_widths(self._table, "task_table_widths", default_widths)
+        connect_table_width_saver(self._table, "task_table_widths")
+        restore_table_columns(self._table, "task_table")
+        connect_table_column_saver(self._table, "task_table")
+
+        root.addWidget(self._table, stretch=1)
+
+    def _configure_columns(self):
+        open_table_column_dialog(
+            self._table,
+            "task_table",
+            title=tr("Task Columns", "任务列表字段", "タスク列設定"),
+            parent=self,
         )
 
-        board.addLayout(self._build_column(tr("Queued", "排队中", "待機中"), self._queued_list), stretch=1)
-        board.addLayout(self._build_column(tr("Downloading", "下载中", "ダウンロード中"), self._active_list), stretch=1)
-        board.addLayout(
-            self._build_column(
-                tr(
-                    "Done / Skipped / Failed",
-                    "已完成 / 已跳过 / 失败",
-                    "完了 / スキップ / 失敗",
-                ),
-                self._done_list,
-            ),
-            stretch=1,
-        )
-
-        root.addLayout(board, stretch=1)
-
-    def _build_column(self, title: str, list_widget: TaskListWidget) -> QVBoxLayout:
-        col = QVBoxLayout()
-        col.setSpacing(8)
-        header = SubtitleLabel(title, self)
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        col.addWidget(header)
-        col.addWidget(list_widget, stretch=1)
-        return col
-
-    # ── Signal connections ────────────────────────────────────────────────────
+    # ── Signals ───────────────────────────────────────────────────────────────
 
     def _connect_signals(self):
+        signal_bus.tasks_added.connect(self._on_tasks_added)
         signal_bus.task_added.connect(self._on_task_added)
-        signal_bus.task_status_changed.connect(self._on_status_changed)
+        signal_bus.task_status_changed.connect(self._on_task_status_changed)
+        signal_bus.task_progress_updated.connect(self._on_task_progress)
+        signal_bus.task_error.connect(self._on_task_error)
+        signal_bus.tasks_removed.connect(self._on_tasks_removed)
         signal_bus.task_removed.connect(self._on_task_removed)
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── Rendering ─────────────────────────────────────────────────────────────
 
-    def _list_for_status(self, status: TaskStatus) -> TaskListWidget | None:
-        if status == TaskStatus.QUEUED_META:
-            return self._queued_list
-        if status in (TaskStatus.RESOLVING, TaskStatus.QUEUED_DOWNLOAD, TaskStatus.DOWNLOADING):
-            return self._active_list
-        if status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED, TaskStatus.FAILED):
-            return self._done_list
-        return None
-
-    # ── Slots ─────────────────────────────────────────────────────────────────
-
-    def _on_task_added(self, task_id: str, info: dict):
-        # Build a minimal DownloadTask-like object for the card
-        from ..core.models import DownloadTask
-
-        task = DownloadTask(
-            task_id=task_id,
-            url=info.get("url", ""),
-            video_id=info.get("video_id", ""),
-            title=info.get("title", ""),
-            author=info.get("author", ""),
-            status=TaskStatus.QUEUED_META,
-        )
-        self._queued_list.add_card(task)
-
-    def _on_status_changed(self, task_id: str, status_str: str):
-        try:
-            new_status = TaskStatus(status_str)
-        except ValueError:
+    def _schedule_refresh(self, delay_ms: int = 80):
+        if self._refresh_pending:
             return
+        self._refresh_pending = True
+        QTimer.singleShot(delay_ms, self._refresh_tasks)
 
-        new_list = self._list_for_status(new_status)
+    def _refresh_tasks(self):
+        self._refresh_pending = False
+        tasks = download_manager.get_tasks()
+        for task in tasks:
+            self._ensure_order(task.task_id)
+        self._tasks_by_id = {task.task_id: task for task in tasks}
+        self._apply_filters()
 
-        # Move card between lists if needed
-        for lst in (self._queued_list, self._active_list, self._done_list):
-            if lst.contains(task_id):
-                if lst is new_list:
-                    return  # Already in the right list
-                # Move: remove from old, add to new
-                card_task = next(
-                    (t for t in download_manager.get_tasks() if t.task_id == task_id),
-                    None,
-                )
-                lst.remove_card(task_id)
-                if new_list and card_task:
-                    new_list.add_card(card_task)
-                return
+    def _apply_filters(self, *_args):
+        tasks = list(self._tasks_by_id.values())
+        visible = [task for task in tasks if self._passes_filters(task)]
+        visible = self._sort_tasks(visible)
+        self._render_table(visible)
+        self._update_summary(tasks, visible)
 
-        # Card not found in any list yet — add to the correct one
-        if new_list:
-            task = next(
-                (t for t in download_manager.get_tasks() if t.task_id == task_id),
-                None,
+    def _render_table(self, tasks: list[DownloadTask]):
+        self._table.setUpdatesEnabled(False)
+        try:
+            self._row_by_task_id = {}
+            self._visible_task_ids = [task.task_id for task in tasks]
+            self._table.setRowCount(len(tasks))
+            for row_idx, task in enumerate(tasks):
+                self._row_by_task_id[task.task_id] = row_idx
+                self._update_row(row_idx, task)
+        finally:
+            self._table.setUpdatesEnabled(True)
+
+    def _update_row(self, row_idx: int, task: DownloadTask):
+        values = [
+            STATUS_LABELS.get(task.status, task.status.value),
+            task.title or task.video_id,
+            task.author,
+            self._progress_text(task),
+            self._size_text(task),
+            task.speed_str,
+            task.quality,
+            _video_url(task.video_id),
+            task.video_id,
+        ]
+
+        for col_idx, value in enumerate(values):
+            item = self._table.item(row_idx, col_idx)
+            if item is None:
+                item = QTableWidgetItem()
+                self._table.setItem(row_idx, col_idx, item)
+            item.setText(value)
+            item.setData(Qt.ItemDataRole.UserRole, task.task_id)
+            item.setToolTip(self._cell_tooltip(task, col_idx, value))
+            if col_idx == self._COL_STATE:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
+            elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            else:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        action_key, action_text, action_tip, action_enabled = self._primary_action(task)
+        task_url = _video_url(task.video_id)
+        self._set_action_item(
+            row_idx,
+            self._COL_URL,
+            task.task_id,
+            "open_url",
+            tr("Open", "打开", "開く"),
+            task_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
+            bool(task_url),
+            action_url=task_url,
+        )
+        self._set_action_item(
+            row_idx,
+            self._COL_ACTION,
+            task.task_id,
+            action_key,
+            action_text,
+            action_tip,
+            action_enabled,
+        )
+        self._set_action_item(
+            row_idx,
+            self._COL_REMOVE,
+            task.task_id,
+            "remove",
+            tr("Remove", "移除", "削除"),
+            tr("Remove task", "移除任务", "タスクを削除"),
+            True,
+        )
+
+    def _set_action_item(
+        self,
+        row: int,
+        column: int,
+        task_id: str,
+        action: str,
+        text: str,
+        tooltip: str,
+        enabled: bool,
+        *,
+        action_url: str = "",
+    ):
+        item = self._table.item(row, column)
+        if item is None:
+            item = QTableWidgetItem()
+            self._table.setItem(row, column, item)
+        item.setText(text if enabled else "—")
+        item.setData(Qt.ItemDataRole.UserRole, task_id)
+        item.setData(Qt.ItemDataRole.UserRole + 1, action if enabled else "")
+        item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(tooltip)
+        item.setForeground(QColor("#0078d4" if enabled else "#999999"))
+
+    def _update_summary(self, tasks: list[DownloadTask], visible: list[DownloadTask]):
+        active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
+        queued = sum(1 for task in tasks if task.status in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD))
+        failed = sum(1 for task in tasks if task.status == TaskStatus.FAILED)
+        completed = sum(1 for task in tasks if task.status == TaskStatus.COMPLETED)
+        self._summary_label.setText(
+            tr(
+                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | completed: {completed}",
+                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 完成: {completed}",
+                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 完了: {completed}",
             )
-            if task:
-                new_list.add_card(task)
+        )
+
+    def _update_current_summary(self):
+        tasks = list(self._tasks_by_id.values())
+        visible = [
+            self._tasks_by_id[task_id]
+            for task_id in self._visible_task_ids
+            if task_id in self._tasks_by_id
+        ]
+        self._update_summary(tasks, visible)
+
+    def _task_from_info(self, info: dict) -> DownloadTask:
+        task_id = str(info.get("task_id", "") or "")
+        video_id = str(info.get("video_id", "") or task_id)
+        status_value = str(info.get("status", TaskStatus.QUEUED_META.value) or TaskStatus.QUEUED_META.value)
+        try:
+            status = TaskStatus(status_value)
+        except ValueError:
+            status = TaskStatus.QUEUED_META
+        return DownloadTask(
+            task_id=task_id,
+            url=f"https://www.iwara.tv/video/{video_id}",
+            video_id=video_id,
+            title=str(info.get("title", "") or video_id),
+            author=str(info.get("author", "") or ""),
+            status=status,
+        )
+
+    def _fetch_task(self, task_id: str, info: dict | None = None) -> DownloadTask | None:
+        task = download_manager.get_task(task_id)
+        if task:
+            return task
+        if info is not None:
+            return self._task_from_info(info)
+        return self._tasks_by_id.get(task_id)
+
+    def _append_visible_tasks(self, tasks: list[DownloadTask]):
+        visible = [
+            task
+            for task in tasks
+            if task.task_id not in self._row_by_task_id and self._passes_filters(task)
+        ]
+        if not visible:
+            self._update_current_summary()
+            return
+        start = self._table.rowCount()
+        self._table.setUpdatesEnabled(False)
+        try:
+            self._table.setRowCount(start + len(visible))
+            for offset, task in enumerate(visible):
+                row = start + offset
+                self._visible_task_ids.append(task.task_id)
+                self._row_by_task_id[task.task_id] = row
+                self._update_row(row, task)
+        finally:
+            self._table.setUpdatesEnabled(True)
+        self._update_current_summary()
+
+    def _upsert_task_row(self, task: DownloadTask):
+        row = self._row_by_task_id.get(task.task_id)
+        visible = self._passes_filters(task)
+        if visible and row is not None:
+            self._update_row(row, task)
+        elif visible:
+            self._append_visible_tasks([task])
+            return
+        elif row is not None:
+            self._remove_visible_task_ids([task.task_id])
+            return
+        self._update_current_summary()
+
+    def _remove_visible_task_ids(self, task_ids: list[str]):
+        remove_set = {task_id for task_id in task_ids if task_id}
+        if not remove_set:
+            return
+        rows = sorted(
+            (row for task_id, row in self._row_by_task_id.items() if task_id in remove_set),
+            reverse=True,
+        )
+        if rows:
+            self._table.setUpdatesEnabled(False)
+            try:
+                for row in rows:
+                    self._table.removeRow(row)
+            finally:
+                self._table.setUpdatesEnabled(True)
+        self._visible_task_ids = [task_id for task_id in self._visible_task_ids if task_id not in remove_set]
+        self._rebuild_row_map()
+        self._update_current_summary()
+
+    def _rebuild_row_map(self):
+        self._row_by_task_id = {task_id: row for row, task_id in enumerate(self._visible_task_ids)}
+
+    # ── Sorting / filtering ──────────────────────────────────────────────────
+
+    def _passes_filters(self, task: DownloadTask) -> bool:
+        state_idx = self._state_combo.currentIndex() if hasattr(self, "_state_combo") else 0
+        if state_idx == 1 and task.status not in _ACTIVE_STATUSES:
+            return False
+        if state_idx == 2 and task.status not in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD):
+            return False
+        if state_idx == 3 and task.status != TaskStatus.FAILED:
+            return False
+        if state_idx == 4 and task.status != TaskStatus.COMPLETED:
+            return False
+        if state_idx == 5 and task.status != TaskStatus.CANCELLED:
+            return False
+        if state_idx == 6 and task.status != TaskStatus.SKIPPED:
+            return False
+
+        query = self._search_edit.text().strip().lower() if hasattr(self, "_search_edit") else ""
+        if query and query not in self._task_search_text(task):
+            return False
+        return True
+
+    def _sort_tasks(self, tasks: list[DownloadTask]) -> list[DownloadTask]:
+        def text(value: Any) -> str:
+            return str(value or "").lower()
+
+        def key(task: DownloadTask):
+            order = self._task_order.get(task.task_id, 0)
+            progress = self._progress_ratio(task)
+            if self._sort_column == self._SORT_DEFAULT:
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+            if self._sort_column == self._SORT_ADDED:
+                return order
+            if self._sort_column == self._COL_STATE:
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), text(STATUS_LABELS.get(task.status, task.status.value)), order)
+            if self._sort_column == self._COL_TITLE:
+                return (text(task.title or task.video_id), order)
+            if self._sort_column == self._COL_AUTHOR:
+                return (text(task.author), order)
+            if self._sort_column == self._COL_PROGRESS:
+                return (progress, order)
+            if self._sort_column == self._COL_SIZE:
+                return (task.total_bytes or task.downloaded_bytes or 0, order)
+            if self._sort_column == self._COL_SPEED:
+                return (text(task.speed_str), order)
+            if self._sort_column == self._COL_QUALITY:
+                return (text(task.quality), order)
+            if self._sort_column == self._COL_URL:
+                return (text(_video_url(task.video_id)), order)
+            if self._sort_column == self._COL_ID:
+                return (text(task.video_id), order)
+            return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+
+        return sorted(tasks, key=key, reverse=self._sort_reverse)
+
+    def _on_sort_combo_changed(self, index: int):
+        mapping = {
+            0: self._SORT_DEFAULT,
+            1: self._COL_STATE,
+            2: self._COL_TITLE,
+            3: self._COL_AUTHOR,
+            4: self._COL_PROGRESS,
+            5: self._COL_SIZE,
+            6: self._SORT_ADDED,
+            7: self._COL_QUALITY,
+            8: self._COL_ID,
+        }
+        self._sort_column = mapping.get(index, self._SORT_DEFAULT)
+        if index in (4, 5):
+            self._sort_reverse = True
+        elif index == 0:
+            self._sort_reverse = False
+        self._update_sort_button()
+        self._restore_sort_indicator()
+        self._apply_filters()
+
+    def _on_header_clicked(self, column: int):
+        if column not in self._sortable_columns():
+            self._restore_sort_indicator()
+            QTimer.singleShot(0, self._restore_sort_indicator)
+            return
+        if column == self._sort_column:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = column
+            self._sort_reverse = column in (self._COL_PROGRESS, self._COL_SIZE)
+        self._sync_sort_combo()
+        self._update_sort_button()
+        self._restore_sort_indicator()
+        self._apply_filters()
+
+    def _toggle_sort_direction(self):
+        self._sort_reverse = not self._sort_reverse
+        self._update_sort_button()
+        self._restore_sort_indicator()
+        self._apply_filters()
+
+    def _sortable_columns(self) -> set[int]:
+        return {
+            self._COL_STATE,
+            self._COL_TITLE,
+            self._COL_AUTHOR,
+            self._COL_PROGRESS,
+            self._COL_SIZE,
+            self._COL_SPEED,
+            self._COL_QUALITY,
+            self._COL_URL,
+            self._COL_ID,
+        }
+
+    def _restore_sort_indicator(self):
+        column = self._COL_STATE if self._sort_column in (self._SORT_DEFAULT, self._SORT_ADDED) else self._sort_column
+        self._table.horizontalHeader().setSortIndicator(
+            column,
+            Qt.SortOrder.DescendingOrder if self._sort_reverse else Qt.SortOrder.AscendingOrder,
+        )
+
+    def _sync_sort_combo(self):
+        mapping = {
+            self._COL_STATE: 1,
+            self._COL_TITLE: 2,
+            self._COL_AUTHOR: 3,
+            self._COL_PROGRESS: 4,
+            self._COL_SIZE: 5,
+            self._SORT_ADDED: 6,
+            self._COL_QUALITY: 7,
+            self._COL_ID: 8,
+        }
+        self._sort_combo.blockSignals(True)
+        self._sort_combo.setCurrentIndex(mapping.get(self._sort_column, 0))
+        self._sort_combo.blockSignals(False)
+
+    def _update_sort_button(self):
+        self._sort_dir_btn.setIcon(FluentIcon.DOWN if self._sort_reverse else FluentIcon.UP)
+        self._sort_dir_btn.setToolTip(
+            tr("Descending", "降序", "降順") if self._sort_reverse else tr("Ascending", "升序", "昇順")
+        )
+
+    # ── Row actions ───────────────────────────────────────────────────────────
+
+    def _primary_action(self, task: DownloadTask):
+        if task.status == TaskStatus.FAILED:
+            return (
+                "retry",
+                tr("Retry", "重试", "再試行"),
+                tr("Retry task", "重试任务", "タスクを再試行"),
+                True,
+            )
+        if task.status == TaskStatus.COMPLETED:
+            return (
+                "open",
+                tr("Open", "打开", "開く"),
+                tr("Open downloaded file", "打开下载文件", "保存ファイルを開く"),
+                bool(task.file_path),
+            )
+        if task.status == TaskStatus.CANCELLED:
+            return (
+                "restore",
+                tr("Restore", "复原", "復元"),
+                tr(
+                    "Put cancelled task back into the queue",
+                    "将已中断任务重新加入队列",
+                    "中断済みタスクをキューに戻します",
+                ),
+                True,
+            )
+        if task.status in _TERMINAL_STATUSES:
+            return (
+                "",
+                tr("None", "无", "なし"),
+                tr("No action", "无可用操作", "操作なし"),
+                False,
+            )
+        return (
+            "cancel",
+            tr("Cancel", "中断", "中断"),
+            tr("Cancel task", "中断任务", "タスクを中断"),
+            task.status != TaskStatus.CANCELLING,
+        )
+
+    def _on_cell_clicked(self, row: int, column: int):
+        if column not in (self._COL_URL, self._COL_ACTION, self._COL_REMOVE):
+            return
+        item = self._table.item(row, column)
+        if not item:
+            return
+        task_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+        if not task_id or not action:
+            return
+        if action == "open_url":
+            self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
+        elif action == "retry":
+            self._retry_task(task_id)
+        elif action == "open":
+            self._open_task(task_id)
+        elif action == "cancel":
+            self._cancel_task(task_id)
+        elif action == "restore":
+            self._restore_task(task_id)
+        elif action == "remove":
+            self._remove_task(task_id)
+
+    def _retry_task(self, task_id: str):
+        download_manager.retry_task(task_id)
+
+    def _cancel_task(self, task_id: str):
+        download_manager.cancel_task(task_id)
+
+    def _restore_task(self, task_id: str):
+        restored = download_manager.restore_cancelled_task(task_id)
+        if not restored:
+            InfoBar.warning(
+                title=tr("Cannot restore", "无法复原", "復元できません"),
+                content=tr(
+                    "Only cancelled tasks can be restored",
+                    "只有已中断任务可以复原",
+                    "中断済みタスクのみ復元できます",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+
+    def _remove_task(self, task_id: str):
+        download_manager.remove_task(task_id)
+
+    def _open_task(self, task_id: str):
+        ok, message = download_manager.open_task_output(task_id)
+        if not ok:
+            InfoBar.warning(
+                title=tr("Cannot open", "无法打开", "開けません"),
+                content=message,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+
+    def _open_url(self, url: str):
+        if url:
+            webbrowser.open(url)
+
+    def _on_item_double_clicked(self, item: QTableWidgetItem):
+        task_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if item.column() == self._COL_URL:
+            self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
+            return
+        task = self._tasks_by_id.get(task_id)
+        if task and task.status == TaskStatus.COMPLETED:
+            self._open_task(task_id)
+
+    # ── Toolbar actions ───────────────────────────────────────────────────────
 
     def _clear_done(self):
         download_manager.clear_completed()
         InfoBar.success(
             title=tr("Cleared", "已清除", "クリア完了"),
             content=tr(
-                "All completed/skipped/failed tasks were removed",
-                "已移除所有已完成/已跳过/失败的任务",
-                "完了/スキップ/失敗タスクをすべて削除しました",
+                "All completed/skipped/failed/cancelled tasks were removed",
+                "已移除所有已完成/已跳过/失败/中断的任务",
+                "完了/スキップ/失敗/中断タスクをすべて削除しました",
             ),
-            orient=0,
+            orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2500,
             parent=self,
         )
 
-    def _on_task_removed(self, task_id: str):
-        for lst in (self._queued_list, self._active_list, self._done_list):
-            if lst.contains(task_id):
-                lst.remove_card(task_id)
+    def _cancel_all_active(self):
+        count = download_manager.cancel_all_active()
+        self._schedule_refresh(0)
+        InfoBar.info(
+            title=tr("Cancel Requested", "已请求中断", "中断要求済み"),
+            content=tr(
+                f"Requested cancellation for {count} tasks",
+                f"已请求中断 {count} 个任务",
+                f"{count} 件の中断を要求しました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
 
     def _retry_all_failed(self):
         retried, skipped = download_manager.retry_all_failed(
             exclude_downloaded=self._exclude_downloaded_switch.isChecked()
         )
+        self._schedule_refresh(0)
         InfoBar.success(
             title=tr("Retry Triggered", "批量重试已触发", "再試行を開始"),
             content=tr(
@@ -256,9 +817,188 @@ class TaskCenterInterface(QWidget):
                 f"重试 {retried} 个，排除并标记完成 {skipped} 个",
                 f"再試行 {retried} 件、除外して完了扱い {skipped} 件",
             ),
-            orient=0,
+            orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2800,
             parent=self,
         )
+
+    # ── Signal slots ──────────────────────────────────────────────────────────
+
+    def _on_task_added(self, task_id: str, _info: dict):
+        if task_id in self._tasks_by_id:
+            return
+        self._ensure_order(task_id)
+        info = dict(_info or {})
+        info["task_id"] = task_id
+        task = self._fetch_task(task_id, info)
+        if task:
+            self._tasks_by_id[task_id] = task
+            self._append_visible_tasks([task])
+
+    def _on_tasks_added(self, infos: list):
+        added: list[DownloadTask] = []
+        for info in infos:
+            task_id = str(info.get("task_id", "") or "")
+            if task_id:
+                self._ensure_order(task_id)
+                if task_id in self._tasks_by_id:
+                    continue
+                task = self._fetch_task(task_id, info)
+                if task:
+                    self._tasks_by_id[task_id] = task
+                    added.append(task)
+        self._append_visible_tasks(added)
+
+    def _on_task_status_changed(self, task_id: str, _status_str: str):
+        self._ensure_order(task_id)
+        task = self._fetch_task(task_id)
+        if not task:
+            return
+        self._tasks_by_id[task_id] = task
+        self._upsert_task_row(task)
+        if self._sort_column in (self._SORT_DEFAULT, self._COL_STATE):
+            self._schedule_refresh(300)
+
+    def _on_task_progress(self, task_id: str, _downloaded: int, _total: int, _speed: str):
+        self._ensure_order(task_id)
+        task = self._tasks_by_id.get(task_id)
+        if task is None:
+            task = self._fetch_task(task_id)
+        if task:
+            self._tasks_by_id[task_id] = task
+            task.downloaded_bytes = _downloaded
+            task.total_bytes = _total
+            task.speed_str = _speed
+        self._pending_progress_ids.add(task_id)
+        if self._progress_flush_pending:
+            return
+        self._progress_flush_pending = True
+        QTimer.singleShot(180, self._flush_progress_updates)
+
+    def _on_task_error(self, task_id: str, _message: str):
+        self._ensure_order(task_id)
+        task = self._fetch_task(task_id)
+        if task:
+            self._tasks_by_id[task_id] = task
+            self._upsert_task_row(task)
+
+    def _on_task_removed(self, task_id: str):
+        self._tasks_by_id.pop(task_id, None)
+        self._remove_visible_task_ids([task_id])
+
+    def _on_tasks_removed(self, task_ids: list):
+        changed = False
+        clean_ids: list[str] = []
+        for raw_task_id in task_ids:
+            task_id = str(raw_task_id or "")
+            if not task_id:
+                continue
+            clean_ids.append(task_id)
+            if self._tasks_by_id.pop(task_id, None) is not None:
+                changed = True
+        if changed:
+            self._remove_visible_task_ids(clean_ids)
+
+    def _flush_progress_updates(self):
+        self._progress_flush_pending = False
+        ids = list(self._pending_progress_ids)
+        self._pending_progress_ids.clear()
+        if self._sort_column in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
+            self._schedule_refresh(120)
+            return
+        for task_id in ids:
+            self._update_progress_cells(task_id)
+
+    def _update_progress_cells(self, task_id: str):
+        task = self._tasks_by_id.get(task_id)
+        row = self._row_by_task_id.get(task_id)
+        if not task or row is None or row < 0 or row >= self._table.rowCount():
+            return
+        updates = {
+            self._COL_PROGRESS: self._progress_text(task),
+            self._COL_SIZE: self._size_text(task),
+            self._COL_SPEED: task.speed_str,
+        }
+        for column, value in updates.items():
+            item = self._table.item(row, column)
+            if not item:
+                continue
+            item.setText(value)
+            item.setToolTip(self._cell_tooltip(task, column, value))
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _ensure_order(self, task_id: str):
+        if task_id in self._task_order:
+            return
+        self._task_order[task_id] = self._next_order
+        self._next_order += 1
+
+    def _task_search_text(self, task: DownloadTask) -> str:
+        return "\n".join(
+            [
+                STATUS_LABELS.get(task.status, task.status.value),
+                task.title,
+                task.author,
+                task.video_id,
+                _video_url(task.video_id),
+                task.quality,
+                task.error_msg,
+                task.file_path,
+            ]
+        ).lower()
+
+    def _cell_tooltip(self, task: DownloadTask, column: int, value: str) -> str:
+        if column == self._COL_STATE and task.error_msg:
+            return f"{value}\n{task.error_msg}"
+        if column == self._COL_PROGRESS and task.error_msg:
+            return task.error_msg
+        return value
+
+    def _progress_ratio(self, task: DownloadTask) -> float:
+        if task.status == TaskStatus.COMPLETED:
+            return 1.0
+        if task.total_bytes > 0:
+            return max(0.0, min(1.0, task.downloaded_bytes / task.total_bytes))
+        return 0.0
+
+    def _progress_text(self, task: DownloadTask) -> str:
+        if task.status == TaskStatus.COMPLETED:
+            return "100%"
+        if task.status == TaskStatus.RESOLVING:
+            return tr("Resolving", "解析中", "解析中")
+        if task.status == TaskStatus.QUEUED_META:
+            return tr("Queued", "排队中", "待機中")
+        if task.status == TaskStatus.QUEUED_DOWNLOAD:
+            return tr("Waiting", "待下载", "待機")
+        if task.status == TaskStatus.CANCELLING:
+            return tr("Cancelling", "中断中", "中断中")
+        if task.status == TaskStatus.FAILED and task.error_msg:
+            return task.error_msg
+        if task.total_bytes > 0:
+            return f"{self._progress_ratio(task) * 100:.1f}%"
+        return ""
+
+    def _size_text(self, task: DownloadTask) -> str:
+        if task.total_bytes > 0:
+            return f"{_fmt_bytes(task.downloaded_bytes)} / {_fmt_bytes(task.total_bytes)}"
+        if task.downloaded_bytes > 0:
+            return _fmt_bytes(task.downloaded_bytes)
+        return ""
+
+
+def _fmt_bytes(n: int) -> str:
+    if n >= 1024 ** 3:
+        return f"{n / 1024 ** 3:.1f} GB"
+    if n >= 1024 ** 2:
+        return f"{n / 1024 ** 2:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n} B"
+
+
+def _video_url(video_id: str) -> str:
+    video_id = str(video_id or "").strip()
+    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""

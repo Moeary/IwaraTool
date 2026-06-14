@@ -6,6 +6,9 @@ class TaskSignalBus(QObject):
     # task_id, info_dict (title, author, video_id, status)
     task_added = Signal(str, dict)
 
+    # list[dict] with task_id, title, author, video_id, status
+    tasks_added = Signal(list)
+
     # task_id, new_status (str value of TaskStatus)
     task_status_changed = Signal(str, str)
 
@@ -18,6 +21,9 @@ class TaskSignalBus(QObject):
     # task_id
     task_removed = Signal(str)
 
+    # list[str]
+    tasks_removed = Signal(list)
+
     # General log / info message for the UI
     log_message = Signal(str)
 
@@ -26,6 +32,12 @@ class TaskSignalBus(QObject):
 
     # Emitted when UI language changes (str: language code)
     language_changed = Signal(str)
+
+    # Emitted when shared download options change from any page.
+    download_options_changed = Signal()
+
+    # source_id
+    subscription_source_added = Signal(int)
 
 
 # Module-level singleton — import this everywhere

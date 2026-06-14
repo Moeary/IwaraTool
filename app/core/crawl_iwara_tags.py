@@ -111,9 +111,12 @@ def _fetch_page(
         headers=headers,
         timeout=30,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    return _payload_results(data)
+    try:
+        resp.raise_for_status()
+        data = resp.json()
+        return _payload_results(data)
+    finally:
+        resp.close()
 
 
 def _write_markdown(path: Path, tags: list[dict[str, Any]], filters: str):

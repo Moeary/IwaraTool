@@ -72,8 +72,10 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
           python -m nuitka \
+            --assume-yes-for-downloads \
             --standalone \
             --onefile \
+            --static-libpython=yes \
             --enable-plugin=pyside6 \
             --include-package-data=cloudscraper \
             --include-data-file=app/icon.ico=app/icon.ico \
