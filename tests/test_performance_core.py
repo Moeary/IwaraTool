@@ -40,13 +40,16 @@ class ConfigGuard:
     def __enter__(self):
         self.max_concurrent = app_config.max_concurrent
         self.skip_existing_files = app_config.skip_existing_files
+        self.task_stall_timeout_seconds = app_config.task_stall_timeout_seconds
         app_config.max_concurrent = 3
         app_config.skip_existing_files = False
+        app_config.task_stall_timeout_seconds = 30
         return self
 
     def __exit__(self, *_exc):
         app_config.max_concurrent = self.max_concurrent
         app_config.skip_existing_files = self.skip_existing_files
+        app_config.task_stall_timeout_seconds = self.task_stall_timeout_seconds
 
 
 def make_manager() -> DownloadManager:
@@ -120,6 +123,28 @@ class ManagerPerformanceTests(unittest.TestCase):
             all(task.raw_json == "" and task.tags_json == "" for task in mgr.get_tasks() if task.status == TaskStatus.COMPLETED)
         )
 
+    def test_terminal_prune_keeps_cancelled_tasks_for_restore(self):
+        mgr = make_manager()
+        mgr._terminal_keep_limit = 3
+        with mgr._lock:
+            for i in range(5):
+                task = DownloadTask(f"cancelled{i}", "", f"cancelled{i}", status=TaskStatus.CANCELLED)
+                mgr._tasks[task.task_id] = task
+                mgr._task_id_by_video_id[task.video_id] = task.task_id
+                mgr._mark_terminal_locked(task)
+            for i in range(6):
+                task = DownloadTask(f"done{i}", "", f"done{i}", status=TaskStatus.COMPLETED)
+                mgr._tasks[task.task_id] = task
+                mgr._task_id_by_video_id[task.video_id] = task.task_id
+                mgr._mark_terminal_locked(task)
+
+        removed = mgr._prune_terminal_tasks()
+        statuses = {task.task_id: task.status for task in mgr.get_tasks()}
+
+        self.assertEqual(len(removed), 3)
+        self.assertEqual(sum(1 for s in statuses.values() if s == TaskStatus.CANCELLED), 5)
+        self.assertEqual(sum(1 for s in statuses.values() if s == TaskStatus.COMPLETED), 3)
+
     def test_cancel_terminal_frees_slot_for_next_queued_task(self):
         with ConfigGuard():
             app_config.max_concurrent = 1
@@ -180,6 +205,110 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertNotIn("cancelled", mgr._terminal_task_id_set)
             self.assertEqual(len(mgr._resolve_executor.submitted), 1)
             self.assertEqual(mgr._resolve_executor.submitted[0][1], ("cancelled",))
+
+    def test_restore_all_cancelled_requeues_every_cancelled_task(self):
+        with ConfigGuard():
+            app_config.max_concurrent = 2
+            mgr = make_manager()
+            with mgr._lock:
+                for i in range(4):
+                    task = DownloadTask(f"cancelled{i}", "", f"cancelled{i}", status=TaskStatus.CANCELLED)
+                    task.cancel_requested = True
+                    task.error_msg = "cancelled by test"
+                    mgr._tasks[task.task_id] = task
+                    mgr._task_id_by_video_id[task.video_id] = task.task_id
+                    mgr._mark_terminal_locked(task)
+
+            restored = mgr.restore_all_cancelled()
+            statuses = {task.task_id: task.status for task in mgr.get_tasks()}
+
+            self.assertEqual(restored, 4)
+            self.assertEqual(sum(1 for s in statuses.values() if s == TaskStatus.RESOLVING), 2)
+            self.assertEqual(sum(1 for s in statuses.values() if s == TaskStatus.QUEUED_META), 2)
+            self.assertEqual(len(mgr._resolve_executor.submitted), 2)
+            self.assertFalse(any(task.cancel_requested for task in mgr.get_tasks()))
+
+    def test_stall_watchdog_auto_cancels_stale_active_and_frees_slot(self):
+        with ConfigGuard():
+            app_config.max_concurrent = 1
+            app_config.task_stall_timeout_seconds = 1
+            mgr = make_manager()
+            active = DownloadTask("active", "", "active", status=TaskStatus.RESOLVING)
+            queued = DownloadTask("queued", "", "queued", status=TaskStatus.QUEUED_META)
+            with mgr._lock:
+                mgr._tasks[active.task_id] = active
+                mgr._tasks[queued.task_id] = queued
+                mgr._task_id_by_video_id[active.video_id] = active.task_id
+                mgr._task_id_by_video_id[queued.video_id] = queued.task_id
+                mgr._active_task_ids.add(active.task_id)
+                mgr._queued_meta_ids.append(queued.task_id)
+                mgr._task_last_activity[active.task_id] = 0
+
+            cancelled = mgr._cancel_stale_tasks()
+
+            self.assertEqual(cancelled, 1)
+            self.assertEqual(active.status, TaskStatus.CANCELLED)
+            self.assertTrue(active.cancel_requested)
+            self.assertEqual(queued.status, TaskStatus.RESOLVING)
+            self.assertEqual(len(mgr._resolve_executor.submitted), 1)
+
+    def test_clear_completed_keeps_failed_and_cancelled_tasks(self):
+        mgr = make_manager()
+        with mgr._lock:
+            for status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.SKIPPED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            ):
+                task_id = status.value
+                task = DownloadTask(task_id, "", task_id, status=status)
+                mgr._tasks[task_id] = task
+                mgr._task_id_by_video_id[task.video_id] = task.task_id
+                mgr._mark_terminal_locked(task)
+
+        mgr.clear_completed()
+        statuses = {task.task_id: task.status for task in mgr.get_tasks()}
+
+        self.assertNotIn(TaskStatus.COMPLETED.value, statuses)
+        self.assertNotIn(TaskStatus.SKIPPED.value, statuses)
+        self.assertEqual(statuses[TaskStatus.FAILED.value], TaskStatus.FAILED)
+        self.assertEqual(statuses[TaskStatus.CANCELLED.value], TaskStatus.CANCELLED)
+
+    def test_subscription_items_use_current_task_status(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "alice", "Alice")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "videoQueued01",
+                    "title": "Queued",
+                    "author": "alice",
+                    "source_url": "https://www.iwara.tv/video/videoQueued01",
+                }
+            ],
+        )
+        with mgr._lock:
+            task = DownloadTask(
+                "task-cancelled",
+                "",
+                "videoQueued01",
+                status=TaskStatus.CANCELLED,
+            )
+            mgr._tasks[task.task_id] = task
+            mgr._task_id_by_video_id[task.video_id.lower()] = task.task_id
+
+        items = mgr.get_subscription_items(source_id)
+
+        self.assertEqual(items[0]["task_status"], TaskStatus.CANCELLED.value)
+        self.assertTrue(items[0]["queued"])
+
+        mgr.remove_task("task-cancelled")
+        items = mgr.get_subscription_items(source_id)
+
+        self.assertEqual(items[0]["task_status"], "")
+        self.assertFalse(items[0]["queued"])
 
     def test_history_list_and_batch_queries_omit_heavy_fields_by_default(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-history-")
@@ -366,6 +495,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertEqual(len(mgr.get_tasks()), 0)
             self.assertIsNotNone(record)
             self.assertEqual(record["file_path"], "")
+            self.assertEqual(record["quality"], "")
             self.assertEqual(record["title"], "Metadata Only")
             self.assertEqual(len(nfo_files), 1)
         finally:

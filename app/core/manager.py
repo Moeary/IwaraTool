@@ -62,9 +62,26 @@ _TERMINAL_STATUSES = frozenset(
     ]
 )
 
+_PRUNABLE_TERMINAL_STATUSES = frozenset(
+    [
+        TaskStatus.COMPLETED,
+        TaskStatus.SKIPPED,
+        TaskStatus.FAILED,
+    ]
+)
+
+_STALL_WATCH_STATUSES = frozenset(
+    [
+        TaskStatus.RESOLVING,
+        TaskStatus.QUEUED_DOWNLOAD,
+        TaskStatus.DOWNLOADING,
+    ]
+)
+
 _LIVE_TERMINAL_KEEP_LIMIT = 100
 _EXISTING_FILE_INDEX_TTL_SECONDS = 60
 _MAX_STORED_TEXT_CHARS = 20000
+_STALL_WATCHDOG_INTERVAL_SECONDS = 1.0
 
 
 class DownloadManager:
@@ -95,12 +112,20 @@ class DownloadManager:
         self._terminal_keep_limit = _LIVE_TERMINAL_KEEP_LIMIT
         self._terminal_events_since_gc = 0
         self._last_gc_at = 0.0
+        self._task_last_activity: dict[str, float] = {}
 
         # Keep parse, resolve, and download work isolated so a large batch cannot
         # starve metadata resolution or leave the UI looking stuck.
         self._parse_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="iwara-parse")
         self._resolve_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-resolve")
         self._download_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-download")
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread = threading.Thread(
+            target=self._stall_watchdog_loop,
+            name="iwara-stall-watchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -184,18 +209,7 @@ class DownloadManager:
             if not task or task.status != TaskStatus.CANCELLED:
                 return False
             title = task.title or task.video_id
-            task.status = TaskStatus.QUEUED_META
-            task.cancel_requested = False
-            task.delete_temp_on_cancel = False
-            task.remove_after_cancel = False
-            task.aria2_gid = ""
-            task.error_msg = ""
-            task.speed_str = ""
-            task.downloaded_bytes = 0
-            task.total_bytes = 0
-            task.download_url = ""
-            self._unmark_terminal_locked(task_id)
-            self._queued_meta_ids.append(task_id)
+            self._restore_cancelled_task_locked(task)
             requeued = True
 
         if not requeued:
@@ -210,6 +224,29 @@ class DownloadManager:
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
         self._try_activate()
         return True
+
+    def restore_all_cancelled(self) -> int:
+        """Put all cancelled tasks back into the queue."""
+        restored_ids: list[str] = []
+        with self._lock:
+            for task in list(self._tasks.values()):
+                if task.status != TaskStatus.CANCELLED:
+                    continue
+                self._restore_cancelled_task_locked(task)
+                restored_ids.append(task.task_id)
+
+        for task_id in restored_ids:
+            signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        if restored_ids:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Restore] re-queued {len(restored_ids)} cancelled tasks",
+                    f"[复原] 已重新加入队列 {len(restored_ids)} 个中断任务",
+                    f"[復元] {len(restored_ids)} 件の中断タスクをキューへ戻しました",
+                )
+            )
+            self._try_activate()
+        return len(restored_ids)
 
     def retry_all_failed(self, exclude_downloaded: bool = True) -> tuple[int, int]:
         """Retry all failed tasks.
@@ -296,6 +333,7 @@ class DownloadManager:
                 finalize_now = True
             else:
                 task.status = TaskStatus.CANCELLING
+            self._task_last_activity.pop(task_id, None)
 
         if finalize_now:
             self._cancel_task_terminal(
@@ -333,13 +371,13 @@ class DownloadManager:
             signal_bus.task_removed.emit(task_id)
 
     def clear_completed(self):
-        """Remove terminal tasks from UI board (completed/skipped/failed)."""
+        """Remove finished tasks from UI board, keeping retry/restore candidates."""
         removed_ids: list[str] = []
         with self._lock:
             to_remove = [
                 tid
                 for tid, t in self._tasks.items()
-                if t.status in _TERMINAL_STATUSES
+                if t.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED)
             ]
             for tid in to_remove:
                 if self._forget_task_locked(tid):
@@ -459,15 +497,21 @@ class DownloadManager:
         video_ids = [str(item.get("video_id", "") or "") for item in items]
         history_records = self.history.get_records(video_ids)
         with self._lock:
-            queued_ids = {task.video_id.lower() for task in self._tasks.values()}
+            task_status_by_video_id = {
+                task.video_id.lower(): task.status.value
+                for task in self._tasks.values()
+                if task.video_id
+            }
         for item in items:
             video_id = str(item.get("video_id", "") or "")
             history_record = history_records.get(video_id)
             file_path = str(history_record.get("file_path", "") or "") if history_record else ""
+            task_status = task_status_by_video_id.get(video_id.lower(), "")
             item["downloaded"] = bool(history_record)
             item["download_file_path"] = file_path
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
-            item["queued"] = video_id.lower() in queued_ids
+            item["task_status"] = task_status
+            item["queued"] = bool(task_status)
         return items
 
     def remove_subscription_source(self, source_id: int):
@@ -624,7 +668,6 @@ class DownloadManager:
             history_item["source_url"] = source_url
             meta = self._history_meta_from_item(history_item, existing)
             meta["thumbnail_path"] = task.thumbnail_path or meta.get("thumbnail_path", "")
-            meta["quality"] = task.quality
             self.history.upsert_downloaded(meta)
             result["marked"] = int(result["marked"]) + 1
 
@@ -1521,6 +1564,7 @@ class DownloadManager:
                     continue
                 task.status = TaskStatus.RESOLVING
                 self._active_task_ids.add(task.task_id)
+                self._touch_task_activity_locked(task.task_id)
                 to_resolve.append(task.task_id)
                 active += 1
 
@@ -1568,8 +1612,10 @@ class DownloadManager:
                 f"[解析] 動画情報を取得中: {task.video_id}",
             )
         )
+        self._touch_task_activity(task_id)
 
         video_info, err = self._api_call("get_video_info", task.video_id)
+        self._touch_task_activity(task_id)
         if self._is_cancel_requested(task_id):
             self._cancel_task_terminal(
                 task_id,
@@ -1642,6 +1688,7 @@ class DownloadManager:
                 file_id=file_id,
                 thumbnail_index=thumbnail_index,
             )
+            self._touch_task_activity_locked(task_id)
 
         if self._is_cancel_requested(task_id):
             self._cancel_task_terminal(
@@ -1686,6 +1733,7 @@ class DownloadManager:
         )
 
         def _log(msg: str):
+            self._touch_task_activity(task_id)
             signal_bus.log_message.emit(msg)
 
         if self._is_cancel_requested(task_id):
@@ -1701,6 +1749,7 @@ class DownloadManager:
             preferred_quality=pref_quality,
             log_cb=_log,
         )
+        self._touch_task_activity(task_id)
         if self._is_cancel_requested(task_id):
             self._cancel_task_terminal(
                 task_id,
@@ -1778,6 +1827,7 @@ class DownloadManager:
                 task.status = TaskStatus.CANCELLING
             else:
                 task.status = TaskStatus.QUEUED_DOWNLOAD
+                self._touch_task_activity_locked(task_id)
 
         if self._is_cancel_requested(task_id):
             self._cancel_task_terminal(
@@ -1852,6 +1902,7 @@ class DownloadManager:
                 should_cancel = True
             else:
                 task.status = TaskStatus.DOWNLOADING
+                self._touch_task_activity_locked(task_id)
                 should_cancel = False
         if should_cancel:
             self._cancel_task_terminal(
@@ -2012,6 +2063,7 @@ class DownloadManager:
 
         with self._lock:
             task.aria2_gid = gid
+            self._touch_task_activity_locked(task_id)
         if self._is_cancel_requested(task_id):
             self._aria2_rpc_cancel(gid)
             self._cancel_task_terminal(
@@ -2021,6 +2073,8 @@ class DownloadManager:
             return
 
         last_emit = 0.0
+        last_done = -1
+        last_status = ""
         while True:
             if self._is_cancel_requested(task_id):
                 self._aria2_rpc_cancel(gid)
@@ -2046,6 +2100,10 @@ class DownloadManager:
             total = int(status_info.get("totalLength", "0") or 0)
             speed = int(status_info.get("downloadSpeed", "0") or 0)
             speed_str = _fmt_speed(float(speed)) if speed > 0 else ""
+            if status != last_status or done > last_done or speed > 0:
+                self._touch_task_activity(task_id)
+                last_status = status
+                last_done = max(last_done, done)
 
             now = time.monotonic()
             if now - last_emit >= 0.5:
@@ -2117,6 +2175,7 @@ class DownloadManager:
 
         resp = None
         try:
+            self._touch_task_activity(task_id)
             headers: dict[str, str] = {}
             token = self._current_token()
             if token:
@@ -2139,6 +2198,7 @@ class DownloadManager:
             resp = self.api.scraper.get(
                 task.download_url, headers=headers, stream=True, timeout=60
             )
+            self._touch_task_activity(task_id)
             if self._is_cancel_requested(task_id):
                 self._cancel_task_terminal(
                     task_id,
@@ -2181,6 +2241,7 @@ class DownloadManager:
             with self._lock:
                 task.total_bytes = total
                 task.downloaded_bytes = existing_size
+                self._touch_task_activity_locked(task_id)
 
             signal_bus.log_message.emit(
                 tr(
@@ -2207,6 +2268,7 @@ class DownloadManager:
                         continue
                     fh.write(chunk)
                     downloaded += len(chunk)
+                    self._touch_task_activity(task_id)
 
                     now = time.monotonic()
                     if now - last_time >= 0.5:
@@ -2387,15 +2449,18 @@ class DownloadManager:
         self._task_id_by_video_id.pop(task.video_id.lower(), None)
         self._active_task_ids.discard(task_id)
         self._terminal_task_id_set.discard(task_id)
+        self._task_last_activity.pop(task_id, None)
         return task
 
     def _unmark_terminal_locked(self, task_id: str):
         """Mark a previously-terminal task as live again. Must hold self._lock."""
         self._terminal_task_id_set.discard(task_id)
+        self._task_last_activity.pop(task_id, None)
 
     def _mark_terminal_locked(self, task: DownloadTask):
         """Track terminal tasks for bounded live-memory retention."""
         self._active_task_ids.discard(task.task_id)
+        self._task_last_activity.pop(task.task_id, None)
         task.download_url = ""
         task.file_url = ""
         task.raw_json = ""
@@ -2412,7 +2477,15 @@ class DownloadManager:
     def _prune_terminal_tasks(self) -> list[str]:
         removed: list[str] = []
         with self._lock:
-            while self._terminal_task_ids and len(self._terminal_task_id_set) > self._terminal_keep_limit:
+            prunable_count = sum(
+                1
+                for task_id in self._terminal_task_id_set
+                if (
+                    (task := self._tasks.get(task_id))
+                    and task.status in _PRUNABLE_TERMINAL_STATUSES
+                )
+            )
+            while self._terminal_task_ids and prunable_count > self._terminal_keep_limit:
                 task_id = self._terminal_task_ids.popleft()
                 if task_id not in self._terminal_task_id_set:
                     continue
@@ -2420,8 +2493,11 @@ class DownloadManager:
                 if not task or task.status not in _TERMINAL_STATUSES:
                     self._terminal_task_id_set.discard(task_id)
                     continue
+                if task.status not in _PRUNABLE_TERMINAL_STATUSES:
+                    continue
                 if self._forget_task_locked(task_id):
                     removed.append(task_id)
+                    prunable_count -= 1
         if removed:
             signal_bus.tasks_removed.emit(removed)
         self._maybe_collect_garbage()
@@ -2442,6 +2518,91 @@ class DownloadManager:
         with self._lock:
             task = self._tasks.get(task_id)
             return bool(task and task.cancel_requested)
+
+    def _restore_cancelled_task_locked(self, task: DownloadTask):
+        """Reset a cancelled task for a fresh resolve. Must hold self._lock."""
+        task.status = TaskStatus.QUEUED_META
+        task.cancel_requested = False
+        task.delete_temp_on_cancel = False
+        task.remove_after_cancel = False
+        task.aria2_gid = ""
+        task.error_msg = ""
+        task.speed_str = ""
+        task.downloaded_bytes = 0
+        task.total_bytes = 0
+        task.download_url = ""
+        self._unmark_terminal_locked(task.task_id)
+        self._queued_meta_ids.append(task.task_id)
+
+    def _touch_task_activity(self, task_id: str):
+        with self._lock:
+            self._touch_task_activity_locked(task_id)
+
+    def _touch_task_activity_locked(self, task_id: str):
+        task = self._tasks.get(task_id)
+        if task and task.status in _STALL_WATCH_STATUSES and not task.cancel_requested:
+            self._task_last_activity[task_id] = time.monotonic()
+
+    def _stall_watchdog_loop(self):
+        while not self._watchdog_stop.wait(_STALL_WATCHDOG_INTERVAL_SECONDS):
+            self._cancel_stale_tasks()
+
+    def _cancel_stale_tasks(self) -> int:
+        try:
+            timeout_seconds = int(app_config.task_stall_timeout_seconds)
+        except Exception:
+            timeout_seconds = 30
+        if timeout_seconds <= 0:
+            return 0
+
+        now = time.monotonic()
+        stale: list[tuple[str, str, int, str]] = []
+        with self._lock:
+            for task_id in list(self._active_task_ids):
+                task = self._tasks.get(task_id)
+                if (
+                    not task
+                    or task.status not in _STALL_WATCH_STATUSES
+                    or task.cancel_requested
+                ):
+                    continue
+                last_activity = self._task_last_activity.get(task_id)
+                if last_activity is None:
+                    self._task_last_activity[task_id] = now
+                    continue
+                idle_seconds = int(now - last_activity)
+                if idle_seconds < timeout_seconds:
+                    continue
+                stale.append(
+                    (
+                        task_id,
+                        task.title or task.video_id,
+                        idle_seconds,
+                        task.aria2_gid,
+                    )
+                )
+                task.cancel_requested = True
+                task.status = TaskStatus.CANCELLING
+                task.speed_str = ""
+                self._task_last_activity.pop(task_id, None)
+
+        for task_id, title, idle_seconds, aria2_gid in stale:
+            reason = tr(
+                f"No activity for {timeout_seconds}s; auto-cancelled",
+                f"超过 {timeout_seconds} 秒无响应，已自动中断",
+                f"{timeout_seconds} 秒間応答がないため自動中断しました",
+            )
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Auto-cancel] \"{title}\" idle {idle_seconds}s",
+                    f"[自动中断] 《{title}》已无响应 {idle_seconds} 秒",
+                    f"[自動中断] 「{title}」応答なし {idle_seconds} 秒",
+                )
+            )
+            self._cancel_task_terminal(task_id, reason)
+            if aria2_gid:
+                self._aria2_rpc_cancel(aria2_gid)
+        return len(stale)
 
     def _task_temp_candidates(self, task: DownloadTask) -> list[str]:
         candidates: list[str] = []
@@ -2472,6 +2633,8 @@ class DownloadManager:
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
+                return
+            if task.status in _TERMINAL_STATUSES:
                 return
             task.status = TaskStatus.CANCELLED
             task.error_msg = reason

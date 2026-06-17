@@ -34,6 +34,7 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
+from ..core.models import STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import FilterDialog, _OPTION_OFF_STYLE, _OPTION_ON_STYLE
@@ -150,7 +151,11 @@ class SubscriptionInterface(QWidget):
         self._item_render_timer.timeout.connect(self._render_item_batch)
         self._build_ui()
         self._load_sources()
+        signal_bus.tasks_added.connect(self._on_tasks_changed)
+        signal_bus.task_added.connect(self._on_task_changed)
         signal_bus.task_status_changed.connect(self._on_task_status_changed)
+        signal_bus.tasks_removed.connect(self._on_tasks_changed)
+        signal_bus.task_removed.connect(self._on_task_changed)
         signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
         signal_bus.subscription_source_added.connect(self._on_subscription_source_added)
         self._sync_download_option_buttons()
@@ -688,6 +693,7 @@ class SubscriptionInterface(QWidget):
         self._apply_item_filters()
 
     def _apply_item_filters(self, *_args):
+        self._sync_items_with_current_tasks()
         items = list(self._all_items)
         install_idx = self._install_filter_combo.currentIndex() if hasattr(self, "_install_filter_combo") else 0
         new_idx = self._new_filter_combo.currentIndex() if hasattr(self, "_new_filter_combo") else 0
@@ -737,6 +743,7 @@ class SubscriptionInterface(QWidget):
             downloaded = bool(item_data.get("downloaded"))
             file_exists = bool(item_data.get("download_file_exists"))
             queued = bool(item_data.get("queued"))
+            task_status = str(item_data.get("task_status", "") or "")
             is_new = bool(int(item_data.get("is_new", 0) or 0))
             if is_new:
                 new_count += 1
@@ -777,11 +784,17 @@ class SubscriptionInterface(QWidget):
         video_id = str(item_data.get("video_id", "") or "")
         downloaded = bool(item_data.get("downloaded"))
         queued = bool(item_data.get("queued"))
+        task_status = str(item_data.get("task_status", "") or "")
         is_new = bool(int(item_data.get("is_new", 0) or 0))
         file_exists = bool(item_data.get("download_file_exists"))
         source_title = str(item_data.get("source_title", "") or "")
         source_url = str(item_data.get("source_url", "") or _video_url(video_id))
-        state = _item_state_text(downloaded=downloaded, queued=queued, file_exists=file_exists)
+        state = _item_state_text(
+            downloaded=downloaded,
+            queued=queued,
+            file_exists=file_exists,
+            task_status=task_status,
+        )
         values = [
             state,
             tr("Yes", "是", "はい") if is_new else "",
@@ -804,7 +817,14 @@ class SubscriptionInterface(QWidget):
             if col in (self._ITEM_STATE, self._ITEM_NEW):
                 cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if col == self._ITEM_STATE:
-                cell.setForeground(_state_color(downloaded=downloaded, queued=queued, file_exists=file_exists))
+                cell.setForeground(
+                    _state_color(
+                        downloaded=downloaded,
+                        queued=queued,
+                        file_exists=file_exists,
+                        task_status=task_status,
+                    )
+                )
             elif col == self._ITEM_NEW and is_new:
                 cell.setForeground(QColor("#c17d00"))
             self._item_table.setItem(row, col, cell)
@@ -1335,14 +1355,35 @@ class SubscriptionInterface(QWidget):
         )
 
     def _on_task_status_changed(self, _task_id: str, _status_str: str):
+        self._schedule_items_refresh_after_task_change()
+
+    def _on_task_changed(self, *_args):
+        self._schedule_items_refresh_after_task_change()
+
+    def _on_tasks_changed(self, *_args):
+        self._schedule_items_refresh_after_task_change()
+
+    def _schedule_items_refresh_after_task_change(self):
         if self._items_refresh_pending:
             return
         self._items_refresh_pending = True
-        QTimer.singleShot(800, self._refresh_visible_items_after_task_change)
+        QTimer.singleShot(150, self._refresh_visible_items_after_task_change)
 
     def _refresh_visible_items_after_task_change(self):
         self._items_refresh_pending = False
         self._load_items(self._current_source_id)
+
+    def _sync_items_with_current_tasks(self):
+        task_status_by_video_id = {
+            task.video_id.lower(): task.status.value
+            for task in download_manager.get_tasks()
+            if task.video_id
+        }
+        for item in self._all_items:
+            video_id = str(item.get("video_id", "") or "").lower()
+            task_status = task_status_by_video_id.get(video_id, "") if video_id else ""
+            item["task_status"] = task_status
+            item["queued"] = bool(task_status)
 
 
 def _source_type_label(source_type: str) -> str:
@@ -1373,24 +1414,57 @@ def _source_search_text(source: dict[str, Any]) -> str:
     return " ".join(str(value or "") for value in values).casefold()
 
 
-def _item_state_text(*, downloaded: bool, queued: bool, file_exists: bool) -> str:
+def _item_state_text(
+    *,
+    downloaded: bool,
+    queued: bool,
+    file_exists: bool,
+    task_status: str = "",
+) -> str:
     if downloaded and file_exists:
         return tr("Downloaded", "已下载", "保存済み")
     if downloaded:
         return tr("Moved", "已移走", "移動済み")
+    status = _task_status_from_value(task_status)
+    if status:
+        return STATUS_LABELS.get(status, status.value)
     if queued:
         return tr("Queued", "已入队", "キュー内")
     return tr("Ready", "可下载", "保存可能")
 
 
-def _state_color(*, downloaded: bool, queued: bool, file_exists: bool) -> QColor:
+def _state_color(
+    *,
+    downloaded: bool,
+    queued: bool,
+    file_exists: bool,
+    task_status: str = "",
+) -> QColor:
     if downloaded and file_exists:
         return QColor("#107c10")
     if downloaded:
         return QColor("#c17d00")
+    status = _task_status_from_value(task_status)
+    if status in (TaskStatus.DOWNLOADING, TaskStatus.COMPLETED):
+        return QColor("#107c10")
+    if status in (TaskStatus.RESOLVING, TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD):
+        return QColor("#0078d4")
+    if status in (TaskStatus.CANCELLING, TaskStatus.SKIPPED):
+        return QColor("#c17d00")
+    if status == TaskStatus.FAILED:
+        return QColor("#c42b1c")
+    if status == TaskStatus.CANCELLED:
+        return QColor("#666666")
     if queued:
         return QColor("#0078d4")
     return QColor("#555555")
+
+
+def _task_status_from_value(value: str) -> TaskStatus | None:
+    try:
+        return TaskStatus(str(value or ""))
+    except ValueError:
+        return None
 
 
 def _item_date_key(item: dict[str, Any]) -> str:

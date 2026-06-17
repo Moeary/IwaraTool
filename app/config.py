@@ -22,6 +22,7 @@ class AppConfig:
     _DEFAULTS = {
         "download_dir": os.path.join(_app_root_dir(), "download"),
         "max_concurrent": 3,
+        "task_stall_timeout_seconds": 30,
         "proxy_enabled": False,
         "proxy_url": "http://127.0.0.1:7890",
         "auth_enabled": False,
@@ -84,6 +85,7 @@ class AppConfig:
         safe_keys = {
             "download_dir",
             "max_concurrent",
+            "task_stall_timeout_seconds",
             "proxy_enabled",
             "proxy_url",
             "preferred_quality",
@@ -197,6 +199,14 @@ class AppConfig:
     @max_concurrent.setter
     def max_concurrent(self, v: int):
         self._set("max_concurrent", v)
+
+    @property
+    def task_stall_timeout_seconds(self) -> int:
+        return max(0, min(3600, self._get("task_stall_timeout_seconds")))
+
+    @task_stall_timeout_seconds.setter
+    def task_stall_timeout_seconds(self, v: int):
+        self._set("task_stall_timeout_seconds", max(0, min(3600, int(v))))
 
     @property
     def proxy_enabled(self) -> bool:

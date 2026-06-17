@@ -362,6 +362,27 @@ class SettingsInterface(ScrollArea):
         conc_row.addSpacing(12)
         conc_row.addWidget(self._conc_input, 2)
         conc_layout.addLayout(conc_row)
+
+        stall_row = QHBoxLayout()
+        stall_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Auto-cancel idle task after seconds (0 disables)",
+                    "无响应自动中断秒数（0 关闭）",
+                    "無応答の自動中断秒数（0 で無効）",
+                ),
+                conc_card,
+            )
+        )
+        stall_row.addStretch()
+        self._stall_timeout_edit = LineEdit(conc_card)
+        self._stall_timeout_edit.setFixedWidth(100)
+        self._stall_timeout_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stall_timeout_edit.setValidator(QIntValidator(0, 3600, self._stall_timeout_edit))
+        self._stall_timeout_edit.setPlaceholderText("0-3600")
+        self._stall_timeout_edit.editingFinished.connect(self._on_stall_timeout_input_finished)
+        stall_row.addWidget(self._stall_timeout_edit)
+        conc_layout.addLayout(stall_row)
         layout.addWidget(conc_card)
 
         # ── Search download limit ───────────────────────────────────────────
@@ -532,6 +553,7 @@ class SettingsInterface(ScrollArea):
         self._dir_edit.setText(app_config.download_dir)
         self._conc_slider.setValue(app_config.max_concurrent)
         self._conc_input.setText(str(app_config.max_concurrent))
+        self._stall_timeout_edit.setText(str(app_config.task_stall_timeout_seconds))
         self._proxy_switch.setChecked(app_config.proxy_enabled)
         self._proxy_edit.setText(app_config.proxy_url)
         self._proxy_widget.setVisible(app_config.proxy_enabled)
@@ -730,6 +752,19 @@ class SettingsInterface(ScrollArea):
         self._conc_slider.setValue(value)
         self._conc_input.setText(str(value))
 
+    def _on_stall_timeout_input_finished(self):
+        text = self._stall_timeout_edit.text().strip()
+        if not text:
+            value = 30
+        else:
+            try:
+                value = int(text)
+            except ValueError:
+                value = app_config.task_stall_timeout_seconds
+        value = max(0, min(3600, value))
+        self._stall_timeout_edit.setText(str(value))
+        app_config.task_stall_timeout_seconds = value
+
     def _on_search_limit_toggle(self, checked: bool):
         app_config.search_limit_enabled = checked
         self._search_limit_edit.setEnabled(checked)
@@ -776,6 +811,7 @@ class SettingsInterface(ScrollArea):
 
     def _save_settings(self):
         self._on_concurrency_input_finished()
+        self._on_stall_timeout_input_finished()
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
         app_config.proxy_enabled = self._proxy_switch.isChecked()

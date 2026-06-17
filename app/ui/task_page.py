@@ -146,6 +146,10 @@ class TaskCenterInterface(QWidget):
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
 
+        restore_all_btn = PrimaryPushButton(tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN)
+        restore_all_btn.clicked.connect(self._restore_all_cancelled)
+        title_row.addWidget(restore_all_btn)
+
         cancel_all_btn = PrimaryPushButton(tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL)
         cancel_all_btn.clicked.connect(self._cancel_all_active)
         title_row.addWidget(cancel_all_btn)
@@ -415,12 +419,14 @@ class TaskCenterInterface(QWidget):
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
         queued = sum(1 for task in tasks if task.status in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD))
         failed = sum(1 for task in tasks if task.status == TaskStatus.FAILED)
+        cancelled = sum(1 for task in tasks if task.status == TaskStatus.CANCELLED)
+        skipped = sum(1 for task in tasks if task.status == TaskStatus.SKIPPED)
         completed = sum(1 for task in tasks if task.status == TaskStatus.COMPLETED)
         self._summary_label.setText(
             tr(
-                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | completed: {completed}",
-                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 完成: {completed}",
-                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 完了: {completed}",
+                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | cancelled: {cancelled} | skipped: {skipped} | completed: {completed}",
+                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 中断: {cancelled} | 跳过: {skipped} | 完成: {completed}",
+                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 中断: {cancelled} | スキップ: {skipped} | 完了: {completed}",
             )
         )
 
@@ -774,12 +780,13 @@ class TaskCenterInterface(QWidget):
 
     def _clear_done(self):
         download_manager.clear_completed()
+        self._schedule_refresh(0)
         InfoBar.success(
             title=tr("Cleared", "已清除", "クリア完了"),
             content=tr(
-                "All completed/skipped/failed/cancelled tasks were removed",
-                "已移除所有已完成/已跳过/失败/中断的任务",
-                "完了/スキップ/失敗/中断タスクをすべて削除しました",
+                "Completed and skipped tasks were removed; failed/cancelled tasks were kept",
+                "已移除已完成/已跳过任务；失败/中断任务已保留",
+                "完了/スキップのみ削除し、失敗/中断タスクは保持しました",
             ),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
@@ -821,6 +828,23 @@ class TaskCenterInterface(QWidget):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2800,
+            parent=self,
+        )
+
+    def _restore_all_cancelled(self):
+        restored = download_manager.restore_all_cancelled()
+        self._schedule_refresh(0)
+        InfoBar.success(
+            title=tr("Restore Triggered", "批量恢复已触发", "復元を開始"),
+            content=tr(
+                f"Restored {restored} cancelled tasks",
+                f"恢复 {restored} 个已中断任务",
+                f"{restored} 件の中断タスクを復元しました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
             parent=self,
         )
 
