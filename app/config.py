@@ -23,6 +23,7 @@ class AppConfig:
         "download_dir": os.path.join(_app_root_dir(), "download"),
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
+        "auto_restore_stalled_cancelled": False,
         "proxy_enabled": False,
         "proxy_url": "http://127.0.0.1:7890",
         "auth_enabled": False,
@@ -86,6 +87,7 @@ class AppConfig:
             "download_dir",
             "max_concurrent",
             "task_stall_timeout_seconds",
+            "auto_restore_stalled_cancelled",
             "proxy_enabled",
             "proxy_url",
             "preferred_quality",
@@ -207,6 +209,14 @@ class AppConfig:
     @task_stall_timeout_seconds.setter
     def task_stall_timeout_seconds(self, v: int):
         self._set("task_stall_timeout_seconds", max(0, min(3600, int(v))))
+
+    @property
+    def auto_restore_stalled_cancelled(self) -> bool:
+        return self._get("auto_restore_stalled_cancelled")
+
+    @auto_restore_stalled_cancelled.setter
+    def auto_restore_stalled_cancelled(self, v: bool):
+        self._set("auto_restore_stalled_cancelled", bool(v))
 
     @property
     def proxy_enabled(self) -> bool:

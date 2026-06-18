@@ -148,7 +148,7 @@ class HistoryInterface(QWidget):
                 tr("Quality", "画质", "画質"),
                 tr("Published", "发布日期", "公開日"),
                 "ID",
-                "URL",
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Path", "路径", "パス"),
             ]
         )
@@ -184,7 +184,7 @@ class HistoryInterface(QWidget):
                 tr("Downloaded At", "下载时间", "保存日時"),
                 "ID",
                 tr("File Path", "文件路径", "ファイルパス"),
-                "URL",
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
@@ -223,7 +223,7 @@ class HistoryInterface(QWidget):
             self._COL_DOWNLOADED: 150,
             self._COL_ID: 135,
             self._COL_PATH: 520,
-            self._COL_SOURCE_URL: 68,
+            self._COL_SOURCE_URL: 260,
             self._COL_OPEN_URL: 58,
             self._COL_OPEN_FOLDER: 58,
             self._COL_OPEN_FILE: 58,
@@ -320,16 +320,10 @@ class HistoryInterface(QWidget):
                     self._table.setItem(row_idx, col_idx, item)
 
                 source_url = str(record.get("source_url", "") or _video_url(video_id))
-                self._set_action_item(
-                    row_idx,
-                    self._COL_SOURCE_URL,
-                    tr("Open", "打开", "開く"),
-                    source_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
-                    "open_url",
-                    bool(source_url),
-                    video_id,
-                    action_url=source_url,
-                )
+                source_item = QTableWidgetItem(source_url)
+                source_item.setData(Qt.ItemDataRole.UserRole, video_id)
+                source_item.setToolTip(source_url or tr("No video URL", "没有视频链接", "動画URLがありません"))
+                self._table.setItem(row_idx, self._COL_SOURCE_URL, source_item)
                 self._set_action_item(
                     row_idx,
                     self._COL_OPEN_URL,
@@ -381,7 +375,6 @@ class HistoryInterface(QWidget):
 
     def _on_cell_clicked(self, row: int, column: int):
         if column not in {
-            self._COL_SOURCE_URL,
             self._COL_OPEN_URL,
             self._COL_OPEN_FOLDER,
             self._COL_OPEN_FILE,

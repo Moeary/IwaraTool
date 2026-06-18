@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QTableWidget
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager, _compact_video_raw_json, download_manager
+from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_image_url, _subscription_item_from_video, download_manager
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
@@ -41,15 +41,18 @@ class ConfigGuard:
         self.max_concurrent = app_config.max_concurrent
         self.skip_existing_files = app_config.skip_existing_files
         self.task_stall_timeout_seconds = app_config.task_stall_timeout_seconds
+        self.auto_restore_stalled_cancelled = app_config.auto_restore_stalled_cancelled
         app_config.max_concurrent = 3
         app_config.skip_existing_files = False
         app_config.task_stall_timeout_seconds = 30
+        app_config.auto_restore_stalled_cancelled = False
         return self
 
     def __exit__(self, *_exc):
         app_config.max_concurrent = self.max_concurrent
         app_config.skip_existing_files = self.skip_existing_files
         app_config.task_stall_timeout_seconds = self.task_stall_timeout_seconds
+        app_config.auto_restore_stalled_cancelled = self.auto_restore_stalled_cancelled
 
 
 def make_manager() -> DownloadManager:
@@ -201,6 +204,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertFalse(task.delete_temp_on_cancel)
             self.assertFalse(task.remove_after_cancel)
             self.assertEqual(task.error_msg, "")
+            self.assertEqual(task.cancel_origin, "")
             self.assertTrue(os.path.exists(temp_path))
             self.assertNotIn("cancelled", mgr._terminal_task_id_set)
             self.assertEqual(len(mgr._resolve_executor.submitted), 1)
@@ -228,6 +232,37 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertEqual(len(mgr._resolve_executor.submitted), 2)
             self.assertFalse(any(task.cancel_requested for task in mgr.get_tasks()))
 
+    def test_auto_restore_stalled_cancelled_only_when_idle(self):
+        with ConfigGuard():
+            app_config.max_concurrent = 2
+            app_config.auto_restore_stalled_cancelled = True
+            mgr = make_manager()
+            with mgr._lock:
+                stalled = DownloadTask("stalled", "", "stalled", status=TaskStatus.CANCELLED)
+                stalled.cancel_origin = "auto_stall"
+                manual = DownloadTask("manual", "", "manual", status=TaskStatus.CANCELLED)
+                manual.cancel_origin = "manual"
+                active = DownloadTask("active", "", "active", status=TaskStatus.RESOLVING)
+                for task in (stalled, manual, active):
+                    mgr._tasks[task.task_id] = task
+                    mgr._task_id_by_video_id[task.video_id] = task.task_id
+                mgr._active_task_ids.add(active.task_id)
+                mgr._mark_terminal_locked(stalled)
+                mgr._mark_terminal_locked(manual)
+
+            restored_busy = mgr._restore_auto_stalled_cancelled_if_idle()
+            with mgr._lock:
+                active.status = TaskStatus.COMPLETED
+                mgr._mark_terminal_locked(active)
+            restored_idle = mgr._restore_auto_stalled_cancelled_if_idle()
+
+            self.assertEqual(restored_busy, 0)
+            self.assertEqual(restored_idle, 1)
+            self.assertEqual(stalled.status, TaskStatus.RESOLVING)
+            self.assertEqual(stalled.cancel_origin, "")
+            self.assertEqual(manual.status, TaskStatus.CANCELLED)
+            self.assertEqual(len(mgr._resolve_executor.submitted), 1)
+
     def test_stall_watchdog_auto_cancels_stale_active_and_frees_slot(self):
         with ConfigGuard():
             app_config.max_concurrent = 1
@@ -249,6 +284,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertEqual(cancelled, 1)
             self.assertEqual(active.status, TaskStatus.CANCELLED)
             self.assertTrue(active.cancel_requested)
+            self.assertEqual(active.cancel_origin, "auto_stall")
             self.assertEqual(queued.status, TaskStatus.RESOLVING)
             self.assertEqual(len(mgr._resolve_executor.submitted), 1)
 
@@ -389,6 +425,169 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertEqual(restored, 1)
         self.assertIsNone(mgr.history.get_record("videoMoved01"))
         self.assertFalse(restored_item["downloaded"])
+
+    def test_subscription_sources_include_downloaded_and_undownloaded_counts(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "downloaded01",
+                    "title": "Downloaded",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/downloaded01",
+                },
+                {
+                    "video_id": "missing01",
+                    "title": "Missing",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/missing01",
+                },
+                {
+                    "video_id": "unavailable01",
+                    "title": "Unavailable",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/unavailable01",
+                    "download_state": "unavailable",
+                    "download_reason": "当前账号没有权限查看或下载该作品。",
+                    "download_state_known": True,
+                },
+            ],
+        )
+        mgr.mark_subscription_items_downloaded(["downloaded01"])
+
+        source = mgr.get_subscription_sources()[0]
+
+        self.assertEqual(source["item_count"], 3)
+        self.assertEqual(source["downloaded_count"], 1)
+        self.assertEqual(source["undownloaded_count"], 1)
+        self.assertEqual(source["unavailable_count"], 1)
+
+    def test_subscription_item_from_external_embed_is_not_downloadable(self):
+        item = _subscription_item_from_video(
+            {
+                "id": "embed01",
+                "title": "Embed",
+                "createdAt": "2026-06-12T00:00:00Z",
+                "embedUrl": "https://youtu.be/example",
+                "user": {"username": "author01"},
+            }
+        )
+
+        self.assertEqual(item["download_state"], "unavailable")
+        self.assertIn("YouTube", item["download_reason"])
+
+    def test_subscription_refresh_marks_private_video_unavailable_from_details(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            if method_name == "get_user_id":
+                return "user01", ""
+            if method_name == "get_user_videos":
+                return [
+                    {
+                        "id": "privateRefresh01",
+                        "title": "Private Refresh",
+                        "createdAt": "2026-06-12T00:00:00Z",
+                        "user": {"username": "author01"},
+                    }
+                ]
+            if method_name == "get_video_info":
+                return (
+                    {
+                        "id": args[0],
+                        "title": "Private Refresh",
+                        "message": "errors.privateVideo",
+                        "private": True,
+                        "user": {"username": "author01"},
+                    },
+                    "",
+                )
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        mgr._api_call = fake_api_call
+
+        summary = mgr.refresh_subscription_source(source_id)
+        item = mgr.get_subscription_items(source_id)[0]
+
+        self.assertEqual(summary["unavailable"], 1)
+        self.assertEqual(summary["unavailable_checked"], 1)
+        self.assertEqual(item["download_state"], "unavailable")
+        self.assertIn("私有", item["download_reason"])
+
+    def test_subscription_submit_skips_unavailable_items(self):
+        old_download_video = app_config.download_video_file
+        old_mark_submitted = app_config.mark_submitted_as_downloaded
+        try:
+            app_config.download_video_file = True
+            app_config.mark_submitted_as_downloaded = False
+            mgr = make_manager()
+            source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
+            mgr.subscriptions.upsert_items(
+                source_id,
+                [
+                    {
+                        "video_id": "private01",
+                        "title": "Private",
+                        "author": "author01",
+                        "published_at": "2026-06-12T00:00:00Z",
+                        "source_url": "https://www.iwara.tv/video/private01",
+                        "download_state": "unavailable",
+                        "download_reason": "当前账号没有权限查看或下载该作品。",
+                        "download_state_known": True,
+                    }
+                ],
+            )
+
+            result = mgr.submit_subscription_items(["private01"])
+
+            self.assertEqual(result["mode"], "empty")
+            self.assertEqual(result["queued"], 0)
+            self.assertEqual(result["skipped_unavailable"], 1)
+            self.assertEqual(len(mgr.get_tasks()), 0)
+        finally:
+            app_config.download_video_file = old_download_video
+            app_config.mark_submitted_as_downloaded = old_mark_submitted
+
+    def test_subscription_store_persists_source_avatar_fields(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source(
+            "author",
+            "author01",
+            "Author 01",
+            "remote01",
+            avatar_url="https://i.iwara.tv/image/thumbnail/avatar01/avatar01.jpeg",
+        )
+        mgr.subscriptions.update_source_avatar(
+            source_id,
+            "https://i.iwara.tv/image/thumbnail/avatar02/avatar02.jpeg",
+            os.path.join("data", "img", "avatar02.jpeg"),
+        )
+
+        source = mgr.subscriptions.list_sources()[0]
+
+        self.assertEqual(source["avatar_url"], "https://i.iwara.tv/image/thumbnail/avatar02/avatar02.jpeg")
+        self.assertTrue(source["avatar_path"].endswith(os.path.join("data", "img", "avatar02.jpeg")))
+
+    def test_iwara_image_url_uses_image_id_and_name(self):
+        url = _iwara_image_url(
+            {
+                "id": "2f22ed06-9907-4e95-bddb-f2e81ff0116a",
+                "path": "2026/03/03",
+                "name": "2f22ed06-9907-4e95-bddb-f2e81ff0116a.jpeg",
+            },
+            variant="thumbnail",
+        )
+
+        self.assertEqual(
+            url,
+            "https://i.iwara.tv/image/thumbnail/2f22ed06-9907-4e95-bddb-f2e81ff0116a/2f22ed06-9907-4e95-bddb-f2e81ff0116a.jpeg",
+        )
 
     def test_subscription_store_migrates_legacy_db_into_history_db(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-migrate-")

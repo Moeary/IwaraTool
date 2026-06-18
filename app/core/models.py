@@ -67,4 +67,5 @@ class DownloadTask:
     cancel_requested: bool = False
     delete_temp_on_cancel: bool = False
     remove_after_cancel: bool = False
+    cancel_origin: str = ""
     aria2_gid: str = ""

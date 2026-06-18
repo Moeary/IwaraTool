@@ -383,6 +383,30 @@ class SettingsInterface(ScrollArea):
         self._stall_timeout_edit.editingFinished.connect(self._on_stall_timeout_input_finished)
         stall_row.addWidget(self._stall_timeout_edit)
         conc_layout.addLayout(stall_row)
+
+        auto_restore_row = QHBoxLayout()
+        auto_restore_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Auto-restore idle-cancelled tasks when the queue becomes idle",
+                    "任务空闲后自动恢复超时中断项",
+                    "待機状態になったら自動中断タスクを復元",
+                ),
+                conc_card,
+            )
+        )
+        auto_restore_row.addStretch()
+        self._auto_restore_stalled_switch = SwitchButton(conc_card)
+        self._auto_restore_stalled_switch.setToolTip(
+            tr(
+                "Only restores tasks cancelled by the idle watchdog; manual Cancel All is not restored.",
+                "只恢复无响应检测自动中断的任务；人为点击全部中断不会自动恢复。",
+                "無応答ウォッチドッグで中断されたタスクのみ復元します。手動の全件中断は復元しません。",
+            )
+        )
+        self._auto_restore_stalled_switch.checkedChanged.connect(self._on_auto_restore_stalled_toggle)
+        auto_restore_row.addWidget(self._auto_restore_stalled_switch)
+        conc_layout.addLayout(auto_restore_row)
         layout.addWidget(conc_card)
 
         # ── Search download limit ───────────────────────────────────────────
@@ -554,6 +578,7 @@ class SettingsInterface(ScrollArea):
         self._conc_slider.setValue(app_config.max_concurrent)
         self._conc_input.setText(str(app_config.max_concurrent))
         self._stall_timeout_edit.setText(str(app_config.task_stall_timeout_seconds))
+        self._auto_restore_stalled_switch.setChecked(app_config.auto_restore_stalled_cancelled)
         self._proxy_switch.setChecked(app_config.proxy_enabled)
         self._proxy_edit.setText(app_config.proxy_url)
         self._proxy_widget.setVisible(app_config.proxy_enabled)
@@ -765,6 +790,11 @@ class SettingsInterface(ScrollArea):
         self._stall_timeout_edit.setText(str(value))
         app_config.task_stall_timeout_seconds = value
 
+    def _on_auto_restore_stalled_toggle(self, checked: bool):
+        if self._loading_settings:
+            return
+        app_config.auto_restore_stalled_cancelled = bool(checked)
+
     def _on_search_limit_toggle(self, checked: bool):
         app_config.search_limit_enabled = checked
         self._search_limit_edit.setEnabled(checked)
@@ -812,6 +842,7 @@ class SettingsInterface(ScrollArea):
     def _save_settings(self):
         self._on_concurrency_input_finished()
         self._on_stall_timeout_input_finished()
+        app_config.auto_restore_stalled_cancelled = self._auto_restore_stalled_switch.isChecked()
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
         app_config.proxy_enabled = self._proxy_switch.isChecked()

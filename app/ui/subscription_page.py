@@ -6,8 +6,8 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QTimer, Qt, QThread, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -83,6 +83,27 @@ class SubscriptionEnqueueWorker(QThread):
         self.finished.emit(download_manager.submit_subscription_items(self._video_ids))
 
 
+class SubscriptionAvatarWorker(QThread):
+    avatar_ready = Signal(int, str, str)
+    done = Signal()
+
+    def __init__(self, source_ids: list[int]):
+        super().__init__()
+        self._source_ids = list(source_ids)
+
+    def run(self):
+        for source_id in self._source_ids:
+            result = download_manager.refresh_subscription_source_avatar(source_id)
+            avatar_path = str(result.get("avatar_path", "") or "")
+            if avatar_path:
+                self.avatar_ready.emit(
+                    int(result.get("source_id", source_id) or source_id),
+                    str(result.get("avatar_url", "") or ""),
+                    avatar_path,
+                )
+        self.done.emit()
+
+
 _CONTROL_HEIGHT = 36
 _ROW_SPACING = 10
 
@@ -105,26 +126,29 @@ def _style_inline_label(label: BodyLabel):
 class SubscriptionInterface(QWidget):
     """Page for tracking subscription updates and queueing downloads."""
 
-    _SRC_STATE = 0
-    _SRC_TYPE = 1
-    _SRC_TITLE = 2
-    _SRC_NEW = 3
-    _SRC_ITEMS = 4
-    _SRC_CHECKED = 5
-    _SRC_KEY = 6
-    _SRC_URL = 7
-    _SRC_OPEN = 8
+    _SRC_AVATAR = 0
+    _SRC_STATE = 1
+    _SRC_TYPE = 2
+    _SRC_TITLE = 3
+    _SRC_NEW = 4
+    _SRC_UNDOWNLOADED = 5
+    _SRC_ITEMS = 6
+    _SRC_CHECKED = 7
+    _SRC_KEY = 8
+    _SRC_URL = 9
+    _SRC_OPEN = 10
 
     _ITEM_STATE = 0
-    _ITEM_NEW = 1
-    _ITEM_TITLE = 2
-    _ITEM_AUTHOR = 3
-    _ITEM_PUBLISHED = 4
-    _ITEM_ID = 5
-    _ITEM_SOURCE_URL = 6
-    _ITEM_URL = 7
-    _ITEM_FOLDER = 8
-    _ITEM_FILE = 9
+    _ITEM_REASON = 1
+    _ITEM_NEW = 2
+    _ITEM_TITLE = 3
+    _ITEM_AUTHOR = 4
+    _ITEM_PUBLISHED = 5
+    _ITEM_ID = 6
+    _ITEM_SOURCE_URL = 7
+    _ITEM_URL = 8
+    _ITEM_FOLDER = 9
+    _ITEM_FILE = 10
 
     _RENDER_BATCH_SIZE = 80
 
@@ -134,6 +158,8 @@ class SubscriptionInterface(QWidget):
         self._worker: SubscriptionRefreshWorker | None = None
         self._import_worker: SubscriptionImportAuthorsWorker | None = None
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
+        self._avatar_worker: SubscriptionAvatarWorker | None = None
+        self._avatar_requested_source_ids: set[int] = set()
         self._all_sources: list[dict[str, Any]] = []
         self._sources: list[dict[str, Any]] = []
         self._all_items: list[dict[str, Any]] = []
@@ -175,7 +201,7 @@ class SubscriptionInterface(QWidget):
         root.addWidget(splitter, stretch=1)
 
         left_panel = QWidget(self)
-        left_panel.setMinimumWidth(400)
+        left_panel.setMinimumWidth(520)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(_ROW_SPACING)
@@ -264,17 +290,19 @@ class SubscriptionInterface(QWidget):
         left_layout.addLayout(source_meta_row)
 
         self._source_table = TableWidget(self)
-        self._source_table.setColumnCount(9)
+        self._source_table.setColumnCount(11)
         self._source_table.setHorizontalHeaderLabels(
             [
+                tr("Avatar", "头像", "アイコン"),
                 tr("State", "状态", "状態"),
                 tr("Type", "类型", "種類"),
                 tr("Display Name", "名称（作者名）", "表示名"),
                 tr("New", "新增", "新規"),
+                tr("Missing", "未下载", "未保存"),
                 tr("Items", "项目", "項目"),
                 tr("Last Check", "上次刷新", "最終確認"),
                 tr("Username", "名称（username）", "ユーザー名"),
-                "URL",
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Page", "主页", "ページ"),
             ]
         )
@@ -285,39 +313,43 @@ class SubscriptionInterface(QWidget):
         self._source_table.setBorderVisible(True)
         self._source_table.setBorderRadius(8)
         self._source_table.verticalHeader().setVisible(False)
-        self._source_table.verticalHeader().setDefaultSectionSize(38)
+        self._source_table.verticalHeader().setDefaultSectionSize(56)
+        self._source_table.setIconSize(QSize(40, 40))
         self._source_table.currentCellChanged.connect(lambda *_args: self._load_items(self._selected_source_id()))
         self._source_table.cellClicked.connect(self._on_source_cell_clicked)
         source_header = self._source_table.horizontalHeader()
         source_header.setHighlightSections(False)
         source_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         source_widths = {
+            self._SRC_AVATAR: 52,
             self._SRC_STATE: 68,
             self._SRC_TYPE: 70,
-            self._SRC_TITLE: 230,
+            self._SRC_TITLE: 220,
             self._SRC_NEW: 52,
+            self._SRC_UNDOWNLOADED: 72,
             self._SRC_ITEMS: 58,
             self._SRC_CHECKED: 150,
             self._SRC_KEY: 170,
-            self._SRC_URL: 68,
+            self._SRC_URL: 220,
             self._SRC_OPEN: 68,
         }
-        restore_table_widths(self._source_table, "subscription_source_widths", source_widths)
-        connect_table_width_saver(self._source_table, "subscription_source_widths")
+        restore_table_widths(self._source_table, "subscription_source_widths_v3", source_widths)
+        connect_table_width_saver(self._source_table, "subscription_source_widths_v3")
         restore_table_columns(
             self._source_table,
-            "subscription_source_table_v2",
+            "subscription_source_table_v3",
             default_visible=[
+                self._SRC_AVATAR,
                 self._SRC_STATE,
-                self._SRC_TYPE,
                 self._SRC_TITLE,
                 self._SRC_KEY,
                 self._SRC_NEW,
+                self._SRC_UNDOWNLOADED,
                 self._SRC_ITEMS,
                 self._SRC_URL,
             ],
         )
-        connect_table_column_saver(self._source_table, "subscription_source_table_v2")
+        connect_table_column_saver(self._source_table, "subscription_source_table_v3")
         left_layout.addWidget(self._source_table, stretch=1)
 
         item_summary_row = QHBoxLayout()
@@ -441,7 +473,7 @@ class SubscriptionInterface(QWidget):
 
         item_filter_row = QHBoxLayout()
         item_filter_row.setSpacing(_ROW_SPACING)
-        install_label = BodyLabel(tr("Install", "安装状态", "保存状態"), self)
+        install_label = BodyLabel(tr("Download Status", "下载状态", "保存状態"), self)
         _style_inline_label(install_label)
         item_filter_row.addWidget(install_label)
         self._install_filter_combo = ComboBox(self)
@@ -449,12 +481,13 @@ class SubscriptionInterface(QWidget):
             [
                 tr("All", "全部", "全て"),
                 tr("Ready", "可下载", "保存可能"),
+                tr("Not Downloadable", "不可下载", "保存不可"),
                 tr("Downloaded", "已下载", "保存済み"),
                 tr("Moved", "已移走", "移動済み"),
                 tr("Queued", "已入队", "キュー内"),
             ]
         )
-        self._install_filter_combo.setFixedSize(120, _CONTROL_HEIGHT)
+        self._install_filter_combo.setFixedSize(150, _CONTROL_HEIGHT)
         self._install_filter_combo.currentIndexChanged.connect(self._apply_item_filters)
         item_filter_row.addWidget(self._install_filter_combo)
 
@@ -497,16 +530,17 @@ class SubscriptionInterface(QWidget):
         right_layout.addLayout(item_filter_row)
 
         self._item_table = TableWidget(self)
-        self._item_table.setColumnCount(10)
+        self._item_table.setColumnCount(11)
         self._item_table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
+                tr("Reason", "原因", "理由"),
                 tr("New", "新增", "新規"),
                 tr("Title", "标题", "タイトル"),
                 tr("Author", "作者", "作者"),
                 tr("Published", "发布时间", "公開日"),
                 "ID",
-                "URL",
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
@@ -528,6 +562,7 @@ class SubscriptionInterface(QWidget):
         item_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         item_widths = {
             self._ITEM_STATE: 90,
+            self._ITEM_REASON: 260,
             self._ITEM_NEW: 58,
             self._ITEM_TITLE: 660,
             self._ITEM_AUTHOR: 140,
@@ -538,10 +573,10 @@ class SubscriptionInterface(QWidget):
             self._ITEM_FOLDER: 68,
             self._ITEM_FILE: 68,
         }
-        restore_table_widths(self._item_table, "subscription_item_widths", item_widths)
-        connect_table_width_saver(self._item_table, "subscription_item_widths")
-        restore_table_columns(self._item_table, "subscription_item_table")
-        connect_table_column_saver(self._item_table, "subscription_item_table")
+        restore_table_widths(self._item_table, "subscription_item_widths_v2", item_widths)
+        connect_table_width_saver(self._item_table, "subscription_item_widths_v2")
+        restore_table_columns(self._item_table, "subscription_item_table_v2")
+        connect_table_column_saver(self._item_table, "subscription_item_table_v2")
         self._item_table.selectionModel().selectionChanged.connect(lambda *_args: self._update_selection_actions())
         right_layout.addWidget(self._item_table, stretch=1)
         self._update_selection_actions()
@@ -549,14 +584,15 @@ class SubscriptionInterface(QWidget):
     def _configure_source_columns(self):
         open_table_column_dialog(
             self._source_table,
-            "subscription_source_table_v2",
+            "subscription_source_table_v3",
             title=tr("Source Columns", "订阅源字段", "購読元列設定"),
             default_visible=[
+                self._SRC_AVATAR,
                 self._SRC_STATE,
-                self._SRC_TYPE,
                 self._SRC_TITLE,
                 self._SRC_KEY,
                 self._SRC_NEW,
+                self._SRC_UNDOWNLOADED,
                 self._SRC_ITEMS,
                 self._SRC_URL,
             ],
@@ -566,7 +602,7 @@ class SubscriptionInterface(QWidget):
     def _configure_item_columns(self):
         open_table_column_dialog(
             self._item_table,
-            "subscription_item_table",
+            "subscription_item_table_v2",
             title=tr("Video Columns", "作品列表字段", "動画列設定"),
             parent=self,
         )
@@ -624,6 +660,7 @@ class SubscriptionInterface(QWidget):
         self._source_table.setUpdatesEnabled(True)
         self._source_table.blockSignals(False)
         self._source_render_timer.start()
+        self._start_avatar_worker_for_missing_sources()
 
     def _render_source_batch(self):
         start = self._source_render_index
@@ -645,36 +682,32 @@ class SubscriptionInterface(QWidget):
         source_id = int(source.get("id", 0) or 0)
         enabled = bool(int(source.get("enabled", 1) or 0))
         source_url = _source_url(source)
-        values = [
-            tr("Enabled", "启用", "有効") if enabled else tr("Disabled", "停用", "無効"),
-            _source_type_label(str(source.get("source_type", "") or "")),
-            str(source.get("title", "") or ""),
-            str(source.get("new_count", 0) or 0),
-            str(source.get("item_count", 0) or 0),
-            str(source.get("last_checked_at", "") or ""),
-            str(source.get("source_key", "") or ""),
-        ]
-        for col, value in enumerate(values):
+        avatar_item = self._make_source_avatar_item(source_id, source)
+        self._source_table.setItem(row, self._SRC_AVATAR, avatar_item)
+        values = {
+            self._SRC_STATE: tr("Enabled", "启用", "有効") if enabled else tr("Disabled", "停用", "無効"),
+            self._SRC_TYPE: _source_type_label(str(source.get("source_type", "") or "")),
+            self._SRC_TITLE: str(source.get("title", "") or ""),
+            self._SRC_NEW: str(source.get("new_count", 0) or 0),
+            self._SRC_UNDOWNLOADED: str(source.get("undownloaded_count", 0) or 0),
+            self._SRC_ITEMS: str(source.get("item_count", 0) or 0),
+            self._SRC_CHECKED: str(source.get("last_checked_at", "") or ""),
+            self._SRC_KEY: str(source.get("source_key", "") or ""),
+        }
+        for col, value in values.items():
             item = QTableWidgetItem(value)
             item.setData(Qt.ItemDataRole.UserRole, source_id)
             item.setToolTip(value)
             if col == self._SRC_STATE:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setForeground(QColor("#107c10" if enabled else "#777777"))
-            if col in (self._SRC_NEW, self._SRC_ITEMS):
+            if col in (self._SRC_NEW, self._SRC_UNDOWNLOADED, self._SRC_ITEMS):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._source_table.setItem(row, col, item)
-        self._set_action_item(
-            self._source_table,
-            row,
-            self._SRC_URL,
-            source_id,
-            "open_source",
-            tr("Open", "打开", "開く"),
-            source_url or tr("No source URL", "没有订阅源链接", "購読元URLがありません"),
-            bool(source_url),
-            action_url=source_url,
-        )
+        source_url_item = QTableWidgetItem(source_url)
+        source_url_item.setData(Qt.ItemDataRole.UserRole, source_id)
+        source_url_item.setToolTip(source_url or tr("No source URL", "没有订阅源链接", "購読元URLがありません"))
+        self._source_table.setItem(row, self._SRC_URL, source_url_item)
         self._set_action_item(
             self._source_table,
             row,
@@ -686,6 +719,61 @@ class SubscriptionInterface(QWidget):
             bool(source_url),
             action_url=source_url,
         )
+
+    def _make_source_avatar_item(self, source_id: int, source: dict[str, Any]) -> QTableWidgetItem:
+        item = QTableWidgetItem("")
+        item.setData(Qt.ItemDataRole.UserRole, source_id)
+        title = str(source.get("title", "") or source.get("source_key", "") or "")
+        avatar_path = str(source.get("avatar_path", "") or "")
+        if avatar_path and os.path.isfile(avatar_path):
+            pixmap = QPixmap(avatar_path)
+            if not pixmap.isNull():
+                item.setIcon(QIcon(pixmap))
+                item.setToolTip(title)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                return item
+        item.setText((title[:1] or "?").upper())
+        item.setToolTip(title or tr("No avatar cached yet", "头像尚未缓存", "アバター未保存"))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setForeground(QColor("#777777"))
+        return item
+
+    def _start_avatar_worker_for_missing_sources(self):
+        if self._avatar_worker and self._avatar_worker.isRunning():
+            return
+        source_ids: list[int] = []
+        for source in self._sources:
+            if str(source.get("source_type", "") or "") != "author":
+                continue
+            source_id = int(source.get("id", 0) or 0)
+            if not source_id or source_id in self._avatar_requested_source_ids:
+                continue
+            avatar_path = str(source.get("avatar_path", "") or "")
+            if avatar_path and os.path.isfile(avatar_path):
+                continue
+            source_ids.append(source_id)
+        if not source_ids:
+            return
+        self._avatar_requested_source_ids.update(source_ids)
+        self._avatar_worker = SubscriptionAvatarWorker(source_ids)
+        self._avatar_worker.avatar_ready.connect(self._on_avatar_ready)
+        self._avatar_worker.done.connect(self._on_avatar_worker_finished)
+        self._avatar_worker.start()
+
+    def _on_avatar_ready(self, source_id: int, avatar_url: str, avatar_path: str):
+        for collection in (self._all_sources, self._sources):
+            for source in collection:
+                if int(source.get("id", 0) or 0) == int(source_id):
+                    source["avatar_url"] = avatar_url
+                    source["avatar_path"] = avatar_path
+        for row, source in enumerate(self._sources):
+            if int(source.get("id", 0) or 0) == int(source_id):
+                self._render_source_row(row, source)
+                break
+
+    def _on_avatar_worker_finished(self):
+        self._avatar_worker = None
+        self._start_avatar_worker_for_missing_sources()
 
     def _load_items(self, source_id: int | None):
         self._current_source_id = source_id
@@ -705,13 +793,18 @@ class SubscriptionInterface(QWidget):
         def file_exists(item: dict[str, Any]) -> bool:
             return bool(item.get("download_file_exists"))
 
+        def unavailable(item: dict[str, Any]) -> bool:
+            return _item_not_downloadable(item)
+
         if install_idx == 1:
-            items = [item for item in items if not is_downloaded(item) and not item.get("queued")]
+            items = [item for item in items if not is_downloaded(item) and not item.get("queued") and not unavailable(item)]
         elif install_idx == 2:
-            items = [item for item in items if is_downloaded(item) and file_exists(item)]
+            items = [item for item in items if unavailable(item)]
         elif install_idx == 3:
-            items = [item for item in items if is_downloaded(item) and not file_exists(item)]
+            items = [item for item in items if is_downloaded(item) and file_exists(item)]
         elif install_idx == 4:
+            items = [item for item in items if is_downloaded(item) and not file_exists(item)]
+        elif install_idx == 5:
             items = [item for item in items if item.get("queued")]
 
         if new_idx == 1:
@@ -738,12 +831,11 @@ class SubscriptionInterface(QWidget):
         self._item_table.setUpdatesEnabled(False)
         self._item_table.clearContents()
         self._item_table.setRowCount(len(self._visible_items))
-        new_count = downloaded_count = moved_count = queued_count = 0
+        new_count = downloaded_count = moved_count = queued_count = unavailable_count = 0
         for item_data in self._all_items:
             downloaded = bool(item_data.get("downloaded"))
             file_exists = bool(item_data.get("download_file_exists"))
             queued = bool(item_data.get("queued"))
-            task_status = str(item_data.get("task_status", "") or "")
             is_new = bool(int(item_data.get("is_new", 0) or 0))
             if is_new:
                 new_count += 1
@@ -753,12 +845,14 @@ class SubscriptionInterface(QWidget):
                 moved_count += 1
             if queued:
                 queued_count += 1
+            if _item_not_downloadable(item_data):
+                unavailable_count += 1
         self._item_table.setUpdatesEnabled(True)
         self._summary_label.setText(
             tr(
-                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count}",
-                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count}",
-                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count}",
+                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
+                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count} | 不可下载: {unavailable_count}",
+                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
             )
         )
         self._update_selection_actions()
@@ -785,6 +879,7 @@ class SubscriptionInterface(QWidget):
         downloaded = bool(item_data.get("downloaded"))
         queued = bool(item_data.get("queued"))
         task_status = str(item_data.get("task_status", "") or "")
+        download_reason = str(item_data.get("download_reason", "") or "")
         is_new = bool(int(item_data.get("is_new", 0) or 0))
         file_exists = bool(item_data.get("download_file_exists"))
         source_title = str(item_data.get("source_title", "") or "")
@@ -794,9 +889,12 @@ class SubscriptionInterface(QWidget):
             queued=queued,
             file_exists=file_exists,
             task_status=task_status,
+            download_state=str(item_data.get("download_state", "") or ""),
+            download_reason=download_reason,
         )
         values = [
             state,
+            download_reason,
             tr("Yes", "是", "はい") if is_new else "",
             str(item_data.get("title", "") or video_id),
             str(item_data.get("author", "") or ""),
@@ -813,6 +911,10 @@ class SubscriptionInterface(QWidget):
                     f"{value}\n来源: {source_title}",
                     f"{value}\n元: {source_title}",
                 )
+                if download_reason:
+                    tooltip += f"\n{download_reason}"
+            if col in (self._ITEM_STATE, self._ITEM_REASON) and download_reason:
+                tooltip = download_reason
             cell.setToolTip(tooltip)
             if col in (self._ITEM_STATE, self._ITEM_NEW):
                 cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -823,23 +925,19 @@ class SubscriptionInterface(QWidget):
                         queued=queued,
                         file_exists=file_exists,
                         task_status=task_status,
+                        download_state=str(item_data.get("download_state", "") or ""),
                     )
                 )
+            elif col == self._ITEM_REASON and download_reason:
+                cell.setForeground(QColor("#c42b1c"))
             elif col == self._ITEM_NEW and is_new:
                 cell.setForeground(QColor("#c17d00"))
             self._item_table.setItem(row, col, cell)
 
-        self._set_action_item(
-            self._item_table,
-            row,
-            self._ITEM_SOURCE_URL,
-            video_id,
-            "open_url",
-            tr("Open", "打开", "開く"),
-            source_url or tr("No video URL", "没有视频链接", "動画URLがありません"),
-            bool(source_url),
-            action_url=source_url,
-        )
+        source_url_item = QTableWidgetItem(source_url)
+        source_url_item.setData(Qt.ItemDataRole.UserRole, video_id)
+        source_url_item.setToolTip(source_url or tr("No video URL", "没有视频链接", "動画URLがありません"))
+        self._item_table.setItem(row, self._ITEM_SOURCE_URL, source_url_item)
         self._set_action_item(
             self._item_table,
             row,
@@ -913,7 +1011,7 @@ class SubscriptionInterface(QWidget):
         return ids
 
     def _on_source_cell_clicked(self, row: int, column: int):
-        if column not in (self._SRC_URL, self._SRC_OPEN) or row < 0 or row >= len(self._sources):
+        if column != self._SRC_OPEN or row < 0 or row >= len(self._sources):
             return
         item = self._source_table.item(row, column)
         url = str(item.data(Qt.ItemDataRole.UserRole + 2) or "") if item else ""
@@ -923,7 +1021,7 @@ class SubscriptionInterface(QWidget):
             self._open_source_page(self._sources[row])
 
     def _on_item_cell_clicked(self, row: int, column: int):
-        if column not in (self._ITEM_SOURCE_URL, self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
+        if column not in (self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
             return
         item = self._item_table.item(row, column)
         if not item:
@@ -943,8 +1041,8 @@ class SubscriptionInterface(QWidget):
         video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
         if video_id:
             if item.column() == self._ITEM_SOURCE_URL:
-                _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
-            elif item.column() == self._ITEM_URL:
+                return
+            if item.column() == self._ITEM_URL:
                 _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
             elif item.column() == self._ITEM_FOLDER:
                 self._open_history_item(video_id, open_file=False)
@@ -1100,9 +1198,9 @@ class SubscriptionInterface(QWidget):
             InfoBar.success(
                 title=tr("Refresh Finished", "刷新完成", "更新完了"),
                 content=tr(
-                    f"New {summary.get('new', 0)}, downloaded locally {summary.get('downloaded', 0)}, total {summary.get('total', 0)}",
-                    f"新增 {summary.get('new', 0)}，本地已下载 {summary.get('downloaded', 0)}，累计 {summary.get('total', 0)}",
-                    f"新規 {summary.get('new', 0)}、保存済み {summary.get('downloaded', 0)}、合計 {summary.get('total', 0)}",
+                    f"New {summary.get('new', 0)}, downloaded locally {summary.get('downloaded', 0)}, unavailable {summary.get('unavailable', 0)}, total {summary.get('total', 0)}",
+                    f"新增 {summary.get('new', 0)}，本地已下载 {summary.get('downloaded', 0)}，不可下载 {summary.get('unavailable', 0)}，累计 {summary.get('total', 0)}",
+                    f"新規 {summary.get('new', 0)}、保存済み {summary.get('downloaded', 0)}、保存不可 {summary.get('unavailable', 0)}、合計 {summary.get('total', 0)}",
                 ),
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,
@@ -1112,9 +1210,9 @@ class SubscriptionInterface(QWidget):
             )
         signal_bus.log_message.emit(
             tr(
-                f"[Subscriptions] refresh done: new={summary.get('new', 0)}, downloaded={summary.get('downloaded', 0)}, total={summary.get('total', 0)}",
-                f"[订阅] 刷新完成: 新增={summary.get('new', 0)}, 已下载={summary.get('downloaded', 0)}, 总计={summary.get('total', 0)}",
-                f"[購読] 更新完了: 新規={summary.get('new', 0)}, 保存済み={summary.get('downloaded', 0)}, 合計={summary.get('total', 0)}",
+                f"[Subscriptions] refresh done: new={summary.get('new', 0)}, downloaded={summary.get('downloaded', 0)}, unavailable={summary.get('unavailable', 0)}, total={summary.get('total', 0)}",
+                f"[订阅] 刷新完成: 新增={summary.get('new', 0)}, 已下载={summary.get('downloaded', 0)}, 不可下载={summary.get('unavailable', 0)}, 总计={summary.get('total', 0)}",
+                f"[購読] 更新完了: 新規={summary.get('new', 0)}, 保存済み={summary.get('downloaded', 0)}, 保存不可={summary.get('unavailable', 0)}, 合計={summary.get('total', 0)}",
             )
         )
 
@@ -1316,24 +1414,33 @@ class SubscriptionInterface(QWidget):
         thumbnail = int(result.get("thumbnail", 0) or 0)
         nfo = int(result.get("nfo", 0) or 0)
         failed = int(result.get("failed", 0) or 0)
+        skipped_unavailable = int(result.get("skipped_unavailable", 0) or 0)
         mode = str(result.get("mode", "") or "")
         self._enqueue_worker = None
         self._refresh_sources_keep_current_items()
         if mode == "metadata":
             title = tr("Processed", "已处理", "処理完了")
             content = tr(
-                f"Marked {marked}, thumbnails {thumbnail}, NFO {nfo}, failed {failed}",
-                f"已标记 {marked}，封面 {thumbnail}，NFO {nfo}，失败 {failed}",
-                f"記録 {marked}、サムネイル {thumbnail}、NFO {nfo}、失敗 {failed}",
+                f"Marked {marked}, thumbnails {thumbnail}, NFO {nfo}, failed {failed}, skipped unavailable {skipped_unavailable}",
+                f"已标记 {marked}，封面 {thumbnail}，NFO {nfo}，失败 {failed}，跳过不可下载 {skipped_unavailable}",
+                f"記録 {marked}、サムネイル {thumbnail}、NFO {nfo}、失敗 {failed}、保存不可スキップ {skipped_unavailable}",
+            )
+        elif mode == "empty" and skipped_unavailable:
+            title = tr("Skipped", "已跳过", "スキップ")
+            content = tr(
+                f"Skipped {skipped_unavailable} unavailable videos",
+                f"已跳过 {skipped_unavailable} 个不可下载视频",
+                f"保存不可の動画を {skipped_unavailable} 件スキップしました",
             )
         else:
             title = tr("Added To Queue", "已加入队列", "キューに追加")
             content = tr(
-                f"Queued {queued} videos",
-                f"已加入 {queued} 个视频",
-                f"{queued} 件を追加しました",
+                f"Queued {queued} videos, skipped unavailable {skipped_unavailable}",
+                f"已加入 {queued} 个视频，跳过不可下载 {skipped_unavailable}",
+                f"{queued} 件を追加、保存不可スキップ {skipped_unavailable}",
             )
-        InfoBar.success(
+        bar = InfoBar.warning if (mode == "empty" and skipped_unavailable) else InfoBar.success
+        bar(
             title=title,
             content=content,
             orient=Qt.Orientation.Horizontal,
@@ -1420,11 +1527,15 @@ def _item_state_text(
     queued: bool,
     file_exists: bool,
     task_status: str = "",
+    download_state: str = "",
+    download_reason: str = "",
 ) -> str:
     if downloaded and file_exists:
         return tr("Downloaded", "已下载", "保存済み")
     if downloaded:
         return tr("Moved", "已移走", "移動済み")
+    if download_state or download_reason:
+        return tr("Not Downloadable", "不可下载", "保存不可")
     status = _task_status_from_value(task_status)
     if status:
         return STATUS_LABELS.get(status, status.value)
@@ -1439,11 +1550,14 @@ def _state_color(
     queued: bool,
     file_exists: bool,
     task_status: str = "",
+    download_state: str = "",
 ) -> QColor:
     if downloaded and file_exists:
         return QColor("#107c10")
     if downloaded:
         return QColor("#c17d00")
+    if download_state:
+        return QColor("#c42b1c")
     status = _task_status_from_value(task_status)
     if status in (TaskStatus.DOWNLOADING, TaskStatus.COMPLETED):
         return QColor("#107c10")
@@ -1458,6 +1572,10 @@ def _state_color(
     if queued:
         return QColor("#0078d4")
     return QColor("#555555")
+
+
+def _item_not_downloadable(item: dict[str, Any]) -> bool:
+    return bool(str(item.get("download_state", "") or ""))
 
 
 def _task_status_from_value(value: str) -> TaskStatus | None:

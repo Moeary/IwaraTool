@@ -6,6 +6,7 @@ import json
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QHBoxLayout,
     QListWidget,
@@ -140,6 +141,9 @@ class _TableWidthSaver(QObject):
         header = table.horizontalHeader()
         header.sectionResized.connect(lambda *_args: self.save(sync=False))
         header.sectionMoved.connect(lambda *_args: self.save(sync=False))
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(lambda: self.save(sync=True))
 
     def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
         if watched is self._table and event.type() in (
@@ -169,7 +173,7 @@ class _TableWidthSaver(QObject):
             self._sync_pending = False
             app_config.sync()
 
-        QTimer.singleShot(500, flush)
+        QTimer.singleShot(250, flush)
 
 
 class _TableColumnSaver(QObject):
@@ -227,7 +231,7 @@ class _TableColumnDialog(QDialog):
         self._default_order = default_order or _all_columns(table)
         self._default_visible = default_visible or _all_columns(table)
         self.setWindowTitle(title)
-        self.resize(420, 520)
+        self.resize(520, 600)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -235,6 +239,7 @@ class _TableColumnDialog(QDialog):
 
         self._list = QListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setAlternatingRowColors(True)
         root.addWidget(self._list, stretch=1)
 
         move_row = QHBoxLayout()
@@ -278,8 +283,11 @@ class _TableColumnDialog(QDialog):
         labels = _column_labels(self._table)
         visible_set = set(visible)
         for col in _normalize_column_order(order, _all_columns(self._table)):
-            item = QListWidgetItem(labels.get(col, str(col)))
+            label = labels.get(col, str(col))
+            width = self._table.columnWidth(col)
+            item = QListWidgetItem(f"{label}    {width}px")
             item.setData(Qt.ItemDataRole.UserRole, col)
+            item.setToolTip(tr(f"{label}\nCurrent width: {width}px", f"{label}\n当前列宽：{width}px", f"{label}\n現在の幅: {width}px"))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if col in visible_set else Qt.CheckState.Unchecked)
             self._list.addItem(item)

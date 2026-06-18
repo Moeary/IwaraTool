@@ -300,6 +300,19 @@ class IwaraAPI:
         except Exception as exc:
             return None, str(exc)
 
+    def get_user_profile(self, username: str) -> tuple[Optional[dict], str]:
+        try:
+            data = self._get_json(f"{BASE_API}/profile/{username}")
+            if isinstance(data, dict) and isinstance(data.get("user"), dict):
+                return data, ""
+            return None, tr(
+                f"API did not return profile.user, response: {data}",
+                f"API 未返回 profile.user，响应: {data}",
+                f"API が profile.user を返しませんでした。応答: {data}",
+            )
+        except Exception as exc:
+            return None, str(exc)
+
     def get_user_videos(
         self, user_id: str, max_pages: int = 100
     ) -> list[dict]:
