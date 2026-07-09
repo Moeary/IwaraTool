@@ -1322,10 +1322,16 @@ class DownloadManager:
     def apply_config(self):
         """Apply proxy settings from app_config to the scraper."""
         with self._api_lock:
-            if app_config.proxy_enabled and app_config.proxy_url:
-                self.api.set_proxy(app_config.proxy_url)
+            if app_config.api_proxy_enabled and app_config.api_proxy_url:
+                self.api.set_proxy(app_config.api_proxy_url)
             else:
                 self.api.set_proxy("")
+
+    def _download_request_proxies(self) -> dict[str, str | None]:
+        proxy_url = (app_config.download_proxy_url or "").strip()
+        if app_config.download_proxy_enabled and proxy_url:
+            return {"http": proxy_url, "https": proxy_url}
+        return {"http": None, "https": None}
 
     def _api_call(self, method_name: str, *args, **kwargs):
         """Serialize access to the shared cloudscraper session."""
@@ -2278,8 +2284,8 @@ class DownloadManager:
         }
         if headers:
             options["header"] = headers
-        if app_config.proxy_enabled and app_config.proxy_url:
-            options["all-proxy"] = app_config.proxy_url
+        if app_config.download_proxy_enabled and app_config.download_proxy_url:
+            options["all-proxy"] = app_config.download_proxy_url
 
         signal_bus.log_message.emit(
             tr(
@@ -2435,7 +2441,11 @@ class DownloadManager:
                     )
 
             resp = self.api.scraper.get(
-                task.download_url, headers=headers, stream=True, timeout=60
+                task.download_url,
+                headers=headers,
+                stream=True,
+                timeout=60,
+                proxies=self._download_request_proxies(),
             )
             self._touch_task_activity(task_id)
             if self._is_cancel_requested(task_id):
@@ -3197,7 +3207,12 @@ class DownloadManager:
 
         resp = None
         try:
-            resp = self.api.scraper.post(rpc_url, json=payload, timeout=15)
+            resp = self.api.scraper.post(
+                rpc_url,
+                json=payload,
+                timeout=15,
+                proxies={"http": None, "https": None},
+            )
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:

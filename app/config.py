@@ -24,6 +24,10 @@ class AppConfig:
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
+        "api_proxy_enabled": True,
+        "api_proxy_url": "http://127.0.0.1:7890",
+        "download_proxy_enabled": False,
+        "download_proxy_url": "http://127.0.0.1:7890",
         "proxy_enabled": False,
         "proxy_url": "http://127.0.0.1:7890",
         "auth_enabled": False,
@@ -70,6 +74,7 @@ class AppConfig:
         self._migrate_legacy_settings_if_needed()
         self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
+        self._migrate_split_proxy_settings()
 
         # Ensure default download directory exists
         os.makedirs(self.download_dir, exist_ok=True)
@@ -88,6 +93,10 @@ class AppConfig:
             "max_concurrent",
             "task_stall_timeout_seconds",
             "auto_restore_stalled_cancelled",
+            "api_proxy_enabled",
+            "api_proxy_url",
+            "download_proxy_enabled",
+            "download_proxy_url",
             "proxy_enabled",
             "proxy_url",
             "preferred_quality",
@@ -155,16 +164,51 @@ class AppConfig:
             self._qs.setValue("_migrated_download_dir_v2", True)
             self._qs.sync()
 
+    def _migrate_split_proxy_settings(self):
+        """Split the old single proxy into API and download proxy settings."""
+        legacy_enabled_present = self._qs.contains("proxy_enabled")
+        legacy_url_present = self._qs.contains("proxy_url")
+        legacy_enabled = self._coerce_bool(
+            self._qs.value("proxy_enabled", self._DEFAULTS["proxy_enabled"])
+        )
+        legacy_url = str(
+            self._qs.value("proxy_url", self._DEFAULTS["proxy_url"])
+            or self._DEFAULTS["proxy_url"]
+        )
+
+        if not self._qs.contains("api_proxy_enabled"):
+            self._qs.setValue("api_proxy_enabled", self._DEFAULTS["api_proxy_enabled"])
+        if not self._qs.contains("api_proxy_url"):
+            self._qs.setValue(
+                "api_proxy_url",
+                legacy_url if legacy_url_present else self._DEFAULTS["api_proxy_url"],
+            )
+        if not self._qs.contains("download_proxy_enabled"):
+            self._qs.setValue(
+                "download_proxy_enabled",
+                legacy_enabled if legacy_enabled_present else self._DEFAULTS["download_proxy_enabled"],
+            )
+        if not self._qs.contains("download_proxy_url"):
+            self._qs.setValue(
+                "download_proxy_url",
+                legacy_url if legacy_url_present else self._DEFAULTS["download_proxy_url"],
+            )
+        self._qs.sync()
+
     # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _coerce_bool(value) -> bool:
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes")
+        return bool(value)
 
     def _get(self, key: str):
         default = self._DEFAULTS[key]
         value = self._qs.value(key, default)
         # QSettings serialises bools as strings on Windows
         if isinstance(default, bool):
-            if isinstance(value, str):
-                return value.lower() in ("true", "1", "yes")
-            return bool(value)
+            return self._coerce_bool(value)
         if isinstance(default, int):
             return int(value)
         return value
@@ -217,6 +261,38 @@ class AppConfig:
     @auto_restore_stalled_cancelled.setter
     def auto_restore_stalled_cancelled(self, v: bool):
         self._set("auto_restore_stalled_cancelled", bool(v))
+
+    @property
+    def api_proxy_enabled(self) -> bool:
+        return self._get("api_proxy_enabled")
+
+    @api_proxy_enabled.setter
+    def api_proxy_enabled(self, v: bool):
+        self._set("api_proxy_enabled", v)
+
+    @property
+    def api_proxy_url(self) -> str:
+        return self._get("api_proxy_url")
+
+    @api_proxy_url.setter
+    def api_proxy_url(self, v: str):
+        self._set("api_proxy_url", v)
+
+    @property
+    def download_proxy_enabled(self) -> bool:
+        return self._get("download_proxy_enabled")
+
+    @download_proxy_enabled.setter
+    def download_proxy_enabled(self, v: bool):
+        self._set("download_proxy_enabled", v)
+
+    @property
+    def download_proxy_url(self) -> str:
+        return self._get("download_proxy_url")
+
+    @download_proxy_url.setter
+    def download_proxy_url(self, v: str):
+        self._set("download_proxy_url", v)
 
     @property
     def proxy_enabled(self) -> bool:
