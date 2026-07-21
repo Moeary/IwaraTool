@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFrame,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QSplitter,
+    QSplitterHandle,
     QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -38,6 +40,7 @@ from qfluentwidgets import (
     SubtitleLabel,
     TableWidget,
     TitleLabel,
+    ToolButton,
     isDarkTheme,
 )
 
@@ -158,6 +161,110 @@ def _style_inline_label(label: BodyLabel):
     label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
 
+def _apply_fluent_scrollbars(widget: QWidget):
+    """Use a compact Fluent-like scrollbar instead of the native Windows arrows."""
+    if isDarkTheme():
+        track = "rgba(255, 255, 255, 0.06)"
+        handle = "rgba(255, 255, 255, 0.30)"
+        hover = "rgba(255, 255, 255, 0.46)"
+        pressed = "rgba(255, 255, 255, 0.58)"
+    else:
+        track = "rgba(0, 0, 0, 0.045)"
+        handle = "rgba(0, 145, 158, 0.54)"
+        hover = "rgba(0, 128, 140, 0.70)"
+        pressed = "rgba(0, 112, 124, 0.82)"
+    widget.setStyleSheet(
+        f"""
+        QScrollBar:vertical {{
+            background: {track};
+            width: 10px;
+            margin: 4px 2px 4px 2px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {handle};
+            min-height: 36px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:vertical:hover {{ background: {hover}; }}
+        QScrollBar::handle:vertical:pressed {{ background: {pressed}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: transparent;
+            height: 0px;
+        }}
+        QScrollBar:horizontal {{
+            background: {track};
+            height: 10px;
+            margin: 2px 4px 2px 4px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {handle};
+            min-width: 36px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
+        QScrollBar::handle:horizontal:pressed {{ background: {pressed}; }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+            background: transparent;
+            width: 0px;
+        }}
+        """
+    )
+
+
+class _FluentSplitterHandle(QSplitterHandle):
+    """Small rounded grip that makes the otherwise subtle splitter discoverable."""
+
+    def __init__(self, orientation: Qt.Orientation, parent: QSplitter):
+        super().__init__(orientation, parent)
+        self._grip = QFrame(self)
+        self._grip.setObjectName("FluentSplitterGrip")
+        self._grip.setFrameShape(QFrame.Shape.NoFrame)
+        self._grip.setStyleSheet(
+            "QFrame#FluentSplitterGrip { background: rgba(0, 160, 170, 0.48); border-radius: 3px; }"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.orientation() == Qt.Orientation.Vertical:
+            grip_width, grip_height = min(56, max(32, self.width() - 12)), 4
+        else:
+            grip_width, grip_height = 4, min(56, max(32, self.height() - 12))
+        self._grip.setGeometry(
+            max(0, (self.width() - grip_width) // 2),
+            max(0, (self.height() - grip_height) // 2),
+            grip_width,
+            grip_height,
+        )
+
+
+class _FluentContentSplitter(QSplitter):
+    def createHandle(self):
+        return _FluentSplitterHandle(self.orientation(), self)
+
+
+def _style_content_splitter(splitter: QSplitter):
+    """Make the vertical content splitter look like a subtle Fluent grab handle."""
+    if isDarkTheme():
+        hover = "rgba(255, 255, 255, 0.18)"
+        pressed = "rgba(255, 255, 255, 0.28)"
+    else:
+        hover = "rgba(0, 0, 0, 0.10)"
+        pressed = "rgba(0, 0, 0, 0.18)"
+    splitter.setStyleSheet(
+        f"""
+        QSplitter::handle {{ background: transparent; }}
+        QSplitter::handle:horizontal {{ height: 10px; }}
+        QSplitter::handle:vertical {{ width: 10px; }}
+        QSplitter::handle:hover {{ background: {hover}; }}
+        QSplitter::handle:pressed {{ background: {pressed}; }}
+        """
+    )
+
+
 class SubscriptionInterface(QWidget):
     """Page for tracking subscription updates and queueing downloads."""
 
@@ -237,11 +344,15 @@ class SubscriptionInterface(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
         self._splitter_is_vertical = False
-        splitter.splitterMoved.connect(lambda *_args: self._update_thumbnail_grid())
+        self._source_panel_visible = True
+        self._items_panel_visible = True
+        self._last_splitter_sizes = [800, 1200]
+        splitter.splitterMoved.connect(self._on_splitter_moved)
         splitter.setChildrenCollapsible(False)
         root.addWidget(splitter, stretch=1)
 
         left_panel = CardWidget(self)
+        self._source_panel = left_panel
         left_panel.setObjectName("SubscriptionSourcesCard")
         left_panel.setMinimumWidth(0)
         left_layout = QVBoxLayout(left_panel)
@@ -250,16 +361,59 @@ class SubscriptionInterface(QWidget):
         splitter.addWidget(left_panel)
 
         right_panel = CardWidget(self)
+        self._items_panel = right_panel
         right_panel.setObjectName("SubscriptionItemsCard")
         right_panel.setMinimumWidth(0)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(16, 14, 16, 14)
         right_layout.setSpacing(_ROW_SPACING)
         splitter.addWidget(right_panel)
+
+        self._item_content_splitter = _FluentContentSplitter(Qt.Orientation.Vertical, right_panel)
+        self._item_content_splitter.setObjectName("SubscriptionItemContentSplitter")
+        self._item_content_splitter.setChildrenCollapsible(True)
+        self._item_content_splitter.setHandleWidth(10)
+        self._item_content_splitter.setToolTip(
+            tr(
+                "Drag this handle to resize or collapse the video controls.",
+                "拖动此分隔条调整或隐藏视频控制区。",
+                "このハンドルをドラッグして動画操作領域を調整・折りたたみます。",
+            )
+        )
+        _style_content_splitter(self._item_content_splitter)
+        item_controls_panel = QWidget(self._item_content_splitter)
+        item_controls_panel.setObjectName("SubscriptionItemControlsPanel")
+        item_controls_panel.setMinimumHeight(0)
+        item_controls_layout = QVBoxLayout(item_controls_panel)
+        item_controls_layout.setContentsMargins(0, 0, 0, 0)
+        item_controls_layout.setSpacing(_ROW_SPACING)
+        item_content_panel = QWidget(self._item_content_splitter)
+        item_content_panel.setObjectName("SubscriptionItemContentPanel")
+        item_content_panel.setMinimumHeight(0)
+        item_content_layout = QVBoxLayout(item_content_panel)
+        item_content_layout.setContentsMargins(0, 0, 0, 0)
+        item_content_layout.setSpacing(0)
+        self._item_content_splitter.addWidget(item_controls_panel)
+        self._item_content_splitter.addWidget(item_content_panel)
+        self._item_content_splitter.setStretchFactor(0, 0)
+        self._item_content_splitter.setStretchFactor(1, 1)
+        right_layout.addWidget(self._item_content_splitter, stretch=1)
+
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
         restore_splitter_sizes(splitter, "subscription_splitter_sizes", [800, 1200])
         connect_splitter_saver(splitter, "subscription_splitter_sizes")
+        self._last_splitter_sizes = list(splitter.sizes()) or [800, 1200]
+
+        self._toggle_sources_btn = ToolButton(self)
+        self._toggle_items_btn = ToolButton(self)
+        for button in (self._toggle_sources_btn, self._toggle_items_btn):
+            button.setFixedSize(40, _CONTROL_HEIGHT)
+        self._toggle_sources_btn.clicked.connect(self._toggle_source_panel)
+        self._toggle_items_btn.clicked.connect(self._toggle_item_panel)
+        title_row.addWidget(self._toggle_sources_btn)
+        title_row.addWidget(self._toggle_items_btn)
+        self._update_panel_toggle_buttons()
 
         source_header = QHBoxLayout()
         source_header.setSpacing(8)
@@ -267,25 +421,22 @@ class SubscriptionInterface(QWidget):
         source_header.addStretch()
         left_layout.addLayout(source_header)
 
-        source_actions_1 = ResponsiveFlowLayout()
-        source_actions_1.setSpacing(_ROW_SPACING)
+        source_actions = ResponsiveFlowLayout()
+        source_actions.setSpacing(_ROW_SPACING)
         import_authors_btn = PrimaryPushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
         _style_action_button(import_authors_btn)
         import_authors_btn.clicked.connect(self._import_followed_authors)
-        source_actions_1.addWidget(import_authors_btn)
+        source_actions.addWidget(import_authors_btn)
 
         add_feed_btn = PrimaryPushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
         _style_action_button(add_feed_btn)
         add_feed_btn.clicked.connect(self._add_following_feed)
-        source_actions_1.addWidget(add_feed_btn)
-        left_layout.addLayout(source_actions_1)
+        source_actions.addWidget(add_feed_btn)
 
-        source_actions_2 = ResponsiveFlowLayout()
-        source_actions_2.setSpacing(_ROW_SPACING)
         add_source_btn = PrimaryPushButton(tr("Add Author / Playlist", "添加作者/播放列表", "作者/リストを追加"), self, FluentIcon.PEOPLE)
         _style_action_button(add_source_btn)
         add_source_btn.clicked.connect(self._add_source)
-        source_actions_2.addWidget(add_source_btn)
+        source_actions.addWidget(add_source_btn)
 
         delete_source_btn = PrimaryPushButton(
             tr("Delete Subscription", "删除订阅", "購読を削除"),
@@ -294,21 +445,18 @@ class SubscriptionInterface(QWidget):
         )
         _style_action_button(delete_source_btn)
         delete_source_btn.clicked.connect(self._delete_selected_source)
-        source_actions_2.addWidget(delete_source_btn)
-        left_layout.addLayout(source_actions_2)
+        source_actions.addWidget(delete_source_btn)
 
-        source_actions_3 = ResponsiveFlowLayout()
-        source_actions_3.setSpacing(_ROW_SPACING)
         refresh_selected_btn = PrimaryPushButton(tr("Refresh Selected", "刷新选中", "選択を更新"), self, FluentIcon.SYNC)
         _style_action_button(refresh_selected_btn)
         refresh_selected_btn.clicked.connect(self._refresh_selected)
-        source_actions_3.addWidget(refresh_selected_btn)
+        source_actions.addWidget(refresh_selected_btn)
 
         refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
         _style_action_button(refresh_all_btn)
         refresh_all_btn.clicked.connect(self._refresh_all)
-        source_actions_3.addWidget(refresh_all_btn)
-        left_layout.addLayout(source_actions_3)
+        source_actions.addWidget(refresh_all_btn)
+        left_layout.addLayout(source_actions)
 
         storage = download_manager.get_subscription_storage_info()
         db_name = os.path.basename(str(storage.get("db_path", "") or "")) or "history.db"
@@ -403,7 +551,10 @@ class SubscriptionInterface(QWidget):
             ],
         )
         connect_table_column_saver(self._source_table, "subscription_source_table_v3")
+        source_header.sectionResized.connect(lambda *_args: self._fit_source_table_last_column())
+        source_header.sectionMoved.connect(lambda *_args: self._fit_source_table_last_column())
         left_layout.addWidget(self._source_table, stretch=1)
+        QTimer.singleShot(0, self._fit_source_table_last_column)
 
         item_summary_row = QHBoxLayout()
         item_summary_row.setSpacing(8)
@@ -414,7 +565,7 @@ class SubscriptionInterface(QWidget):
         self._summary_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         item_summary_row.addWidget(self._summary_label, stretch=1)
-        right_layout.addLayout(item_summary_row)
+        item_controls_layout.addLayout(item_summary_row)
 
         item_actions_top = ResponsiveFlowLayout()
         item_actions_top.setSpacing(_ROW_SPACING)
@@ -454,7 +605,7 @@ class SubscriptionInterface(QWidget):
         _style_action_button(self._restore_moved_btn, min_width=136)
         self._restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
         item_actions_top.addWidget(self._restore_moved_btn)
-        right_layout.addLayout(item_actions_top)
+        item_controls_layout.addLayout(item_actions_top)
 
         item_actions_bottom = ResponsiveFlowLayout()
         item_actions_bottom.setSpacing(_ROW_SPACING)
@@ -475,7 +626,7 @@ class SubscriptionInterface(QWidget):
         _style_action_button(download_all_btn, min_width=146)
         download_all_btn.clicked.connect(self._download_visible)
         item_actions_bottom.addWidget(download_all_btn)
-        right_layout.addLayout(item_actions_bottom)
+        item_controls_layout.addLayout(item_actions_bottom)
 
         download_options_row = ResponsiveFlowLayout()
         download_options_row.setSpacing(_ROW_SPACING)
@@ -522,7 +673,7 @@ class SubscriptionInterface(QWidget):
         )
         self._option_collect_nfo_btn.clicked.connect(self._on_collect_nfo_option_clicked)
         download_options_row.addWidget(self._option_collect_nfo_btn)
-        right_layout.addLayout(download_options_row)
+        item_controls_layout.addLayout(download_options_row)
 
         title_filter_row = ResponsiveFlowLayout()
         title_filter_row.setSpacing(_ROW_SPACING)
@@ -543,7 +694,7 @@ class SubscriptionInterface(QWidget):
         self._title_exclude_edit.setClearButtonEnabled(True)
         self._title_exclude_edit.textChanged.connect(self._apply_item_filters)
         title_filter_row.addWidget(self._title_exclude_edit)
-        right_layout.addLayout(title_filter_row)
+        item_controls_layout.addLayout(title_filter_row)
 
         item_filter_row = ResponsiveFlowLayout()
         item_filter_row.setSpacing(_ROW_SPACING)
@@ -614,7 +765,7 @@ class SubscriptionInterface(QWidget):
         _style_action_button(item_columns_btn, min_width=96)
         item_columns_btn.clicked.connect(self._configure_item_columns)
         item_filter_row.addWidget(item_columns_btn)
-        right_layout.addLayout(item_filter_row)
+        item_controls_layout.addLayout(item_filter_row)
 
         self._item_table = TableWidget(self)
         self._item_table.setColumnCount(11)
@@ -685,27 +836,118 @@ class SubscriptionInterface(QWidget):
         self._item_stack = QStackedWidget(self)
         self._item_stack.addWidget(self._item_table)
         self._item_stack.addWidget(self._thumbnail_list)
-        right_layout.addWidget(self._item_stack, stretch=1)
+        item_content_layout.addWidget(self._item_stack, stretch=1)
+        _apply_fluent_scrollbars(self._item_table)
+        _apply_fluent_scrollbars(self._thumbnail_list)
+        restore_splitter_sizes(self._item_content_splitter, "subscription_item_content_splitter_sizes", [390, 1000])
+        connect_splitter_saver(self._item_content_splitter, "subscription_item_content_splitter_sizes")
         self._update_selection_actions()
         self._update_thumbnail_grid()
+
+    def _on_splitter_moved(self, *_args):
+        sizes = list(self._splitter.sizes())
+        if self._source_panel_visible and self._items_panel_visible and all(size > 0 for size in sizes):
+            self._last_splitter_sizes = sizes
+        self._fit_source_table_last_column()
+        self._update_thumbnail_grid()
+
+    def _update_panel_toggle_buttons(self):
+        if not hasattr(self, "_toggle_sources_btn"):
+            return
+        source_hidden = not self._source_panel_visible
+        items_hidden = not self._items_panel_visible
+        self._toggle_sources_btn.setIcon(FluentIcon.VIEW if source_hidden else FluentIcon.LEFT_ARROW)
+        self._toggle_items_btn.setIcon(FluentIcon.VIEW if items_hidden else FluentIcon.RIGHT_ARROW)
+        self._toggle_sources_btn.setToolTip(
+            tr("Show subscription sources" if source_hidden else "Hide subscription sources",
+               "显示订阅源" if source_hidden else "隐藏订阅源",
+               "購読元を表示" if source_hidden else "購読元を隠す")
+        )
+        self._toggle_items_btn.setToolTip(
+            tr("Show video list" if items_hidden else "Hide video list",
+               "显示视频列表" if items_hidden else "隐藏视频列表",
+               "動画一覧を表示" if items_hidden else "動画一覧を隠す")
+        )
+
+    def _set_panel_visible(self, index: int, visible: bool):
+        if index == 0:
+            if not visible and not self._items_panel_visible:
+                return
+            self._source_panel_visible = visible
+            self._source_panel.setVisible(visible)
+        else:
+            if not visible and not self._source_panel_visible:
+                return
+            self._items_panel_visible = visible
+            self._items_panel.setVisible(visible)
+
+        if self._source_panel_visible and self._items_panel_visible:
+            sizes = list(self._last_splitter_sizes)
+            total = max(2, self._splitter.height() if self._splitter_is_vertical else self._splitter.width())
+            if len(sizes) != 2 or sum(sizes) <= 0 or min(sizes) <= 0:
+                sizes = [int(total * 0.4), int(total * 0.6)]
+            self._splitter.setSizes(sizes)
+        else:
+            visible_index = 0 if self._source_panel_visible else 1
+            visible_panel = self._source_panel if visible_index == 0 else self._items_panel
+            visible_panel.setVisible(True)
+            total = max(1, sum(self._splitter.sizes()))
+            sizes = [0, 0]
+            sizes[visible_index] = total
+            self._splitter.setSizes(sizes)
+        self._update_panel_toggle_buttons()
+        self._fit_source_table_last_column()
+        self._update_thumbnail_grid()
+
+    def _toggle_source_panel(self):
+        self._set_panel_visible(0, not self._source_panel_visible)
+
+    def _toggle_item_panel(self):
+        self._set_panel_visible(1, not self._items_panel_visible)
+
+    def _fit_source_table_last_column(self):
+        if not hasattr(self, "_source_table"):
+            return
+        header = self._source_table.horizontalHeader()
+        visible_columns = [
+            column for column in range(self._source_table.columnCount())
+            if not self._source_table.isColumnHidden(column)
+        ]
+        if not visible_columns:
+            return
+        visible_columns.sort(key=header.visualIndex)
+        last_column = visible_columns[-1]
+        for column in visible_columns:
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+        # Keep the final visible field bound to the panel width. The splitter
+        # therefore gives its extra space to the last source-table column.
+        header.setSectionResizeMode(last_column, QHeaderView.ResizeMode.Stretch)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # Horizontal splitters are useful on wide screens, but at compact widths
         # they force both panels to keep their full toolbar width. Stack panels
         # vertically instead so every control can wrap naturally.
-        should_stack = self.width() < 900
+        should_stack = self.width() < 1100
         if should_stack != self._splitter_is_vertical:
             self._splitter_is_vertical = should_stack
             self._splitter.setOrientation(
                 Qt.Orientation.Vertical if should_stack else Qt.Orientation.Horizontal
             )
-            if should_stack:
-                height = max(1, self._splitter.height())
-                self._splitter.setSizes([max(250, int(height * 0.38)), max(300, int(height * 0.62))])
+            if self._source_panel_visible and self._items_panel_visible:
+                if should_stack:
+                    height = max(1, self._splitter.height())
+                    self._splitter.setSizes([max(250, int(height * 0.38)), max(300, int(height * 0.62))])
+                else:
+                    width = max(1, self._splitter.width())
+                    self._splitter.setSizes([max(420, int(width * 0.40)), max(520, int(width * 0.60))])
             else:
-                width = max(1, self._splitter.width())
-                self._splitter.setSizes([max(420, int(width * 0.40)), max(520, int(width * 0.60))])
+                visible_index = 0 if self._source_panel_visible else 1
+                total = max(1, self._splitter.height() if should_stack else self._splitter.width())
+                sizes = [0, 0]
+                sizes[visible_index] = total
+                self._splitter.setSizes(sizes)
+        self._fit_source_table_last_column()
         self._update_thumbnail_grid()
 
     def _update_thumbnail_grid(self):
@@ -741,6 +983,7 @@ class SubscriptionInterface(QWidget):
             ],
             parent=self,
         )
+        self._fit_source_table_last_column()
 
     def _configure_item_columns(self):
         open_table_column_dialog(
