@@ -36,6 +36,7 @@ from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .task_page import TaskCenterInterface
+from .rules_page import RulePicker
 from .ui_state import ResponsiveFlowLayout
 
 
@@ -455,7 +456,12 @@ class DownloadInterface(QWidget):
         left_layout.addWidget(url_card)
 
         submit_row = ResponsiveFlowLayout()
-        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel, FluentIcon.FILTER)
+        rule_label = BodyLabel(tr("Rule", "规则", "ルール"), left_panel)
+        submit_row.addWidget(rule_label)
+        self._rule_picker = RulePicker(left_panel)
+        submit_row.addWidget(self._rule_picker)
+        self._filter_btn = PrimaryPushButton(tr("Advanced", "高级筛选", "詳細"), left_panel, FluentIcon.FILTER)
+        self._filter_btn.setToolTip(tr("Open the legacy filter dialog", "打开兼容的高级筛选对话框", "従来の詳細フィルターを開く"))
         self._filter_btn.clicked.connect(self._open_filter_dialog)
         submit_row.addWidget(self._filter_btn)
         self._submit_btn = PrimaryPushButton(
@@ -513,6 +519,10 @@ class DownloadInterface(QWidget):
     # ── Slots ─────────────────────────────────────────────────────────────────
 
     def _submit(self):
+        # Apply the selected named rule immediately before enqueueing so the
+        # resolver and sidecar options use the same snapshot.
+        if hasattr(self, "_rule_picker"):
+            self._rule_picker.apply_selected()
         url = self._url_edit.text().strip()
         if not url:
             InfoBar.warning(

@@ -19,6 +19,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
+from .rules_page import RulesInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 
@@ -51,6 +52,7 @@ class MainWindow(FluentWindow):
         self._download_page = DownloadInterface(self)
         self._subscription_page = SubscriptionInterface(self)
         self._history_page = HistoryInterface(self)
+        self._rules_page = RulesInterface(self)
         self._settings_page = SettingsInterface(self)
 
         # Add items with Fluent icons
@@ -68,6 +70,11 @@ class MainWindow(FluentWindow):
             self._history_page,
             icon=FluentIcon.HISTORY,
             text=tr("History", "历史记录", "履歴"),
+        )
+        self.addSubInterface(
+            self._rules_page,
+            icon=FluentIcon.FILTER,
+            text=tr("Rules", "下载规则", "ルール"),
         )
 
         # Bottom quick actions (shown above settings)
@@ -122,6 +129,7 @@ class MainWindow(FluentWindow):
         for page in (
             getattr(self, "_download_page", None),
             getattr(self, "_subscription_page", None),
+            getattr(self, "_rules_page", None),
         ):
             refresh = getattr(page, "refresh_theme_styles", None)
             if refresh:

@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
+    QMenu,
     QScrollArea,
     QStackedWidget,
     QTableWidgetItem,
@@ -51,6 +52,7 @@ from ..core.models import STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import FilterDialog, option_button_style
+from .rules_page import RulePicker
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_splitter_saver,
@@ -589,113 +591,79 @@ class SubscriptionInterface(QWidget):
         item_summary_row.addWidget(self._summary_label, stretch=1)
         item_controls_layout.addLayout(item_summary_row)
 
-        item_actions_top = ResponsiveFlowLayout()
-        item_actions_top.setSpacing(_ROW_SPACING)
-        all_sources_btn = PrimaryPushButton(tr("Show All", "显示全部", "全て表示"), self, FluentIcon.HISTORY)
-        _style_action_button(all_sources_btn, min_width=116)
-        all_sources_btn.clicked.connect(lambda: self._load_items(None))
-        item_actions_top.addWidget(all_sources_btn)
+        # Keep the action area compact: history and download operations are grouped
+        # in menus instead of forcing six large buttons into several awkward rows.
+        self._mark_downloaded_btn = PrimaryPushButton(self)
+        self._restore_moved_btn = PrimaryPushButton(self)
+        self._download_selected_btn = PrimaryPushButton(self)
+        for hidden_btn in (self._mark_downloaded_btn, self._restore_moved_btn, self._download_selected_btn):
+            hidden_btn.hide()
 
-        self._mark_downloaded_btn = PrimaryPushButton(
-            tr("Mark Downloaded (Moved)", "标为已下载（移走）", "保存済み（移動済み）"),
-            self,
-            FluentIcon.CHECKBOX,
+        history_menu = QMenu(self)
+        history_menu.addAction(
+            tr("Show All", "显示全部", "全て表示"),
+            lambda: self._load_items(None),
         )
-        self._mark_downloaded_btn.setToolTip(
-            tr(
-                "Select one or more videos, then mark them as already downloaded/moved in history.",
-                "需要先选中右侧列表里的一个或多个视频；会同步写入历史库为已下载（移走）。",
-                "右側リストで1件以上選択してから、履歴上で保存済み（移動済み）にします。",
-            )
+        history_menu.addAction(
+            tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"),
+            self._mark_selected_downloaded_moved,
         )
-        _style_action_button(self._mark_downloaded_btn, min_width=176)
-        self._mark_downloaded_btn.clicked.connect(self._mark_selected_downloaded_moved)
-        item_actions_top.addWidget(self._mark_downloaded_btn)
+        history_menu.addAction(
+            tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"),
+            self._restore_selected_downloaded_moved,
+        )
+        history_btn = PrimaryPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
+        history_btn.setMenu(history_menu)
+        history_btn.setToolTip(tr("History and moved-record actions", "历史和已移走记录操作", "履歴・移動済み操作"))
+        _style_action_button(history_btn, min_width=150)
 
-        self._restore_moved_btn = PrimaryPushButton(
-            tr("Restore Moved", "还原已移走", "移動済み解除"),
-            self,
-            FluentIcon.RETURN,
+        download_menu = QMenu(self)
+        download_menu.addAction(
+            tr("Download Selected", "下载选中", "選択を保存"),
+            self._download_selected_with_rule,
         )
-        self._restore_moved_btn.setToolTip(
-            tr(
-                "Select moved records, then remove their moved/downloaded marker from history.",
-                "需要先选中已移走的视频；会从历史库移除对应的已下载标记。",
-                "移動済みの動画を選択して、履歴の保存済みマークを解除します。",
-            )
+        download_menu.addAction(
+            tr("Download New", "下载新增", "新規を保存"),
+            self._download_new_with_rule,
         )
-        _style_action_button(self._restore_moved_btn, min_width=136)
-        self._restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
-        item_actions_top.addWidget(self._restore_moved_btn)
-        item_controls_layout.addLayout(item_actions_top)
-
-        item_actions_bottom = ResponsiveFlowLayout()
-        item_actions_bottom.setSpacing(_ROW_SPACING)
-        self._download_selected_btn = PrimaryPushButton(tr("Download Selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
-        self._download_selected_btn.setToolTip(
-            tr("Select one or more videos before downloading.", "需要先选中右侧列表里的一个或多个视频。", "右側リストで1件以上選択してください。")
+        download_menu.addAction(
+            tr("Download Visible", "下载当前列表", "表示分を保存"),
+            self._download_visible_with_rule,
         )
-        _style_action_button(self._download_selected_btn, min_width=126)
-        self._download_selected_btn.clicked.connect(self._download_selected)
-        item_actions_bottom.addWidget(self._download_selected_btn)
+        download_btn = PrimaryPushButton(tr("Download Actions", "下载操作", "保存操作"), self, FluentIcon.DOWNLOAD)
+        download_btn.setMenu(download_menu)
+        download_btn.setToolTip(tr("Choose what to download", "选择下载范围", "保存範囲を選択"))
+        _style_action_button(download_btn, min_width=150)
 
-        download_new_btn = PrimaryPushButton(tr("Download New", "下载新增", "新規を保存"), self, FluentIcon.DOWNLOAD)
-        _style_action_button(download_new_btn, min_width=126)
-        download_new_btn.clicked.connect(self._download_new)
-        item_actions_bottom.addWidget(download_new_btn)
-
-        download_all_btn = PrimaryPushButton(tr("Download Visible", "下载当前列表", "表示分を保存"), self, FluentIcon.DOWNLOAD)
-        _style_action_button(download_all_btn, min_width=146)
-        download_all_btn.clicked.connect(self._download_visible)
-        item_actions_bottom.addWidget(download_all_btn)
-        item_controls_layout.addLayout(item_actions_bottom)
+        item_actions = ResponsiveFlowLayout()
+        item_actions.setSpacing(_ROW_SPACING)
+        item_actions.addWidget(history_btn)
+        item_actions.addWidget(download_btn)
+        item_controls_layout.addLayout(item_actions)
 
         download_options_row = ResponsiveFlowLayout()
         download_options_row.setSpacing(_ROW_SPACING)
-        options_label = BodyLabel(tr("Download Mode", "下载设置", "保存設定"), self)
+        options_label = BodyLabel(tr("Download Rule", "下载规则", "保存ルール"), self)
         _style_inline_label(options_label)
         download_options_row.addWidget(options_label)
-
-        filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), self, FluentIcon.FILTER)
-        filter_btn.setToolTip(
-            tr(
-                "Open the same filter dialog used by the download workbench.",
-                "打开和下载工作台共用的筛选设置；保存后会同步影响新任务。",
-                "ダウンロード画面と同じフィルター設定を開きます。",
-            )
-        )
-        _style_action_button(filter_btn, min_width=108)
-        filter_btn.clicked.connect(self._open_filter_dialog)
-        download_options_row.addWidget(filter_btn)
-
-        self._option_download_video_btn = self._make_download_option_button(
-            tr("Download Video", "下载视频", "動画保存"),
-            tr("Queue real video downloads. This is mutually exclusive with mark-only.", "下载真实视频文件；和仅标记已下载互斥。", "動画ファイルを保存します。マークのみとは排他です。"),
-        )
-        self._option_download_video_btn.clicked.connect(self._on_download_video_option_clicked)
-        download_options_row.addWidget(self._option_download_video_btn)
-
-        self._option_mark_downloaded_btn = self._make_download_option_button(
-            tr("Mark Only", "仅标记已下载", "マークのみ"),
-            tr("Do not download video; only fetch metadata/sidecars and mark as downloaded.", "不下载视频，只拉取元数据/附属文件并标记为已下载。", "動画を保存せず、メタデータ/関連ファイルのみ取得して保存済みにします。"),
-        )
-        self._option_mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_option_clicked)
-        download_options_row.addWidget(self._option_mark_downloaded_btn)
-
-        self._option_download_thumb_btn = self._make_download_option_button(
-            tr("Thumbnail", "下载封面", "サムネイル"),
-            tr("Download thumbnail images when metadata is available.", "有元数据时下载封面图。", "メタデータ取得時にサムネイルを保存します。"),
-        )
-        self._option_download_thumb_btn.clicked.connect(self._on_download_thumb_option_clicked)
-        download_options_row.addWidget(self._option_download_thumb_btn)
-
-        self._option_collect_nfo_btn = self._make_download_option_button(
-            "NFO",
-            tr("Write Kodi/Jellyfin compatible NFO metadata.", "写出兼容 Kodi/Jellyfin 的 NFO 元数据。", "Kodi/Jellyfin互換のNFOを書き出します。"),
-        )
-        self._option_collect_nfo_btn.clicked.connect(self._on_collect_nfo_option_clicked)
-        download_options_row.addWidget(self._option_collect_nfo_btn)
+        self._rule_picker = RulePicker(self)
+        download_options_row.addWidget(self._rule_picker)
         item_controls_layout.addLayout(download_options_row)
+
+        # Keep the option widgets as an internal compatibility surface for the
+        # existing global-setting synchronisation, but do not expose them as a
+        # second wall of buttons. Named rules are the user-facing editor now.
+        self._option_download_video_btn = self._make_download_option_button("", "")
+        self._option_mark_downloaded_btn = self._make_download_option_button("", "")
+        self._option_download_thumb_btn = self._make_download_option_button("", "")
+        self._option_collect_nfo_btn = self._make_download_option_button("", "")
+        for option_btn in (
+            self._option_download_video_btn,
+            self._option_mark_downloaded_btn,
+            self._option_download_thumb_btn,
+            self._option_collect_nfo_btn,
+        ):
+            option_btn.hide()
 
         title_filter_row = ResponsiveFlowLayout()
         title_filter_row.setSpacing(_ROW_SPACING)
@@ -2032,6 +2000,26 @@ class SubscriptionInterface(QWidget):
             return
         app_config.collect_nfo_info = bool(checked)
         signal_bus.download_options_changed.emit()
+
+    def _apply_selected_rule_for_download(self):
+        rule = self._rule_picker.selected_rule() if hasattr(self, "_rule_picker") else None
+        if rule:
+            self._rule_picker.apply_selected()
+            payload = rule.get("payload", {})
+            self._title_include_edit.setText(str(payload.get("title_include", "") or ""))
+            self._title_exclude_edit.setText(str(payload.get("title_exclude", "") or ""))
+
+    def _download_selected_with_rule(self):
+        self._apply_selected_rule_for_download()
+        self._download_selected()
+
+    def _download_new_with_rule(self):
+        self._apply_selected_rule_for_download()
+        self._download_new()
+
+    def _download_visible_with_rule(self):
+        self._apply_selected_rule_for_download()
+        self._download_visible()
 
     def _download_new(self):
         ids = [
