@@ -42,6 +42,9 @@ class TaskSignalBus(QObject):
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 
+    # rule_id; keeps rule pickers synchronized across pages.
+    active_rule_changed = Signal(str)
+
 
 # Module-level singleton — import this everywhere
 signal_bus = TaskSignalBus()

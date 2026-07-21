@@ -364,48 +364,32 @@ class DownloadInterface(QWidget):
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([390, 1180])
 
-        option_card = CardWidget(left_panel)
-        option_layout = QGridLayout(option_card)
-        option_layout.setContentsMargins(14, 10, 14, 10)
-        option_layout.setHorizontalSpacing(10)
-        option_layout.setVerticalSpacing(8)
-
+        # Download behavior is now controlled by the selected named rule.
+        # Keep the legacy controls hidden for compatibility with older signals and
+        # integrations, but do not expose four competing switches on this page.
         self._download_video_btn = self._make_option_button(
-            tr("Download Video", "下载视频", "動画を保存"),
-            tr("Queue real video downloads. This is mutually exclusive with mark-only.", "下载真实视频文件；和仅标记已下载互斥。", "動画ファイルを保存します。マークのみとは排他です。"),
-            option_card,
-            FluentIcon.DOWNLOAD,
+            tr("Download Video", "下载视频", "動画を保存"), "", left_panel, FluentIcon.DOWNLOAD
         )
-        self._download_video_btn.clicked.connect(self._on_download_video_clicked)
-        option_layout.addWidget(self._download_video_btn, 0, 0)
-
         self._mark_downloaded_btn = self._make_option_button(
-            tr("Mark Only", "仅标记已下载", "マークのみ"),
-            tr("Do not download video; only fetch metadata/sidecars and mark as downloaded.", "不下载视频，只拉取元数据/附属文件并标记为已下载。", "動画を保存せず、メタデータ/関連ファイルのみ取得して保存済みにします。"),
-            option_card,
-            FluentIcon.CHECKBOX,
+            tr("Mark Only", "仅标记已下载", "マークのみ"), "", left_panel, FluentIcon.CHECKBOX
         )
-        self._mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_clicked)
-        option_layout.addWidget(self._mark_downloaded_btn, 0, 1)
-
         self._download_thumb_btn = self._make_option_button(
-            tr("Thumbnail", "下载封面", "サムネイル"),
-            tr("Download thumbnail images when metadata is available.", "有元数据时下载封面图。", "メタデータ取得時にサムネイルを保存します。"),
-            option_card,
-            FluentIcon.PHOTO,
+            tr("Thumbnail", "下载封面", "サムネイル"), "", left_panel, FluentIcon.PHOTO
         )
-        self._download_thumb_btn.clicked.connect(self._on_download_thumb_clicked)
-        option_layout.addWidget(self._download_thumb_btn, 1, 0)
-
         self._collect_nfo_btn = self._make_option_button(
-            "NFO",
-            tr("Write Kodi/Jellyfin compatible NFO metadata.", "写出兼容 Kodi/Jellyfin 的 NFO 元数据。", "Kodi/Jellyfin互換のNFOを書き出します。"),
-            option_card,
-            FluentIcon.DOCUMENT,
+            "NFO", "", left_panel, FluentIcon.DOCUMENT
         )
+        for legacy_button in (
+            self._download_video_btn,
+            self._mark_downloaded_btn,
+            self._download_thumb_btn,
+            self._collect_nfo_btn,
+        ):
+            legacy_button.hide()
+        self._download_video_btn.clicked.connect(self._on_download_video_clicked)
+        self._mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_clicked)
+        self._download_thumb_btn.clicked.connect(self._on_download_thumb_clicked)
         self._collect_nfo_btn.clicked.connect(self._on_collect_nfo_clicked)
-        option_layout.addWidget(self._collect_nfo_btn, 1, 1)
-        left_layout.addWidget(option_card)
 
         # ── Login status banner ───────────────────────────────────────────────
         self._login_banner = CardWidget(left_panel)
@@ -433,45 +417,44 @@ class DownloadInterface(QWidget):
         url_layout.addWidget(
             BodyLabel(
                 tr(
-                    "Supports video/profile/playlist URLs and API search URLs (one each time)",
-                    "支持单视频链接、作者主页链接、播放列表链接和 API 搜索链接；每次提交一个地址",
-                    "動画/プロフィール/プレイリストURLと API 検索URLに対応（1回1件）",
+                    "Supports video/profile/playlist URLs and API search URLs",
+                    "支持单视频、作者主页、播放列表和 API 搜索链接",
+                    "動画/プロフィール/プレイリスト/API検索URLに対応",
                 ),
                 url_card,
             )
         )
 
+        url_row = QHBoxLayout()
+        url_row.setSpacing(8)
         self._url_edit = LineEdit(url_card)
         self._url_edit.setPlaceholderText(
             tr(
-                "https://www.iwara.tv/video/...  or profile / playlist URL",
-                "https://www.iwara.tv/video/...  或  用户主页 / 播放列表 / api.iwara.tv/videos?...",
-                "https://www.iwara.tv/video/... または ユーザー / プレイリスト / api.iwara.tv/videos?...",
+                "Paste a video, profile, playlist or API URL…",
+                "粘贴视频、作者主页、播放列表或 API 链接…",
+                "動画・プロフィール・プレイリスト・API URLを貼り付け…",
             )
         )
         self._url_edit.setClearButtonEnabled(True)
         self._url_edit.returnPressed.connect(self._submit)
-
-        url_layout.addWidget(self._url_edit)
-        left_layout.addWidget(url_card)
-
-        submit_row = ResponsiveFlowLayout()
-        rule_label = BodyLabel(tr("Rule", "规则", "ルール"), left_panel)
-        submit_row.addWidget(rule_label)
-        self._rule_picker = RulePicker(left_panel)
-        submit_row.addWidget(self._rule_picker)
-        self._filter_btn = PrimaryPushButton(tr("Advanced", "高级筛选", "詳細"), left_panel, FluentIcon.FILTER)
-        self._filter_btn.setToolTip(tr("Open the legacy filter dialog", "打开兼容的高级筛选对话框", "従来の詳細フィルターを開く"))
-        self._filter_btn.clicked.connect(self._open_filter_dialog)
-        submit_row.addWidget(self._filter_btn)
+        url_row.addWidget(self._url_edit, 1)
         self._submit_btn = PrimaryPushButton(
-            tr("Download", "解析并下载", "解析してダウンロード"),
-            left_panel,
+            tr("Download", "下载", "ダウンロード"),
+            url_card,
             FluentIcon.DOWNLOAD,
         )
+        self._submit_btn.setMinimumWidth(112)
         self._submit_btn.clicked.connect(self._submit)
-        submit_row.addWidget(self._submit_btn)
-        left_layout.addLayout(submit_row)
+        url_row.addWidget(self._submit_btn)
+        url_layout.addLayout(url_row)
+
+        rule_row = QHBoxLayout()
+        rule_row.setSpacing(8)
+        rule_row.addWidget(BodyLabel(tr("Rule", "下载规则", "ルール"), url_card))
+        self._rule_picker = RulePicker(url_card)
+        rule_row.addWidget(self._rule_picker, 1)
+        url_layout.addLayout(rule_row)
+        left_layout.addWidget(url_card)
 
         # ── Operation log card ────────────────────────────────────────────────
         log_card = CardWidget(left_panel)
@@ -521,8 +504,6 @@ class DownloadInterface(QWidget):
     def _submit(self):
         # Apply the selected named rule immediately before enqueueing so the
         # resolver and sidecar options use the same snapshot.
-        if hasattr(self, "_rule_picker"):
-            self._rule_picker.apply_selected()
         url = self._url_edit.text().strip()
         if not url:
             InfoBar.warning(
@@ -650,8 +631,6 @@ class DownloadInterface(QWidget):
             self._set_option_button_state(self._mark_downloaded_btn, app_config.mark_submitted_as_downloaded)
             self._set_option_button_state(self._download_thumb_btn, app_config.download_thumbnail)
             self._set_option_button_state(self._collect_nfo_btn, app_config.collect_nfo_info)
-            filter_state = tr("On", "开", "有効") if app_config.filter_enabled else tr("Off", "关", "無効")
-            self._filter_btn.setText(tr(f"Filter Rules ({filter_state})", f"筛选项（{filter_state}）", f"フィルター条件（{filter_state}）"))
         finally:
             self._syncing_options = False
 

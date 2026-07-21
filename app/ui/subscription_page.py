@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
-    QMenu,
     QScrollArea,
     QStackedWidget,
     QTableWidgetItem,
@@ -31,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CardWidget,
     ComboBox,
@@ -38,7 +38,9 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    PrimaryDropDownPushButton,
     PrimaryPushButton,
+    RoundMenu,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
@@ -599,38 +601,20 @@ class SubscriptionInterface(QWidget):
         for hidden_btn in (self._mark_downloaded_btn, self._restore_moved_btn, self._download_selected_btn):
             hidden_btn.hide()
 
-        history_menu = QMenu(self)
-        history_menu.addAction(
-            tr("Show All", "显示全部", "全て表示"),
-            lambda: self._load_items(None),
-        )
-        history_menu.addAction(
-            tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"),
-            self._mark_selected_downloaded_moved,
-        )
-        history_menu.addAction(
-            tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"),
-            self._restore_selected_downloaded_moved,
-        )
-        history_btn = PrimaryPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
+        history_menu = RoundMenu(parent=self)
+        history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show All", "显示全部", "全て表示"), self, triggered=lambda: self._load_items(None)))
+        history_menu.addAction(Action(FluentIcon.ACCEPT, tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"), self, triggered=self._mark_selected_downloaded_moved))
+        history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"), self, triggered=self._restore_selected_downloaded_moved))
+        history_btn = PrimaryDropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
         history_btn.setMenu(history_menu)
         history_btn.setToolTip(tr("History and moved-record actions", "历史和已移走记录操作", "履歴・移動済み操作"))
         _style_action_button(history_btn, min_width=150)
 
-        download_menu = QMenu(self)
-        download_menu.addAction(
-            tr("Download Selected", "下载选中", "選択を保存"),
-            self._download_selected_with_rule,
-        )
-        download_menu.addAction(
-            tr("Download New", "下载新增", "新規を保存"),
-            self._download_new_with_rule,
-        )
-        download_menu.addAction(
-            tr("Download Visible", "下载当前列表", "表示分を保存"),
-            self._download_visible_with_rule,
-        )
-        download_btn = PrimaryPushButton(tr("Download Actions", "下载操作", "保存操作"), self, FluentIcon.DOWNLOAD)
+        download_menu = RoundMenu(parent=self)
+        download_menu.addAction(Action(FluentIcon.CHECKBOX, tr("Download Selected", "下载选中", "選択を保存"), self, triggered=self._download_selected_with_rule))
+        download_menu.addAction(Action(FluentIcon.DOWNLOAD, tr("Download New", "下载新增", "新規を保存"), self, triggered=self._download_new_with_rule))
+        download_menu.addAction(Action(FluentIcon.DOWNLOAD, tr("Download Visible", "下载当前列表", "表示分を保存"), self, triggered=self._download_visible_with_rule))
+        download_btn = PrimaryDropDownPushButton(tr("Download Actions", "下载操作", "保存操作"), self, FluentIcon.DOWNLOAD)
         download_btn.setMenu(download_menu)
         download_btn.setToolTip(tr("Choose what to download", "选择下载范围", "保存範囲を選択"))
         _style_action_button(download_btn, min_width=150)
@@ -647,6 +631,7 @@ class SubscriptionInterface(QWidget):
         _style_inline_label(options_label)
         download_options_row.addWidget(options_label)
         self._rule_picker = RulePicker(self)
+        self._rule_picker.ruleApplied.connect(self._on_subscription_rule_applied)
         download_options_row.addWidget(self._rule_picker)
         item_controls_layout.addLayout(download_options_row)
 
@@ -2001,13 +1986,16 @@ class SubscriptionInterface(QWidget):
         app_config.collect_nfo_info = bool(checked)
         signal_bus.download_options_changed.emit()
 
+    def _on_subscription_rule_applied(self, payload: dict):
+        self._title_include_edit.setText(str(payload.get("title_include", "") or ""))
+        self._title_exclude_edit.setText(str(payload.get("title_exclude", "") or ""))
+
     def _apply_selected_rule_for_download(self):
+        # RulePicker applies immediately when selected. Keep this compatibility
+        # hook for the three menu callbacks without showing a second notification.
         rule = self._rule_picker.selected_rule() if hasattr(self, "_rule_picker") else None
         if rule:
-            self._rule_picker.apply_selected()
-            payload = rule.get("payload", {})
-            self._title_include_edit.setText(str(payload.get("title_include", "") or ""))
-            self._title_exclude_edit.setText(str(payload.get("title_exclude", "") or ""))
+            self._on_subscription_rule_applied(rule.get("payload", {}))
 
     def _download_selected_with_rule(self):
         self._apply_selected_rule_for_download()

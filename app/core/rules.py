@@ -11,6 +11,9 @@ from typing import Any
 from ..config import app_config
 
 
+BUILTIN_DEFAULT_RULE_ID = "__builtin_default__"
+ACTIVE_RULE_UI_KEY = "active_download_rule_id"
+
 RULE_FILTER_KEYS = (
     "filter_enabled",
     "filter_min_likes_enabled",
@@ -32,11 +35,17 @@ RULE_DOWNLOAD_KEYS = (
     "collect_nfo_info",
     "mark_submitted_as_downloaded",
 )
-RULE_KEYS = RULE_FILTER_KEYS + RULE_TITLE_KEYS + RULE_DOWNLOAD_KEYS
+RULE_STORAGE_KEYS = (
+    "download_dir",
+    "filename_template",
+    "skip_existing_files",
+    "completed_task_click_action",
+)
+RULE_KEYS = RULE_FILTER_KEYS + RULE_TITLE_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS
 
 
 def default_rule_payload() -> dict[str, Any]:
-    """Return a complete, serializable rule payload."""
+    """Return the built-in safe rule: no filters and video download only."""
     return {
         "filter_enabled": False,
         "filter_min_likes_enabled": False,
@@ -56,13 +65,30 @@ def default_rule_payload() -> dict[str, Any]:
         "download_thumbnail": False,
         "collect_nfo_info": False,
         "mark_submitted_as_downloaded": False,
+        # Storage values intentionally inherit the user's current global values.
+        # Selecting the built-in rule therefore never surprises users by moving files.
+        "download_dir": app_config.download_dir,
+        "filename_template": app_config.filename_template,
+        "skip_existing_files": app_config.skip_existing_files,
+        "completed_task_click_action": app_config.completed_task_click_action,
+    }
+
+
+def builtin_default_rule() -> dict[str, Any]:
+    return {
+        "id": BUILTIN_DEFAULT_RULE_ID,
+        "name": "默认下载",
+        "created_at": "",
+        "updated_at": "",
+        "builtin": True,
+        "payload": default_rule_payload(),
     }
 
 
 def current_rule_payload() -> dict[str, Any]:
-    """Capture the current global filter/download settings as a rule."""
+    """Capture the current global filter/download/storage settings as a rule."""
     payload = default_rule_payload()
-    for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS:
+    for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         payload[key] = getattr(app_config, key)
     return payload
 
@@ -85,6 +111,7 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "download_thumbnail",
         "collect_nfo_info",
         "mark_submitted_as_downloaded",
+        "skip_existing_files",
     ):
         result[key] = bool(result[key])
     for key in ("filter_min_likes", "filter_min_views"):
@@ -97,23 +124,45 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "filter_end_date",
         "filter_include_tags",
         "filter_exclude_tags",
+        "download_dir",
+        "filename_template",
+        "completed_task_click_action",
     ):
         result[key] = str(result[key] or "").strip()
     if not result["filter_start_date"]:
         result["filter_start_date"] = "1970-01-01"
-    # Video download and mark-only are mutually exclusive; prefer the explicit
-    # video mode when an older or hand-edited JSON rule contains both.
+    if not result["download_dir"]:
+        result["download_dir"] = app_config.download_dir
+    if not result["filename_template"]:
+        result["filename_template"] = "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+    if result["completed_task_click_action"] not in ("folder", "player"):
+        result["completed_task_click_action"] = "folder"
     if result["download_video_file"] and result["mark_submitted_as_downloaded"]:
         result["mark_submitted_as_downloaded"] = False
+    if not result["download_video_file"] and not result["mark_submitted_as_downloaded"]:
+        # A rule must have an explicit primary action. Default to a real download.
+        result["download_video_file"] = True
     return result
 
 
 def apply_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Apply a rule to the current global settings and return normalized data."""
     normalized = normalize_rule_payload(payload)
-    for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS:
+    for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         setattr(app_config, key, normalized[key])
+    try:
+        os.makedirs(normalized["download_dir"], exist_ok=True)
+    except OSError:
+        pass
     return normalized
+
+
+def active_rule_id() -> str:
+    return str(app_config.get_ui_value(ACTIVE_RULE_UI_KEY, BUILTIN_DEFAULT_RULE_ID) or BUILTIN_DEFAULT_RULE_ID)
+
+
+def set_active_rule_id(rule_id: str):
+    app_config.set_ui_value(ACTIVE_RULE_UI_KEY, rule_id or BUILTIN_DEFAULT_RULE_ID)
 
 
 class RuleStore:
@@ -134,20 +183,28 @@ class RuleStore:
         for entry in raw:
             if not isinstance(entry, dict):
                 continue
-            rule = {
+            result.append({
                 "id": str(entry.get("id") or uuid.uuid4().hex),
                 "name": str(entry.get("name") or "未命名规则").strip() or "未命名规则",
                 "created_at": str(entry.get("created_at") or ""),
                 "updated_at": str(entry.get("updated_at") or ""),
+                "builtin": False,
                 "payload": normalize_rule_payload(entry.get("payload")),
-            }
-            result.append(rule)
+            })
         return result
+
+    def list_available(self) -> list[dict[str, Any]]:
+        return [builtin_default_rule(), *self.list_rules()]
+
+    def find(self, rule_id: str) -> dict[str, Any] | None:
+        return next((rule for rule in self.list_available() if rule["id"] == rule_id), None)
 
     def save(self, name: str, payload: dict[str, Any], rule_id: str | None = None) -> dict[str, Any]:
         name = str(name or "").strip()
         if not name:
             raise ValueError("规则名称不能为空")
+        if rule_id == BUILTIN_DEFAULT_RULE_ID:
+            raise ValueError("内置默认规则不能直接修改，请先复制")
         now = datetime.now().isoformat(timespec="seconds")
         rules = self.list_rules()
         existing = next((rule for rule in rules if rule["id"] == rule_id), None) if rule_id else None
@@ -157,6 +214,7 @@ class RuleStore:
                 "name": name,
                 "created_at": now,
                 "updated_at": now,
+                "builtin": False,
                 "payload": normalize_rule_payload(payload),
             }
             rules.append(rule)
@@ -169,6 +227,8 @@ class RuleStore:
         return deepcopy(rule)
 
     def delete(self, rule_id: str) -> bool:
+        if rule_id == BUILTIN_DEFAULT_RULE_ID:
+            return False
         rules = self.list_rules()
         kept = [rule for rule in rules if rule["id"] != rule_id]
         if len(kept) == len(rules):
@@ -179,8 +239,9 @@ class RuleStore:
     def _write(self, rules: list[dict[str, Any]]):
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         temp_path = self.path + ".tmp"
+        serializable = [{k: v for k, v in rule.items() if k != "builtin"} for rule in rules]
         with open(temp_path, "w", encoding="utf-8") as fh:
-            json.dump(rules, fh, ensure_ascii=False, indent=2)
+            json.dump(serializable, fh, ensure_ascii=False, indent=2)
         os.replace(temp_path, self.path)
 
 
