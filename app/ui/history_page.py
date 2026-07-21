@@ -10,10 +10,10 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
-    QHBoxLayout,
     QInputDialog,
     QMessageBox,
     QTableWidgetItem,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -36,6 +36,7 @@ from ..core.models import TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import (
+    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
@@ -81,9 +82,8 @@ class HistoryInterface(QWidget):
         root.setContentsMargins(36, 24, 36, 16)
         root.setSpacing(12)
 
-        title_row = QHBoxLayout()
+        title_row = ResponsiveFlowLayout()
         title_row.addWidget(TitleLabel(tr("History Center", "历史记录中心", "履歴センター"), self))
-        title_row.addStretch()
 
         refresh_btn = PrimaryPushButton(tr("Refresh", "刷新", "更新"), self, FluentIcon.SYNC)
         refresh_btn.setToolTip(
@@ -123,9 +123,12 @@ class HistoryInterface(QWidget):
         root.addWidget(self._db_label)
 
         self._summary_label = BodyLabel("", self)
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setMinimumHeight(28)
+        self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         root.addWidget(self._summary_label)
 
-        filter_row = QHBoxLayout()
+        filter_row = ResponsiveFlowLayout()
         self._search_edit = LineEdit(self)
         self._search_edit.setPlaceholderText(
             tr(
@@ -136,7 +139,7 @@ class HistoryInterface(QWidget):
         )
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._apply_filters)
-        filter_row.addWidget(self._search_edit, stretch=1)
+        filter_row.addWidget(self._search_edit)
 
         self._field_combo = ComboBox(self)
         self._field_combo.addItems(
@@ -170,6 +173,8 @@ class HistoryInterface(QWidget):
         root.addLayout(filter_row)
 
         self._table = TableWidget(self)
+        self._table.setMinimumWidth(0)
+        self._table.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("historyTable")
         self._table.setColumnCount(16)
         self._table.setHorizontalHeaderLabels(

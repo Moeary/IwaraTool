@@ -5,7 +5,7 @@ import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -54,12 +54,23 @@ class SettingsInterface(ScrollArea):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SettingsInterface")
+        # A native QScrollArea viewport otherwise keeps its light palette and
+        # paints an opaque white page over FluentWindow's Mica/dark background.
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setStyleSheet(
+            "QScrollArea#SettingsInterface { background: transparent; border: none; }"
+            "QScrollArea#SettingsInterface > QWidget > QWidget { background: transparent; }"
+            "QWidget#settingsContent { background: transparent; }"
+        )
+        self.viewport().setAutoFillBackground(False)
 
         self._worker: LoginWorker | None = None
         self._loading_settings = False
 
         self._content = QWidget(self)
         self._content.setObjectName("settingsContent")
+        self._content.setAutoFillBackground(False)
         self.setWidget(self._content)
         self.setWidgetResizable(True)
 

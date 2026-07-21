@@ -14,7 +14,13 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -22,14 +28,17 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CardWidget,
     ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
+    SubtitleLabel,
     TableWidget,
     TitleLabel,
+    isDarkTheme,
 )
 
 from ..config import app_config
@@ -39,6 +48,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import FilterDialog, _OPTION_OFF_STYLE, _OPTION_ON_STYLE
 from .ui_state import (
+    ResponsiveFlowLayout,
     connect_splitter_saver,
     connect_table_column_saver,
     connect_table_width_saver,
@@ -104,8 +114,33 @@ class SubscriptionAvatarWorker(QThread):
         self.done.emit()
 
 
+class SubscriptionThumbnailWorker(QThread):
+    thumbnail_ready = Signal(str, str)
+    done = Signal()
+
+    def __init__(self, requests: list[tuple[str, str]]):
+        super().__init__()
+        self._requests = list(requests)
+
+    def run(self):
+        for video_id, thumbnail_url in self._requests:
+            path = download_manager.cache_subscription_thumbnail(video_id, thumbnail_url)
+            if path:
+                self.thumbnail_ready.emit(video_id, path)
+        self.done.emit()
+
+
 _CONTROL_HEIGHT = 36
 _ROW_SPACING = 10
+
+
+
+class ResponsiveCoverList(QListWidget):
+    resized = Signal()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
 
 
 def _style_action_button(button: PrimaryPushButton, *, min_width: int = 0):
@@ -159,7 +194,10 @@ class SubscriptionInterface(QWidget):
         self._import_worker: SubscriptionImportAuthorsWorker | None = None
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
         self._avatar_worker: SubscriptionAvatarWorker | None = None
+        self._thumbnail_worker: SubscriptionThumbnailWorker | None = None
         self._avatar_requested_source_ids: set[int] = set()
+        self._thumbnail_requested_video_ids: set[str] = set()
+        self._thumbnail_items_by_video_id: dict[str, list[QListWidgetItem]] = {}
         self._all_sources: list[dict[str, Any]] = []
         self._sources: list[dict[str, Any]] = []
         self._all_items: list[dict[str, Any]] = []
@@ -197,20 +235,25 @@ class SubscriptionInterface(QWidget):
         root.addLayout(title_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self._splitter = splitter
+        self._splitter_is_vertical = False
+        splitter.splitterMoved.connect(lambda *_args: self._update_thumbnail_grid())
         splitter.setChildrenCollapsible(False)
         root.addWidget(splitter, stretch=1)
 
-        left_panel = QWidget(self)
-        left_panel.setMinimumWidth(520)
+        left_panel = CardWidget(self)
+        left_panel.setObjectName("SubscriptionSourcesCard")
+        left_panel.setMinimumWidth(0)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(16, 14, 16, 14)
         left_layout.setSpacing(_ROW_SPACING)
         splitter.addWidget(left_panel)
 
-        right_panel = QWidget(self)
-        right_panel.setMinimumWidth(760)
+        right_panel = CardWidget(self)
+        right_panel.setObjectName("SubscriptionItemsCard")
+        right_panel.setMinimumWidth(0)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(16, 14, 16, 14)
         right_layout.setSpacing(_ROW_SPACING)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 2)
@@ -218,7 +261,13 @@ class SubscriptionInterface(QWidget):
         restore_splitter_sizes(splitter, "subscription_splitter_sizes", [800, 1200])
         connect_splitter_saver(splitter, "subscription_splitter_sizes")
 
-        source_actions_1 = QHBoxLayout()
+        source_header = QHBoxLayout()
+        source_header.setSpacing(8)
+        source_header.addWidget(SubtitleLabel(tr("Subscriptions", "订阅源", "購読元"), self))
+        source_header.addStretch()
+        left_layout.addLayout(source_header)
+
+        source_actions_1 = ResponsiveFlowLayout()
         source_actions_1.setSpacing(_ROW_SPACING)
         import_authors_btn = PrimaryPushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
         _style_action_button(import_authors_btn)
@@ -231,20 +280,24 @@ class SubscriptionInterface(QWidget):
         source_actions_1.addWidget(add_feed_btn)
         left_layout.addLayout(source_actions_1)
 
-        source_actions_2 = QHBoxLayout()
+        source_actions_2 = ResponsiveFlowLayout()
         source_actions_2.setSpacing(_ROW_SPACING)
         add_source_btn = PrimaryPushButton(tr("Add Author / Playlist", "添加作者/播放列表", "作者/リストを追加"), self, FluentIcon.PEOPLE)
         _style_action_button(add_source_btn)
         add_source_btn.clicked.connect(self._add_source)
         source_actions_2.addWidget(add_source_btn)
 
-        toggle_btn = PrimaryPushButton(tr("Enable / Disable", "启用/停用", "有効/無効"), self, FluentIcon.CANCEL)
-        _style_action_button(toggle_btn)
-        toggle_btn.clicked.connect(self._toggle_selected_source)
-        source_actions_2.addWidget(toggle_btn)
+        delete_source_btn = PrimaryPushButton(
+            tr("Delete Subscription", "删除订阅", "購読を削除"),
+            self,
+            FluentIcon.DELETE,
+        )
+        _style_action_button(delete_source_btn)
+        delete_source_btn.clicked.connect(self._delete_selected_source)
+        source_actions_2.addWidget(delete_source_btn)
         left_layout.addLayout(source_actions_2)
 
-        source_actions_3 = QHBoxLayout()
+        source_actions_3 = ResponsiveFlowLayout()
         source_actions_3.setSpacing(_ROW_SPACING)
         refresh_selected_btn = PrimaryPushButton(tr("Refresh Selected", "刷新选中", "選択を更新"), self, FluentIcon.SYNC)
         _style_action_button(refresh_selected_btn)
@@ -268,7 +321,7 @@ class SubscriptionInterface(QWidget):
                 f"DB: {storage.get('db_path', '')}\nバックアップ: {storage.get('backup_path', '')}",
             )
         )
-        source_meta_row = QHBoxLayout()
+        source_meta_row = ResponsiveFlowLayout()
         source_meta_row.setSpacing(_ROW_SPACING)
         source_meta_row.addWidget(storage_label)
         self._source_search_edit = LineEdit(self)
@@ -282,7 +335,7 @@ class SubscriptionInterface(QWidget):
         self._source_search_edit.setClearButtonEnabled(True)
         self._source_search_edit.setMinimumWidth(240)
         self._source_search_edit.textChanged.connect(self._apply_source_filters)
-        source_meta_row.addWidget(self._source_search_edit, stretch=1)
+        source_meta_row.addWidget(self._source_search_edit)
         source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
         _style_action_button(source_columns_btn, min_width=96)
         source_columns_btn.clicked.connect(self._configure_source_columns)
@@ -353,14 +406,17 @@ class SubscriptionInterface(QWidget):
         left_layout.addWidget(self._source_table, stretch=1)
 
         item_summary_row = QHBoxLayout()
-        item_summary_row.setSpacing(_ROW_SPACING)
+        item_summary_row.setSpacing(8)
+        item_summary_row.addWidget(SubtitleLabel(tr("Videos", "视频列表", "動画一覧"), self))
         self._summary_label = BodyLabel("", self)
-        _style_inline_label(self._summary_label)
-        item_summary_row.addWidget(self._summary_label)
-        item_summary_row.addStretch()
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setMinimumHeight(_CONTROL_HEIGHT)
+        self._summary_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        item_summary_row.addWidget(self._summary_label, stretch=1)
         right_layout.addLayout(item_summary_row)
 
-        item_actions_top = QHBoxLayout()
+        item_actions_top = ResponsiveFlowLayout()
         item_actions_top.setSpacing(_ROW_SPACING)
         all_sources_btn = PrimaryPushButton(tr("Show All", "显示全部", "全て表示"), self, FluentIcon.HISTORY)
         _style_action_button(all_sources_btn, min_width=116)
@@ -398,10 +454,9 @@ class SubscriptionInterface(QWidget):
         _style_action_button(self._restore_moved_btn, min_width=136)
         self._restore_moved_btn.clicked.connect(self._restore_selected_downloaded_moved)
         item_actions_top.addWidget(self._restore_moved_btn)
-        item_actions_top.addStretch()
         right_layout.addLayout(item_actions_top)
 
-        item_actions_bottom = QHBoxLayout()
+        item_actions_bottom = ResponsiveFlowLayout()
         item_actions_bottom.setSpacing(_ROW_SPACING)
         self._download_selected_btn = PrimaryPushButton(tr("Download Selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
         self._download_selected_btn.setToolTip(
@@ -420,10 +475,9 @@ class SubscriptionInterface(QWidget):
         _style_action_button(download_all_btn, min_width=146)
         download_all_btn.clicked.connect(self._download_visible)
         item_actions_bottom.addWidget(download_all_btn)
-        item_actions_bottom.addStretch()
         right_layout.addLayout(item_actions_bottom)
 
-        download_options_row = QHBoxLayout()
+        download_options_row = ResponsiveFlowLayout()
         download_options_row.setSpacing(_ROW_SPACING)
         options_label = BodyLabel(tr("Download Mode", "下载设置", "保存設定"), self)
         _style_inline_label(options_label)
@@ -468,10 +522,30 @@ class SubscriptionInterface(QWidget):
         )
         self._option_collect_nfo_btn.clicked.connect(self._on_collect_nfo_option_clicked)
         download_options_row.addWidget(self._option_collect_nfo_btn)
-        download_options_row.addStretch()
         right_layout.addLayout(download_options_row)
 
-        item_filter_row = QHBoxLayout()
+        title_filter_row = ResponsiveFlowLayout()
+        title_filter_row.setSpacing(_ROW_SPACING)
+        title_filter_label = BodyLabel(tr("Title Keywords", "标题关键词", "タイトルキーワード"), self)
+        _style_inline_label(title_filter_label)
+        title_filter_row.addWidget(title_filter_label)
+        self._title_include_edit = LineEdit(self)
+        self._title_include_edit.setPlaceholderText(
+            tr("Include any (comma separated)", "包含任一关键词（逗号分隔）", "いずれかを含む（カンマ区切り）")
+        )
+        self._title_include_edit.setClearButtonEnabled(True)
+        self._title_include_edit.textChanged.connect(self._apply_item_filters)
+        title_filter_row.addWidget(self._title_include_edit)
+        self._title_exclude_edit = LineEdit(self)
+        self._title_exclude_edit.setPlaceholderText(
+            tr("Exclude any (comma separated)", "排除任一关键词（逗号分隔）", "いずれかを除外（カンマ区切り）")
+        )
+        self._title_exclude_edit.setClearButtonEnabled(True)
+        self._title_exclude_edit.textChanged.connect(self._apply_item_filters)
+        title_filter_row.addWidget(self._title_exclude_edit)
+        right_layout.addLayout(title_filter_row)
+
+        item_filter_row = ResponsiveFlowLayout()
         item_filter_row.setSpacing(_ROW_SPACING)
         install_label = BodyLabel(tr("Download Status", "下载状态", "保存状態"), self)
         _style_inline_label(install_label)
@@ -522,11 +596,24 @@ class SubscriptionInterface(QWidget):
         self._item_sort_combo.currentIndexChanged.connect(self._apply_item_filters)
         item_filter_row.addWidget(self._item_sort_combo)
 
+        view_label = BodyLabel(tr("View", "视图", "表示"), self)
+        _style_inline_label(view_label)
+        item_filter_row.addWidget(view_label)
+        self._item_view_combo = ComboBox(self)
+        self._item_view_combo.addItems(
+            [
+                tr("List", "列表", "リスト"),
+                tr("Covers", "封面", "カバー"),
+            ]
+        )
+        self._item_view_combo.setFixedSize(100, _CONTROL_HEIGHT)
+        self._item_view_combo.currentIndexChanged.connect(self._on_item_view_changed)
+        item_filter_row.addWidget(self._item_view_combo)
+
         item_columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
         _style_action_button(item_columns_btn, min_width=96)
         item_columns_btn.clicked.connect(self._configure_item_columns)
         item_filter_row.addWidget(item_columns_btn)
-        item_filter_row.addStretch()
         right_layout.addLayout(item_filter_row)
 
         self._item_table = TableWidget(self)
@@ -555,7 +642,7 @@ class SubscriptionInterface(QWidget):
         self._item_table.setWordWrap(False)
         self._item_table.verticalHeader().setVisible(False)
         self._item_table.verticalHeader().setDefaultSectionSize(38)
-        self._item_table.itemDoubleClicked.connect(lambda item: self._open_item_from_cell(item, open_file=True))
+        self._item_table.itemDoubleClicked.connect(lambda item: self._open_item_from_cell(item, open_file=None))
         self._item_table.cellClicked.connect(self._on_item_cell_clicked)
         item_header = self._item_table.horizontalHeader()
         item_header.setHighlightSections(False)
@@ -578,8 +665,64 @@ class SubscriptionInterface(QWidget):
         restore_table_columns(self._item_table, "subscription_item_table_v2")
         connect_table_column_saver(self._item_table, "subscription_item_table_v2")
         self._item_table.selectionModel().selectionChanged.connect(lambda *_args: self._update_selection_actions())
-        right_layout.addWidget(self._item_table, stretch=1)
+
+        self._thumbnail_list = ResponsiveCoverList(self)
+        self._thumbnail_list.setViewMode(QListView.ViewMode.IconMode)
+        self._thumbnail_list.setResizeMode(QListView.ResizeMode.Adjust)
+        self._thumbnail_list.setMovement(QListView.Movement.Static)
+        self._thumbnail_list.setFlow(QListView.Flow.LeftToRight)
+        self._thumbnail_list.setWrapping(True)
+        self._thumbnail_list.setWordWrap(True)
+        self._thumbnail_list.setUniformItemSizes(True)
+        self._thumbnail_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._thumbnail_list.setIconSize(QSize(256, 144))
+        self._thumbnail_list.setGridSize(QSize(286, 232))
+        self._thumbnail_list.setSpacing(8)
+        self._thumbnail_list.itemDoubleClicked.connect(self._on_thumbnail_item_activated)
+        self._thumbnail_list.itemSelectionChanged.connect(self._update_selection_actions)
+        self._thumbnail_list.resized.connect(self._update_thumbnail_grid)
+
+        self._item_stack = QStackedWidget(self)
+        self._item_stack.addWidget(self._item_table)
+        self._item_stack.addWidget(self._thumbnail_list)
+        right_layout.addWidget(self._item_stack, stretch=1)
         self._update_selection_actions()
+        self._update_thumbnail_grid()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Horizontal splitters are useful on wide screens, but at compact widths
+        # they force both panels to keep their full toolbar width. Stack panels
+        # vertically instead so every control can wrap naturally.
+        should_stack = self.width() < 900
+        if should_stack != self._splitter_is_vertical:
+            self._splitter_is_vertical = should_stack
+            self._splitter.setOrientation(
+                Qt.Orientation.Vertical if should_stack else Qt.Orientation.Horizontal
+            )
+            if should_stack:
+                height = max(1, self._splitter.height())
+                self._splitter.setSizes([max(250, int(height * 0.38)), max(300, int(height * 0.62))])
+            else:
+                width = max(1, self._splitter.width())
+                self._splitter.setSizes([max(420, int(width * 0.40)), max(520, int(width * 0.60))])
+        self._update_thumbnail_grid()
+
+    def _update_thumbnail_grid(self):
+        if not hasattr(self, "_thumbnail_list"):
+            return
+        viewport_width = self._thumbnail_list.viewport().width()
+        if viewport_width <= 0:
+            return
+        spacing = 8
+        target_card_width = 286
+        columns = max(1, min(6, (viewport_width + spacing) // (target_card_width + spacing)))
+        card_width = max(180, (viewport_width - spacing * (columns + 1)) // columns)
+        image_width = max(140, card_width - 20)
+        image_height = max(80, round(image_width * 9 / 16))
+        self._thumbnail_list.setIconSize(QSize(image_width, image_height))
+        self._thumbnail_list.setGridSize(QSize(card_width, image_height + 88))
+        self._thumbnail_list.setSpacing(spacing)
 
     def _configure_source_columns(self):
         open_table_column_dialog(
@@ -786,6 +929,23 @@ class SubscriptionInterface(QWidget):
         install_idx = self._install_filter_combo.currentIndex() if hasattr(self, "_install_filter_combo") else 0
         new_idx = self._new_filter_combo.currentIndex() if hasattr(self, "_new_filter_combo") else 0
         sort_idx = self._item_sort_combo.currentIndex() if hasattr(self, "_item_sort_combo") else 0
+        include_terms = _split_title_keywords(
+            self._title_include_edit.text() if hasattr(self, "_title_include_edit") else ""
+        )
+        exclude_terms = _split_title_keywords(
+            self._title_exclude_edit.text() if hasattr(self, "_title_exclude_edit") else ""
+        )
+
+        if include_terms or exclude_terms:
+            items = [
+                item
+                for item in items
+                if _title_matches_keywords(
+                    str(item.get("title", "") or item.get("video_id", "") or ""),
+                    include_terms,
+                    exclude_terms,
+                )
+            ]
 
         def is_downloaded(item: dict[str, Any]) -> bool:
             return bool(item.get("downloaded"))
@@ -828,9 +988,6 @@ class SubscriptionInterface(QWidget):
     def _render_items(self):
         self._item_render_timer.stop()
         self._item_render_index = 0
-        self._item_table.setUpdatesEnabled(False)
-        self._item_table.clearContents()
-        self._item_table.setRowCount(len(self._visible_items))
         new_count = downloaded_count = moved_count = queued_count = unavailable_count = 0
         for item_data in self._all_items:
             downloaded = bool(item_data.get("downloaded"))
@@ -847,7 +1004,6 @@ class SubscriptionInterface(QWidget):
                 queued_count += 1
             if _item_not_downloadable(item_data):
                 unavailable_count += 1
-        self._item_table.setUpdatesEnabled(True)
         self._summary_label.setText(
             tr(
                 f"Visible: {len(self._visible_items)}/{len(self._all_items)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
@@ -855,8 +1011,140 @@ class SubscriptionInterface(QWidget):
                 f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
             )
         )
+
+        cover_mode = (
+            hasattr(self, "_item_view_combo")
+            and self._item_view_combo.currentIndex() == 1
+        )
+        if hasattr(self, "_item_stack"):
+            self._item_stack.setCurrentIndex(1 if cover_mode else 0)
+        if cover_mode:
+            self._item_table.clearContents()
+            self._item_table.setRowCount(0)
+            self._render_thumbnail_items()
+        else:
+            self._thumbnail_list.clear()
+            self._thumbnail_items_by_video_id.clear()
+            self._item_table.setUpdatesEnabled(False)
+            self._item_table.clearContents()
+            self._item_table.setRowCount(len(self._visible_items))
+            self._item_table.setUpdatesEnabled(True)
+            self._item_render_timer.start()
         self._update_selection_actions()
-        self._item_render_timer.start()
+
+    def _on_item_view_changed(self, _index: int):
+        self._render_items()
+        QTimer.singleShot(0, self._update_thumbnail_grid)
+
+    def _render_thumbnail_items(self):
+        self._update_thumbnail_grid()
+        self._thumbnail_list.setUpdatesEnabled(False)
+        self._thumbnail_list.clear()
+        self._thumbnail_items_by_video_id.clear()
+        placeholder = self._thumbnail_placeholder_icon()
+        try:
+            for item_data in self._visible_items:
+                video_id = str(item_data.get("video_id", "") or "").strip()
+                if not video_id:
+                    continue
+                title = str(item_data.get("title", "") or video_id)
+                author = str(item_data.get("author", "") or item_data.get("source_title", "") or "")
+                published = _date_only(str(item_data.get("published_at", "") or ""))
+                state = _item_state_text(
+                    downloaded=bool(item_data.get("downloaded")),
+                    queued=bool(item_data.get("queued")),
+                    file_exists=bool(item_data.get("download_file_exists")),
+                    task_status=str(item_data.get("task_status", "") or ""),
+                    download_state=str(item_data.get("download_state", "") or ""),
+                    download_reason=str(item_data.get("download_reason", "") or ""),
+                )
+                meta = " · ".join(value for value in (author, published) if value)
+                label = _ellipsize(title, 56)
+                if meta:
+                    label += f"\n{_ellipsize(meta, 44)}"
+                label += f"\n{state}"
+                path = str(item_data.get("thumbnail_path", "") or "")
+                icon = self._thumbnail_icon(path) if path and os.path.isfile(path) else placeholder
+                list_item = QListWidgetItem(icon, label)
+                list_item.setData(Qt.ItemDataRole.UserRole, video_id)
+                list_item.setToolTip(
+                    tr(
+                        f"{title}\nAuthor: {author}\nDouble-click to open",
+                        f"{title}\n作者: {author}\n双击后按设置打开",
+                        f"{title}\n作者: {author}\nダブルクリックで開く",
+                    )
+                )
+                list_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                self._thumbnail_list.addItem(list_item)
+                self._thumbnail_items_by_video_id.setdefault(video_id, []).append(list_item)
+        finally:
+            self._thumbnail_list.setUpdatesEnabled(True)
+        self._start_thumbnail_worker_for_visible_items()
+
+    def _thumbnail_placeholder_icon(self) -> QIcon:
+        pixmap = QPixmap(self._thumbnail_list.iconSize())
+        pixmap.fill(QColor("#34373d" if isDarkTheme() else "#e8e8e8"))
+        return QIcon(pixmap)
+
+    def _thumbnail_icon(self, path: str) -> QIcon:
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return self._thumbnail_placeholder_icon()
+        size = self._thumbnail_list.iconSize()
+        scaled = pixmap.scaled(
+            size,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = max(0, (scaled.width() - size.width()) // 2)
+        y = max(0, (scaled.height() - size.height()) // 2)
+        return QIcon(scaled.copy(x, y, size.width(), size.height()))
+
+    def _start_thumbnail_worker_for_visible_items(self):
+        if self._thumbnail_worker and self._thumbnail_worker.isRunning():
+            return
+        requests: list[tuple[str, str]] = []
+        for item_data in self._visible_items:
+            video_id = str(item_data.get("video_id", "") or "").strip()
+            thumbnail_url = str(item_data.get("thumbnail_url", "") or "").strip()
+            thumbnail_path = str(item_data.get("thumbnail_path", "") or "").strip()
+            if (
+                not video_id
+                or not thumbnail_url
+                or (thumbnail_path and os.path.isfile(thumbnail_path))
+                or video_id in self._thumbnail_requested_video_ids
+            ):
+                continue
+            requests.append((video_id, thumbnail_url))
+            if len(requests) >= 80:
+                break
+        if not requests:
+            return
+        self._thumbnail_requested_video_ids.update(video_id for video_id, _url in requests)
+        self._thumbnail_worker = SubscriptionThumbnailWorker(requests)
+        self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._thumbnail_worker.done.connect(self._on_thumbnail_worker_finished)
+        self._thumbnail_worker.start()
+
+    def _on_thumbnail_ready(self, video_id: str, path: str):
+        for collection in (self._all_items, self._visible_items):
+            for item_data in collection:
+                if str(item_data.get("video_id", "") or "") == video_id:
+                    item_data["thumbnail_path"] = path
+        icon = self._thumbnail_icon(path)
+        for list_item in self._thumbnail_items_by_video_id.get(video_id, []):
+            list_item.setIcon(icon)
+
+    def _on_thumbnail_worker_finished(self):
+        worker = self._thumbnail_worker
+        self._thumbnail_worker = None
+        if worker:
+            worker.deleteLater()
+        if (
+            hasattr(self, "_item_view_combo")
+            and self._item_view_combo.currentIndex() == 1
+        ):
+            self._start_thumbnail_worker_for_visible_items()
 
     def _render_item_batch(self):
         start = self._item_render_index
@@ -1001,6 +1289,12 @@ class SubscriptionInterface(QWidget):
 
     def _selected_video_ids(self) -> list[str]:
         ids: list[str] = []
+        if hasattr(self, "_item_view_combo") and self._item_view_combo.currentIndex() == 1:
+            for item in self._thumbnail_list.selectedItems():
+                video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+                if video_id and video_id not in ids:
+                    ids.append(video_id)
+            return ids
         for index in self._item_table.selectionModel().selectedRows():
             item = self._item_table.item(index.row(), self._ITEM_ID)
             if not item:
@@ -1020,6 +1314,27 @@ class SubscriptionInterface(QWidget):
         else:
             self._open_source_page(self._sources[row])
 
+    def _on_thumbnail_item_activated(self, item: QListWidgetItem):
+        video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if video_id:
+            self._activate_video_id(video_id)
+
+    def _activate_video_id(self, video_id: str):
+        item_data = next(
+            (item for item in self._all_items if str(item.get("video_id", "") or "") == video_id),
+            None,
+        )
+        if not item_data:
+            _open_url(_video_url(video_id))
+            return
+        if bool(item_data.get("download_file_exists")):
+            self._open_history_item(
+                video_id,
+                open_file=app_config.completed_task_click_action == "player",
+            )
+            return
+        _open_url(str(item_data.get("source_url", "") or _video_url(video_id)))
+
     def _on_item_cell_clicked(self, row: int, column: int):
         if column not in (self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
             return
@@ -1037,7 +1352,7 @@ class SubscriptionInterface(QWidget):
         elif action == "open_file":
             self._open_history_item(video_id, open_file=True)
 
-    def _open_item_from_cell(self, item: QTableWidgetItem, *, open_file: bool):
+    def _open_item_from_cell(self, item: QTableWidgetItem, *, open_file: bool | None):
         video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
         if video_id:
             if item.column() == self._ITEM_SOURCE_URL:
@@ -1046,6 +1361,10 @@ class SubscriptionInterface(QWidget):
                 _open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or "") or _video_url(video_id))
             elif item.column() == self._ITEM_FOLDER:
                 self._open_history_item(video_id, open_file=False)
+            elif item.column() == self._ITEM_FILE:
+                self._open_history_item(video_id, open_file=True)
+            elif open_file is None:
+                self._activate_video_id(video_id)
             else:
                 self._open_history_item(video_id, open_file=open_file)
 
@@ -1214,6 +1533,56 @@ class SubscriptionInterface(QWidget):
                 f"[订阅] 刷新完成: 新增={summary.get('new', 0)}, 已下载={summary.get('downloaded', 0)}, 不可下载={summary.get('unavailable', 0)}, 总计={summary.get('total', 0)}",
                 f"[購読] 更新完了: 新規={summary.get('new', 0)}, 保存済み={summary.get('downloaded', 0)}, 保存不可={summary.get('unavailable', 0)}, 合計={summary.get('total', 0)}",
             )
+        )
+
+    def _delete_selected_source(self):
+        source_id = self._selected_source_id()
+        if not source_id:
+            self._show_error(tr("Select a subscription first", "请先选择一个订阅", "購読を選択してください"))
+            return
+        source = next(
+            (source for source in self._sources if int(source.get("id", 0) or 0) == source_id),
+            None,
+        )
+        if not source:
+            return
+        display_name = (
+            str(source.get("title", "") or "").strip()
+            or str(source.get("source_key", "") or "").strip()
+            or f"#{source_id}"
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(tr("Delete Subscription", "删除订阅", "購読を削除"))
+        box.setText(
+            tr(
+                f'Delete subscription "{display_name}" and its cached video list?',
+                f'确定删除订阅“{display_name}”及其缓存视频列表吗？',
+                f'購読「{display_name}」と保存済み動画一覧を削除しますか？',
+            )
+        )
+        box.setInformativeText(
+            tr(
+                "Downloaded files and history records will not be deleted.",
+                "不会删除已下载文件和历史记录。",
+                "保存済みファイルと履歴は削除されません。",
+            )
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        download_manager.remove_subscription_source(source_id)
+        self._current_source_id = None
+        self._load_sources()
+        InfoBar.success(
+            title=tr("Subscription Deleted", "订阅已删除", "購読を削除しました"),
+            content=display_name,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
         )
 
     def _toggle_selected_source(self):
@@ -1491,6 +1860,29 @@ class SubscriptionInterface(QWidget):
             task_status = task_status_by_video_id.get(video_id, "") if video_id else ""
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
+
+
+def _split_title_keywords(value: str) -> list[str]:
+    terms: list[str] = []
+    for part in str(value or "").replace(";", ",").replace("\n", ",").split(","):
+        term = part.strip().casefold()
+        if term and term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _title_matches_keywords(title: str, include_terms: list[str], exclude_terms: list[str]) -> bool:
+    haystack = str(title or "").casefold()
+    if include_terms and not any(term in haystack for term in include_terms):
+        return False
+    return not any(term in haystack for term in exclude_terms)
+
+
+def _ellipsize(value: str, limit: int) -> str:
+    value = str(value or "")
+    if len(value) <= limit:
+        return value
+    return value[: max(1, limit - 1)].rstrip() + "…"
 
 
 def _source_type_label(source_type: str) -> str:

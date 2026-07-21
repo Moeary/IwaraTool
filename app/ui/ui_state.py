@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QDialog,
     QHBoxLayout,
+    QLayout,
+    QLayoutItem,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -20,6 +22,75 @@ from PySide6.QtWidgets import (
 
 from ..config import app_config
 from ..i18n import tr
+
+
+class ResponsiveFlowLayout(QLayout):
+    """Wrap controls onto additional rows when the available width is small."""
+
+    def __init__(self, parent=None, *, spacing: int = 10):
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self._spacing = spacing
+
+    def addItem(self, item: QLayoutItem):
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize(0, 0)
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        return size + QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+
+    def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
+        if effective.width() <= 0:
+            return margins.top() + margins.bottom()
+
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        right = effective.right()
+        for item in self._items:
+            hint = item.sizeHint()
+            item_width = min(hint.width(), effective.width())
+            next_x = x + item_width
+            if x > effective.x() and next_x > right:
+                x = effective.x()
+                y += line_height + self._spacing
+                next_x = x + item_width
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), QSize(item_width, hint.height())))
+            x = next_x + self._spacing
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y() + margins.bottom()
 
 
 def restore_splitter_sizes(splitter: QSplitter, key: str, default_sizes: list[int]):

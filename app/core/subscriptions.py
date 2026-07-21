@@ -70,6 +70,7 @@ class SubscriptionStore:
                 "author TEXT DEFAULT '', "
                 "published_at TEXT DEFAULT '', "
                 "source_url TEXT DEFAULT '', "
+                "thumbnail_url TEXT DEFAULT '', "
                 "download_state TEXT DEFAULT '', "
                 "download_reason TEXT DEFAULT '', "
                 "download_checked_at TEXT DEFAULT '', "
@@ -144,13 +145,14 @@ class SubscriptionStore:
                             continue
                         target.execute(
                             "INSERT INTO items "
-                            "(source_id, video_id, title, author, published_at, source_url, discovered_at, updated_at, is_new) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                            "(source_id, video_id, title, author, published_at, source_url, thumbnail_url, discovered_at, updated_at, is_new) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                             "ON CONFLICT(source_id, video_id) DO UPDATE SET "
                             "title=CASE WHEN excluded.title != '' THEN excluded.title ELSE title END, "
                             "author=CASE WHEN excluded.author != '' THEN excluded.author ELSE author END, "
                             "published_at=CASE WHEN excluded.published_at != '' THEN excluded.published_at ELSE published_at END, "
                             "source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE source_url END, "
+                            "thumbnail_url=CASE WHEN excluded.thumbnail_url != '' THEN excluded.thumbnail_url ELSE thumbnail_url END, "
                             "is_new=MAX(is_new, excluded.is_new), "
                             "updated_at=CURRENT_TIMESTAMP",
                             (
@@ -160,6 +162,7 @@ class SubscriptionStore:
                                 str(item.get("author", "") or ""),
                                 str(item.get("published_at", "") or ""),
                                 str(item.get("source_url", "") or ""),
+                                str(item.get("thumbnail_url", "") or ""),
                                 str(item.get("discovered_at", "") or ""),
                                 str(item.get("updated_at", "") or ""),
                                 1 if int(item.get("is_new", 1) or 0) else 0,
@@ -301,6 +304,7 @@ class SubscriptionStore:
                     str(item.get("author", "") or ""),
                     str(item.get("published_at", "") or ""),
                     str(item.get("source_url", "") or ""),
+                    str(item.get("thumbnail_url", "") or ""),
                 )
                 download_state = str(item.get("download_state", "") or "")
                 download_reason = str(item.get("download_reason", "") or "")
@@ -311,7 +315,7 @@ class SubscriptionStore:
                 if row:
                     if state_known:
                         conn.execute(
-                            "UPDATE items SET title=?, author=?, published_at=?, source_url=?, "
+                            "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, "
                             "download_state=?, download_reason=?, download_checked_at=?, updated_at=CURRENT_TIMESTAMP "
                             "WHERE source_id=? AND video_id=?",
                             (
@@ -319,6 +323,7 @@ class SubscriptionStore:
                                 params[3],
                                 params[4],
                                 params[5],
+                                params[6],
                                 download_state,
                                 download_reason,
                                 checked_at,
@@ -328,14 +333,14 @@ class SubscriptionStore:
                         )
                         continue
                     conn.execute(
-                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, updated_at=CURRENT_TIMESTAMP "
+                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, updated_at=CURRENT_TIMESTAMP "
                         "WHERE source_id=? AND video_id=?",
-                        (params[2], params[3], params[4], params[5], params[0], params[1]),
+                        (params[2], params[3], params[4], params[5], params[6], params[0], params[1]),
                     )
                     continue
                 conn.execute(
-                    "INSERT INTO items (source_id, video_id, title, author, published_at, source_url, download_state, download_reason, download_checked_at, is_new) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                    "INSERT INTO items (source_id, video_id, title, author, published_at, source_url, thumbnail_url, download_state, download_reason, download_checked_at, is_new) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
                     (*params, download_state, download_reason, checked_at),
                 )
                 new_count += 1
@@ -498,6 +503,7 @@ class SubscriptionStore:
         rows = conn.execute("PRAGMA table_info(items)").fetchall()
         existing = {r[1] for r in rows}
         required: dict[str, str] = {
+            "thumbnail_url": "TEXT DEFAULT ''",
             "download_state": "TEXT DEFAULT ''",
             "download_reason": "TEXT DEFAULT ''",
             "download_checked_at": "TEXT DEFAULT ''",

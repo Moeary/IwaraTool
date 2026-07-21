@@ -35,6 +35,7 @@ from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .task_page import TaskCenterInterface
+from .ui_state import ResponsiveFlowLayout
 
 
 _OPTION_ON_STYLE = """
@@ -283,9 +284,8 @@ class DownloadInterface(QWidget):
         root.setContentsMargins(28, 22, 28, 18)
         root.setSpacing(12)
 
-        title_row = QHBoxLayout()
+        title_row = ResponsiveFlowLayout()
         title_row.addWidget(TitleLabel(tr("Download Workbench", "下载工作台", "ダウンロードワークベンチ"), self))
-        title_row.addStretch()
         root.addLayout(title_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -400,7 +400,7 @@ class DownloadInterface(QWidget):
         url_layout.addWidget(self._url_edit)
         left_layout.addWidget(url_card)
 
-        submit_row = QHBoxLayout()
+        submit_row = ResponsiveFlowLayout()
         self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel, FluentIcon.FILTER)
         self._filter_btn.clicked.connect(self._open_filter_dialog)
         submit_row.addWidget(self._filter_btn)
@@ -420,9 +420,8 @@ class DownloadInterface(QWidget):
         log_layout.setContentsMargins(16, 14, 16, 14)
         log_layout.setSpacing(8)
 
-        log_header = QHBoxLayout()
+        log_header = ResponsiveFlowLayout()
         log_header.addWidget(SubtitleLabel(tr("Runtime Log", "运行日志", "実行ログ"), log_card))
-        log_header.addStretch()
         clear_log_btn = PrimaryPushButton(tr("Clear", "清空", "クリア"), log_card, FluentIcon.DELETE)
         clear_log_btn.setFixedWidth(80)
         clear_log_btn.clicked.connect(self._clear_log)

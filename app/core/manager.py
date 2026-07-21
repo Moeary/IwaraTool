@@ -16,6 +16,7 @@ This ensures download URLs are never resolved too early and expire before use.
 from __future__ import annotations
 
 import gc
+import hashlib
 import os
 import json
 import re
@@ -556,6 +557,11 @@ class DownloadManager:
             video_id = str(item.get("video_id", "") or "")
             history_record = history_records.get(video_id)
             file_path = str(history_record.get("file_path", "") or "") if history_record else ""
+            history_thumbnail_path = (
+                str(history_record.get("thumbnail_path", "") or "") if history_record else ""
+            )
+            thumbnail_url = str(item.get("thumbnail_url", "") or "")
+            cached_thumbnail_path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
             task_status, task_error = task_info_by_video_id.get(video_id.lower(), ("", ""))
             download_state = str(item.get("download_state", "") or "")
             download_reason = str(item.get("download_reason", "") or "")
@@ -568,6 +574,14 @@ class DownloadManager:
             item["downloaded"] = bool(history_record)
             item["download_file_path"] = file_path
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
+            item["thumbnail_path"] = next(
+                (
+                    path
+                    for path in (history_thumbnail_path, cached_thumbnail_path)
+                    if path and os.path.isfile(path)
+                ),
+                "",
+            )
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
             item["download_state"] = download_state
@@ -577,6 +591,13 @@ class DownloadManager:
 
     def remove_subscription_source(self, source_id: int):
         self.subscriptions.remove_source(source_id)
+
+    def cache_subscription_thumbnail(self, video_id: str, thumbnail_url: str) -> str:
+        """Cache a subscription cover and return its local path on success."""
+        path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
+        if path and self._download_subscription_avatar(thumbnail_url, path):
+            return path
+        return ""
 
     def set_subscription_enabled(self, source_id: int, enabled: bool):
         self.subscriptions.set_source_enabled(source_id, enabled)
@@ -3266,6 +3287,19 @@ class DownloadManager:
             self._aria2_rpc_call("aria2.forceRemove", [gid])
         self._aria2_rpc_remove_result(gid)
 
+    def _subscription_thumbnail_cache_path(self, video_id: str, thumbnail_url: str) -> str:
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id or not thumbnail_url:
+            return ""
+        url_name = os.path.basename(urlparse(thumbnail_url).path)
+        ext = os.path.splitext(url_name)[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
+            ext = ".jpg"
+        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
+        img_dir = os.path.join(app_config.app_data_dir, "img")
+        return os.path.join(img_dir, f"cover_{video_id}_{fingerprint}{ext}")
+
     def _subscription_avatar_cache_path(self, source: dict[str, Any], avatar_url: str) -> str:
         source_id = int(source.get("id", 0) or 0)
         source_key = self._sanitize_path_segment(str(source.get("source_key", "") or "author"))
@@ -3617,10 +3651,26 @@ def _subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
         "author": author,
         "published_at": str(video.get("createdAt", "") or video.get("updatedAt", "") or ""),
         "source_url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
+        "thumbnail_url": _subscription_thumbnail_url(video),
         "download_state": download_state,
         "download_reason": download_reason,
         "download_state_known": bool(download_state or download_reason or video.get("fileUrl")),
     }
+
+
+def _subscription_thumbnail_url(video: dict[str, Any]) -> str:
+    custom_thumbnail = _dict_or_empty(video.get("customThumbnail"))
+    if custom_thumbnail:
+        custom_url = _iwara_image_url(custom_thumbnail, variant="original")
+        if custom_url:
+            return custom_url
+    file_info = _dict_or_empty(video.get("file"))
+    file_id = str(file_info.get("id", "") or "").strip()
+    host = urlparse(str(video.get("fileUrl", "") or "")).netloc
+    if not file_id or not host:
+        return ""
+    index = max(0, int(video.get("thumbnail", 0) or 0))
+    return f"https://{host}/image/original/{quote(file_id)}/thumbnail-{index:02d}.jpg"
 
 
 def _subscription_download_block_from_video_info(video_info: dict[str, Any]) -> tuple[str, str]:

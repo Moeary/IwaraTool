@@ -15,7 +15,12 @@ from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_im
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
-from app.ui.subscription_page import _source_search_text, _source_sort_key
+from app.ui.subscription_page import (
+    _source_search_text,
+    _source_sort_key,
+    _split_title_keywords,
+    _title_matches_keywords,
+)
 from app.ui.task_page import TaskCenterInterface
 from app.ui.ui_state import (
     apply_table_column_layout,
@@ -589,6 +594,35 @@ class ManagerPerformanceTests(unittest.TestCase):
             "https://i.iwara.tv/image/thumbnail/2f22ed06-9907-4e95-bddb-f2e81ff0116a/2f22ed06-9907-4e95-bddb-f2e81ff0116a.jpeg",
         )
 
+    def test_subscription_item_includes_thumbnail_url(self):
+        item = _subscription_item_from_video(
+            {
+                "id": "video-cover-01",
+                "title": "Cover Video",
+                "fileUrl": "https://cdn.example.test/file",
+                "file": {"id": "file-cover-01"},
+                "thumbnail": 3,
+            }
+        )
+
+        self.assertEqual(
+            item["thumbnail_url"],
+            "https://cdn.example.test/image/original/file-cover-01/thumbnail-03.jpg",
+        )
+
+    def test_subscription_store_remove_source_deletes_items_only(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "dead-author", "")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [{"video_id": "dead-video", "title": "Cached video"}],
+        )
+
+        mgr.remove_subscription_source(source_id)
+
+        self.assertEqual(mgr.subscriptions.list_sources(), [])
+        self.assertEqual(mgr.subscriptions.list_items(), [])
+
     def test_subscription_store_migrates_legacy_db_into_history_db(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-migrate-")
         TEMP_DIRS.append(tmp_dir)
@@ -821,6 +855,16 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertFalse(restored.isColumnHidden(3))
         self.assertTrue(restored.isColumnHidden(0))
         self.assertTrue(restored.isColumnHidden(1))
+
+    def test_subscription_title_keyword_filter_supports_include_and_exclude(self):
+        include_terms = _split_title_keywords(" MMD; dance, mmd\n")
+        exclude_terms = _split_title_keywords("fixed,  test")
+
+        self.assertEqual(include_terms, ["mmd", "dance"])
+        self.assertEqual(exclude_terms, ["fixed", "test"])
+        self.assertTrue(_title_matches_keywords("MMD Dance", include_terms, exclude_terms))
+        self.assertFalse(_title_matches_keywords("MMD fixed camera", include_terms, exclude_terms))
+        self.assertFalse(_title_matches_keywords("Unrelated", include_terms, exclude_terms))
 
     def test_subscription_source_sort_and_filter_text_use_author_names(self):
         sources = [

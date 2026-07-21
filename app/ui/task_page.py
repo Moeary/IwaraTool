@@ -9,8 +9,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
-    QHBoxLayout,
     QTableWidgetItem,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +34,7 @@ from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import (
+    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
@@ -133,9 +134,8 @@ class TaskCenterInterface(QWidget):
             root.setContentsMargins(36, 24, 36, 16)
             root.setSpacing(12)
 
-        title_row = QHBoxLayout()
+        title_row = ResponsiveFlowLayout()
         title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
-        title_row.addStretch()
 
         self._exclude_downloaded_switch = SwitchButton(self)
         self._exclude_downloaded_switch.setChecked(True)
@@ -167,12 +167,12 @@ class TaskCenterInterface(QWidget):
         title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
-        filter_row = QHBoxLayout()
+        filter_row = ResponsiveFlowLayout()
         self._search_edit = LineEdit(self)
         self._search_edit.setPlaceholderText(tr("Search tasks...", "搜索任务...", "タスクを検索..."))
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._apply_filters)
-        filter_row.addWidget(self._search_edit, stretch=1)
+        filter_row.addWidget(self._search_edit)
 
         self._state_combo = ComboBox(self)
         self._state_combo.addItems(
@@ -216,9 +216,14 @@ class TaskCenterInterface(QWidget):
         root.addLayout(filter_row)
 
         self._summary_label = BodyLabel("", self)
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setMinimumHeight(28)
+        self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         root.addWidget(self._summary_label)
 
         self._table = TableWidget(self)
+        self._table.setMinimumWidth(0)
+        self._table.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
         self._table.setColumnCount(11)
         self._table.setHorizontalHeaderLabels(
