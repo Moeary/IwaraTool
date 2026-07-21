@@ -1,13 +1,13 @@
 """Named download/filter rules page and reusable rule picker."""
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, QStringListModel, Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
-    QFileDialog,
+    QCompleter,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
-    ComboBox,
+    EditableComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
@@ -33,7 +33,6 @@ from qfluentwidgets import (
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
-    ToolButton,
     isDarkTheme,
 )
 
@@ -49,6 +48,9 @@ from ..core.rules import (
 )
 from ..i18n import tr
 from ..signal_bus import signal_bus
+
+
+DRAFT_RULE_ID = "__draft_rule__"
 
 
 def _rule_summary(payload: dict[str, Any]) -> str:
@@ -103,30 +105,20 @@ class RuleFormWidget(QWidget):
         storage_layout.setContentsMargins(18, 14, 18, 14)
         storage_layout.setHorizontalSpacing(10)
         storage_layout.setVerticalSpacing(10)
-        storage_layout.addWidget(SubtitleLabel(tr("Files and naming", "保存位置与命名", "保存先と命名"), storage_card), 0, 0, 1, 3)
-        storage_layout.addWidget(BodyLabel(tr("Download directory", "下载目录", "ダウンロード先"), storage_card), 1, 0)
-        self.download_dir_edit = LineEdit(storage_card)
-        self.download_dir_edit.setPlaceholderText(tr("Choose a folder…", "选择保存目录…", "保存先を選択…"))
-        browse_btn = ToolButton(FluentIcon.FOLDER, storage_card)
-        browse_btn.clicked.connect(self._browse_download_dir)
-        storage_layout.addWidget(self.download_dir_edit, 1, 1)
-        storage_layout.addWidget(browse_btn, 1, 2)
-        storage_layout.addWidget(BodyLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 2, 0)
+        storage_layout.addWidget(SubtitleLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 0, 0, 1, 3)
         self.filename_template_edit = LineEdit(storage_card)
         self.filename_template_edit.setPlaceholderText("{username}/{YYYY-MM-DD}_{title}_{id}.mp4")
-        storage_layout.addWidget(self.filename_template_edit, 2, 1, 1, 2)
-        template_help = BodyLabel(tr("Available: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}", "可用占位符：{username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}", "使用可能: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}"), storage_card)
+        storage_layout.addWidget(self.filename_template_edit, 1, 0, 1, 3)
+        template_help = BodyLabel(
+            tr(
+                "Available: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
+                "可用占位符：{username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
+                "使用可能: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
+            ),
+            storage_card,
+        )
         template_help.setWordWrap(True)
-        storage_layout.addWidget(template_help, 3, 1, 1, 2)
-        self.skip_existing = SwitchButton(storage_card)
-        storage_layout.addWidget(BodyLabel(tr("Skip existing complete files", "跳过已存在的完整文件", "既存ファイルをスキップ"), storage_card), 4, 0)
-        storage_layout.addWidget(self.skip_existing, 4, 1)
-        self.completed_action_combo = ComboBox(storage_card)
-        self.completed_action_combo.addItem(tr("Open containing folder", "打开文件夹", "保存先フォルダーを開く"), userData="folder")
-        self.completed_action_combo.addItem(tr("Open system video player", "打开系统播放器", "システムプレイヤーで開く"), userData="player")
-        storage_layout.addWidget(BodyLabel(tr("Completed item click", "完成项单击行为", "完了項目のクリック"), storage_card), 5, 0)
-        storage_layout.addWidget(self.completed_action_combo, 5, 1, 1, 2)
-        storage_layout.setColumnStretch(1, 1)
+        storage_layout.addWidget(template_help, 2, 0, 1, 3)
         root.addWidget(storage_card)
 
         filter_card = CardWidget(self)
@@ -208,12 +200,6 @@ class RuleFormWidget(QWidget):
         root.addWidget(download_card)
         root.addStretch(1)
 
-    def _browse_download_dir(self):
-        current = self.download_dir_edit.text().strip() or os.path.expanduser("~")
-        selected = QFileDialog.getExistingDirectory(self, tr("Choose Download Directory", "选择下载目录", "ダウンロード先を選択"), current)
-        if selected:
-            self.download_dir_edit.setText(selected)
-
     def set_builtin_mode(self, builtin: bool):
         self.name_edit.setReadOnly(builtin)
 
@@ -237,11 +223,7 @@ class RuleFormWidget(QWidget):
         self.mark_only.setChecked(data["mark_submitted_as_downloaded"])
         self.download_thumb.setChecked(data["download_thumbnail"])
         self.collect_nfo.setChecked(data["collect_nfo_info"])
-        self.download_dir_edit.setText(data["download_dir"])
         self.filename_template_edit.setText(data["filename_template"])
-        self.skip_existing.setChecked(data["skip_existing_files"])
-        action_index = self.completed_action_combo.findData(data["completed_task_click_action"])
-        self.completed_action_combo.setCurrentIndex(max(0, action_index))
         self.summary_label.setText(_rule_summary(data))
 
     def payload(self) -> dict[str, Any]:
@@ -275,16 +257,13 @@ class RuleFormWidget(QWidget):
                 "download_thumbnail": self.download_thumb.isChecked(),
                 "collect_nfo_info": self.collect_nfo.isChecked(),
                 "mark_submitted_as_downloaded": self.mark_only.isChecked(),
-                "download_dir": self.download_dir_edit.text(),
                 "filename_template": self.filename_template_edit.text(),
-                "skip_existing_files": self.skip_existing.isChecked(),
-                "completed_task_click_action": self.completed_action_combo.currentData() or "folder",
             }
         )
 
 
 class RulePicker(QWidget):
-    """Searchable selector that applies and remembers a rule immediately."""
+    """Single-line Fluent searchable selector that applies a rule immediately."""
 
     ruleApplied = Signal(dict)
 
@@ -292,48 +271,24 @@ class RulePicker(QWidget):
         super().__init__(parent)
         self._rules_cache: list[dict[str, Any]] = []
         self._syncing = False
-        self._layout = QGridLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setHorizontalSpacing(8)
-        self._layout.setVerticalSpacing(6)
-        self.search_edit = LineEdit(self)
-        self.search_edit.setPlaceholderText(tr("Search rules…", "搜索规则…", "ルールを搜索…"))
-        self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setMinimumWidth(120)
-        self.combo = ComboBox(self)
-        self.combo.setMinimumWidth(150)
+        self._model = QStringListModel(self)
+        self.combo = EditableComboBox(self)
+        self.combo.setPlaceholderText(tr("Search or select a rule…", "搜索或选择下载规则…", "ルールを検索または選択…"))
+        self.combo.setMinimumWidth(240)
         self.combo.setToolTip(tr("Selecting applies it immediately", "选中后立即应用并设为默认", "選択するとすぐ適用されます"))
-        self._layout.addWidget(self.search_edit, 0, 0)
-        self._layout.addWidget(self.combo, 0, 1)
-        self._layout.setColumnStretch(0, 1)
-        self._layout.setColumnStretch(1, 1)
-        self._compact = False
-        self._update_responsive_layout()
-        self.search_edit.textChanged.connect(self._filter_items)
+        completer = QCompleter(self._model, self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setMaxVisibleItems(8)
+        self.combo.setCompleter(completer)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.combo, 1)
         self.combo.currentIndexChanged.connect(self._on_combo_changed)
         signal_bus.rules_changed.connect(self.refresh_rules)
         signal_bus.active_rule_changed.connect(self._sync_active_rule)
         self.refresh_rules(apply_current=True)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_responsive_layout()
-
-    def _update_responsive_layout(self):
-        compact = self.width() < 350
-        if compact == self._compact:
-            return
-        self._compact = compact
-        self._layout.removeWidget(self.search_edit)
-        self._layout.removeWidget(self.combo)
-        if compact:
-            self._layout.addWidget(self.search_edit, 0, 0, 1, 2)
-            self._layout.addWidget(self.combo, 1, 0, 1, 2)
-            self.setMinimumHeight(70)
-        else:
-            self._layout.addWidget(self.search_edit, 0, 0)
-            self._layout.addWidget(self.combo, 0, 1)
-            self.setMinimumHeight(0)
 
     def refresh_rules(self, apply_current: bool = False):
         selected = active_rule_id()
@@ -346,23 +301,19 @@ class RulePicker(QWidget):
             self._activate_rule(selected, show_notice=False, broadcast=False)
 
     def _rebuild_combo(self, selected: str):
-        query = self.search_edit.text().strip().casefold()
-        visible = [r for r in self._rules_cache if not query or query in str(r["name"]).casefold()]
-        selected_rule = next((r for r in self._rules_cache if r["id"] == selected), None)
-        if selected_rule and selected_rule not in visible:
-            visible.insert(0, selected_rule)
         self._syncing = True
         self.combo.blockSignals(True)
         self.combo.clear()
-        for rule in visible:
+        labels: list[str] = []
+        for rule in self._rules_cache:
             suffix = tr(" · built in", " · 内置", " · 内蔵") if rule.get("builtin") else ""
-            self.combo.addItem(str(rule["name"]) + suffix, userData=rule["id"])
-        self.combo.blockSignals(False)
+            label = str(rule["name"]) + suffix
+            labels.append(label)
+            self.combo.addItem(label, userData=rule["id"])
+        self._model.setStringList(labels)
         self.select_rule(selected)
+        self.combo.blockSignals(False)
         self._syncing = False
-
-    def _filter_items(self, _text: str):
-        self._rebuild_combo(active_rule_id())
 
     def selected_rule_id(self) -> str:
         return str(self.combo.currentData() or BUILTIN_DEFAULT_RULE_ID)
@@ -424,6 +375,7 @@ class RulesInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("RulesInterface")
         self._selected_id = ""
+        self._draft_rule: dict[str, Any] | None = None
         self._rules_cache: list[dict[str, Any]] = []
         self._build_ui()
         self._reload_list(active_rule_id())
@@ -435,9 +387,9 @@ class RulesInterface(QWidget):
         root.setSpacing(12)
         root.addWidget(TitleLabel(tr("Download Rules", "下载规则", "ダウンロードルール"), self))
         intro = BodyLabel(tr(
-            "One rule combines filters, storage, naming and download behavior. Selecting a rule on a download page applies it immediately.",
-            "一个规则统一保存筛选、目录、命名和下载行为；在下载页选择后会立即生效并成为默认规则。",
-            "フィルター、保存先、命名、保存動作を一つにまとめ、選択時に即座に適用します。",
+            "One rule combines filters, naming and download behavior. Selecting a rule on a download page applies it immediately.",
+            "一个规则统一保存筛选、命名和下载行为；在下载页选择后会立即生效并成为默认规则。",
+            "フィルター、命名、保存動作を一つにまとめ、選択時に即座に適用します。",
         ), self)
         intro.setWordWrap(True)
         root.addWidget(intro)
@@ -484,6 +436,7 @@ class RulesInterface(QWidget):
         self._form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._form = RuleFormWidget()
+        self._form.name_edit.textChanged.connect(self._on_form_name_changed)
         self._form_scroll.setWidget(self._form)
         right_layout.addWidget(self._form_scroll, 1)
         bottom = QHBoxLayout()
@@ -499,33 +452,65 @@ class RulesInterface(QWidget):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([360, 1120])
+        self._apply_fluent_scrollbars()
 
     def _list_style(self) -> str:
         if isDarkTheme():
-            return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #3c434a;border-radius:8px;background:#292d32;color:#eef2f5;} QListWidget::item:selected{border:1px solid #18a8b2;background:#203d42;}"
-        return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #e2e6ea;border-radius:8px;background:#fafbfc;color:#202428;} QListWidget::item:selected{border:1px solid #00a4af;background:#e9f7f8;color:#15272a;}"
+            return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #3c434a;border-radius:8px;color:#eef2f5;} QListWidget::item:selected{border:1px solid #18a8b2;background:transparent;}"
+        return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #e2e6ea;border-radius:8px;color:#202428;} QListWidget::item:selected{border:1px solid #00a4af;background:transparent;color:#15272a;}"
 
     def _reload_list(self, select_id: str | None = None):
-        self._rules_cache = rule_store.list_available()
+        saved_rules = rule_store.list_available()
+        self._rules_cache = list(saved_rules)
+        if self._draft_rule:
+            self._rules_cache.insert(1 if self._rules_cache else 0, self._draft_rule)
         active_id = active_rule_id()
         self._list.blockSignals(True)
         self._list.clear()
         for rule in self._rules_cache:
             active_mark = "● " if rule["id"] == active_id else "  "
-            kind = tr("Built-in default", "内置默认", "内蔵の既定") if rule.get("builtin") else tr("Saved rule", "已保存规则", "保存済み")
+            if rule["id"] == DRAFT_RULE_ID:
+                kind = tr("Unsaved draft", "未保存草稿", "未保存の下書き")
+            else:
+                kind = tr("Built-in default", "内置默认", "内蔵の既定") if rule.get("builtin") else tr("Saved rule", "已保存规则", "保存済み")
             item = QListWidgetItem(f"{active_mark}{rule['name']}\n{kind} · {_rule_summary(rule['payload'])}")
             item.setData(Qt.ItemDataRole.UserRole, rule["id"])
             item.setSizeHint(QSize(0, 72))
-            item.setToolTip(str(rule["payload"].get("download_dir", "")))
+            item.setToolTip(str(rule["payload"].get("filename_template", "")))
             self._list.addItem(item)
         self._list.blockSignals(False)
         target = select_id or active_id
         for index in range(self._list.count()):
             if self._list.item(index).data(Qt.ItemDataRole.UserRole) == target:
                 self._list.setCurrentRow(index)
+                self._paint_list_items()
                 return
         if self._list.count():
             self._list.setCurrentRow(0)
+        self._paint_list_items()
+
+    def _paint_list_items(self):
+        dark = isDarkTheme()
+        normal = QColor("#292d32" if dark else "#fafbfc")
+        default_bg = QColor("#21433f" if dark else "#e8f6ec")
+        selected_bg = QColor("#203d53" if dark else "#e7f4ff")
+        draft_bg = QColor("#4a3d25" if dark else "#fff4dc")
+        selected_default_bg = QColor("#204c54" if dark else "#d9eef6")
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            rule_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+            is_selected = item is self._list.currentItem()
+            if rule_id == DRAFT_RULE_ID:
+                color = draft_bg
+            elif rule_id == active_rule_id() and is_selected:
+                color = selected_default_bg
+            elif rule_id == active_rule_id():
+                color = default_bg
+            elif is_selected:
+                color = selected_bg
+            else:
+                color = normal
+            item.setBackground(QBrush(color))
 
     def _on_rule_selected(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
         if current is None:
@@ -542,15 +527,36 @@ class RulesInterface(QWidget):
         self._form.load_payload(rule["payload"])
         self._save_btn.setEnabled(not builtin)
         self._delete_btn.setEnabled(not builtin)
+        self._paint_list_items()
+
+    def _on_form_name_changed(self, name: str):
+        if self._selected_id != DRAFT_RULE_ID or not self._draft_rule:
+            return
+        display_name = name.strip() or tr("New Rule", "New Rule", "New Rule")
+        self._draft_rule["name"] = display_name
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == DRAFT_RULE_ID:
+                item.setText(f"  {display_name}\n{tr('Unsaved draft', '未保存草稿', '未保存の下書き')} · {_rule_summary(self._draft_rule['payload'])}")
+                break
+        self._paint_list_items()
 
     def _new_rule(self):
-        self._selected_id = ""
-        self._list.clearSelection()
+        self._draft_rule = {
+            "id": DRAFT_RULE_ID,
+            "name": tr("New Rule", "New Rule", "New Rule"),
+            "created_at": "",
+            "updated_at": "",
+            "builtin": False,
+            "payload": current_rule_payload(),
+        }
+        self._selected_id = DRAFT_RULE_ID
         self._form.set_builtin_mode(False)
-        self._form.name_edit.clear()
-        self._form.load_payload(current_rule_payload())
+        self._form.name_edit.setText(self._draft_rule["name"])
+        self._form.load_payload(self._draft_rule["payload"])
         self._save_btn.setEnabled(True)
-        self._delete_btn.setEnabled(False)
+        self._delete_btn.setEnabled(True)
+        self._reload_list(DRAFT_RULE_ID)
         self._form.name_edit.setFocus()
 
     def _duplicate_rule(self):
@@ -559,23 +565,32 @@ class RulesInterface(QWidget):
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        base = self._form.name_edit.text().replace("（内置）", "").replace(" (built in)", "")
-        self._selected_id = ""
-        self._list.clearSelection()
+        base = self._form.name_edit.text().replace("（内置）", "").replace(" (built in)", "").strip()
+        self._draft_rule = {
+            "id": DRAFT_RULE_ID,
+            "name": (base or tr("New Rule", "New Rule", "New Rule")) + "-copy",
+            "created_at": "",
+            "updated_at": "",
+            "builtin": False,
+            "payload": payload,
+        }
+        self._selected_id = DRAFT_RULE_ID
         self._form.set_builtin_mode(False)
-        self._form.name_edit.setText((base or tr("New rule", "新规则", "新規ルール")) + tr(" copy", " 副本", " コピー"))
+        self._form.name_edit.setText(self._draft_rule["name"])
         self._form.load_payload(payload)
         self._save_btn.setEnabled(True)
-        self._delete_btn.setEnabled(False)
+        self._delete_btn.setEnabled(True)
+        self._reload_list(DRAFT_RULE_ID)
 
     def _save_rule(self):
         try:
             payload = self._form.payload()
-            old_id = self._selected_id
+            old_id = self._selected_id if self._selected_id != DRAFT_RULE_ID else ""
             rule = rule_store.save(self._form.name_edit.text(), payload, old_id or None)
         except ValueError as exc:
             self._show_error(str(exc))
             return
+        self._draft_rule = None
         self._selected_id = rule["id"]
         if active_rule_id() == old_id:
             apply_rule_payload(rule["payload"])
@@ -586,6 +601,11 @@ class RulesInterface(QWidget):
         InfoBar.success(title=tr("Rule saved", "规则已保存", "ルールを保存しました"), content=rule["name"], orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
 
     def _delete_rule(self):
+        if self._selected_id == DRAFT_RULE_ID:
+            self._draft_rule = None
+            self._selected_id = active_rule_id()
+            self._reload_list(self._selected_id)
+            return
         if not self._selected_id or self._selected_id == BUILTIN_DEFAULT_RULE_ID:
             return
         answer = QMessageBox.question(self, tr("Delete rule", "删除规则", "ルールを削除"), tr("Delete the selected rule?", "确定删除当前规则？", "選択したルールを削除しますか？"))
@@ -603,6 +623,9 @@ class RulesInterface(QWidget):
             self._reload_list(self._selected_id or None)
 
     def _apply_current(self):
+        if self._selected_id == DRAFT_RULE_ID:
+            InfoBar.warning(title=tr("Save first", "请先保存规则", "先に保存してください"), content=tr("Save the new rule before making it default.", "新规则保存后才能设为默认。", "新規ルールは保存後に既定へ設定できます。"), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2200, parent=self)
+            return
         if not self._selected_id:
             InfoBar.warning(title=tr("Save first", "请先保存规则", "先に保存してください"), content=tr("Save the new rule before making it default.", "新规则保存后才能设为默认。", "新規ルールは保存後に既定へ設定できます。"), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2200, parent=self)
             return
@@ -624,6 +647,21 @@ class RulesInterface(QWidget):
     def _show_error(self, content: str):
         InfoBar.error(title=tr("Invalid rule", "规则无效", "ルールが無効"), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
 
+    def _apply_fluent_scrollbars(self):
+        qss = """
+        QScrollBar:vertical { background: transparent; width: 10px; margin: 2px 1px 2px 1px; }
+        QScrollBar::handle:vertical { background: #9aa7b2; min-height: 38px; border-radius: 5px; }
+        QScrollBar::handle:vertical:hover { background: #00a4af; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+        QScrollBar:horizontal { background: transparent; height: 10px; margin: 1px 2px 1px 2px; }
+        QScrollBar::handle:horizontal { background: #9aa7b2; min-width: 38px; border-radius: 5px; }
+        QScrollBar::handle:horizontal:hover { background: #00a4af; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+        """
+        self._list.setStyleSheet(self._list_style() + qss)
+        self._form_scroll.setStyleSheet(qss)
+
     def refresh_theme_styles(self):
         self._list.setStyleSheet(self._list_style())
         self._reload_list(self._selected_id or None)
+        self._apply_fluent_scrollbars()

@@ -272,38 +272,12 @@ class SettingsInterface(ScrollArea):
         dir_layout.addLayout(cleanup_row)
         layout.addWidget(dir_card)
 
-        # ── Filename template & de-dup ───────────────────────────────────────
+        # ── Global download behavior ─────────────────────────────────────────
         name_card = CardWidget(self._content)
         name_layout = QVBoxLayout(name_card)
         name_layout.setContentsMargins(20, 16, 20, 16)
         name_layout.setSpacing(10)
-
-        name_layout.addWidget(SubtitleLabel(tr("Filename Template", "下载命名规则", "ファイル名テンプレート"), name_card))
-        name_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Placeholders: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}; ",
-                    "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
-                    "使用可能プレースホルダー: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
-                ),
-                name_card,
-            )
-        )
-        name_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "default {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "默认 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "既定値 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                ),
-                name_card,
-            )
-        )
-
-        self._name_tpl_edit = LineEdit(name_card)
-        self._name_tpl_edit.setPlaceholderText("{username}/{YYYY-MM-DD}_{title}_{id}.mp4")
-        self._name_tpl_edit.setClearButtonEnabled(True)
-        name_layout.addWidget(self._name_tpl_edit)
+        name_layout.addWidget(SubtitleLabel(tr("Download Behavior", "下载行为", "ダウンロード動作"), name_card))
 
         skip_row = QHBoxLayout()
         skip_row.addWidget(
@@ -632,7 +606,6 @@ class SettingsInterface(ScrollArea):
         self._aria2_url_edit.setText(app_config.aria2_rpc_url)
         self._aria2_token_edit.setText(app_config.aria2_rpc_token)
         self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
-        self._name_tpl_edit.setText(app_config.filename_template)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
@@ -933,7 +906,6 @@ class SettingsInterface(ScrollArea):
         app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
         app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
         app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
-        app_config.filename_template = self._name_tpl_edit.text().strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
         app_config.completed_task_click_action = (
             "player" if self._completed_click_combo.currentIndex() == 1 else "folder"

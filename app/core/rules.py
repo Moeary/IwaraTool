@@ -35,12 +35,9 @@ RULE_DOWNLOAD_KEYS = (
     "collect_nfo_info",
     "mark_submitted_as_downloaded",
 )
-RULE_STORAGE_KEYS = (
-    "download_dir",
-    "filename_template",
-    "skip_existing_files",
-    "completed_task_click_action",
-)
+# Only the filename template belongs to a reusable rule. Download location,
+# de-duplication, and completed-task behavior remain global Settings.
+RULE_STORAGE_KEYS = ("filename_template",)
 RULE_KEYS = RULE_FILTER_KEYS + RULE_TITLE_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS
 
 
@@ -65,12 +62,8 @@ def default_rule_payload() -> dict[str, Any]:
         "download_thumbnail": False,
         "collect_nfo_info": False,
         "mark_submitted_as_downloaded": False,
-        # Storage values intentionally inherit the user's current global values.
-        # Selecting the built-in rule therefore never surprises users by moving files.
-        "download_dir": app_config.download_dir,
+        # Naming is rule-specific; download location and task behavior are global.
         "filename_template": app_config.filename_template,
-        "skip_existing_files": app_config.skip_existing_files,
-        "completed_task_click_action": app_config.completed_task_click_action,
     }
 
 
@@ -86,7 +79,7 @@ def builtin_default_rule() -> dict[str, Any]:
 
 
 def current_rule_payload() -> dict[str, Any]:
-    """Capture the current global filter/download/storage settings as a rule."""
+    """Capture the current filter/download/naming settings as a rule."""
     payload = default_rule_payload()
     for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         payload[key] = getattr(app_config, key)
@@ -111,7 +104,6 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "download_thumbnail",
         "collect_nfo_info",
         "mark_submitted_as_downloaded",
-        "skip_existing_files",
     ):
         result[key] = bool(result[key])
     for key in ("filter_min_likes", "filter_min_views"):
@@ -124,19 +116,13 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "filter_end_date",
         "filter_include_tags",
         "filter_exclude_tags",
-        "download_dir",
         "filename_template",
-        "completed_task_click_action",
     ):
         result[key] = str(result[key] or "").strip()
     if not result["filter_start_date"]:
         result["filter_start_date"] = "1970-01-01"
-    if not result["download_dir"]:
-        result["download_dir"] = app_config.download_dir
     if not result["filename_template"]:
         result["filename_template"] = "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
-    if result["completed_task_click_action"] not in ("folder", "player"):
-        result["completed_task_click_action"] = "folder"
     if result["download_video_file"] and result["mark_submitted_as_downloaded"]:
         result["mark_submitted_as_downloaded"] = False
     if not result["download_video_file"] and not result["mark_submitted_as_downloaded"]:
@@ -150,10 +136,6 @@ def apply_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_rule_payload(payload)
     for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         setattr(app_config, key, normalized[key])
-    try:
-        os.makedirs(normalized["download_dir"], exist_ok=True)
-    except OSError:
-        pass
     return normalized
 
 
