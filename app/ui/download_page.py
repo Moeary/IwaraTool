@@ -28,6 +28,7 @@ from qfluentwidgets import (
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
+    isDarkTheme,
 )
 
 from ..config import app_config
@@ -46,12 +47,8 @@ QPushButton {
     border-radius: 6px;
     padding: 8px 10px;
 }
-QPushButton:hover {
-    background-color: #00aeba;
-}
-QPushButton:pressed {
-    background-color: #008c96;
-}
+QPushButton:hover { background-color: #00aeba; }
+QPushButton:pressed { background-color: #008c96; }
 """
 
 _OPTION_OFF_STYLE = """
@@ -62,13 +59,70 @@ QPushButton {
     border-radius: 6px;
     padding: 8px 10px;
 }
-QPushButton:hover {
-    background-color: #edf1f5;
-}
-QPushButton:pressed {
-    background-color: #e3e8ef;
-}
+QPushButton:hover { background-color: #edf1f5; }
+QPushButton:pressed { background-color: #e3e8ef; }
 """
+
+_OPTION_ON_DARK_STYLE = """
+QPushButton {
+    background-color: #087f89;
+    color: #f7ffff;
+    border: 1px solid #18a8b2;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover { background-color: #1099a4; }
+QPushButton:pressed { background-color: #066a73; }
+"""
+
+_OPTION_OFF_DARK_STYLE = """
+QPushButton {
+    background-color: #292d32;
+    color: #eef2f5;
+    border: 1px solid #4c555e;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover { background-color: #343a41; }
+QPushButton:pressed { background-color: #202429; }
+"""
+
+
+def option_button_style(checked: bool) -> str:
+    """Return a theme-aware style for the download option toggles."""
+    if isDarkTheme():
+        return _OPTION_ON_DARK_STYLE if checked else _OPTION_OFF_DARK_STYLE
+    return _OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE
+
+
+def native_editor_style() -> str:
+    """Theme native Qt text editors that are not covered by Fluent QSS."""
+    if isDarkTheme():
+        return """
+        QPlainTextEdit {
+            background: #202225;
+            color: #edf1f5;
+            border: 1px solid #454b52;
+            border-radius: 6px;
+            selection-background-color: #087f89;
+            selection-color: white;
+            padding: 8px;
+        }
+        QPlainTextEdit:focus { border: 1px solid #18a8b2; }
+        """
+    return """
+    QPlainTextEdit {
+        background: #ffffff;
+        color: #24292f;
+        border: 1px solid #c9d1d9;
+        border-radius: 6px;
+        selection-background-color: #b8e7ea;
+        selection-color: #172126;
+        padding: 8px;
+    }
+    QPlainTextEdit:focus { border: 1px solid #009faa; }
+    """
+
 
 
 class FilterDialog(QDialog):
@@ -431,6 +485,7 @@ class DownloadInterface(QWidget):
         self._log_edit = QPlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
+        self._log_edit.setStyleSheet(native_editor_style())
         from PySide6.QtGui import QFont
         mono = QFont("Consolas", 9)
         if not mono.exactMatch():
@@ -540,6 +595,13 @@ class DownloadInterface(QWidget):
             )
         )
 
+    def refresh_theme_styles(self):
+        """Reapply custom option-button colors after a runtime theme switch."""
+        if hasattr(self, "_download_video_btn"):
+            self._sync_option_controls()
+        if hasattr(self, "_log_edit"):
+            self._log_edit.setStyleSheet(native_editor_style())
+
     def _on_download_video_clicked(self, checked: bool):
         if self._syncing_options:
             return
@@ -588,7 +650,7 @@ class DownloadInterface(QWidget):
         state = tr("On", "On", "On") if checked else tr("Off", "Off", "Off")
         base_text = str(getattr(button, "_base_text", button.text()) or "")
         button.setText(f"{base_text}  {state}")
-        button.setStyleSheet(_OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE)
+        button.setStyleSheet(option_button_style(checked))
 
     def _maybe_add_download_source_to_subscription(self, url: str):
         candidate = download_manager.detect_subscription_source(url)

@@ -25,7 +25,7 @@ from ..i18n import tr
 
 
 class ResponsiveFlowLayout(QLayout):
-    """Wrap controls onto additional rows when the available width is small."""
+    """Wrap controls onto rows without letting nested layouts overlap."""
 
     def __init__(self, parent=None, *, spacing: int = 10):
         super().__init__(parent)
@@ -34,6 +34,7 @@ class ResponsiveFlowLayout(QLayout):
 
     def addItem(self, item: QLayoutItem):
         self._items.append(item)
+        self.invalidate()
 
     def count(self) -> int:
         return len(self._items)
@@ -42,7 +43,10 @@ class ResponsiveFlowLayout(QLayout):
         return self._items[index] if 0 <= index < len(self._items) else None
 
     def takeAt(self, index: int) -> QLayoutItem | None:
-        return self._items.pop(index) if 0 <= index < len(self._items) else None
+        item = self._items.pop(index) if 0 <= index < len(self._items) else None
+        if item is not None:
+            self.invalidate()
+        return item
 
     def expandingDirections(self):
         return Qt.Orientation(0)
@@ -51,26 +55,45 @@ class ResponsiveFlowLayout(QLayout):
         return True
 
     def heightForWidth(self, width: int) -> int:
-        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+        return self._do_layout(QRect(0, 0, max(0, width), 0), test_only=True)
 
     def setGeometry(self, rect: QRect):
         super().setGeometry(rect)
         self._do_layout(rect, test_only=False)
 
     def sizeHint(self) -> QSize:
-        return self.minimumSize()
+        width = self._layout_width_hint()
+        return QSize(width, self.heightForWidth(width))
 
     def minimumSize(self) -> QSize:
-        size = QSize(0, 0)
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
+        # QVBoxLayout asks child layouts for a minimum height before it has
+        # assigned their final width.  Returning only the tallest child (the
+        # old behaviour) made later wrapped rows paint on top of each other.
+        width = self._layout_width_hint()
         margins = self.contentsMargins()
-        return size + QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        height = self.heightForWidth(width)
+        min_width = max((item.minimumSize().width() for item in self._items), default=0)
+        return QSize(
+            min_width,
+            max(height, margins.top() + margins.bottom()),
+        )
+
+    def _layout_width_hint(self) -> int:
+        margins = self.contentsMargins()
+        parent = self.parentWidget()
+        if self.geometry().width() > 0:
+            width = self.geometry().width()
+        elif parent is not None and parent.width() > 0:
+            width = parent.width()
+        else:
+            width = sum(max(item.sizeHint().width(), item.minimumSize().width()) for item in self._items)
+            width += max(0, len(self._items) - 1) * self._spacing
+        return max(1, width - margins.left() - margins.right())
 
     def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
         margins = self.contentsMargins()
         effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
-        if effective.width() <= 0:
+        if effective.width() <= 0 or not self._items:
             return margins.top() + margins.bottom()
 
         x = effective.x()
@@ -79,7 +102,10 @@ class ResponsiveFlowLayout(QLayout):
         right = effective.right()
         for item in self._items:
             hint = item.sizeHint()
-            item_width = min(hint.width(), effective.width())
+            minimum = item.minimumSize()
+            item_width = max(minimum.width(), hint.width())
+            item_width = min(item_width, effective.width())
+            item_height = max(minimum.height(), hint.height())
             next_x = x + item_width
             if x > effective.x() and next_x > right:
                 x = effective.x()
@@ -87,9 +113,9 @@ class ResponsiveFlowLayout(QLayout):
                 next_x = x + item_width
                 line_height = 0
             if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), QSize(item_width, hint.height())))
+                item.setGeometry(QRect(QPoint(x, y), QSize(item_width, item_height)))
             x = next_x + self._spacing
-            line_height = max(line_height, hint.height())
+            line_height = max(line_height, item_height)
         return y + line_height - rect.y() + margins.bottom()
 
 

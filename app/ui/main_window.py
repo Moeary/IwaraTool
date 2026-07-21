@@ -10,6 +10,7 @@ from qfluentwidgets import (
     FluentWindow,
     NavigationItemPosition,
     Theme,
+    qconfig,
     isDarkTheme,
     setTheme,
 )
@@ -34,6 +35,7 @@ class MainWindow(FluentWindow):
         self._init_navigation()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)
+        qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 
     def _init_window(self):
@@ -80,18 +82,19 @@ class MainWindow(FluentWindow):
             tooltip=tr("Open project GitHub", "打开项目 GitHub链接", "プロジェクト GitHub を開く"),
         )
 
-        # 切换模式暂时有问题, 先注释掉，后续再完善
-        """
         self.navigationInterface.addItem(
             routeKey="toggle-theme",
             icon=FluentIcon.BRIGHTNESS,
-            text=tr("Toggle Dark Mode", "切换暗黑模式"),
+            text=tr("Toggle Dark Mode", "切换黑夜模式", "ダークモード切替"),
             onClick=self._toggle_dark_mode,
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
-            tooltip=tr("One-click theme toggle", "一键切换深浅色"),
+            tooltip=tr(
+                "Switch between light and dark mode",
+                "一键切换浅色/黑夜模式",
+                "ライト/ダークモードを切り替えます",
+            ),
         )
-        """
 
         self.addSubInterface(
             self._settings_page,
@@ -110,6 +113,19 @@ class MainWindow(FluentWindow):
 
     def _toggle_dark_mode(self):
         setTheme(Theme.LIGHT if isDarkTheme() else Theme.DARK)
+        self._refresh_theme_styles()
+
+    def _on_theme_changed(self, *_args):
+        self._refresh_theme_styles()
+
+    def _refresh_theme_styles(self):
+        for page in (
+            getattr(self, "_download_page", None),
+            getattr(self, "_subscription_page", None),
+        ):
+            refresh = getattr(page, "refresh_theme_styles", None)
+            if refresh:
+                refresh()
 
     def _open_github(self):
         QDesktopServices.openUrl(QUrl("https://github.com/Moeary/IwaraTool"))

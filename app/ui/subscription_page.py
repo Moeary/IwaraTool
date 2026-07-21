@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
+    QScrollArea,
     QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -49,7 +50,7 @@ from ..core.manager import download_manager
 from ..core.models import STATUS_LABELS, TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .download_page import FilterDialog, _OPTION_OFF_STYLE, _OPTION_ON_STYLE
+from .download_page import FilterDialog, option_button_style
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_splitter_saver,
@@ -162,7 +163,7 @@ def _style_inline_label(label: BodyLabel):
 
 
 def _apply_fluent_scrollbars(widget: QWidget):
-    """Use a compact Fluent-like scrollbar instead of the native Windows arrows."""
+    """Use compact Fluent scrollbars without replacing the view's theme QSS."""
     if isDarkTheme():
         track = "rgba(255, 255, 255, 0.06)"
         handle = "rgba(255, 255, 255, 0.30)"
@@ -173,8 +174,7 @@ def _apply_fluent_scrollbars(widget: QWidget):
         handle = "rgba(0, 145, 158, 0.54)"
         hover = "rgba(0, 128, 140, 0.70)"
         pressed = "rgba(0, 112, 124, 0.82)"
-    widget.setStyleSheet(
-        f"""
+    qss = f"""
         QScrollBar:vertical {{
             background: {track};
             width: 10px;
@@ -211,8 +211,15 @@ def _apply_fluent_scrollbars(widget: QWidget):
             background: transparent;
             width: 0px;
         }}
-        """
-    )
+    """
+    # Setting this QSS on a TableWidget/ListWidget replaces qfluentwidgets'
+    # theme stylesheet.  Style only their native scrollbars instead.
+    vertical = getattr(widget, "verticalScrollBar", lambda: None)()
+    horizontal = getattr(widget, "horizontalScrollBar", lambda: None)()
+    if vertical is not None:
+        vertical.setStyleSheet(qss)
+    if horizontal is not None:
+        horizontal.setStyleSheet(qss)
 
 
 class _FluentSplitterHandle(QSplitterHandle):
@@ -381,19 +388,34 @@ class SubscriptionInterface(QWidget):
             )
         )
         _style_content_splitter(self._item_content_splitter)
-        item_controls_panel = QWidget(self._item_content_splitter)
+        item_controls_scroll = QScrollArea(self._item_content_splitter)
+        self._item_controls_scroll = item_controls_scroll
+        item_controls_scroll.setObjectName("SubscriptionItemControlsScroll")
+        item_controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        item_controls_scroll.setWidgetResizable(True)
+        item_controls_scroll.setMinimumSize(0, 0)
+        item_controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        item_controls_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        item_controls_scroll.setStyleSheet(
+            "QScrollArea#SubscriptionItemControlsScroll { background: transparent; border: none; }"
+            "QScrollArea#SubscriptionItemControlsScroll > QWidget > QWidget { background: transparent; }"
+        )
+        item_controls_scroll.viewport().setAutoFillBackground(False)
+        _apply_fluent_scrollbars(item_controls_scroll)
+        item_controls_panel = QWidget()
         item_controls_panel.setObjectName("SubscriptionItemControlsPanel")
         item_controls_panel.setMinimumHeight(0)
         item_controls_layout = QVBoxLayout(item_controls_panel)
         item_controls_layout.setContentsMargins(0, 0, 0, 0)
         item_controls_layout.setSpacing(_ROW_SPACING)
+        item_controls_scroll.setWidget(item_controls_panel)
         item_content_panel = QWidget(self._item_content_splitter)
         item_content_panel.setObjectName("SubscriptionItemContentPanel")
         item_content_panel.setMinimumHeight(0)
         item_content_layout = QVBoxLayout(item_content_panel)
         item_content_layout.setContentsMargins(0, 0, 0, 0)
         item_content_layout.setSpacing(0)
-        self._item_content_splitter.addWidget(item_controls_panel)
+        self._item_content_splitter.addWidget(item_controls_scroll)
         self._item_content_splitter.addWidget(item_content_panel)
         self._item_content_splitter.setStretchFactor(0, 0)
         self._item_content_splitter.setStretchFactor(1, 1)
@@ -843,6 +865,25 @@ class SubscriptionInterface(QWidget):
         connect_splitter_saver(self._item_content_splitter, "subscription_item_content_splitter_sizes")
         self._update_selection_actions()
         self._update_thumbnail_grid()
+
+    def refresh_theme_styles(self):
+        """Refresh custom styles that qfluentwidgets cannot recolor automatically."""
+        if not hasattr(self, "_item_table"):
+            return
+        _apply_fluent_scrollbars(self._item_table)
+        _apply_fluent_scrollbars(self._thumbnail_list)
+        _apply_fluent_scrollbars(self._item_controls_scroll)
+        _style_content_splitter(self._item_content_splitter)
+        self._sync_download_option_buttons()
+        # Rebuild placeholders so unloaded covers also follow the selected theme.
+        placeholder = self._thumbnail_placeholder_icon()
+        for index in range(self._thumbnail_list.count()):
+            item = self._thumbnail_list.item(index)
+            video_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+            data = next((entry for entry in self._visible_items if str(entry.get("video_id", "")) == video_id), None)
+            path = str(data.get("thumbnail_path", "") or "") if data else ""
+            if not path or not os.path.isfile(path):
+                item.setIcon(placeholder)
 
     def _on_splitter_moved(self, *_args):
         sizes = list(self._splitter.sizes())
@@ -1964,7 +2005,7 @@ class SubscriptionInterface(QWidget):
         button.setChecked(checked)
         base_text = str(getattr(button, "_base_text", button.text()) or "")
         button.setText(f"{base_text}  {'On' if checked else 'Off'}")
-        button.setStyleSheet(_OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE)
+        button.setStyleSheet(option_button_style(checked))
 
     def _on_download_video_option_clicked(self, checked: bool):
         if self._syncing_download_options:
