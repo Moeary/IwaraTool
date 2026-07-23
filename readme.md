@@ -6,7 +6,7 @@
 
 Say goodbye to tedious command-line tools! Iwara batches downloader with a modern Fluent-style interface, making it easy for anyone to download all videos from a creator with one click.
 
-![demo](./docs/iwaratool_demo.gif)
+![demo](./docs/iwaratool_demo_v0.6.gif)
 
 ## Features
 - Valid `X-Version` signature calculation for API requests.
@@ -14,20 +14,24 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Stateful scheduler to avoid early URL expiration.
 - Local dedup + SQLite history center.
 - Batch enqueue from user profile, playlist, and search URLs.
-- Filters: likes, views, date range, include tags, exclude tags.
+- Local subscription management with followed-author import, refresh tracking, new-item counts, and list/cover views.
+- Named rules for likes, views, date range, tags, title keywords, naming templates, and download behavior.
 - Search-only result cap.
 - Token cache in `data/config.ini` for faster startup sign-in.
 - Runtime language switching (`zh/en/ja`) without restarting.
+- Runtime light/dark theme switching.
 - Filename template placeholders for flexible naming and directory layout.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
 - History center with search, filters, sorting, open-file actions, rename, and moved-record cleanup.
+- Configurable table columns, persistent widths/order, and responsive split layouts.
 - Retry now cleans matching temporary cache files before re-downloading.
 
 ## Quick Start
 1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
    - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
-2. Open app and sign in first.
-3. Paste URLs in `New Download` and start queueing.
+2. Open the app. Sign in when downloading private videos or importing followed authors.
+3. Paste a URL in `Download Workbench`, choose a rule if needed, and submit it.
+4. Use `Subscriptions` to track account feeds, authors, or playlists and batch-download new items.
 
 ## Supported URL Types
 ```text
@@ -44,6 +48,24 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` supports see [Tag index](./docs/iwara_tags.md).
 
+## Screenshots
+
+1. Download Workbench
+
+   ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
+2. Subscriptions
+
+   ![Subscriptions](./docs/panel_view/iwaratool_subscription_panel.jpg)
+3. History
+
+   ![History](./docs/panel_view/iwaratool_history_panel.jpg)
+4. Rules
+
+   ![Rules](./docs/panel_view/iwaratool_rule_panel.jpg)
+5. Settings
+
+   ![Settings](./docs/panel_view/iwaratool_settings_panel.jpg)
+
 ## Docs
 - Wiki: <https://github.com/Moeary/IwaraTool/wiki>
 - API notes (EN): [docs/API.md](./docs/API.md)
@@ -56,15 +78,17 @@ Project dependencies are managed by [pixi](https://pixi.prefix.dev/latest/).
 If you are a developer and want to run the source code directly or build the app:
 
 ```shell
-pixi run start // Run the application
-pixi run build // Build the application
-pixi run crawl // Crawl tag data (updates docs/iwara_tags.md)
+pixi install
+pixi run start  # Run the application
+pixi run build  # Build the application
+pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
+pixi run python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ## Contributing
 
 Pull Requests are very welcome!
-The app's i18n (multi-language) is currently not perfect, and the light/dark mode switch is not yet implemented. Although these do not affect the core download function, if you have time and are willing to help improve it, please submit a PR (please follow the standard submission update merge into the dev branch, and try to pass the GitHub Action CI/CD before submitting). Thanks!
+Please target the `dev` branch, keep English/Simplified Chinese/Japanese UI text in sync, and run the test suite before submitting. UI changes should include a screenshot or short recording when practical.
 
 ## License
 
