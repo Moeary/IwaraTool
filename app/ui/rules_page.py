@@ -63,9 +63,9 @@ def _rule_summary(payload: dict[str, Any]) -> str:
     filters: list[str] = []
     if data["filter_enabled"]:
         if data["filter_min_likes_enabled"]:
-            filters.append(f"likes≥{data['filter_min_likes']}")
+            filters.append(f"{tr('likes', '点赞', 'いいね')}≥{data['filter_min_likes']}")
         if data["filter_min_views_enabled"]:
-            filters.append(f"views≥{data['filter_min_views']}")
+            filters.append(f"{tr('views', '播放', '再生')}≥{data['filter_min_views']}")
         if data["filter_date_enabled"]:
             filters.append(tr("date", "日期", "日付"))
         if data["filter_include_tags_enabled"] or data["filter_exclude_tags_enabled"]:
@@ -73,6 +73,12 @@ def _rule_summary(payload: dict[str, Any]) -> str:
     if data["title_include"] or data["title_exclude"]:
         filters.append(tr("title keywords", "标题关键词", "タイトル語句"))
     return f"{' + '.join(actions)} · {' · '.join(filters) if filters else tr('no filters', '无筛选', 'フィルターなし')}"
+
+
+def _rule_display_name(rule: dict[str, Any]) -> str:
+    if rule.get("builtin"):
+        return tr("Default Download", "默认下载", "既定ダウンロード")
+    return str(rule.get("name", "") or "")
 
 
 class RuleFormWidget(QWidget):
@@ -129,7 +135,7 @@ class RuleFormWidget(QWidget):
         filter_layout.addWidget(SubtitleLabel(tr("Metadata filters", "元数据筛选", "メタデータフィルター"), filter_card), 0, 0, 1, 4)
 
         self.filter_enabled = SwitchButton(filter_card)
-        filter_layout.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを启用"), filter_card), 1, 0)
+        filter_layout.addWidget(BodyLabel(tr("Enable filters", "启用筛选", "フィルターを有効化"), filter_card), 1, 0)
         filter_layout.addWidget(self.filter_enabled, 1, 1)
         self.likes_enabled = SwitchButton(filter_card)
         self.likes_edit = LineEdit(filter_card)
@@ -307,7 +313,7 @@ class RulePicker(QWidget):
         labels: list[str] = []
         for rule in self._rules_cache:
             suffix = tr(" · built in", " · 内置", " · 内蔵") if rule.get("builtin") else ""
-            label = str(rule["name"]) + suffix
+            label = _rule_display_name(rule) + suffix
             labels.append(label)
             self.combo.addItem(label, userData=rule["id"])
         self._model.setStringList(labels)
@@ -355,7 +361,7 @@ class RulePicker(QWidget):
         if show_notice:
             InfoBar.success(
                 title=tr("Default rule updated", "默认规则已更新", "既定ルールを更新しました"),
-                content=f"{rule['name']} · {_rule_summary(normalized)}",
+                content=f"{_rule_display_name(rule)} · {_rule_summary(normalized)}",
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -473,7 +479,7 @@ class RulesInterface(QWidget):
                 kind = tr("Unsaved draft", "未保存草稿", "未保存の下書き")
             else:
                 kind = tr("Built-in default", "内置默认", "内蔵の既定") if rule.get("builtin") else tr("Saved rule", "已保存规则", "保存済み")
-            item = QListWidgetItem(f"{active_mark}{rule['name']}\n{kind} · {_rule_summary(rule['payload'])}")
+            item = QListWidgetItem(f"{active_mark}{_rule_display_name(rule)}\n{kind} · {_rule_summary(rule['payload'])}")
             item.setData(Qt.ItemDataRole.UserRole, rule["id"])
             item.setSizeHint(QSize(0, 72))
             item.setToolTip(str(rule["payload"].get("filename_template", "")))
@@ -532,7 +538,7 @@ class RulesInterface(QWidget):
     def _on_form_name_changed(self, name: str):
         if self._selected_id != DRAFT_RULE_ID or not self._draft_rule:
             return
-        display_name = name.strip() or tr("New Rule", "New Rule", "New Rule")
+        display_name = name.strip() or tr("New Rule", "新规则", "新規ルール")
         self._draft_rule["name"] = display_name
         for index in range(self._list.count()):
             item = self._list.item(index)
@@ -544,7 +550,7 @@ class RulesInterface(QWidget):
     def _new_rule(self):
         self._draft_rule = {
             "id": DRAFT_RULE_ID,
-            "name": tr("New Rule", "New Rule", "New Rule"),
+            "name": tr("New Rule", "新规则", "新規ルール"),
             "created_at": "",
             "updated_at": "",
             "builtin": False,
@@ -565,10 +571,17 @@ class RulesInterface(QWidget):
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        base = self._form.name_edit.text().replace("（内置）", "").replace(" (built in)", "").strip()
+        base = (
+            self._form.name_edit.text()
+            .replace("（内置）", "")
+            .replace("（内蔵）", "")
+            .replace(" (built in)", "")
+            .strip()
+        )
         self._draft_rule = {
             "id": DRAFT_RULE_ID,
-            "name": (base or tr("New Rule", "New Rule", "New Rule")) + "-copy",
+            "name": (base or tr("New Rule", "新规则", "新規ルール"))
+            + tr(" copy", " 副本", " コピー"),
             "created_at": "",
             "updated_at": "",
             "builtin": False,
@@ -598,7 +611,7 @@ class RulesInterface(QWidget):
             signal_bus.active_rule_changed.emit(rule["id"])
         signal_bus.rules_changed.emit()
         self._reload_list(rule["id"])
-        InfoBar.success(title=tr("Rule saved", "规则已保存", "ルールを保存しました"), content=rule["name"], orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
+        InfoBar.success(title=tr("Rule saved", "规则已保存", "ルールを保存しました"), content=_rule_display_name(rule), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
 
     def _delete_rule(self):
         if self._selected_id == DRAFT_RULE_ID:

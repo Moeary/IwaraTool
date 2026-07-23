@@ -215,7 +215,7 @@ class SettingsInterface(ScrollArea):
 
         quality_row = QHBoxLayout()
         self._quality_combo = ComboBox(quality_card)
-        self._quality_combo.addItems(["Source", "540p", "360p"])
+        self._quality_combo.addItems([tr("Source", "原画", "オリジナル"), "540p", "360p"])
         self._quality_combo.setFixedWidth(180)
         self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
         quality_row.addWidget(self._quality_combo)

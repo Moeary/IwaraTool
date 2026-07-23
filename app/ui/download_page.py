@@ -707,7 +707,7 @@ class DownloadInterface(QWidget):
 
     def _set_option_button_state(self, button: PrimaryPushButton, checked: bool):
         button.setChecked(checked)
-        state = tr("On", "On", "On") if checked else tr("Off", "Off", "Off")
+        state = tr("On", "开", "オン") if checked else tr("Off", "关", "オフ")
         base_text = str(getattr(button, "_base_text", button.text()) or "")
         button.setText(f"{base_text}  {state}")
         button.setStyleSheet(option_button_style(checked))

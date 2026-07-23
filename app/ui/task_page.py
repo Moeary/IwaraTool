@@ -30,7 +30,7 @@ from qfluentwidgets import (
 )
 
 from ..core.manager import download_manager
-from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
+from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import (
@@ -338,7 +338,7 @@ class TaskCenterInterface(QWidget):
 
     def _update_row(self, row_idx: int, task: DownloadTask):
         values = [
-            STATUS_LABELS.get(task.status, task.status.value),
+            status_label(task.status),
             task.title or task.video_id,
             task.author,
             self._progress_text(task),
@@ -560,7 +560,7 @@ class TaskCenterInterface(QWidget):
             if self._sort_column == self._SORT_ADDED:
                 return order
             if self._sort_column == self._COL_STATE:
-                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), text(STATUS_LABELS.get(task.status, task.status.value)), order)
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), text(status_label(task.status)), order)
             if self._sort_column == self._COL_TITLE:
                 return (text(task.title or task.video_id), order)
             if self._sort_column == self._COL_AUTHOR:
@@ -968,7 +968,7 @@ class TaskCenterInterface(QWidget):
     def _task_search_text(self, task: DownloadTask) -> str:
         return "\n".join(
             [
-                STATUS_LABELS.get(task.status, task.status.value),
+                status_label(task.status),
                 task.title,
                 task.author,
                 task.video_id,

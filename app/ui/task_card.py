@@ -14,7 +14,7 @@ from qfluentwidgets import (
     FluentIcon,
 )
 
-from ..core.models import DownloadTask, TaskStatus, STATUS_LABELS
+from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from ..core.manager import download_manager
@@ -137,7 +137,7 @@ class TaskCard(CardWidget):
             self._progress_lbl.setText(tr("Cancelled", "已中断", "キャンセル済み"))
 
     def _set_status(self, status: TaskStatus):
-        label = STATUS_LABELS.get(status, status.value)
+        label = status_label(status)
         color = _STATUS_COLORS.get(status, "#888888")
         self._status_lbl.setText(label)
         self._status_lbl.setStyleSheet(

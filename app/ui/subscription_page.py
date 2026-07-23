@@ -48,7 +48,7 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
-from ..core.models import STATUS_LABELS, TaskStatus
+from ..core.models import TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import FilterDialog, option_button_style
@@ -224,6 +224,46 @@ def _apply_fluent_scrollbars(widget: QWidget):
         vertical.setStyleSheet(qss)
     if horizontal is not None:
         horizontal.setStyleSheet(qss)
+
+
+def _thumbnail_list_style() -> str:
+    """Theme-aware canvas and item colors for the native cover list."""
+    if isDarkTheme():
+        border = "rgba(255, 255, 255, 0.13)"
+        foreground = "#f2f2f2"
+        hover = "rgba(255, 255, 255, 0.07)"
+        selected = "rgba(0, 174, 184, 0.24)"
+        selected_border = "#18a8b2"
+    else:
+        border = "rgba(0, 0, 0, 0.15)"
+        foreground = "#202428"
+        hover = "rgba(0, 0, 0, 0.045)"
+        selected = "rgba(0, 164, 175, 0.14)"
+        selected_border = "#00a4af"
+    return f"""
+        QListWidget#SubscriptionThumbnailList {{
+            background-color: transparent;
+            border: 1px solid {border};
+            border-radius: 4px;
+            outline: none;
+            color: {foreground};
+        }}
+        QListWidget#SubscriptionThumbnailList::item {{
+            background-color: transparent;
+            border: 1px solid transparent;
+            border-radius: 7px;
+            color: {foreground};
+            padding: 4px;
+        }}
+        QListWidget#SubscriptionThumbnailList::item:hover {{
+            background-color: {hover};
+        }}
+        QListWidget#SubscriptionThumbnailList::item:selected {{
+            background-color: {selected};
+            border-color: {selected_border};
+            color: {foreground};
+        }}
+    """
 
 
 class _FluentSplitterHandle(QSplitterHandle):
@@ -793,6 +833,9 @@ class SubscriptionInterface(QWidget):
         self._item_table.selectionModel().selectionChanged.connect(lambda *_args: self._update_selection_actions())
 
         self._thumbnail_list = ResponsiveCoverList(self)
+        self._thumbnail_list.setObjectName("SubscriptionThumbnailList")
+        self._thumbnail_list.setStyleSheet(_thumbnail_list_style())
+        self._thumbnail_list.viewport().setAutoFillBackground(False)
         self._thumbnail_list.setViewMode(QListView.ViewMode.IconMode)
         self._thumbnail_list.setResizeMode(QListView.ResizeMode.Adjust)
         self._thumbnail_list.setMovement(QListView.Movement.Static)
@@ -826,6 +869,7 @@ class SubscriptionInterface(QWidget):
         _apply_fluent_scrollbars(self._item_table)
         _apply_fluent_scrollbars(self._thumbnail_list)
         _apply_fluent_scrollbars(self._item_controls_scroll)
+        self._thumbnail_list.setStyleSheet(_thumbnail_list_style())
         _style_content_splitter(self._item_content_splitter)
         self._sync_download_option_buttons()
         # Rebuild placeholders so unloaded covers also follow the selected theme.
@@ -1955,7 +1999,8 @@ class SubscriptionInterface(QWidget):
     def _set_download_option_button_state(self, button: PrimaryPushButton, checked: bool):
         button.setChecked(checked)
         base_text = str(getattr(button, "_base_text", button.text()) or "")
-        button.setText(f"{base_text}  {'On' if checked else 'Off'}")
+        state = tr("On", "开", "オン") if checked else tr("Off", "关", "オフ")
+        button.setText(f"{base_text}  {state}")
         button.setStyleSheet(option_button_style(checked))
 
     def _on_download_video_option_clicked(self, checked: bool):
@@ -2188,7 +2233,7 @@ def _item_state_text(
         return tr("Not Downloadable", "不可下载", "保存不可")
     status = _task_status_from_value(task_status)
     if status:
-        return STATUS_LABELS.get(status, status.value)
+        return status_label(status)
     if queued:
         return tr("Queued", "已入队", "キュー内")
     return tr("Ready", "可下载", "保存可能")
