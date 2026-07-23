@@ -5,7 +5,7 @@ import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator
-from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -29,6 +29,7 @@ from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .ui_state import show_fluent_confirmation
 
 
 # ── Worker thread for login ───────────────────────────────────────────────────
@@ -925,28 +926,22 @@ class SettingsInterface(ScrollArea):
         )
 
     def _confirm_clear_temp_files(self):
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Confirm Cleanup", "确认清理", "削除確認"))
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText(
+        if not show_fluent_confirmation(
+            self,
+            tr("Confirm Cleanup", "确认清理", "削除確認"),
             tr(
                 "All *_temp files in download directory will be deleted (including .aria2 sidecars).",
                 "将删除下载目录下所有 *_temp 文件（含对应 .aria2 临时索引）。",
                 "ダウンロード先の *_temp ファイル（.aria2 含む）を削除します。",
-            )
-        )
-        box.setInformativeText(
-            tr(
+            ),
+            informative=tr(
                 "This action cannot be undone. Continue?",
                 "此操作不可撤销，是否继续？",
                 "この操作は取り消せません。続行しますか？",
-            )
-        )
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+            ),
+            yes_text=tr("Delete temp files", "删除临时文件", "一時ファイルを削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
+        ):
             return
 
         removed, failed = download_manager.clear_temp_files()

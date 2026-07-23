@@ -5,11 +5,9 @@ from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QGridLayout,
     QHBoxLayout,
-    QMessageBox,
     QPlainTextEdit,
     QSizePolicy,
     QSplitter,
@@ -20,11 +18,14 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
+    CheckBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    MessageBoxBase,
     PrimaryPushButton,
+    PushButton,
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
@@ -35,9 +36,75 @@ from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .task_page import TaskCenterInterface
 from .rules_page import RulePicker
+from .task_page import TaskCenterInterface
 from .ui_state import ResponsiveFlowLayout
+
+
+def fluent_scrollbar_style() -> str:
+    handle = "#6f7d89" if isDarkTheme() else "#9aa7b2"
+    hover = "#22c3cf" if isDarkTheme() else "#00a4af"
+    return f"""
+    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
+    QScrollBar::handle:vertical {{ background: {handle}; min-height: 38px; border-radius: 5px; }}
+    QScrollBar::handle:vertical:hover {{ background: {hover}; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+    QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 1px 2px 1px 2px; }}
+    QScrollBar::handle:horizontal {{ background: {handle}; min-width: 38px; border-radius: 5px; }}
+    QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
+    """
+
+
+class _SubscriptionPromptDialog(MessageBoxBase):
+    """Fluent three-choice prompt used after downloading an author or playlist."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.choice = "once"
+        self.title_label = SubtitleLabel(
+            tr("Add Subscription", "加入订阅列表", "購読に追加"), self
+        )
+        self.content_label = BodyLabel(
+            tr(
+                "Add this author/playlist to the local subscription list?",
+                "是否把这个作者/播放列表加入本地订阅列表？",
+                "この作者/プレイリストをローカル購読に追加しますか？",
+            ),
+            self,
+        )
+        self.content_label.setWordWrap(True)
+        self.note_label = BodyLabel(
+            tr(
+                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
+                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
+                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
+            ),
+            self,
+        )
+        self.note_label.setWordWrap(True)
+        self.no_remind = CheckBox(
+            tr("Do not ask again", "下次不再提醒", "次回から確認しない"), self
+        )
+
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.content_label)
+        self.viewLayout.addWidget(self.note_label)
+        self.viewLayout.addWidget(self.no_remind)
+        self.yesButton.setText(tr("Add This Time", "本次加入", "今回追加"))
+        self.cancelButton.setText(tr("No", "不加入", "追加しない"))
+        self.always_button = PushButton(
+            tr("Always Add", "以后都自动加入", "常に追加"), self.buttonGroup
+        )
+        self.buttonLayout.insertWidget(
+            1, self.always_button, 1, Qt.AlignmentFlag.AlignVCenter
+        )
+        self.always_button.clicked.connect(self._accept_always)
+        self.widget.setMinimumWidth(620)
+
+    def _accept_always(self):
+        self.choice = "always"
+        self.accept()
 
 
 _OPTION_ON_STYLE = """
@@ -475,6 +542,8 @@ class DownloadInterface(QWidget):
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         self._log_edit.setStyleSheet(native_editor_style())
+        self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
+        self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
         from PySide6.QtGui import QFont
         mono = QFont("Consolas", 9)
         if not mono.exactMatch():
@@ -592,6 +661,8 @@ class DownloadInterface(QWidget):
             self._sync_option_controls()
         if hasattr(self, "_log_edit"):
             self._log_edit.setStyleSheet(native_editor_style())
+            self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
+            self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
 
     def _on_download_video_clicked(self, checked: bool):
         if self._syncing_options:
@@ -653,40 +724,16 @@ class DownloadInterface(QWidget):
             self._add_subscription_source(kind, key)
             return
 
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Add Subscription", "加入订阅列表", "購読に追加"))
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setText(
-            tr(
-                "Add this author/playlist to the local subscription list?",
-                "是否把这个作者/播放列表加入本地订阅列表？",
-                "この作者/プレイリストをローカル購読に追加しますか？",
-            )
-        )
-        box.setInformativeText(
-            tr(
-                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
-                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
-                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
-            )
-        )
-        no_remind = QCheckBox(tr("Do not ask again", "下次不再提醒", "次回から確認しない"), box)
-        box.setCheckBox(no_remind)
-        yes_btn = box.addButton(tr("Add This Time", "本次加入", "今回追加"), QMessageBox.ButtonRole.YesRole)
-        always_btn = box.addButton(tr("Always Add", "以后都自动加入", "常に追加"), QMessageBox.ButtonRole.AcceptRole)
-        no_btn = box.addButton(tr("No", "不加入", "追加しない"), QMessageBox.ButtonRole.NoRole)
-        box.setDefaultButton(yes_btn)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked == always_btn:
+        box = _SubscriptionPromptDialog(self)
+        accepted = box.exec() == QDialog.DialogCode.Accepted
+        if accepted and box.choice == "always":
             app_config.subscription_prompt_mode = "always"
             self._add_subscription_source(kind, key)
-        elif clicked == yes_btn:
-            if no_remind.isChecked():
+        elif accepted:
+            if box.no_remind.isChecked():
                 app_config.subscription_prompt_mode = "never"
             self._add_subscription_source(kind, key)
-        elif clicked == no_btn and no_remind.isChecked():
+        elif box.no_remind.isChecked():
             app_config.subscription_prompt_mode = "never"
 
     def _add_subscription_source(self, kind: str, key: str):

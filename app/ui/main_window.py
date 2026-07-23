@@ -71,14 +71,8 @@ class MainWindow(FluentWindow):
             icon=FluentIcon.HISTORY,
             text=tr("History", "历史记录", "履歴"),
         )
-        self.addSubInterface(
-            self._rules_page,
-            icon=FluentIcon.FILTER,
-            text=tr("Rules", "下载规则", "ルール"),
-        )
-
         # Bottom quick actions (shown above settings)
-        
+
         self.navigationInterface.addItem(
             routeKey="open-github",
             icon=FluentIcon.GITHUB,
@@ -101,6 +95,13 @@ class MainWindow(FluentWindow):
                 "一键切换浅色/黑夜模式",
                 "ライト/ダークモードを切り替えます",
             ),
+        )
+
+        self.addSubInterface(
+            self._rules_page,
+            icon=FluentIcon.FILTER,
+            text=tr("Rules", "下载规则", "ルール"),
+            position=NavigationItemPosition.BOTTOM,
         )
 
         self.addSubInterface(
@@ -129,7 +130,9 @@ class MainWindow(FluentWindow):
         for page in (
             getattr(self, "_download_page", None),
             getattr(self, "_subscription_page", None),
+            getattr(self, "_history_page", None),
             getattr(self, "_rules_page", None),
+            getattr(self, "_settings_page", None),
         ):
             refresh = getattr(page, "refresh_theme_styles", None)
             if refresh:

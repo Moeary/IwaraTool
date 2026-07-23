@@ -14,11 +14,9 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
-    QInputDialog,
     QListView,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -64,6 +62,8 @@ from .ui_state import (
     restore_table_columns,
     restore_splitter_sizes,
     restore_table_widths,
+    show_fluent_confirmation,
+    show_fluent_text_input,
 )
 
 
@@ -1629,7 +1629,7 @@ class SubscriptionInterface(QWidget):
         self._load_sources()
 
     def _add_source(self):
-        text, ok = QInputDialog.getText(
+        text, ok = show_fluent_text_input(
             self,
             tr("Add Subscription", "添加订阅", "購読を追加"),
             tr(
@@ -1637,6 +1637,8 @@ class SubscriptionInterface(QWidget):
                 "作者用户名 / 作者主页链接 / 播放列表链接：",
                 "作者ユーザー名 / 作者URL / プレイリストURL:",
             ),
+            accept_text=tr("Add", "添加", "追加"),
+            cancel_text=tr("Cancel", "取消", "キャンセル"),
         )
         if not ok or not text.strip():
             return
@@ -1788,26 +1790,22 @@ class SubscriptionInterface(QWidget):
             or str(source.get("source_key", "") or "").strip()
             or f"#{source_id}"
         )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle(tr("Delete Subscription", "删除订阅", "購読を削除"))
-        box.setText(
+        if not show_fluent_confirmation(
+            self,
+            tr("Delete Subscription", "删除订阅", "購読を削除"),
             tr(
                 f'Delete subscription "{display_name}" and its cached video list?',
                 f'确定删除订阅“{display_name}”及其缓存视频列表吗？',
                 f'購読「{display_name}」と保存済み動画一覧を削除しますか？',
-            )
-        )
-        box.setInformativeText(
-            tr(
+            ),
+            informative=tr(
                 "Downloaded files and history records will not be deleted.",
                 "不会删除已下载文件和历史记录。",
                 "保存済みファイルと履歴は削除されません。",
-            )
-        )
-        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+            ),
+            yes_text=tr("Delete subscription", "删除订阅", "購読を削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
+        ):
             return
         download_manager.remove_subscription_source(source_id)
         self._current_source_id = None

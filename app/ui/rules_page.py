@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QScrollArea,
     QSplitter,
     QVBoxLayout,
@@ -48,6 +47,7 @@ from ..core.rules import (
 )
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .ui_state import show_fluent_confirmation
 
 
 DRAFT_RULE_ID = "__draft_rule__"
@@ -608,8 +608,13 @@ class RulesInterface(QWidget):
             return
         if not self._selected_id or self._selected_id == BUILTIN_DEFAULT_RULE_ID:
             return
-        answer = QMessageBox.question(self, tr("Delete rule", "删除规则", "ルールを削除"), tr("Delete the selected rule?", "确定删除当前规则？", "選択したルールを削除しますか？"))
-        if answer != QMessageBox.StandardButton.Yes:
+        if not show_fluent_confirmation(
+            self,
+            tr("Delete rule", "删除规则", "ルールを削除"),
+            tr("Delete the selected rule?", "确定删除当前规则？", "選択したルールを削除しますか？"),
+            yes_text=tr("Delete", "删除", "削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
+        ):
             return
         deleted_active = active_rule_id() == self._selected_id
         if rule_store.delete(self._selected_id):
@@ -648,18 +653,30 @@ class RulesInterface(QWidget):
         InfoBar.error(title=tr("Invalid rule", "规则无效", "ルールが無効"), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
 
     def _apply_fluent_scrollbars(self):
-        qss = """
-        QScrollBar:vertical { background: transparent; width: 10px; margin: 2px 1px 2px 1px; }
-        QScrollBar::handle:vertical { background: #9aa7b2; min-height: 38px; border-radius: 5px; }
-        QScrollBar::handle:vertical:hover { background: #00a4af; }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-        QScrollBar:horizontal { background: transparent; height: 10px; margin: 1px 2px 1px 2px; }
-        QScrollBar::handle:horizontal { background: #9aa7b2; min-width: 38px; border-radius: 5px; }
-        QScrollBar::handle:horizontal:hover { background: #00a4af; }
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+        handle = "#6f7d89" if isDarkTheme() else "#9aa7b2"
+        hover = "#22c3cf" if isDarkTheme() else "#00a4af"
+        qss = f"""
+        QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
+        QScrollBar::handle:vertical {{ background: {handle}; min-height: 38px; border-radius: 5px; }}
+        QScrollBar::handle:vertical:hover {{ background: {hover}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+        QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 1px 2px 1px 2px; }}
+        QScrollBar::handle:horizontal {{ background: {handle}; min-width: 38px; border-radius: 5px; }}
+        QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
         """
-        self._list.setStyleSheet(self._list_style() + qss)
-        self._form_scroll.setStyleSheet(qss)
+        self._list.setStyleSheet(self._list_style())
+        for scroll_area in (self._list, self._form_scroll):
+            scroll_area.verticalScrollBar().setStyleSheet(qss)
+            scroll_area.horizontalScrollBar().setStyleSheet(qss)
+        # Styling the whole QScrollArea makes its viewport inherit an opaque
+        # light palette in dark mode. Keep the viewport transparent instead.
+        surface = "#202020" if isDarkTheme() else "#f7f8fa"
+        self.setStyleSheet(f"QWidget#RulesInterface {{ background-color: {surface}; }}")
+        self._form_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._form_scroll.viewport().setStyleSheet(f"background-color: {surface};")
+        self._form_scroll.viewport().setAutoFillBackground(True)
+        self._form.setStyleSheet(f"background-color: {surface};")
 
     def refresh_theme_styles(self):
         self._list.setStyleSheet(self._list_style())

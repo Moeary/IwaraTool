@@ -10,8 +10,6 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
-    QInputDialog,
-    QMessageBox,
     QTableWidgetItem,
     QSizePolicy,
     QVBoxLayout,
@@ -42,6 +40,8 @@ from .ui_state import (
     open_table_column_dialog,
     restore_table_columns,
     restore_table_widths,
+    show_fluent_confirmation,
+    show_fluent_text_input,
 )
 
 
@@ -110,6 +110,22 @@ class HistoryInterface(QWidget):
         )
         clean_btn.clicked.connect(self._sync_with_download_folder)
         title_row.addWidget(clean_btn)
+
+        self._delete_selected_btn = PrimaryPushButton(
+            tr("Delete Selected", "删除选中记录", "選択した履歴を削除"),
+            self,
+            FluentIcon.DELETE,
+        )
+        self._delete_selected_btn.setEnabled(False)
+        self._delete_selected_btn.setToolTip(
+            tr(
+                "Remove only the selected history record; the local file is untouched",
+                "只删除选中的历史记录，不会删除本地文件",
+                "選択した履歴だけを削除します。ローカルファイルは削除しません",
+            )
+        )
+        self._delete_selected_btn.clicked.connect(self._remove_selected_record)
+        title_row.addWidget(self._delete_selected_btn)
 
         columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
         columns_btn.clicked.connect(self._configure_columns)
@@ -209,6 +225,7 @@ class HistoryInterface(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(42)
         self._table.cellClicked.connect(self._on_cell_clicked)
         self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._table.itemSelectionChanged.connect(self._update_action_state)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -377,6 +394,16 @@ class HistoryInterface(QWidget):
                 )
         finally:
             self._table.setUpdatesEnabled(True)
+        self._update_action_state()
+
+    def _update_action_state(self):
+        if hasattr(self, "_delete_selected_btn"):
+            self._delete_selected_btn.setEnabled(bool(self._selected_video_id()))
+
+    def _remove_selected_record(self):
+        video_id = self._selected_video_id()
+        if video_id:
+            self._remove_record(video_id)
 
     def _on_cell_clicked(self, row: int, column: int):
         if column not in {
@@ -615,11 +642,13 @@ class HistoryInterface(QWidget):
             return
 
         old_name = os.path.basename(file_path)
-        new_name, ok = QInputDialog.getText(
+        new_name, ok = show_fluent_text_input(
             self,
             tr("Rename File", "重命名文件", "ファイル名を変更"),
             tr("New file name:", "新的文件名：", "新しいファイル名:"),
             text=old_name,
+            accept_text=tr("Rename", "重命名", "名前を変更"),
+            cancel_text=tr("Cancel", "取消", "キャンセル"),
         )
         if not ok or not new_name.strip():
             return
@@ -647,25 +676,36 @@ class HistoryInterface(QWidget):
             return
 
         title = str(record.get("title", "") or video_id)
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Remove Record", "删除记录", "履歴を削除"))
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText(
+        confirmed = show_fluent_confirmation(
+            self,
+            tr("Remove Record", "删除记录", "履歴を削除"),
             tr(
-                f"Remove this DB record? The local file will not be deleted.\n{title}",
-                f"删除这条数据库记录？本地文件不会被删除。\n{title}",
-                f"このDB履歴を削除しますか？ローカルファイルは削除されません。\n{title}",
-            )
+                f"Remove this DB record?\n{title}",
+                f"删除这条数据库记录？\n{title}",
+                f"このDB履歴を削除しますか？\n{title}",
+            ),
+            informative=tr(
+                "The local file will not be deleted. Removing this record lets the video be queued again.",
+                "不会删除本地文件；删除记录后，该视频之后可以再次入队下载。",
+                "ローカルファイルは削除されません。履歴を削除すると再度キューに追加できます。",
+            ),
+            yes_text=tr("Delete record", "删除记录", "履歴を削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
         )
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
 
         download_manager.remove_history_record(video_id)
         self._load_history()
+        InfoBar.success(
+            title=tr("History record removed", "历史记录已删除", "履歴を削除しました"),
+            content=tr("The local file was left untouched.", "本地文件未被删除。", "ローカルファイルは削除していません。"),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2200,
+            parent=self,
+        )
 
     def _sync_with_download_folder(self):
         moved_records = [
@@ -685,28 +725,23 @@ class HistoryInterface(QWidget):
             )
             return
 
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Clean Moved Records", "清理已移走记录", "移動済み履歴を削除"))
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText(
+        confirmed = show_fluent_confirmation(
+            self,
+            tr("Clean Moved Records", "清理已移走记录", "移動済み履歴を削除"),
             tr(
                 f"This will delete {len(moved_records)} DB records for files that are missing or outside the current download folder.",
                 f"将删除 {len(moved_records)} 条文件缺失或不在当前下载文件夹内的数据库记录。",
                 f"不明または保存先外のDB履歴 {len(moved_records)} 件を削除します。",
-            )
-        )
-        box.setInformativeText(
-            tr(
+            ),
+            informative=tr(
                 "Local files will not be deleted, but these videos will no longer count as previously saved in history.",
-                "不会删除本地文件，但这些视频之后不再被历史库视为已保存；如果后续做作者订阅/去重，可能会重新入队。",
+                "不会删除本地文件，但这些视频之后不再被历史库视为已保存；后续可能会重新入队。",
                 "ローカルファイルは削除されませんが、履歴上は保存済み扱いではなくなります。",
-            )
+            ),
+            yes_text=tr("Clean records", "清理记录", "履歴を削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
         )
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
 
         stats = download_manager.sync_history_with_download_folder()
