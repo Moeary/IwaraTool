@@ -5,7 +5,7 @@ import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -29,6 +29,7 @@ from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .ui_state import show_fluent_confirmation
 
 
 # ── Worker thread for login ───────────────────────────────────────────────────
@@ -54,12 +55,23 @@ class SettingsInterface(ScrollArea):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SettingsInterface")
+        # A native QScrollArea viewport otherwise keeps its light palette and
+        # paints an opaque white page over FluentWindow's Mica/dark background.
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setStyleSheet(
+            "QScrollArea#SettingsInterface { background: transparent; border: none; }"
+            "QScrollArea#SettingsInterface > QWidget > QWidget { background: transparent; }"
+            "QWidget#settingsContent { background: transparent; }"
+        )
+        self.viewport().setAutoFillBackground(False)
 
         self._worker: LoginWorker | None = None
         self._loading_settings = False
 
         self._content = QWidget(self)
         self._content.setObjectName("settingsContent")
+        self._content.setAutoFillBackground(False)
         self.setWidget(self._content)
         self.setWidgetResizable(True)
 
@@ -203,7 +215,7 @@ class SettingsInterface(ScrollArea):
 
         quality_row = QHBoxLayout()
         self._quality_combo = ComboBox(quality_card)
-        self._quality_combo.addItems(["Source", "540p", "360p"])
+        self._quality_combo.addItems([tr("Source", "原画", "オリジナル"), "540p", "360p"])
         self._quality_combo.setFixedWidth(180)
         self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
         quality_row.addWidget(self._quality_combo)
@@ -261,38 +273,12 @@ class SettingsInterface(ScrollArea):
         dir_layout.addLayout(cleanup_row)
         layout.addWidget(dir_card)
 
-        # ── Filename template & de-dup ───────────────────────────────────────
+        # ── Global download behavior ─────────────────────────────────────────
         name_card = CardWidget(self._content)
         name_layout = QVBoxLayout(name_card)
         name_layout.setContentsMargins(20, 16, 20, 16)
         name_layout.setSpacing(10)
-
-        name_layout.addWidget(SubtitleLabel(tr("Filename Template", "下载命名规则", "ファイル名テンプレート"), name_card))
-        name_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Placeholders: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}; ",
-                    "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
-                    "使用可能プレースホルダー: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes} {comments} {duration} {slug} {rating}",
-                ),
-                name_card,
-            )
-        )
-        name_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "default {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "默认 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                    "既定値 {username}/{YYYY-MM-DD}_{title}_{id}.mp4",
-                ),
-                name_card,
-            )
-        )
-
-        self._name_tpl_edit = LineEdit(name_card)
-        self._name_tpl_edit.setPlaceholderText("{username}/{YYYY-MM-DD}_{title}_{id}.mp4")
-        self._name_tpl_edit.setClearButtonEnabled(True)
-        name_layout.addWidget(self._name_tpl_edit)
+        name_layout.addWidget(SubtitleLabel(tr("Download Behavior", "下载行为", "ダウンロード動作"), name_card))
 
         skip_row = QHBoxLayout()
         skip_row.addWidget(
@@ -362,6 +348,51 @@ class SettingsInterface(ScrollArea):
         conc_row.addSpacing(12)
         conc_row.addWidget(self._conc_input, 2)
         conc_layout.addLayout(conc_row)
+
+        stall_row = QHBoxLayout()
+        stall_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Auto-cancel idle task after seconds (0 disables)",
+                    "无响应自动中断秒数（0 关闭）",
+                    "無応答の自動中断秒数（0 で無効）",
+                ),
+                conc_card,
+            )
+        )
+        stall_row.addStretch()
+        self._stall_timeout_edit = LineEdit(conc_card)
+        self._stall_timeout_edit.setFixedWidth(100)
+        self._stall_timeout_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stall_timeout_edit.setValidator(QIntValidator(0, 3600, self._stall_timeout_edit))
+        self._stall_timeout_edit.setPlaceholderText("0-3600")
+        self._stall_timeout_edit.editingFinished.connect(self._on_stall_timeout_input_finished)
+        stall_row.addWidget(self._stall_timeout_edit)
+        conc_layout.addLayout(stall_row)
+
+        auto_restore_row = QHBoxLayout()
+        auto_restore_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Auto-restore idle-cancelled tasks when the queue becomes idle",
+                    "任务空闲后自动恢复超时中断项",
+                    "待機状態になったら自動中断タスクを復元",
+                ),
+                conc_card,
+            )
+        )
+        auto_restore_row.addStretch()
+        self._auto_restore_stalled_switch = SwitchButton(conc_card)
+        self._auto_restore_stalled_switch.setToolTip(
+            tr(
+                "Only restores tasks cancelled by the idle watchdog; manual Cancel All is not restored.",
+                "只恢复无响应检测自动中断的任务；人为点击全部中断不会自动恢复。",
+                "無応答ウォッチドッグで中断されたタスクのみ復元します。手動の全件中断は復元しません。",
+            )
+        )
+        self._auto_restore_stalled_switch.checkedChanged.connect(self._on_auto_restore_stalled_toggle)
+        auto_restore_row.addWidget(self._auto_restore_stalled_switch)
+        conc_layout.addLayout(auto_restore_row)
         layout.addWidget(conc_card)
 
         # ── Search download limit ───────────────────────────────────────────
@@ -441,39 +472,71 @@ class SettingsInterface(ScrollArea):
         proxy_layout.setContentsMargins(20, 16, 20, 16)
         proxy_layout.setSpacing(10)
 
-        proxy_header = QHBoxLayout()
-        proxy_header.addWidget(SubtitleLabel(tr("Proxy", "代理设置", "プロキシ"), proxy_card))
-        proxy_header.addStretch()
-        self._proxy_switch = SwitchButton(proxy_card)
-        self._proxy_switch.checkedChanged.connect(self._on_proxy_toggle)
-        proxy_header.addWidget(self._proxy_switch)
-        proxy_layout.addLayout(proxy_header)
-
+        proxy_layout.addWidget(SubtitleLabel(tr("Proxy", "代理设置", "プロキシ"), proxy_card))
         proxy_layout.addWidget(
             BodyLabel(
                 tr(
-                    "HTTP/SOCKS proxy (e.g. http://127.0.0.1:7890)",
-                    "HTTP/SOCKS 代理（例如 http://127.0.0.1:7890）",
-                    "HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890）",
+                    "API proxy is used for login, URL parsing, subscriptions and metadata. If TUN mode is off, keep this enabled and make sure your local proxy port is running.",
+                    "API 代理用于登录、链接解析、订阅和元数据请求。未开启 TUN 时建议保持开启，并确认本机代理端口正在运行。",
+                    "API プロキシはログイン、URL 解析、購読、メタデータ取得に使います。TUN が無効な場合は有効にし、ローカルプロキシポートが起動していることを確認してください。",
                 ),
                 proxy_card,
             )
         )
 
-        self._proxy_widget = QWidget(proxy_card)
-        proxy_inner = QHBoxLayout(self._proxy_widget)
-        proxy_inner.setContentsMargins(0, 0, 0, 0)
-        self._proxy_edit = LineEdit(self._proxy_widget)
-        self._proxy_edit.setPlaceholderText("http://127.0.0.1:7890")
-        self._proxy_edit.textChanged.connect(self._on_proxy_url_changed)
+        api_proxy_header = QHBoxLayout()
+        api_proxy_header.addWidget(BodyLabel(tr("Login / parsing proxy", "登录/解析代理", "ログイン/解析プロキシ"), proxy_card))
+        api_proxy_header.addStretch()
+        self._api_proxy_switch = SwitchButton(proxy_card)
+        self._api_proxy_switch.checkedChanged.connect(self._on_api_proxy_toggle)
+        api_proxy_header.addWidget(self._api_proxy_switch)
+        proxy_layout.addLayout(api_proxy_header)
 
-        apply_proxy_btn = PrimaryPushButton(tr("Apply", "应用", "適用"), self._proxy_widget)
+        self._api_proxy_widget = QWidget(proxy_card)
+        api_proxy_inner = QHBoxLayout(self._api_proxy_widget)
+        api_proxy_inner.setContentsMargins(0, 0, 0, 0)
+        self._api_proxy_edit = LineEdit(self._api_proxy_widget)
+        self._api_proxy_edit.setPlaceholderText("http://127.0.0.1:7890")
+        self._api_proxy_edit.textChanged.connect(self._on_api_proxy_url_changed)
+        api_proxy_inner.addWidget(self._api_proxy_edit, stretch=1)
+        proxy_layout.addWidget(self._api_proxy_widget)
+
+        download_proxy_header = QHBoxLayout()
+        download_proxy_header.addWidget(BodyLabel(tr("Video download proxy", "视频下载代理", "動画ダウンロードプロキシ"), proxy_card))
+        download_proxy_header.addStretch()
+        self._download_proxy_switch = SwitchButton(proxy_card)
+        self._download_proxy_switch.checkedChanged.connect(self._on_download_proxy_toggle)
+        download_proxy_header.addWidget(self._download_proxy_switch)
+        proxy_layout.addLayout(download_proxy_header)
+
+        proxy_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Only affects large file downloads and aria2 all-proxy; thumbnails and metadata still follow the API proxy.",
+                    "仅影响大文件下载和 aria2 all-proxy；封面、头像和元数据仍跟随 API 代理。",
+                    "大きなファイルのダウンロードと aria2 all-proxy のみに影響します。サムネイル、アバター、メタデータは API プロキシに従います。",
+                ),
+                proxy_card,
+            )
+        )
+
+        self._download_proxy_widget = QWidget(proxy_card)
+        download_proxy_inner = QHBoxLayout(self._download_proxy_widget)
+        download_proxy_inner.setContentsMargins(0, 0, 0, 0)
+        self._download_proxy_edit = LineEdit(self._download_proxy_widget)
+        self._download_proxy_edit.setPlaceholderText("http://127.0.0.1:7890")
+        self._download_proxy_edit.textChanged.connect(self._on_download_proxy_url_changed)
+        download_proxy_inner.addWidget(self._download_proxy_edit, stretch=1)
+        proxy_layout.addWidget(self._download_proxy_widget)
+
+        apply_proxy_btn = PrimaryPushButton(tr("Apply", "应用", "適用"), proxy_card)
         apply_proxy_btn.setFixedWidth(80)
         apply_proxy_btn.clicked.connect(self._apply_proxy)
 
-        proxy_inner.addWidget(self._proxy_edit, stretch=1)
-        proxy_inner.addWidget(apply_proxy_btn)
-        proxy_layout.addWidget(self._proxy_widget)
+        proxy_apply_row = QHBoxLayout()
+        proxy_apply_row.addStretch()
+        proxy_apply_row.addWidget(apply_proxy_btn)
+        proxy_layout.addLayout(proxy_apply_row)
         layout.addWidget(proxy_card)
 
         # ── Aria2 RPC ───────────────────────────────────────────────────────
@@ -532,14 +595,18 @@ class SettingsInterface(ScrollArea):
         self._dir_edit.setText(app_config.download_dir)
         self._conc_slider.setValue(app_config.max_concurrent)
         self._conc_input.setText(str(app_config.max_concurrent))
-        self._proxy_switch.setChecked(app_config.proxy_enabled)
-        self._proxy_edit.setText(app_config.proxy_url)
-        self._proxy_widget.setVisible(app_config.proxy_enabled)
+        self._stall_timeout_edit.setText(str(app_config.task_stall_timeout_seconds))
+        self._auto_restore_stalled_switch.setChecked(app_config.auto_restore_stalled_cancelled)
+        self._api_proxy_switch.setChecked(app_config.api_proxy_enabled)
+        self._api_proxy_edit.setText(app_config.api_proxy_url)
+        self._api_proxy_widget.setVisible(app_config.api_proxy_enabled)
+        self._download_proxy_switch.setChecked(app_config.download_proxy_enabled)
+        self._download_proxy_edit.setText(app_config.download_proxy_url)
+        self._download_proxy_widget.setVisible(app_config.download_proxy_enabled)
         self._aria2_switch.setChecked(app_config.aria2_rpc_enabled)
         self._aria2_url_edit.setText(app_config.aria2_rpc_url)
         self._aria2_token_edit.setText(app_config.aria2_rpc_token)
         self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
-        self._name_tpl_edit.setText(app_config.filename_template)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
@@ -598,6 +665,21 @@ class SettingsInterface(ScrollArea):
                 )
             return
 
+        if not silent and not app_config.api_proxy_enabled:
+            InfoBar.warning(
+                title=tr("API proxy is off", "API 代理未开启", "API プロキシ無効"),
+                content=tr(
+                    "If TUN/system proxy is not enabled, login and URL parsing may fail.",
+                    "如果没有开启 TUN/系统代理，登录和链接解析可能会失败。",
+                    "TUN/システムプロキシが無効な場合、ログインや URL 解析に失敗する可能性があります。",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self,
+            )
+
         self._login_btn.setEnabled(False)
         self._login_status_lbl.setText(tr("Signing in...", "登录中…", "ログイン中..."))
         signal_bus.log_message.emit(
@@ -608,6 +690,7 @@ class SettingsInterface(ScrollArea):
             )
         )
 
+        download_manager.apply_config()
         self._worker = LoginWorker(credential, password)
         self._worker.finished.connect(lambda ok, msg: self._on_login_finished(ok, msg, silent))
         self._worker.start()
@@ -730,6 +813,24 @@ class SettingsInterface(ScrollArea):
         self._conc_slider.setValue(value)
         self._conc_input.setText(str(value))
 
+    def _on_stall_timeout_input_finished(self):
+        text = self._stall_timeout_edit.text().strip()
+        if not text:
+            value = 30
+        else:
+            try:
+                value = int(text)
+            except ValueError:
+                value = app_config.task_stall_timeout_seconds
+        value = max(0, min(3600, value))
+        self._stall_timeout_edit.setText(str(value))
+        app_config.task_stall_timeout_seconds = value
+
+    def _on_auto_restore_stalled_toggle(self, checked: bool):
+        if self._loading_settings:
+            return
+        app_config.auto_restore_stalled_cancelled = bool(checked)
+
     def _on_search_limit_toggle(self, checked: bool):
         app_config.search_limit_enabled = checked
         self._search_limit_edit.setEnabled(checked)
@@ -748,42 +849,64 @@ class SettingsInterface(ScrollArea):
         self._search_limit_edit.setText(str(value))
         app_config.search_limit_count = value
 
-    def _on_proxy_toggle(self, checked: bool):
-        app_config.proxy_enabled = checked
-        self._proxy_widget.setVisible(checked)
+    def _on_api_proxy_toggle(self, checked: bool):
+        app_config.api_proxy_enabled = checked
+        self._api_proxy_widget.setVisible(checked)
+        download_manager.apply_config()
         if not checked:
             download_manager.api.set_proxy("")
 
-    def _on_proxy_url_changed(self, text: str):
-        app_config.proxy_url = text
+    def _on_api_proxy_url_changed(self, text: str):
+        app_config.api_proxy_url = text
+
+    def _on_download_proxy_toggle(self, checked: bool):
+        app_config.download_proxy_enabled = checked
+        self._download_proxy_widget.setVisible(checked)
+
+    def _on_download_proxy_url_changed(self, text: str):
+        app_config.download_proxy_url = text
 
     def _on_aria2_toggle(self, checked: bool):
         app_config.aria2_rpc_enabled = checked
         self._aria2_widget.setVisible(checked)
 
     def _apply_proxy(self):
-        if app_config.proxy_enabled:
-            download_manager.apply_config()
-            InfoBar.success(
-                title=tr("Proxy Applied", "代理已应用", "プロキシを適用しました"),
-                content=tr("Current proxy: ", "当前代理: ", "現在のプロキシ: ") + app_config.proxy_url,
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self,
-            )
+        app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
+        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
+        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        self._api_proxy_edit.setText(app_config.api_proxy_url)
+        self._download_proxy_edit.setText(app_config.download_proxy_url)
+        download_manager.apply_config()
+        api_state = tr("On", "开", "オン") if app_config.api_proxy_enabled else tr("Off", "关", "オフ")
+        download_state = tr("On", "开", "オン") if app_config.download_proxy_enabled else tr("Off", "关", "オフ")
+        InfoBar.success(
+            title=tr("Proxy Applied", "代理已应用", "プロキシを適用しました"),
+            content=tr(
+                f"API: {api_state} {app_config.api_proxy_url}; Download: {download_state} {app_config.download_proxy_url}",
+                f"API：{api_state} {app_config.api_proxy_url}；下载：{download_state} {app_config.download_proxy_url}",
+                f"API: {api_state} {app_config.api_proxy_url}; ダウンロード: {download_state} {app_config.download_proxy_url}",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self,
+        )
 
     def _save_settings(self):
         self._on_concurrency_input_finished()
+        self._on_stall_timeout_input_finished()
+        app_config.auto_restore_stalled_cancelled = self._auto_restore_stalled_switch.isChecked()
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
-        app_config.proxy_enabled = self._proxy_switch.isChecked()
-        app_config.proxy_url = self._proxy_edit.text()
+        app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
+        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
+        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or "http://127.0.0.1:7890"
         app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
         app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
         app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
-        app_config.filename_template = self._name_tpl_edit.text().strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
         app_config.completed_task_click_action = (
             "player" if self._completed_click_combo.currentIndex() == 1 else "folder"
@@ -791,8 +914,7 @@ class SettingsInterface(ScrollArea):
         app_config.subscription_prompt_mode = ["ask", "always", "never"][self._subscription_prompt_combo.currentIndex()]
         self._on_search_limit_input_finished()
         app_config.search_limit_enabled = self._search_limit_switch.isChecked()
-        if app_config.proxy_enabled:
-            download_manager.apply_config()
+        download_manager.apply_config()
         InfoBar.success(
             title=tr("Settings Saved", "设置已保存", "設定を保存しました"),
             content="",
@@ -804,28 +926,22 @@ class SettingsInterface(ScrollArea):
         )
 
     def _confirm_clear_temp_files(self):
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Confirm Cleanup", "确认清理", "削除確認"))
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText(
+        if not show_fluent_confirmation(
+            self,
+            tr("Confirm Cleanup", "确认清理", "削除確認"),
             tr(
                 "All *_temp files in download directory will be deleted (including .aria2 sidecars).",
                 "将删除下载目录下所有 *_temp 文件（含对应 .aria2 临时索引）。",
                 "ダウンロード先の *_temp ファイル（.aria2 含む）を削除します。",
-            )
-        )
-        box.setInformativeText(
-            tr(
+            ),
+            informative=tr(
                 "This action cannot be undone. Continue?",
                 "此操作不可撤销，是否继续？",
                 "この操作は取り消せません。続行しますか？",
-            )
-        )
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+            ),
+            yes_text=tr("Delete temp files", "删除临时文件", "一時ファイルを削除"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
+        ):
             return
 
         removed, failed = download_manager.clear_temp_files()

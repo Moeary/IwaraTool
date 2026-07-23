@@ -9,8 +9,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
-    QHBoxLayout,
     QTableWidgetItem,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -30,10 +30,11 @@ from qfluentwidgets import (
 )
 
 from ..core.manager import download_manager
-from ..core.models import DownloadTask, STATUS_LABELS, TaskStatus
+from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import (
+    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
@@ -133,9 +134,8 @@ class TaskCenterInterface(QWidget):
             root.setContentsMargins(36, 24, 36, 16)
             root.setSpacing(12)
 
-        title_row = QHBoxLayout()
+        title_row = ResponsiveFlowLayout()
         title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
-        title_row.addStretch()
 
         self._exclude_downloaded_switch = SwitchButton(self)
         self._exclude_downloaded_switch.setChecked(True)
@@ -145,6 +145,10 @@ class TaskCenterInterface(QWidget):
         retry_all_btn = PrimaryPushButton(tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC)
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
+
+        restore_all_btn = PrimaryPushButton(tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN)
+        restore_all_btn.clicked.connect(self._restore_all_cancelled)
+        title_row.addWidget(restore_all_btn)
 
         cancel_all_btn = PrimaryPushButton(tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL)
         cancel_all_btn.clicked.connect(self._cancel_all_active)
@@ -163,12 +167,12 @@ class TaskCenterInterface(QWidget):
         title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
-        filter_row = QHBoxLayout()
+        filter_row = ResponsiveFlowLayout()
         self._search_edit = LineEdit(self)
         self._search_edit.setPlaceholderText(tr("Search tasks...", "搜索任务...", "タスクを検索..."))
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._apply_filters)
-        filter_row.addWidget(self._search_edit, stretch=1)
+        filter_row.addWidget(self._search_edit)
 
         self._state_combo = ComboBox(self)
         self._state_combo.addItems(
@@ -212,9 +216,14 @@ class TaskCenterInterface(QWidget):
         root.addLayout(filter_row)
 
         self._summary_label = BodyLabel("", self)
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setMinimumHeight(28)
+        self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         root.addWidget(self._summary_label)
 
         self._table = TableWidget(self)
+        self._table.setMinimumWidth(0)
+        self._table.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
         self._table.setColumnCount(11)
         self._table.setHorizontalHeaderLabels(
@@ -329,7 +338,7 @@ class TaskCenterInterface(QWidget):
 
     def _update_row(self, row_idx: int, task: DownloadTask):
         values = [
-            STATUS_LABELS.get(task.status, task.status.value),
+            status_label(task.status),
             task.title or task.video_id,
             task.author,
             self._progress_text(task),
@@ -415,12 +424,14 @@ class TaskCenterInterface(QWidget):
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
         queued = sum(1 for task in tasks if task.status in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD))
         failed = sum(1 for task in tasks if task.status == TaskStatus.FAILED)
+        cancelled = sum(1 for task in tasks if task.status == TaskStatus.CANCELLED)
+        skipped = sum(1 for task in tasks if task.status == TaskStatus.SKIPPED)
         completed = sum(1 for task in tasks if task.status == TaskStatus.COMPLETED)
         self._summary_label.setText(
             tr(
-                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | completed: {completed}",
-                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 完成: {completed}",
-                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 完了: {completed}",
+                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | cancelled: {cancelled} | skipped: {skipped} | completed: {completed}",
+                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 中断: {cancelled} | 跳过: {skipped} | 完成: {completed}",
+                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 中断: {cancelled} | スキップ: {skipped} | 完了: {completed}",
             )
         )
 
@@ -549,7 +560,7 @@ class TaskCenterInterface(QWidget):
             if self._sort_column == self._SORT_ADDED:
                 return order
             if self._sort_column == self._COL_STATE:
-                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), text(STATUS_LABELS.get(task.status, task.status.value)), order)
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), text(status_label(task.status)), order)
             if self._sort_column == self._COL_TITLE:
                 return (text(task.title or task.video_id), order)
             if self._sort_column == self._COL_AUTHOR:
@@ -774,12 +785,13 @@ class TaskCenterInterface(QWidget):
 
     def _clear_done(self):
         download_manager.clear_completed()
+        self._schedule_refresh(0)
         InfoBar.success(
             title=tr("Cleared", "已清除", "クリア完了"),
             content=tr(
-                "All completed/skipped/failed/cancelled tasks were removed",
-                "已移除所有已完成/已跳过/失败/中断的任务",
-                "完了/スキップ/失敗/中断タスクをすべて削除しました",
+                "Completed and skipped tasks were removed; failed/cancelled tasks were kept",
+                "已移除已完成/已跳过任务；失败/中断任务已保留",
+                "完了/スキップのみ削除し、失敗/中断タスクは保持しました",
             ),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
@@ -821,6 +833,23 @@ class TaskCenterInterface(QWidget):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2800,
+            parent=self,
+        )
+
+    def _restore_all_cancelled(self):
+        restored = download_manager.restore_all_cancelled()
+        self._schedule_refresh(0)
+        InfoBar.success(
+            title=tr("Restore Triggered", "批量恢复已触发", "復元を開始"),
+            content=tr(
+                f"Restored {restored} cancelled tasks",
+                f"恢复 {restored} 个已中断任务",
+                f"{restored} 件の中断タスクを復元しました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
             parent=self,
         )
 
@@ -939,7 +968,7 @@ class TaskCenterInterface(QWidget):
     def _task_search_text(self, task: DownloadTask) -> str:
         return "\n".join(
             [
-                STATUS_LABELS.get(task.status, task.status.value),
+                status_label(task.status),
                 task.title,
                 task.author,
                 task.video_id,

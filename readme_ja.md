@@ -6,7 +6,7 @@
 
 煩わしいコマンドラインにさよなら！モダンな Fluent スタイルのインターフェースを備えた Iwara 一括ダウンローダー。初心者でもワンクリックで作者の全動画をダウンロードできます。
 
-![demo](./docs/iwaratool_demo.gif)
+![demo](./docs/iwaratool_demo_v0.6.gif)
 
 ## 主な機能
 - `X-Version` 署名計算に対応。
@@ -14,20 +14,24 @@
 - ステートマシン制御で URL 失効問題を軽減。
 - ローカル重複回避 + SQLite 履歴センター。
 - ユーザー、プレイリスト、検索 URL の一括投入に対応。
-- フィルター：いいね、再生数、日付範囲、タグ include/exclude。
+- フォロー作者の取込、更新確認、新着件数、リスト/カバー表示を備えたローカル購読管理。
+- いいね、再生数、日付、タグ、タイトルキーワード、命名テンプレート、保存動作をまとめる名前付きルール。
 - 検索ダウンロード件数上限を個別設定可能。
 - `data/config.ini` に token を保存し起動ログインを高速化。
 - 中/英/日のリアルタイム切替（再起動不要）。
+- 実行中のライト/ダークテーマ切替。
 - ファイル名テンプレートは複数プレースホルダーとディレクトリ制御に対応。
 - aria2 RPC、サムネイル保存、`.nfo` 生成は任意で有効化可能。
 - 履歴センターは検索、フィルター、ソート、ファイルを開く、名前変更、移動済み履歴の削除に対応。
+- テーブル列、列幅、順序の設定と永続化、およびウィンドウサイズに応じた分割レイアウト。
 - 再試行前に対応する一時キャッシュを削除し、壊れたキャッシュによる再失敗を軽減。
 
 ## クイックスタート
 1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得。
    - Linux バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
-2. 起動後、先にログイン。
-3. `新規ダウンロード` に URL を貼り付けてキュー投入。
+2. アプリを起動します。非公開動画の保存やフォロー作者の取込にはログインが必要です。
+3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
+4. `購読` でアカウントフィード、作者、プレイリストを追跡し、新着動画をまとめて保存できます。
 
 ## 対応 URL
 ```text
@@ -44,6 +48,24 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
 
+## 画面紹介
+
+1. ダウンロードワークベンチ
+
+   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+2. 購読
+
+   ![購読](./docs/panel_view/iwaratool_subscription_panel.jpg)
+3. 履歴
+
+   ![履歴](./docs/panel_view/iwaratool_history_panel.jpg)
+4. ルール
+
+   ![ルール](./docs/panel_view/iwaratool_rule_panel.jpg)
+5. 設定
+
+   ![設定](./docs/panel_view/iwaratool_settings_panel.jpg)
+
 ## ドキュメント
 - Wiki: <https://github.com/Moeary/IwaraTool/wiki>
 - API（JA）：[docs/API_ja.md](./docs/API_ja.md)
@@ -56,15 +78,17 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 開発者としてソースコードを直接実行したい、またはアプリをビルドしたい場合：
 
 ```shell
-pixi run start // プログラムを実行
-pixi run build // アプリをビルド
-pixi run crawl // タグデータを取得（docs/iwara_tags.md を更新）
+pixi install
+pixi run start  # プログラムを実行
+pixi run build  # アプリをビルド
+pixi run crawl  # タグデータを取得（docs/iwara_tags.md を更新）
+pixi run python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ## 貢献
 
 PRは大歓迎です！
-現在、プログラムの i18n（多言語）はまだ不十分であり、ダーク/ライトモードの切り替えもまだ実装されていません。これらはコアなダウンロード機能には影響しませんが、もし時間があり、改善に協力していただける場合は、直接 PR を提出してください（PRを提出する際は、標準的な更新を遵守して dev ブランチにマージし、提出前に GitHub Action の CI/CD を通過させるようにしてください）。ありがとうございます！
+変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
 
 ## ライセンス
 

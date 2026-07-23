@@ -10,6 +10,7 @@ from qfluentwidgets import (
     FluentWindow,
     NavigationItemPosition,
     Theme,
+    qconfig,
     isDarkTheme,
     setTheme,
 )
@@ -18,6 +19,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
+from .rules_page import RulesInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 
@@ -34,6 +36,7 @@ class MainWindow(FluentWindow):
         self._init_navigation()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)
+        qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 
     def _init_window(self):
@@ -49,6 +52,7 @@ class MainWindow(FluentWindow):
         self._download_page = DownloadInterface(self)
         self._subscription_page = SubscriptionInterface(self)
         self._history_page = HistoryInterface(self)
+        self._rules_page = RulesInterface(self)
         self._settings_page = SettingsInterface(self)
 
         # Add items with Fluent icons
@@ -67,9 +71,8 @@ class MainWindow(FluentWindow):
             icon=FluentIcon.HISTORY,
             text=tr("History", "历史记录", "履歴"),
         )
-
         # Bottom quick actions (shown above settings)
-        
+
         self.navigationInterface.addItem(
             routeKey="open-github",
             icon=FluentIcon.GITHUB,
@@ -80,18 +83,26 @@ class MainWindow(FluentWindow):
             tooltip=tr("Open project GitHub", "打开项目 GitHub链接", "プロジェクト GitHub を開く"),
         )
 
-        # 切换模式暂时有问题, 先注释掉，后续再完善
-        """
         self.navigationInterface.addItem(
             routeKey="toggle-theme",
             icon=FluentIcon.BRIGHTNESS,
-            text=tr("Toggle Dark Mode", "切换暗黑模式"),
+            text=tr("Toggle Dark Mode", "切换黑夜模式", "ダークモード切替"),
             onClick=self._toggle_dark_mode,
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
-            tooltip=tr("One-click theme toggle", "一键切换深浅色"),
+            tooltip=tr(
+                "Switch between light and dark mode",
+                "一键切换浅色/黑夜模式",
+                "ライト/ダークモードを切り替えます",
+            ),
         )
-        """
+
+        self.addSubInterface(
+            self._rules_page,
+            icon=FluentIcon.FILTER,
+            text=tr("Rules", "下载规则", "ルール"),
+            position=NavigationItemPosition.BOTTOM,
+        )
 
         self.addSubInterface(
             self._settings_page,
@@ -110,6 +121,22 @@ class MainWindow(FluentWindow):
 
     def _toggle_dark_mode(self):
         setTheme(Theme.LIGHT if isDarkTheme() else Theme.DARK)
+        self._refresh_theme_styles()
+
+    def _on_theme_changed(self, *_args):
+        self._refresh_theme_styles()
+
+    def _refresh_theme_styles(self):
+        for page in (
+            getattr(self, "_download_page", None),
+            getattr(self, "_subscription_page", None),
+            getattr(self, "_history_page", None),
+            getattr(self, "_rules_page", None),
+            getattr(self, "_settings_page", None),
+        ):
+            refresh = getattr(page, "refresh_theme_styles", None)
+            if refresh:
+                refresh()
 
     def _open_github(self):
         QDesktopServices.openUrl(QUrl("https://github.com/Moeary/IwaraTool"))

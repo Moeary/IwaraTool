@@ -52,6 +52,8 @@ class SubscriptionStore:
                 "source_key TEXT NOT NULL, "
                 "title TEXT DEFAULT '', "
                 "remote_id TEXT DEFAULT '', "
+                "avatar_url TEXT DEFAULT '', "
+                "avatar_path TEXT DEFAULT '', "
                 "enabled INTEGER DEFAULT 1, "
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
@@ -59,6 +61,7 @@ class SubscriptionStore:
                 "UNIQUE(source_type, source_key)"
                 ")"
             )
+            self._ensure_source_columns(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS items ("
                 "source_id INTEGER NOT NULL, "
@@ -67,12 +70,17 @@ class SubscriptionStore:
                 "author TEXT DEFAULT '', "
                 "published_at TEXT DEFAULT '', "
                 "source_url TEXT DEFAULT '', "
+                "thumbnail_url TEXT DEFAULT '', "
+                "download_state TEXT DEFAULT '', "
+                "download_reason TEXT DEFAULT '', "
+                "download_checked_at TEXT DEFAULT '', "
                 "discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "is_new INTEGER DEFAULT 1, "
                 "PRIMARY KEY(source_id, video_id)"
                 ")"
             )
+            self._ensure_item_columns(conn)
             conn.commit()
 
     def _migrate_legacy_db(self):
@@ -137,13 +145,14 @@ class SubscriptionStore:
                             continue
                         target.execute(
                             "INSERT INTO items "
-                            "(source_id, video_id, title, author, published_at, source_url, discovered_at, updated_at, is_new) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                            "(source_id, video_id, title, author, published_at, source_url, thumbnail_url, discovered_at, updated_at, is_new) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                             "ON CONFLICT(source_id, video_id) DO UPDATE SET "
                             "title=CASE WHEN excluded.title != '' THEN excluded.title ELSE title END, "
                             "author=CASE WHEN excluded.author != '' THEN excluded.author ELSE author END, "
                             "published_at=CASE WHEN excluded.published_at != '' THEN excluded.published_at ELSE published_at END, "
                             "source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE source_url END, "
+                            "thumbnail_url=CASE WHEN excluded.thumbnail_url != '' THEN excluded.thumbnail_url ELSE thumbnail_url END, "
                             "is_new=MAX(is_new, excluded.is_new), "
                             "updated_at=CURRENT_TIMESTAMP",
                             (
@@ -153,6 +162,7 @@ class SubscriptionStore:
                                 str(item.get("author", "") or ""),
                                 str(item.get("published_at", "") or ""),
                                 str(item.get("source_url", "") or ""),
+                                str(item.get("thumbnail_url", "") or ""),
                                 str(item.get("discovered_at", "") or ""),
                                 str(item.get("updated_at", "") or ""),
                                 1 if int(item.get("is_new", 1) or 0) else 0,
@@ -181,6 +191,8 @@ class SubscriptionStore:
         source_key: str,
         title: str = "",
         remote_id: str = "",
+        avatar_url: str = "",
+        avatar_path: str = "",
     ) -> int:
         source_type = source_type.strip().lower()
         source_key = source_key.strip()
@@ -189,14 +201,16 @@ class SubscriptionStore:
             return 0
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
             conn.execute(
-                "INSERT INTO sources (source_type, source_key, title, remote_id, enabled) "
-                "VALUES (?, ?, ?, ?, 1) "
+                "INSERT INTO sources (source_type, source_key, title, remote_id, avatar_url, avatar_path, enabled) "
+                "VALUES (?, ?, ?, ?, ?, ?, 1) "
                 "ON CONFLICT(source_type, source_key) DO UPDATE SET "
                 "title=excluded.title, "
                 "remote_id=CASE WHEN excluded.remote_id != '' THEN excluded.remote_id ELSE remote_id END, "
+                "avatar_url=CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END, "
+                "avatar_path=CASE WHEN excluded.avatar_path != '' THEN excluded.avatar_path ELSE avatar_path END, "
                 "enabled=1, "
                 "updated_at=CURRENT_TIMESTAMP",
-                (source_type, source_key, title, remote_id),
+                (source_type, source_key, title, remote_id, avatar_url, avatar_path),
             )
             row = conn.execute(
                 "SELECT id FROM sources WHERE source_type=? AND source_key=?",
@@ -254,6 +268,15 @@ class SubscriptionStore:
             conn.commit()
             self._export_sources_backup(conn)
 
+    def update_source_avatar(self, source_id: int, avatar_url: str, avatar_path: str):
+        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+            conn.execute(
+                "UPDATE sources SET avatar_url=?, avatar_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (str(avatar_url or ""), str(avatar_path or ""), int(source_id)),
+            )
+            conn.commit()
+            self._export_sources_backup(conn)
+
     def touch_source_checked(self, source_id: int):
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
             conn.execute(
@@ -281,18 +304,44 @@ class SubscriptionStore:
                     str(item.get("author", "") or ""),
                     str(item.get("published_at", "") or ""),
                     str(item.get("source_url", "") or ""),
+                    str(item.get("thumbnail_url", "") or ""),
                 )
+                download_state = str(item.get("download_state", "") or "")
+                download_reason = str(item.get("download_reason", "") or "")
+                state_known = bool(item.get("download_state_known") or download_state or download_reason)
+                checked_at = str(item.get("download_checked_at", "") or "")
+                if state_known and not checked_at:
+                    checked_at = time.strftime("%Y-%m-%d %H:%M:%S")
                 if row:
+                    if state_known:
+                        conn.execute(
+                            "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, "
+                            "download_state=?, download_reason=?, download_checked_at=?, updated_at=CURRENT_TIMESTAMP "
+                            "WHERE source_id=? AND video_id=?",
+                            (
+                                params[2],
+                                params[3],
+                                params[4],
+                                params[5],
+                                params[6],
+                                download_state,
+                                download_reason,
+                                checked_at,
+                                params[0],
+                                params[1],
+                            ),
+                        )
+                        continue
                     conn.execute(
-                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, updated_at=CURRENT_TIMESTAMP "
+                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, updated_at=CURRENT_TIMESTAMP "
                         "WHERE source_id=? AND video_id=?",
-                        (params[2], params[3], params[4], params[5], params[0], params[1]),
+                        (params[2], params[3], params[4], params[5], params[6], params[0], params[1]),
                     )
                     continue
                 conn.execute(
-                    "INSERT INTO items (source_id, video_id, title, author, published_at, source_url, is_new) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 1)",
-                    params,
+                    "INSERT INTO items (source_id, video_id, title, author, published_at, source_url, thumbnail_url, download_state, download_reason, download_checked_at, is_new) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                    (*params, download_state, download_reason, checked_at),
                 )
                 new_count += 1
             conn.commit()
@@ -360,6 +409,17 @@ class SubscriptionStore:
             )
             conn.commit()
 
+    def update_item_download_state(self, video_id: str, download_state: str, download_reason: str = ""):
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return
+        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+            conn.execute(
+                "UPDATE items SET download_state=?, download_reason=?, download_checked_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE video_id=?",
+                (str(download_state or ""), str(download_reason or ""), video_id),
+            )
+            conn.commit()
+
     def mark_source_seen(self, source_id: int):
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
             conn.execute(
@@ -396,13 +456,15 @@ class SubscriptionStore:
                     continue
                 conn.execute(
                     "INSERT OR IGNORE INTO sources "
-                    "(source_type, source_key, title, remote_id, enabled, last_checked_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "(source_type, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         source_type,
                         source_key,
                         str(source.get("title", "") or source_key),
                         str(source.get("remote_id", "") or ""),
+                        str(source.get("avatar_url", "") or ""),
+                        str(source.get("avatar_path", "") or ""),
                         1 if int(source.get("enabled", 1) or 0) else 0,
                         str(source.get("last_checked_at", "") or ""),
                     ),
@@ -412,7 +474,7 @@ class SubscriptionStore:
     def _export_sources_backup(self, conn: sqlite3.Connection):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT source_type, source_key, title, remote_id, enabled, last_checked_at "
+            "SELECT source_type, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at "
             "FROM sources ORDER BY source_type ASC, title COLLATE NOCASE ASC"
         ).fetchall()
         payload = {
@@ -423,6 +485,32 @@ class SubscriptionStore:
         with open(tmp_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
         os.replace(tmp_path, self._backup_path)
+
+    @staticmethod
+    def _ensure_source_columns(conn: sqlite3.Connection):
+        rows = conn.execute("PRAGMA table_info(sources)").fetchall()
+        existing = {r[1] for r in rows}
+        required: dict[str, str] = {
+            "avatar_url": "TEXT DEFAULT ''",
+            "avatar_path": "TEXT DEFAULT ''",
+        }
+        for col, ddl in required.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE sources ADD COLUMN {col} {ddl}")
+
+    @staticmethod
+    def _ensure_item_columns(conn: sqlite3.Connection):
+        rows = conn.execute("PRAGMA table_info(items)").fetchall()
+        existing = {r[1] for r in rows}
+        required: dict[str, str] = {
+            "thumbnail_url": "TEXT DEFAULT ''",
+            "download_state": "TEXT DEFAULT ''",
+            "download_reason": "TEXT DEFAULT ''",
+            "download_checked_at": "TEXT DEFAULT ''",
+        }
+        for col, ddl in required.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE items ADD COLUMN {col} {ddl}")
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:

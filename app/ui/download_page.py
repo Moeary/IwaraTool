@@ -5,11 +5,9 @@ from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QGridLayout,
     QHBoxLayout,
-    QMessageBox,
     QPlainTextEdit,
     QSizePolicy,
     QSplitter,
@@ -20,21 +18,93 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
+    CheckBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    MessageBoxBase,
     PrimaryPushButton,
+    PushButton,
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
+    isDarkTheme,
 )
 
 from ..config import app_config
 from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .rules_page import RulePicker
 from .task_page import TaskCenterInterface
+from .ui_state import ResponsiveFlowLayout
+
+
+def fluent_scrollbar_style() -> str:
+    handle = "#6f7d89" if isDarkTheme() else "#9aa7b2"
+    hover = "#22c3cf" if isDarkTheme() else "#00a4af"
+    return f"""
+    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
+    QScrollBar::handle:vertical {{ background: {handle}; min-height: 38px; border-radius: 5px; }}
+    QScrollBar::handle:vertical:hover {{ background: {hover}; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+    QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 1px 2px 1px 2px; }}
+    QScrollBar::handle:horizontal {{ background: {handle}; min-width: 38px; border-radius: 5px; }}
+    QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
+    """
+
+
+class _SubscriptionPromptDialog(MessageBoxBase):
+    """Fluent three-choice prompt used after downloading an author or playlist."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.choice = "once"
+        self.title_label = SubtitleLabel(
+            tr("Add Subscription", "加入订阅列表", "購読に追加"), self
+        )
+        self.content_label = BodyLabel(
+            tr(
+                "Add this author/playlist to the local subscription list?",
+                "是否把这个作者/播放列表加入本地订阅列表？",
+                "この作者/プレイリストをローカル購読に追加しますか？",
+            ),
+            self,
+        )
+        self.content_label.setWordWrap(True)
+        self.note_label = BodyLabel(
+            tr(
+                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
+                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
+                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
+            ),
+            self,
+        )
+        self.note_label.setWordWrap(True)
+        self.no_remind = CheckBox(
+            tr("Do not ask again", "下次不再提醒", "次回から確認しない"), self
+        )
+
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.content_label)
+        self.viewLayout.addWidget(self.note_label)
+        self.viewLayout.addWidget(self.no_remind)
+        self.yesButton.setText(tr("Add This Time", "本次加入", "今回追加"))
+        self.cancelButton.setText(tr("No", "不加入", "追加しない"))
+        self.always_button = PushButton(
+            tr("Always Add", "以后都自动加入", "常に追加"), self.buttonGroup
+        )
+        self.buttonLayout.insertWidget(
+            1, self.always_button, 1, Qt.AlignmentFlag.AlignVCenter
+        )
+        self.always_button.clicked.connect(self._accept_always)
+        self.widget.setMinimumWidth(620)
+
+    def _accept_always(self):
+        self.choice = "always"
+        self.accept()
 
 
 _OPTION_ON_STYLE = """
@@ -45,12 +115,8 @@ QPushButton {
     border-radius: 6px;
     padding: 8px 10px;
 }
-QPushButton:hover {
-    background-color: #00aeba;
-}
-QPushButton:pressed {
-    background-color: #008c96;
-}
+QPushButton:hover { background-color: #00aeba; }
+QPushButton:pressed { background-color: #008c96; }
 """
 
 _OPTION_OFF_STYLE = """
@@ -61,13 +127,70 @@ QPushButton {
     border-radius: 6px;
     padding: 8px 10px;
 }
-QPushButton:hover {
-    background-color: #edf1f5;
-}
-QPushButton:pressed {
-    background-color: #e3e8ef;
-}
+QPushButton:hover { background-color: #edf1f5; }
+QPushButton:pressed { background-color: #e3e8ef; }
 """
+
+_OPTION_ON_DARK_STYLE = """
+QPushButton {
+    background-color: #087f89;
+    color: #f7ffff;
+    border: 1px solid #18a8b2;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover { background-color: #1099a4; }
+QPushButton:pressed { background-color: #066a73; }
+"""
+
+_OPTION_OFF_DARK_STYLE = """
+QPushButton {
+    background-color: #292d32;
+    color: #eef2f5;
+    border: 1px solid #4c555e;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+QPushButton:hover { background-color: #343a41; }
+QPushButton:pressed { background-color: #202429; }
+"""
+
+
+def option_button_style(checked: bool) -> str:
+    """Return a theme-aware style for the download option toggles."""
+    if isDarkTheme():
+        return _OPTION_ON_DARK_STYLE if checked else _OPTION_OFF_DARK_STYLE
+    return _OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE
+
+
+def native_editor_style() -> str:
+    """Theme native Qt text editors that are not covered by Fluent QSS."""
+    if isDarkTheme():
+        return """
+        QPlainTextEdit {
+            background: #202225;
+            color: #edf1f5;
+            border: 1px solid #454b52;
+            border-radius: 6px;
+            selection-background-color: #087f89;
+            selection-color: white;
+            padding: 8px;
+        }
+        QPlainTextEdit:focus { border: 1px solid #18a8b2; }
+        """
+    return """
+    QPlainTextEdit {
+        background: #ffffff;
+        color: #24292f;
+        border: 1px solid #c9d1d9;
+        border-radius: 6px;
+        selection-background-color: #b8e7ea;
+        selection-color: #172126;
+        padding: 8px;
+    }
+    QPlainTextEdit:focus { border: 1px solid #009faa; }
+    """
+
 
 
 class FilterDialog(QDialog):
@@ -283,9 +406,8 @@ class DownloadInterface(QWidget):
         root.setContentsMargins(28, 22, 28, 18)
         root.setSpacing(12)
 
-        title_row = QHBoxLayout()
+        title_row = ResponsiveFlowLayout()
         title_row.addWidget(TitleLabel(tr("Download Workbench", "下载工作台", "ダウンロードワークベンチ"), self))
-        title_row.addStretch()
         root.addLayout(title_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -309,48 +431,32 @@ class DownloadInterface(QWidget):
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([390, 1180])
 
-        option_card = CardWidget(left_panel)
-        option_layout = QGridLayout(option_card)
-        option_layout.setContentsMargins(14, 10, 14, 10)
-        option_layout.setHorizontalSpacing(10)
-        option_layout.setVerticalSpacing(8)
-
+        # Download behavior is now controlled by the selected named rule.
+        # Keep the legacy controls hidden for compatibility with older signals and
+        # integrations, but do not expose four competing switches on this page.
         self._download_video_btn = self._make_option_button(
-            tr("Download Video", "下载视频", "動画を保存"),
-            tr("Queue real video downloads. This is mutually exclusive with mark-only.", "下载真实视频文件；和仅标记已下载互斥。", "動画ファイルを保存します。マークのみとは排他です。"),
-            option_card,
-            FluentIcon.DOWNLOAD,
+            tr("Download Video", "下载视频", "動画を保存"), "", left_panel, FluentIcon.DOWNLOAD
         )
-        self._download_video_btn.clicked.connect(self._on_download_video_clicked)
-        option_layout.addWidget(self._download_video_btn, 0, 0)
-
         self._mark_downloaded_btn = self._make_option_button(
-            tr("Mark Only", "仅标记已下载", "マークのみ"),
-            tr("Do not download video; only fetch metadata/sidecars and mark as downloaded.", "不下载视频，只拉取元数据/附属文件并标记为已下载。", "動画を保存せず、メタデータ/関連ファイルのみ取得して保存済みにします。"),
-            option_card,
-            FluentIcon.CHECKBOX,
+            tr("Mark Only", "仅标记已下载", "マークのみ"), "", left_panel, FluentIcon.CHECKBOX
         )
-        self._mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_clicked)
-        option_layout.addWidget(self._mark_downloaded_btn, 0, 1)
-
         self._download_thumb_btn = self._make_option_button(
-            tr("Thumbnail", "下载封面", "サムネイル"),
-            tr("Download thumbnail images when metadata is available.", "有元数据时下载封面图。", "メタデータ取得時にサムネイルを保存します。"),
-            option_card,
-            FluentIcon.PHOTO,
+            tr("Thumbnail", "下载封面", "サムネイル"), "", left_panel, FluentIcon.PHOTO
         )
-        self._download_thumb_btn.clicked.connect(self._on_download_thumb_clicked)
-        option_layout.addWidget(self._download_thumb_btn, 1, 0)
-
         self._collect_nfo_btn = self._make_option_button(
-            "NFO",
-            tr("Write Kodi/Jellyfin compatible NFO metadata.", "写出兼容 Kodi/Jellyfin 的 NFO 元数据。", "Kodi/Jellyfin互換のNFOを書き出します。"),
-            option_card,
-            FluentIcon.DOCUMENT,
+            "NFO", "", left_panel, FluentIcon.DOCUMENT
         )
+        for legacy_button in (
+            self._download_video_btn,
+            self._mark_downloaded_btn,
+            self._download_thumb_btn,
+            self._collect_nfo_btn,
+        ):
+            legacy_button.hide()
+        self._download_video_btn.clicked.connect(self._on_download_video_clicked)
+        self._mark_downloaded_btn.clicked.connect(self._on_mark_downloaded_clicked)
+        self._download_thumb_btn.clicked.connect(self._on_download_thumb_clicked)
         self._collect_nfo_btn.clicked.connect(self._on_collect_nfo_clicked)
-        option_layout.addWidget(self._collect_nfo_btn, 1, 1)
-        left_layout.addWidget(option_card)
 
         # ── Login status banner ───────────────────────────────────────────────
         self._login_banner = CardWidget(left_panel)
@@ -378,40 +484,44 @@ class DownloadInterface(QWidget):
         url_layout.addWidget(
             BodyLabel(
                 tr(
-                    "Supports video/profile/playlist URLs and API search URLs (one each time)",
-                    "支持单视频链接、作者主页链接、播放列表链接和 API 搜索链接；每次提交一个地址",
-                    "動画/プロフィール/プレイリストURLと API 検索URLに対応（1回1件）",
+                    "Supports video/profile/playlist URLs and API search URLs",
+                    "支持单视频、作者主页、播放列表和 API 搜索链接",
+                    "動画/プロフィール/プレイリスト/API検索URLに対応",
                 ),
                 url_card,
             )
         )
 
+        url_row = QHBoxLayout()
+        url_row.setSpacing(8)
         self._url_edit = LineEdit(url_card)
         self._url_edit.setPlaceholderText(
             tr(
-                "https://www.iwara.tv/video/...  or profile / playlist URL",
-                "https://www.iwara.tv/video/...  或  用户主页 / 播放列表 / api.iwara.tv/videos?...",
-                "https://www.iwara.tv/video/... または ユーザー / プレイリスト / api.iwara.tv/videos?...",
+                "Paste a video, profile, playlist or API URL…",
+                "粘贴视频、作者主页、播放列表或 API 链接…",
+                "動画・プロフィール・プレイリスト・API URLを貼り付け…",
             )
         )
         self._url_edit.setClearButtonEnabled(True)
         self._url_edit.returnPressed.connect(self._submit)
-
-        url_layout.addWidget(self._url_edit)
-        left_layout.addWidget(url_card)
-
-        submit_row = QHBoxLayout()
-        self._filter_btn = PrimaryPushButton(tr("Filter Rules", "筛选项", "フィルター条件"), left_panel, FluentIcon.FILTER)
-        self._filter_btn.clicked.connect(self._open_filter_dialog)
-        submit_row.addWidget(self._filter_btn)
+        url_row.addWidget(self._url_edit, 1)
         self._submit_btn = PrimaryPushButton(
-            tr("Download", "解析并下载", "解析してダウンロード"),
-            left_panel,
+            tr("Download", "下载", "ダウンロード"),
+            url_card,
             FluentIcon.DOWNLOAD,
         )
+        self._submit_btn.setMinimumWidth(112)
         self._submit_btn.clicked.connect(self._submit)
-        submit_row.addWidget(self._submit_btn)
-        left_layout.addLayout(submit_row)
+        url_row.addWidget(self._submit_btn)
+        url_layout.addLayout(url_row)
+
+        rule_row = QHBoxLayout()
+        rule_row.setSpacing(8)
+        rule_row.addWidget(BodyLabel(tr("Rule", "下载规则", "ルール"), url_card))
+        self._rule_picker = RulePicker(url_card)
+        rule_row.addWidget(self._rule_picker, 1)
+        url_layout.addLayout(rule_row)
+        left_layout.addWidget(url_card)
 
         # ── Operation log card ────────────────────────────────────────────────
         log_card = CardWidget(left_panel)
@@ -420,9 +530,8 @@ class DownloadInterface(QWidget):
         log_layout.setContentsMargins(16, 14, 16, 14)
         log_layout.setSpacing(8)
 
-        log_header = QHBoxLayout()
+        log_header = ResponsiveFlowLayout()
         log_header.addWidget(SubtitleLabel(tr("Runtime Log", "运行日志", "実行ログ"), log_card))
-        log_header.addStretch()
         clear_log_btn = PrimaryPushButton(tr("Clear", "清空", "クリア"), log_card, FluentIcon.DELETE)
         clear_log_btn.setFixedWidth(80)
         clear_log_btn.clicked.connect(self._clear_log)
@@ -432,6 +541,9 @@ class DownloadInterface(QWidget):
         self._log_edit = QPlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
+        self._log_edit.setStyleSheet(native_editor_style())
+        self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
+        self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
         from PySide6.QtGui import QFont
         mono = QFont("Consolas", 9)
         if not mono.exactMatch():
@@ -459,6 +571,8 @@ class DownloadInterface(QWidget):
     # ── Slots ─────────────────────────────────────────────────────────────────
 
     def _submit(self):
+        # Apply the selected named rule immediately before enqueueing so the
+        # resolver and sidecar options use the same snapshot.
         url = self._url_edit.text().strip()
         if not url:
             InfoBar.warning(
@@ -541,6 +655,15 @@ class DownloadInterface(QWidget):
             )
         )
 
+    def refresh_theme_styles(self):
+        """Reapply custom option-button colors after a runtime theme switch."""
+        if hasattr(self, "_download_video_btn"):
+            self._sync_option_controls()
+        if hasattr(self, "_log_edit"):
+            self._log_edit.setStyleSheet(native_editor_style())
+            self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
+            self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
+
     def _on_download_video_clicked(self, checked: bool):
         if self._syncing_options:
             return
@@ -579,17 +702,15 @@ class DownloadInterface(QWidget):
             self._set_option_button_state(self._mark_downloaded_btn, app_config.mark_submitted_as_downloaded)
             self._set_option_button_state(self._download_thumb_btn, app_config.download_thumbnail)
             self._set_option_button_state(self._collect_nfo_btn, app_config.collect_nfo_info)
-            filter_state = tr("On", "开", "有効") if app_config.filter_enabled else tr("Off", "关", "無効")
-            self._filter_btn.setText(tr(f"Filter Rules ({filter_state})", f"筛选项（{filter_state}）", f"フィルター条件（{filter_state}）"))
         finally:
             self._syncing_options = False
 
     def _set_option_button_state(self, button: PrimaryPushButton, checked: bool):
         button.setChecked(checked)
-        state = tr("On", "On", "On") if checked else tr("Off", "Off", "Off")
+        state = tr("On", "开", "オン") if checked else tr("Off", "关", "オフ")
         base_text = str(getattr(button, "_base_text", button.text()) or "")
         button.setText(f"{base_text}  {state}")
-        button.setStyleSheet(_OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE)
+        button.setStyleSheet(option_button_style(checked))
 
     def _maybe_add_download_source_to_subscription(self, url: str):
         candidate = download_manager.detect_subscription_source(url)
@@ -603,40 +724,16 @@ class DownloadInterface(QWidget):
             self._add_subscription_source(kind, key)
             return
 
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Add Subscription", "加入订阅列表", "購読に追加"))
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setText(
-            tr(
-                "Add this author/playlist to the local subscription list?",
-                "是否把这个作者/播放列表加入本地订阅列表？",
-                "この作者/プレイリストをローカル購読に追加しますか？",
-            )
-        )
-        box.setInformativeText(
-            tr(
-                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
-                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
-                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
-            )
-        )
-        no_remind = QCheckBox(tr("Do not ask again", "下次不再提醒", "次回から確認しない"), box)
-        box.setCheckBox(no_remind)
-        yes_btn = box.addButton(tr("Add This Time", "本次加入", "今回追加"), QMessageBox.ButtonRole.YesRole)
-        always_btn = box.addButton(tr("Always Add", "以后都自动加入", "常に追加"), QMessageBox.ButtonRole.AcceptRole)
-        no_btn = box.addButton(tr("No", "不加入", "追加しない"), QMessageBox.ButtonRole.NoRole)
-        box.setDefaultButton(yes_btn)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked == always_btn:
+        box = _SubscriptionPromptDialog(self)
+        accepted = box.exec() == QDialog.DialogCode.Accepted
+        if accepted and box.choice == "always":
             app_config.subscription_prompt_mode = "always"
             self._add_subscription_source(kind, key)
-        elif clicked == yes_btn:
-            if no_remind.isChecked():
+        elif accepted:
+            if box.no_remind.isChecked():
                 app_config.subscription_prompt_mode = "never"
             self._add_subscription_source(kind, key)
-        elif clicked == no_btn and no_remind.isChecked():
+        elif box.no_remind.isChecked():
             app_config.subscription_prompt_mode = "never"
 
     def _add_subscription_source(self, kind: str, key: str):

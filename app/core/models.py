@@ -20,18 +20,23 @@ class TaskStatus(Enum):
     FAILED = "failed"                  # 下载失败
 
 
-# Human-readable Chinese labels for each status
-STATUS_LABELS: dict[TaskStatus, str] = {
-    TaskStatus.QUEUED_META: tr("Queued", "排队中", "待機中"),
-    TaskStatus.RESOLVING: tr("Resolving", "解析中", "解析中"),
-    TaskStatus.QUEUED_DOWNLOAD: tr("Waiting", "待下载", "待機"),
-    TaskStatus.DOWNLOADING: tr("Downloading", "下载中", "ダウンロード中"),
-    TaskStatus.CANCELLING: tr("Cancelling", "中断中", "中断中"),
-    TaskStatus.CANCELLED: tr("Cancelled", "已中断", "キャンセル済み"),
-    TaskStatus.SKIPPED: tr("Skipped", "已跳过", "スキップ"),
-    TaskStatus.COMPLETED: tr("Completed", "已完成", "完了"),
-    TaskStatus.FAILED: tr("Failed", "失败", "失敗"),
+_STATUS_LABEL_TEXTS: dict[TaskStatus, tuple[str, str, str]] = {
+    TaskStatus.QUEUED_META: ("Queued", "排队中", "待機中"),
+    TaskStatus.RESOLVING: ("Resolving", "解析中", "解析中"),
+    TaskStatus.QUEUED_DOWNLOAD: ("Waiting", "待下载", "待機"),
+    TaskStatus.DOWNLOADING: ("Downloading", "下载中", "ダウンロード中"),
+    TaskStatus.CANCELLING: ("Cancelling", "中断中", "中断中"),
+    TaskStatus.CANCELLED: ("Cancelled", "已中断", "キャンセル済み"),
+    TaskStatus.SKIPPED: ("Skipped", "已跳过", "スキップ"),
+    TaskStatus.COMPLETED: ("Completed", "已完成", "完了"),
+    TaskStatus.FAILED: ("Failed", "失败", "失敗"),
 }
+
+
+def status_label(status: TaskStatus) -> str:
+    """Return a status label using the current UI language."""
+    texts = _STATUS_LABEL_TEXTS.get(status)
+    return tr(texts[0], texts[1], texts[2]) if texts else status.value
 
 
 @dataclass
@@ -67,4 +72,5 @@ class DownloadTask:
     cancel_requested: bool = False
     delete_temp_on_cancel: bool = False
     remove_after_cancel: bool = False
+    cancel_origin: str = ""
     aria2_gid: str = ""

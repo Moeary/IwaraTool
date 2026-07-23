@@ -3,22 +3,190 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QHBoxLayout,
+    QLayout,
+    QLayoutItem,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QSplitter,
     QTableWidget,
     QVBoxLayout,
 )
 
+from qfluentwidgets import (
+    BodyLabel,
+    LineEdit,
+    MessageBox,
+    MessageBoxBase,
+    SubtitleLabel,
+)
+
 from ..config import app_config
 from ..i18n import tr
+
+
+def show_fluent_confirmation(
+    parent,
+    title: str,
+    content: str,
+    *,
+    informative: str = "",
+    yes_text: str | None = None,
+    no_text: str | None = None,
+) -> bool:
+    """Show a theme-aware Fluent confirmation dialog and return whether accepted."""
+    message = content
+    if informative:
+        message = f"{content}\n\n{informative}"
+    box = MessageBox(title, message, parent)
+    if yes_text:
+        box.yesButton.setText(yes_text)
+    if no_text:
+        box.cancelButton.setText(no_text)
+    return box.exec() == QDialog.DialogCode.Accepted
+
+
+class _FluentTextInputDialog(MessageBoxBase):
+    """Small reusable Fluent text-entry dialog."""
+
+    def __init__(self, parent, title: str, prompt: str, text: str = ""):
+        super().__init__(parent)
+        self.title_label = SubtitleLabel(title, self)
+        self.prompt_label = BodyLabel(prompt, self)
+        self.prompt_label.setWordWrap(True)
+        self.line_edit = LineEdit(self)
+        self.line_edit.setText(text)
+        self.line_edit.returnPressed.connect(self.yesButton.click)
+
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.prompt_label)
+        self.viewLayout.addWidget(self.line_edit)
+        self.widget.setMinimumWidth(520)
+        QTimer.singleShot(0, self._focus_input)
+
+    def _focus_input(self):
+        self.line_edit.setFocus()
+        self.line_edit.selectAll()
+
+
+def show_fluent_text_input(
+    parent,
+    title: str,
+    prompt: str,
+    *,
+    text: str = "",
+    accept_text: str | None = None,
+    cancel_text: str | None = None,
+) -> tuple[str, bool]:
+    """Show a theme-aware Fluent text input and return ``(text, accepted)``."""
+    box = _FluentTextInputDialog(parent, title, prompt, text)
+    if accept_text:
+        box.yesButton.setText(accept_text)
+    if cancel_text:
+        box.cancelButton.setText(cancel_text)
+    accepted = box.exec() == QDialog.DialogCode.Accepted
+    return box.line_edit.text(), accepted
+
+
+class ResponsiveFlowLayout(QLayout):
+    """Wrap controls onto rows without letting nested layouts overlap."""
+
+    def __init__(self, parent=None, *, spacing: int = 10):
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self._spacing = spacing
+
+    def addItem(self, item: QLayoutItem):
+        self._items.append(item)
+        self.invalidate()
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:
+        item = self._items.pop(index) if 0 <= index < len(self._items) else None
+        if item is not None:
+            self.invalidate()
+        return item
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, max(0, width), 0), test_only=True)
+
+    def setGeometry(self, rect: QRect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        width = self._layout_width_hint()
+        return QSize(width, self.heightForWidth(width))
+
+    def minimumSize(self) -> QSize:
+        # QVBoxLayout asks child layouts for a minimum height before it has
+        # assigned their final width.  Returning only the tallest child (the
+        # old behaviour) made later wrapped rows paint on top of each other.
+        width = self._layout_width_hint()
+        margins = self.contentsMargins()
+        height = self.heightForWidth(width)
+        min_width = max((item.minimumSize().width() for item in self._items), default=0)
+        return QSize(
+            min_width,
+            max(height, margins.top() + margins.bottom()),
+        )
+
+    def _layout_width_hint(self) -> int:
+        margins = self.contentsMargins()
+        parent = self.parentWidget()
+        if self.geometry().width() > 0:
+            width = self.geometry().width()
+        elif parent is not None and parent.width() > 0:
+            width = parent.width()
+        else:
+            width = sum(max(item.sizeHint().width(), item.minimumSize().width()) for item in self._items)
+            width += max(0, len(self._items) - 1) * self._spacing
+        return max(1, width - margins.left() - margins.right())
+
+    def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
+        if effective.width() <= 0 or not self._items:
+            return margins.top() + margins.bottom()
+
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        right = effective.right()
+        for item in self._items:
+            hint = item.sizeHint()
+            minimum = item.minimumSize()
+            item_width = max(minimum.width(), hint.width())
+            item_width = min(item_width, effective.width())
+            item_height = max(minimum.height(), hint.height())
+            next_x = x + item_width
+            if x > effective.x() and next_x > right:
+                x = effective.x()
+                y += line_height + self._spacing
+                next_x = x + item_width
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), QSize(item_width, item_height)))
+            x = next_x + self._spacing
+            line_height = max(line_height, item_height)
+        return y + line_height - rect.y() + margins.bottom()
 
 
 def restore_splitter_sizes(splitter: QSplitter, key: str, default_sizes: list[int]):
@@ -140,6 +308,9 @@ class _TableWidthSaver(QObject):
         header = table.horizontalHeader()
         header.sectionResized.connect(lambda *_args: self.save(sync=False))
         header.sectionMoved.connect(lambda *_args: self.save(sync=False))
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(lambda: self.save(sync=True))
 
     def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
         if watched is self._table and event.type() in (
@@ -169,7 +340,7 @@ class _TableWidthSaver(QObject):
             self._sync_pending = False
             app_config.sync()
 
-        QTimer.singleShot(500, flush)
+        QTimer.singleShot(250, flush)
 
 
 class _TableColumnSaver(QObject):
@@ -227,7 +398,7 @@ class _TableColumnDialog(QDialog):
         self._default_order = default_order or _all_columns(table)
         self._default_visible = default_visible or _all_columns(table)
         self.setWindowTitle(title)
-        self.resize(420, 520)
+        self.resize(520, 600)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -235,6 +406,7 @@ class _TableColumnDialog(QDialog):
 
         self._list = QListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setAlternatingRowColors(True)
         root.addWidget(self._list, stretch=1)
 
         move_row = QHBoxLayout()
@@ -278,8 +450,11 @@ class _TableColumnDialog(QDialog):
         labels = _column_labels(self._table)
         visible_set = set(visible)
         for col in _normalize_column_order(order, _all_columns(self._table)):
-            item = QListWidgetItem(labels.get(col, str(col)))
+            label = labels.get(col, str(col))
+            width = self._table.columnWidth(col)
+            item = QListWidgetItem(f"{label}    {width}px")
             item.setData(Qt.ItemDataRole.UserRole, col)
+            item.setToolTip(tr(f"{label}\nCurrent width: {width}px", f"{label}\n当前列宽：{width}px", f"{label}\n現在の幅: {width}px"))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if col in visible_set else Qt.CheckState.Unchecked)
             self._list.addItem(item)
@@ -305,10 +480,12 @@ class _TableColumnDialog(QDialog):
             if item.checkState() == Qt.CheckState.Checked:
                 visible.append(col)
         if not visible:
-            QMessageBox.warning(
+            show_fluent_confirmation(
                 self,
                 tr("Column Settings", "字段设置", "列設定"),
                 tr("Keep at least one column visible.", "至少保留一个字段显示。", "少なくとも1列は表示してください。"),
+                yes_text=tr("OK", "知道了", "OK"),
+                no_text=tr("Close", "关闭", "閉じる"),
             )
             return
         apply_table_column_layout(self._table, self._key, order=order, visible=visible, sync=True)
