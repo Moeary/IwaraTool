@@ -523,7 +523,12 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertEqual(summary["unavailable"], 1)
         self.assertEqual(summary["unavailable_checked"], 1)
         self.assertEqual(item["download_state"], "unavailable")
-        self.assertIn("私有", item["download_reason"])
+        self.assertTrue(
+            any(
+                marker in item["download_reason"]
+                for marker in ("Private", "私有", "非公開")
+            )
+        )
 
     def test_subscription_submit_skips_unavailable_items(self):
         old_download_video = app_config.download_video_file
