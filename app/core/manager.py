@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ET
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import parse_qs, quote, urlparse
 
 from ..config import app_config
@@ -883,12 +883,44 @@ class DownloadManager:
             )
         return result
 
-    def refresh_all_subscriptions(self) -> dict[str, Any]:
+    def refresh_all_subscriptions(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Refresh enabled sources and optionally report source-level progress."""
         summaries: list[dict[str, Any]] = []
-        for source in self.get_subscription_sources():
-            if not int(source.get("enabled", 1) or 0):
-                continue
-            summaries.append(self.refresh_subscription_source(int(source["id"])))
+        sources = [
+            source
+            for source in self.get_subscription_sources()
+            if int(source.get("enabled", 1) or 0)
+        ]
+        total = len(sources)
+        for index, source in enumerate(sources, start=1):
+            source_id = int(source["id"])
+            source_title = str(source.get("title", "") or source.get("source_key", "") or "")
+            if progress_callback:
+                progress_callback(
+                    {
+                        "stage": "started",
+                        "index": index,
+                        "total": total,
+                        "source_id": source_id,
+                        "title": source_title,
+                    }
+                )
+            summary = self.refresh_subscription_source(source_id)
+            summaries.append(summary)
+            if progress_callback:
+                progress_callback(
+                    {
+                        "stage": "finished",
+                        "index": index,
+                        "total": total,
+                        "source_id": source_id,
+                        "title": str(summary.get("title", "") or source_title),
+                        "summary": summary,
+                    }
+                )
         return self._subscription_refresh_summary(summaries)
 
     def refresh_subscription_source(self, source_id: int) -> dict[str, Any]:
@@ -925,7 +957,28 @@ class DownloadManager:
             videos, err = self._api_call("get_subscribed_videos", max_results=cap)
         elif source_type == "author":
             remote_id = str(source.get("remote_id", "") or "")
-            if not remote_id:
+            avatar_url = str(source.get("avatar_url", "") or "")
+            # Refresh also repairs older/manual author sources that lack a
+            # display name, remote ID, or avatar URL.
+            needs_profile = not remote_id or not avatar_url or title == source_key
+            if needs_profile:
+                try:
+                    profile, _profile_err = self._api_call("get_user_profile", source_key)
+                except Exception:
+                    profile = None
+                if profile:
+                    user = _dict_or_empty(profile.get("user"))
+                    profile_title = str(user.get("name", "") or source_key).strip() or source_key
+                    remote_id = str(user.get("id", "") or remote_id).strip()
+                    avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail") or avatar_url
+                    self.subscriptions.update_source_profile(
+                        source_id,
+                        title=profile_title,
+                        remote_id=remote_id,
+                        avatar_url=avatar_url,
+                    )
+                    title = profile_title
+            if not remote_id and not err:
                 remote_id, err = self._api_call("get_user_id", source_key)
                 if remote_id:
                     self.subscriptions.update_source_remote_id(source_id, remote_id)
@@ -1962,6 +2015,7 @@ class DownloadManager:
             return
 
         passed_filter, filter_reason = self._passes_filters(
+            title=title,
             likes=likes,
             views=views,
             published_at=published_at,
@@ -3119,11 +3173,31 @@ class DownloadManager:
 
     def _passes_filters(
         self,
+        title: str,
         likes: int,
         views: int,
         published_at: str,
         tags: list[Any],
     ) -> tuple[bool, str]:
+        normalized_title = str(title or "").casefold()
+        title_include_terms = _split_filter_tags(app_config.filter_title_include)
+        if title_include_terms and not any(term in normalized_title for term in title_include_terms):
+            return False, tr(
+                f"title did not include any of: {', '.join(title_include_terms)}",
+                f"标题未包含任一关键词：{', '.join(title_include_terms)}",
+                f"タイトルに指定語句が含まれません：{', '.join(title_include_terms)}",
+            )
+
+        title_exclude_terms = _split_filter_tags(app_config.filter_title_exclude)
+        if title_exclude_terms:
+            hit = [term for term in title_exclude_terms if term in normalized_title]
+            if hit:
+                return False, tr(
+                    f"title matched exclude keywords: {', '.join(hit)}",
+                    f"标题命中排除关键词：{', '.join(hit)}",
+                    f"タイトルが除外語句に一致：{', '.join(hit)}",
+                )
+
         if not app_config.filter_enabled:
             return True, ""
 

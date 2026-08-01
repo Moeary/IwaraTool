@@ -268,6 +268,35 @@ class SubscriptionStore:
             conn.commit()
             self._export_sources_backup(conn)
 
+    def update_source_profile(
+        self,
+        source_id: int,
+        *,
+        title: str = "",
+        remote_id: str = "",
+        avatar_url: str = "",
+    ):
+        """Persist non-empty profile fields discovered for an author source."""
+        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+            conn.execute(
+                "UPDATE sources SET "
+                "title=CASE WHEN ? != '' THEN ? ELSE title END, "
+                "remote_id=CASE WHEN ? != '' THEN ? ELSE remote_id END, "
+                "avatar_url=CASE WHEN ? != '' THEN ? ELSE avatar_url END, "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (
+                    str(title or ""),
+                    str(title or ""),
+                    str(remote_id or ""),
+                    str(remote_id or ""),
+                    str(avatar_url or ""),
+                    str(avatar_url or ""),
+                    int(source_id),
+                ),
+            )
+            conn.commit()
+            self._export_sources_backup(conn)
+
     def update_source_avatar(self, source_id: int, avatar_url: str, avatar_path: str):
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
             conn.execute(

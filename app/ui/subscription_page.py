@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import webbrowser
 import os
+import re
 from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QBrush, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -38,6 +39,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryDropDownPushButton,
     PrimaryPushButton,
+    ProgressBar,
     RoundMenu,
     SubtitleLabel,
     TableWidget,
@@ -69,6 +71,7 @@ from .ui_state import (
 
 class SubscriptionRefreshWorker(QThread):
     finished = Signal(dict)
+    progress = Signal(dict)
 
     def __init__(self, source_id: int | None = None):
         super().__init__()
@@ -76,10 +79,31 @@ class SubscriptionRefreshWorker(QThread):
 
     def run(self):
         if self._source_id:
+            source = download_manager.subscriptions.get_source(self._source_id) or {}
+            title = str(source.get("title", "") or source.get("source_key", "") or "")
+            self.progress.emit(
+                {
+                    "stage": "started",
+                    "index": 1,
+                    "total": 1,
+                    "source_id": self._source_id,
+                    "title": title,
+                }
+            )
             result = download_manager.refresh_subscription_source(self._source_id)
             summary = download_manager._subscription_refresh_summary([result])
+            self.progress.emit(
+                {
+                    "stage": "finished",
+                    "index": 1,
+                    "total": 1,
+                    "source_id": self._source_id,
+                    "title": str(result.get("title", "") or title),
+                    "summary": result,
+                }
+            )
         else:
-            summary = download_manager.refresh_all_subscriptions()
+            summary = download_manager.refresh_all_subscriptions(self.progress.emit)
         self.finished.emit(summary)
 
 
@@ -361,6 +385,10 @@ class SubscriptionInterface(QWidget):
         self._all_items: list[dict[str, Any]] = []
         self._visible_items: list[dict[str, Any]] = []
         self._current_source_id: int | None = None
+        self._pending_video_ids: set[str] = set()
+        self._title_filter_error = ""
+        self._refresh_info_bar: InfoBar | None = None
+        self._refresh_progress: ProgressBar | None = None
         self._source_render_index = 0
         self._item_render_index = 0
         self._items_refresh_pending = False
@@ -513,15 +541,15 @@ class SubscriptionInterface(QWidget):
         delete_source_btn.clicked.connect(self._delete_selected_source)
         source_actions.addWidget(delete_source_btn)
 
-        refresh_selected_btn = PrimaryPushButton(tr("Refresh Selected", "刷新选中", "選択を更新"), self, FluentIcon.SYNC)
-        _style_action_button(refresh_selected_btn)
-        refresh_selected_btn.clicked.connect(self._refresh_selected)
-        source_actions.addWidget(refresh_selected_btn)
+        self._refresh_selected_btn = PrimaryPushButton(tr("Refresh Selected", "刷新选中", "選択を更新"), self, FluentIcon.SYNC)
+        _style_action_button(self._refresh_selected_btn)
+        self._refresh_selected_btn.clicked.connect(self._refresh_selected)
+        source_actions.addWidget(self._refresh_selected_btn)
 
-        refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
-        _style_action_button(refresh_all_btn)
-        refresh_all_btn.clicked.connect(self._refresh_all)
-        source_actions.addWidget(refresh_all_btn)
+        self._refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
+        _style_action_button(self._refresh_all_btn)
+        self._refresh_all_btn.clicked.connect(self._refresh_all)
+        source_actions.addWidget(self._refresh_all_btn)
         left_layout.addLayout(source_actions)
 
         storage = download_manager.get_subscription_storage_info()
@@ -642,7 +670,7 @@ class SubscriptionInterface(QWidget):
             hidden_btn.hide()
 
         history_menu = RoundMenu(parent=self)
-        history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show All", "显示全部", "全て表示"), self, triggered=lambda: self._load_items(None)))
+        history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show This Source", "显示这个作者的全部视频", "この購読元の全動画を表示"), self, triggered=self._show_selected_source_all_items))
         history_menu.addAction(Action(FluentIcon.ACCEPT, tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"), self, triggered=self._mark_selected_downloaded_moved))
         history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"), self, triggered=self._restore_selected_downloaded_moved))
         history_btn = PrimaryDropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
@@ -671,7 +699,6 @@ class SubscriptionInterface(QWidget):
         _style_inline_label(options_label)
         download_options_row.addWidget(options_label)
         self._rule_picker = RulePicker(self)
-        self._rule_picker.ruleApplied.connect(self._on_subscription_rule_applied)
         download_options_row.addWidget(self._rule_picker)
         item_controls_layout.addLayout(download_options_row)
 
@@ -692,23 +719,25 @@ class SubscriptionInterface(QWidget):
 
         title_filter_row = ResponsiveFlowLayout()
         title_filter_row.setSpacing(_ROW_SPACING)
-        title_filter_label = BodyLabel(tr("Title Keywords", "标题关键词", "タイトルキーワード"), self)
+        title_filter_label = BodyLabel(tr("Title Filter", "标题筛选", "タイトルフィルター"), self)
         _style_inline_label(title_filter_label)
         title_filter_row.addWidget(title_filter_label)
-        self._title_include_edit = LineEdit(self)
-        self._title_include_edit.setPlaceholderText(
-            tr("Include any (comma separated)", "包含任一关键词（逗号分隔）", "いずれかを含む（カンマ区切り）")
+        self._title_filter_mode_btn = PrimaryPushButton(tr("Simple", "简单搜索", "簡易検索"), self)
+        self._title_filter_mode_btn.setCheckable(True)
+        self._title_filter_mode_btn.setFixedSize(120, _CONTROL_HEIGHT)
+        self._title_filter_mode_btn.setToolTip(
+            tr("Switch to regex mode", "切换到正则模式", "正規表現モードに切替")
         )
-        self._title_include_edit.setClearButtonEnabled(True)
-        self._title_include_edit.textChanged.connect(self._apply_item_filters)
-        title_filter_row.addWidget(self._title_include_edit)
-        self._title_exclude_edit = LineEdit(self)
-        self._title_exclude_edit.setPlaceholderText(
-            tr("Exclude any (comma separated)", "排除任一关键词（逗号分隔）", "いずれかを除外（カンマ区切り）")
+        self._title_filter_mode_btn.toggled.connect(self._on_title_filter_mode_toggled)
+        title_filter_row.addWidget(self._title_filter_mode_btn)
+        self._title_search_edit = LineEdit(self)
+        self._title_search_edit.setPlaceholderText(
+            tr("Search titles as you type…", "输入标题关键词，实时筛选…", "タイトルを入力して絞り込み…")
         )
-        self._title_exclude_edit.setClearButtonEnabled(True)
-        self._title_exclude_edit.textChanged.connect(self._apply_item_filters)
-        title_filter_row.addWidget(self._title_exclude_edit)
+        self._title_search_edit.setClearButtonEnabled(True)
+        self._title_search_edit.setMinimumWidth(330)
+        self._title_search_edit.textChanged.connect(self._apply_item_filters)
+        title_filter_row.addWidget(self._title_search_edit)
         item_controls_layout.addLayout(title_filter_row)
 
         item_filter_row = ResponsiveFlowLayout()
@@ -810,6 +839,8 @@ class SubscriptionInterface(QWidget):
         self._item_table.verticalHeader().setDefaultSectionSize(38)
         self._item_table.itemDoubleClicked.connect(lambda item: self._open_item_from_cell(item, open_file=None))
         self._item_table.cellClicked.connect(self._on_item_cell_clicked)
+        self._item_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._item_table.customContextMenuRequested.connect(self._show_item_table_context_menu)
         item_header = self._item_table.horizontalHeader()
         item_header.setHighlightSections(False)
         item_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -850,6 +881,8 @@ class SubscriptionInterface(QWidget):
         self._thumbnail_list.itemDoubleClicked.connect(self._on_thumbnail_item_activated)
         self._thumbnail_list.itemSelectionChanged.connect(self._update_selection_actions)
         self._thumbnail_list.resized.connect(self._update_thumbnail_grid)
+        self._thumbnail_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._thumbnail_list.customContextMenuRequested.connect(self._show_thumbnail_context_menu)
 
         self._item_stack = QStackedWidget(self)
         self._item_stack.addWidget(self._item_table)
@@ -872,6 +905,9 @@ class SubscriptionInterface(QWidget):
         self._thumbnail_list.setStyleSheet(_thumbnail_list_style())
         _style_content_splitter(self._item_content_splitter)
         self._sync_download_option_buttons()
+        # Pending rows may have been staged before the theme changed. Reapply
+        # only their brush so old and newly staged rows always share one green.
+        self._set_pending_visuals(list(self._pending_video_ids), True)
         # Rebuild placeholders so unloaded covers also follow the selected theme.
         placeholder = self._thumbnail_placeholder_icon()
         for index in range(self._thumbnail_list.count()):
@@ -1204,29 +1240,51 @@ class SubscriptionInterface(QWidget):
         self._all_items = download_manager.get_subscription_items(source_id)
         self._apply_item_filters()
 
+    def _on_title_filter_mode_toggled(self, regex_mode: bool):
+        self._title_filter_mode_btn.setText(
+            tr("Regex", "正则模式", "正規表現")
+            if regex_mode else tr("Simple", "简单搜索", "簡易検索")
+        )
+        self._title_filter_mode_btn.setToolTip(
+            tr("Switch to simple search", "切换到简单搜索", "簡易検索に切替")
+            if regex_mode else tr("Switch to regex mode", "切换到正则模式", "正規表現モードに切替")
+        )
+        if hasattr(self, "_title_search_edit"):
+            self._title_search_edit.setPlaceholderText(
+                tr(
+                    "Search titles as you type…",
+                    "输入标题关键词，实时筛选…",
+                    "タイトルを入力して絞り込み…",
+                )
+                if not regex_mode else tr(
+                    "Python regex, e.g. \\b\\d{2}-\\d{2}\\b",
+                    "输入 Python 正则，例如 \\b\\d{2}-\\d{2}\\b",
+                    "Python 正規表現。例: \\b\\d{2}-\\d{2}\\b",
+                )
+            )
+        self._apply_item_filters()
+
     def _apply_item_filters(self, *_args):
         self._sync_items_with_current_tasks()
         items = list(self._all_items)
         install_idx = self._install_filter_combo.currentIndex() if hasattr(self, "_install_filter_combo") else 0
         new_idx = self._new_filter_combo.currentIndex() if hasattr(self, "_new_filter_combo") else 0
         sort_idx = self._item_sort_combo.currentIndex() if hasattr(self, "_item_sort_combo") else 0
-        include_terms = _split_title_keywords(
-            self._title_include_edit.text() if hasattr(self, "_title_include_edit") else ""
-        )
-        exclude_terms = _split_title_keywords(
-            self._title_exclude_edit.text() if hasattr(self, "_title_exclude_edit") else ""
-        )
-
-        if include_terms or exclude_terms:
-            items = [
-                item
-                for item in items
-                if _title_matches_keywords(
-                    str(item.get("title", "") or item.get("video_id", "") or ""),
-                    include_terms,
-                    exclude_terms,
-                )
-            ]
+        title_query = self._title_search_edit.text().strip() if hasattr(self, "_title_search_edit") else ""
+        title_mode = 1 if getattr(self, "_title_filter_mode_btn", None) and self._title_filter_mode_btn.isChecked() else 0
+        self._title_filter_error = ""
+        if title_query:
+            try:
+                matcher = _title_matcher(title_query, regex_mode=title_mode == 1)
+            except re.error as exc:
+                self._title_filter_error = str(exc)
+                items = []
+            else:
+                items = [
+                    item
+                    for item in items
+                    if matcher(str(item.get("title", "") or item.get("video_id", "") or ""))
+                ]
 
         def is_downloaded(item: dict[str, Any]) -> bool:
             return bool(item.get("downloaded"))
@@ -1287,11 +1345,29 @@ class SubscriptionInterface(QWidget):
                 unavailable_count += 1
         self._summary_label.setText(
             tr(
-                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
-                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count} | 不可下载: {unavailable_count}",
-                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
+                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | pending: {len(self._pending_video_ids)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
+                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 待操作: {len(self._pending_video_ids)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count} | 不可下载: {unavailable_count}",
+                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 操作待ち: {len(self._pending_video_ids)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
             )
         )
+        if self._title_filter_error:
+            self._title_search_edit.setToolTip(
+                tr(
+                    f"Invalid regular expression: {self._title_filter_error}",
+                    f"正则表达式无效：{self._title_filter_error}",
+                    f"正規表現が無効です：{self._title_filter_error}",
+                )
+            )
+            self._summary_label.setToolTip(
+                tr(
+                    f"Invalid regular expression: {self._title_filter_error}",
+                    f"正则表达式无效：{self._title_filter_error}",
+                    f"正規表現が無効です：{self._title_filter_error}",
+                )
+            )
+        else:
+            self._title_search_edit.setToolTip("")
+            self._summary_label.setToolTip("")
 
         cover_mode = (
             hasattr(self, "_item_view_combo")
@@ -1357,6 +1433,8 @@ class SubscriptionInterface(QWidget):
                 )
                 list_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
                 self._thumbnail_list.addItem(list_item)
+                if video_id in self._pending_video_ids:
+                    list_item.setBackground(self._pending_item_brush())
                 self._thumbnail_items_by_video_id.setdefault(video_id, []).append(list_item)
         finally:
             self._thumbnail_list.setUpdatesEnabled(True)
@@ -1539,6 +1617,127 @@ class SubscriptionInterface(QWidget):
             file_exists,
         )
 
+        if video_id in self._pending_video_ids:
+            self._set_pending_row_background(row, True)
+
+    @staticmethod
+    def _pending_item_brush() -> QBrush:
+        return QBrush(QColor("#1f5f3d" if isDarkTheme() else "#c6efce"))
+
+    @staticmethod
+    def _default_item_brush() -> QBrush:
+        return QBrush(Qt.BrushStyle.NoBrush)
+
+    def _set_pending_row_background(self, row: int, pending: bool):
+        brush = self._pending_item_brush() if pending else self._default_item_brush()
+        for column in range(self._item_table.columnCount()):
+            item = self._item_table.item(row, column)
+            if item:
+                item.setBackground(brush)
+
+    def _set_pending_visuals(self, video_ids: list[str], pending: bool):
+        ids = {str(video_id).strip() for video_id in video_ids if str(video_id).strip()}
+        if not ids:
+            return
+        for row in range(self._item_table.rowCount()):
+            item = self._item_table.item(row, self._ITEM_ID)
+            video_id = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip() if item else ""
+            if video_id in ids:
+                self._set_pending_row_background(row, pending)
+        brush = self._pending_item_brush() if pending else self._default_item_brush()
+        for index in range(self._thumbnail_list.count()):
+            item = self._thumbnail_list.item(index)
+            if str(item.data(Qt.ItemDataRole.UserRole) or "").strip() in ids:
+                item.setBackground(brush)
+
+    def _add_pending_video_ids(self, video_ids: list[str]):
+        added = [
+            str(video_id).strip()
+            for video_id in video_ids
+            if str(video_id).strip() and str(video_id).strip() not in self._pending_video_ids
+        ]
+        if not added:
+            return
+        self._pending_video_ids.update(added)
+        self._set_pending_visuals(added, True)
+        self._update_selection_actions()
+
+    def _remove_pending_video_ids(self, video_ids: list[str]):
+        removed = [
+            str(video_id).strip()
+            for video_id in video_ids
+            if str(video_id).strip() in self._pending_video_ids
+        ]
+        for video_id in removed:
+            self._pending_video_ids.discard(video_id)
+        self._set_pending_visuals(removed, False)
+        self._update_selection_actions()
+
+    def _clear_pending_video_ids(self):
+        if not self._pending_video_ids:
+            return
+        cleared = list(self._pending_video_ids)
+        self._pending_video_ids.clear()
+        self._set_pending_visuals(cleared, False)
+        self._update_selection_actions()
+
+    def _context_video_ids_from_table(self, pos) -> list[str]:
+        row = self._item_table.rowAt(pos.y())
+        if row < 0:
+            return []
+        id_item = self._item_table.item(row, self._ITEM_ID)
+        video_id = str(id_item.data(Qt.ItemDataRole.UserRole) or id_item.text() or "").strip() if id_item else ""
+        selected_ids = self._selected_video_ids()
+        return selected_ids if video_id in selected_ids else ([video_id] if video_id else [])
+
+    def _show_item_table_context_menu(self, pos):
+        video_ids = self._context_video_ids_from_table(pos)
+        if not video_ids:
+            return
+        self._show_pending_context_menu(video_ids, self._item_table.viewport().mapToGlobal(pos))
+
+    def _show_thumbnail_context_menu(self, pos):
+        item = self._thumbnail_list.itemAt(pos)
+        if not item:
+            return
+        video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        selected_ids = self._selected_video_ids()
+        video_ids = selected_ids if video_id in selected_ids else ([video_id] if video_id else [])
+        if video_ids:
+            self._show_pending_context_menu(video_ids, self._thumbnail_list.viewport().mapToGlobal(pos))
+
+    def _show_pending_context_menu(self, video_ids: list[str], global_pos):
+        menu = RoundMenu(parent=self)
+        pending = [video_id for video_id in video_ids if video_id in self._pending_video_ids]
+        if len(pending) == len(video_ids):
+            menu.addAction(
+                Action(
+                    FluentIcon.RETURN,
+                    tr("Remove From Pending", "移出待操作", "操作待ちから外す"),
+                    self,
+                    triggered=lambda: self._remove_pending_video_ids(video_ids),
+                )
+            )
+        else:
+            menu.addAction(
+                Action(
+                    FluentIcon.ACCEPT,
+                    tr("Add To Pending", "加入待操作", "操作待ちに追加"),
+                    self,
+                    triggered=lambda: self._add_pending_video_ids(video_ids),
+                )
+            )
+        if self._pending_video_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.DELETE,
+                    tr("Clear Pending", "清空待操作", "操作待ちをクリア"),
+                    self,
+                    triggered=self._clear_pending_video_ids,
+                )
+            )
+        menu.exec(global_pos)
+
     def _set_action_item(
         self,
         table: TableWidget,
@@ -1584,6 +1783,12 @@ class SubscriptionInterface(QWidget):
             if video_id and video_id not in ids:
                 ids.append(video_id)
         return ids
+
+    def _operation_video_ids(self) -> list[str]:
+        """Use explicitly staged videos first, then the transient UI selection."""
+        if self._pending_video_ids:
+            return list(self._pending_video_ids)
+        return self._selected_video_ids()
 
     def _on_source_cell_clicked(self, row: int, column: int):
         if column != self._SRC_OPEN or row < 0 or row >= len(self._sources):
@@ -1775,14 +1980,79 @@ class SubscriptionInterface(QWidget):
     def _refresh_all(self):
         self._start_refresh(None)
 
+    def _show_selected_source_all_items(self):
+        source_id = self._selected_source_id() or self._current_source_id
+        if not source_id:
+            self._show_error(tr("Select a subscription source first", "请先选择一个订阅源", "購読元を選択してください"))
+            return
+        self._title_filter_mode_btn.setChecked(False)
+        self._title_search_edit.clear()
+        self._install_filter_combo.setCurrentIndex(0)
+        self._new_filter_combo.setCurrentIndex(0)
+        self._load_items(source_id)
+
     def _start_refresh(self, source_id: int | None):
         if self._worker and self._worker.isRunning():
             return
+        self._set_refresh_actions_enabled(False)
         self._worker = SubscriptionRefreshWorker(source_id)
+        self._worker.progress.connect(self._on_refresh_progress)
         self._worker.finished.connect(self._on_refresh_finished)
         self._worker.start()
 
+    def _set_refresh_actions_enabled(self, enabled: bool):
+        for button_name in ("_refresh_selected_btn", "_refresh_all_btn"):
+            button = getattr(self, button_name, None)
+            if button:
+                button.setEnabled(enabled)
+
+    def _on_refresh_progress(self, progress: dict):
+        total = max(1, int(progress.get("total", 1) or 1))
+        index = max(1, min(total, int(progress.get("index", 1) or 1)))
+        started = str(progress.get("stage", "") or "") == "started"
+        title = str(progress.get("title", "") or "")
+        if self._refresh_info_bar is None:
+            self._refresh_info_bar = InfoBar.info(
+                title=tr("Refreshing Subscriptions", "正在刷新订阅", "購読を更新中"),
+                content="",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=False,
+                duration=-1,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+            self._refresh_progress = ProgressBar(self._refresh_info_bar)
+            self._refresh_progress.setFixedWidth(150)
+            self._refresh_progress.setRange(0, total)
+            self._refresh_info_bar.addWidget(self._refresh_progress)
+
+        completed = index - 1 if started else index
+        if self._refresh_progress:
+            self._refresh_progress.setRange(0, total)
+            self._refresh_progress.setValue(completed)
+        content = tr(
+            f"{index}/{total} · {'Refreshing' if started else 'Finished'} {title}",
+            f"{index}/{total} · {'正在刷新' if started else '已完成'} {title}",
+            f"{index}/{total} · {'更新中' if started else '完了'} {title}",
+        )
+        self._refresh_info_bar.content = content
+        self._refresh_info_bar.contentLabel.setText(content)
+        self._refresh_info_bar.adjustSize()
+
+    def _clear_refresh_progress(self):
+        info_bar = self._refresh_info_bar
+        self._refresh_info_bar = None
+        self._refresh_progress = None
+        if info_bar:
+            info_bar.close()
+
     def _on_refresh_finished(self, summary: dict):
+        worker = self._worker
+        self._worker = None
+        self._clear_refresh_progress()
+        self._set_refresh_actions_enabled(True)
+        if worker:
+            worker.deleteLater()
         self._refresh_sources_keep_current_items()
         errors = summary.get("errors") or []
         if errors:
@@ -1876,14 +2146,14 @@ class SubscriptionInterface(QWidget):
         self._refresh_sources_keep_current_items()
 
     def _mark_selected_seen(self):
-        ids = self._selected_video_ids()
+        ids = self._operation_video_ids()
         if not ids:
             ids = [str(item.get("video_id", "") or "") for item in self._visible_items if item.get("is_new")]
         download_manager.mark_subscription_items_seen(ids)
         self._refresh_sources_keep_current_items()
 
     def _mark_selected_downloaded_moved(self):
-        ids = self._selected_video_ids()
+        ids = self._operation_video_ids()
         if not ids:
             self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
@@ -1904,7 +2174,7 @@ class SubscriptionInterface(QWidget):
         )
 
     def _restore_selected_downloaded_moved(self):
-        ids = self._selected_video_ids()
+        ids = self._operation_video_ids()
         if not ids:
             self._show_error(tr("Select one or more moved videos first", "请先选中一个或多个已移走的视频", "先に移動済み動画を選択してください"))
             return
@@ -1925,14 +2195,14 @@ class SubscriptionInterface(QWidget):
         )
 
     def _download_selected(self):
-        ids = self._selected_video_ids()
+        ids = self._operation_video_ids()
         if not ids:
             self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
         self._enqueue_ids(ids)
 
     def _update_selection_actions(self):
-        count = len(self._selected_video_ids()) if hasattr(self, "_item_table") else 0
+        count = len(self._operation_video_ids()) if hasattr(self, "_item_table") else 0
         has_selection = count > 0
         if hasattr(self, "_download_selected_btn"):
             self._download_selected_btn.setEnabled(has_selection)
@@ -2029,28 +2299,34 @@ class SubscriptionInterface(QWidget):
         app_config.collect_nfo_info = bool(checked)
         signal_bus.download_options_changed.emit()
 
-    def _on_subscription_rule_applied(self, payload: dict):
-        self._title_include_edit.setText(str(payload.get("title_include", "") or ""))
-        self._title_exclude_edit.setText(str(payload.get("title_exclude", "") or ""))
-
     def _apply_selected_rule_for_download(self):
-        # RulePicker applies immediately when selected. Keep this compatibility
-        # hook for the three menu callbacks without showing a second notification.
-        rule = self._rule_picker.selected_rule() if hasattr(self, "_rule_picker") else None
-        if rule:
-            self._on_subscription_rule_applied(rule.get("payload", {}))
+        # Rules are independent from the list's browse filter. Reapplying here
+        # keeps keyboard/automation calls consistent without rerendering rows.
+        if hasattr(self, "_rule_picker"):
+            self._rule_picker.apply_selected(show_notice=False)
 
     def _download_selected_with_rule(self):
+        ids = self._operation_video_ids()
         self._apply_selected_rule_for_download()
-        self._download_selected()
+        self._enqueue_ids(ids)
 
     def _download_new_with_rule(self):
+        ids = [
+            str(item.get("video_id", "") or "")
+            for item in self._visible_items
+            if item.get("is_new") and not item.get("downloaded")
+        ]
         self._apply_selected_rule_for_download()
-        self._download_new()
+        self._enqueue_ids(ids)
 
     def _download_visible_with_rule(self):
+        ids = [
+            str(item.get("video_id", "") or "")
+            for item in self._visible_items
+            if not item.get("downloaded")
+        ]
         self._apply_selected_rule_for_download()
-        self._download_visible()
+        self._enqueue_ids(ids)
 
     def _download_new(self):
         ids = [
@@ -2172,6 +2448,15 @@ def _split_title_keywords(value: str) -> list[str]:
         if term and term not in terms:
             terms.append(term)
     return terms
+
+
+def _title_matcher(query: str, *, regex_mode: bool):
+    """Build a title predicate for the transient subscription-list search."""
+    if regex_mode:
+        pattern = re.compile(query, re.IGNORECASE)
+        return lambda title: bool(pattern.search(str(title or "")))
+    needle = str(query or "").casefold()
+    return lambda title: needle in str(title or "").casefold()
 
 
 def _title_matches_keywords(title: str, include_terms: list[str], exclude_terms: list[str]) -> bool:

@@ -4,9 +4,11 @@ import json
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTableWidget
 
 from app.config import app_config
@@ -16,8 +18,10 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.subscription_page import (
+    SubscriptionInterface,
     _source_search_text,
     _source_sort_key,
+    _title_matcher,
     _split_title_keywords,
     _title_matches_keywords,
 )
@@ -530,6 +534,85 @@ class ManagerPerformanceTests(unittest.TestCase):
             )
         )
 
+    def test_manual_author_refresh_updates_display_name_from_profile(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "author01", "author01")
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            if method_name == "get_user_profile":
+                return (
+                    {
+                        "user": {
+                            "id": "user01",
+                            "username": "author01",
+                            "name": "作者显示名",
+                            "avatar": {"id": "avatar01", "name": "avatar01.jpg"},
+                        }
+                    },
+                    "",
+                )
+            if method_name == "get_user_videos":
+                return []
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        mgr._api_call = fake_api_call
+        summary = mgr.refresh_subscription_source(source_id)
+        source = mgr.subscriptions.get_source(source_id)
+
+        self.assertEqual(summary["title"], "作者显示名")
+        self.assertEqual(source["title"], "作者显示名")
+        self.assertEqual(source["remote_id"], "user01")
+        self.assertTrue(source["avatar_url"])
+
+    def test_author_refresh_backfills_missing_avatar_for_existing_source(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "author01", "已有显示名", "user01")
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            if method_name == "get_user_profile":
+                return (
+                    {
+                        "user": {
+                            "id": "user01",
+                            "username": "author01",
+                            "name": "远端显示名",
+                            "avatar": {"id": "avatar01", "name": "avatar01.jpg"},
+                        }
+                    },
+                    "",
+                )
+            if method_name == "get_user_videos":
+                return []
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        mgr._api_call = fake_api_call
+        mgr.refresh_subscription_source(source_id)
+        source = mgr.subscriptions.get_source(source_id)
+
+        self.assertEqual(source["title"], "远端显示名")
+        self.assertTrue(source["avatar_url"])
+
+    def test_subscription_refresh_reports_each_enabled_source(self):
+        mgr = make_manager()
+        mgr.subscriptions.add_source("feed", "feed01", "Feed 01")
+        mgr.subscriptions.add_source("feed", "feed02", "Feed 02")
+        disabled_id = mgr.subscriptions.add_source("feed", "feed03", "Feed 03")
+        mgr.subscriptions.set_source_enabled(disabled_id, False)
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            self.assertEqual(method_name, "get_subscribed_videos")
+            return [], ""
+
+        mgr._api_call = fake_api_call
+        progress: list[dict] = []
+        summary = mgr.refresh_all_subscriptions(progress.append)
+
+        self.assertEqual(summary["sources"], 2)
+        self.assertEqual(
+            [(event["stage"], event["index"], event["total"]) for event in progress],
+            [("started", 1, 2), ("finished", 1, 2), ("started", 2, 2), ("finished", 2, 2)],
+        )
+
     def test_subscription_submit_skips_unavailable_items(self):
         old_download_video = app_config.download_video_file
         old_mark_submitted = app_config.mark_submitted_as_downloaded
@@ -870,6 +953,109 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertTrue(_title_matches_keywords("MMD Dance", include_terms, exclude_terms))
         self.assertFalse(_title_matches_keywords("MMD fixed camera", include_terms, exclude_terms))
         self.assertFalse(_title_matches_keywords("Unrelated", include_terms, exclude_terms))
+
+    def test_subscription_title_search_supports_simple_and_regex_modes(self):
+        self.assertTrue(_title_matcher("01-99", regex_mode=False)("R18MMD 01-99"))
+        self.assertFalse(_title_matcher("01-99", regex_mode=False)("R18MMD 拆分"))
+        self.assertTrue(_title_matcher(r"\b\d{2}-\d{2}\b", regex_mode=True)("R18MMD 01-99"))
+
+    def test_subscription_pending_items_survive_title_filter_changes(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("feed", "feed01", "Feed 01")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {"video_id": "pending01", "title": "Alpha Target", "source_url": "https://example.test/1"},
+                {"video_id": "other01", "title": "Beta Other", "source_url": "https://example.test/2"},
+            ],
+        )
+
+        with patch("app.ui.subscription_page.download_manager", mgr):
+            page = SubscriptionInterface()
+            page.resize(1500, 900)
+            page.show()
+            self.app.processEvents()
+            page._add_pending_video_ids(["pending01"])
+            pending_row = next(
+                row
+                for row in range(page._item_table.rowCount())
+                if str(page._item_table.item(row, page._ITEM_ID).text()) == "pending01"
+            )
+            pending_background = page._item_table.item(pending_row, page._ITEM_TITLE).background()
+            self.assertEqual(pending_background.style(), Qt.BrushStyle.SolidPattern)
+            self.assertGreater(pending_background.color().green(), pending_background.color().red())
+            self.assertGreater(pending_background.color().green(), pending_background.color().blue())
+
+            page._remove_pending_video_ids(["pending01"])
+            self.assertEqual(
+                page._item_table.item(pending_row, page._ITEM_TITLE).background().style(),
+                Qt.BrushStyle.NoBrush,
+            )
+            page._add_pending_video_ids(["pending01"])
+            with patch("app.ui.subscription_page.isDarkTheme", return_value=True):
+                page.refresh_theme_styles()
+            self.assertEqual(
+                page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
+                "#1f5f3d",
+            )
+            with patch("app.ui.subscription_page.isDarkTheme", return_value=False):
+                page.refresh_theme_styles()
+            self.assertEqual(
+                page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
+                "#c6efce",
+            )
+            page._title_search_edit.setText("Beta")
+            self.app.processEvents()
+
+            self.assertEqual([item["video_id"] for item in page._visible_items], ["other01"])
+            self.assertEqual(page._operation_video_ids(), ["pending01"])
+
+            page._title_filter_mode_btn.setChecked(True)
+            page._title_search_edit.setText(r"^Alpha")
+            self.app.processEvents()
+
+            self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
+            self.assertEqual(page._operation_video_ids(), ["pending01"])
+            page.close()
+
+    def test_title_rule_filters_download_metadata(self):
+        old_include = app_config.filter_title_include
+        old_exclude = app_config.filter_title_exclude
+        try:
+            app_config.filter_title_include = "01-99"
+            app_config.filter_title_exclude = "拆分"
+            mgr = make_manager()
+
+            self.assertTrue(
+                mgr._passes_filters(
+                    title="R18MMD 01-99",
+                    likes=0,
+                    views=0,
+                    published_at="",
+                    tags=[],
+                )[0]
+            )
+            self.assertFalse(
+                mgr._passes_filters(
+                    title="R18MMD 拆分 01-99",
+                    likes=0,
+                    views=0,
+                    published_at="",
+                    tags=[],
+                )[0]
+            )
+            self.assertFalse(
+                mgr._passes_filters(
+                    title="R18MMD",
+                    likes=0,
+                    views=0,
+                    published_at="",
+                    tags=[],
+                )[0]
+            )
+        finally:
+            app_config.filter_title_include = old_include
+            app_config.filter_title_exclude = old_exclude
 
     def test_subscription_source_sort_and_filter_text_use_author_names(self):
         sources = [
