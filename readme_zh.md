@@ -15,6 +15,11 @@
 - 状态机下载调度，减少 URL 过期问题。
 - 本地去重 + SQLite 历史记录中心。
 - 支持作者页、播放列表、搜索链接批量入队。
+- 新增 Fluent 搜索页：支持 Oreno3D 在线视频搜索、Iwara 实时视频/作者/播放列表搜索，以及中日英 tag 候选。
+- 搜索结果支持分页、批量加入下载队列，封面/头像按需缓存到 `data/img/search`。
+- 搜索结果支持网格/列表视图；网格可设置每行列数，列表字段可像订阅页一样自定义和持久化。
+- Oreno3D 搜索只作为在线桥接，不建立几十万条视频的本地镜像；搜索结果按条目异步获取 Iwara ID，再通过 Iwara API 补齐标题、作者、播放、点赞、评论和标签，最终直接进入 `iwara.tv/video/{id}`。设置页可选择后台预解析或点击/下载时解析，并调整 Oreno3D ID 并发数。
+- 搜索页直接复用下载规则，统一处理筛选、命名、封面、NFO 和下载行为。
 - 本地订阅管理，支持导入关注作者、刷新追踪、新增统计和列表/封面视图。
 - 命名规则统一管理点赞、播放、日期、标签、标题关键词、命名模板和下载行为。
 - 搜索下载上限可单独配置。
@@ -52,13 +57,15 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 1. 下载工作台
 ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
-2. 订阅页
+2. 搜索页
+搜索页使用 Fluent 卡片式结果网格；Oreno3D 结果来自在线搜索，Iwara 结果来自实时 API，图片缓存于 `data/img/search`。网格支持直接选择每行列数，Oreno3D 卡片只保留原站缩略图，另有不加载缩略图的列表模式和左右翻页；列表字段可像订阅页一样自定义。Oreno3D 数据源仅开放视频/标签搜索，作者和播放列表需切换 Iwara API。
+3. 订阅页
 ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
-3. 历史记录页
+4. 历史记录页
 ![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
-4. 规则页
+5. 规则页
 ![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
-5. 设置页
+6. 设置页
 ![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
 
 ## 文档

@@ -19,6 +19,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     ScrollArea,
     Slider,
+    SpinBox,
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
@@ -433,6 +434,84 @@ class SettingsInterface(ScrollArea):
         search_layout.addLayout(search_row)
         layout.addWidget(search_card)
 
+        # ── Search bridge resolution ───────────────────────────────────────
+        search_resolve_card = CardWidget(self._content)
+        search_resolve_layout = QVBoxLayout(search_resolve_card)
+        search_resolve_layout.setContentsMargins(20, 16, 20, 16)
+        search_resolve_layout.setSpacing(10)
+        search_resolve_layout.addWidget(
+            SubtitleLabel(
+                tr(
+                    "Oreno3D / Iwara Search Loading",
+                    "Oreno3D / Iwara 搜索加载",
+                    "Oreno3D / Iwara 検索読み込み",
+                ),
+                search_resolve_card,
+            )
+        )
+        search_resolve_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Oreno3D supplies the thumbnail and Iwara ID bridge. Metadata is always read from Iwara; choose when the bridge should be resolved.",
+                    "Oreno3D 只提供缩略图和 Iwara ID 跳板；标题、作者、标签、评论等元数据始终从 Iwara 读取，可选择解析时机。",
+                    "Oreno3D はサムネイルと Iwara ID への橋渡しだけを行い、メタデータは常に Iwara から取得します。解決タイミングを選べます。",
+                ),
+                search_resolve_card,
+            )
+        )
+
+        resolve_mode_row = QHBoxLayout()
+        resolve_mode_row.addWidget(
+            BodyLabel(
+                tr("Resolve timing", "解析时机", "解決タイミング"),
+                search_resolve_card,
+            )
+        )
+        self._search_resolution_mode_combo = ComboBox(search_resolve_card)
+        self._search_resolution_mode_combo.addItem(
+            tr("Background pre-resolve", "后台预解析", "バックグラウンドで事前解決")
+        )
+        self._search_resolution_mode_combo.setItemData(0, "eager")
+        self._search_resolution_mode_combo.addItem(
+            tr("On click or download", "点击或下载时解析", "クリックまたはダウンロード時に解決")
+        )
+        self._search_resolution_mode_combo.setItemData(1, "on_demand")
+        self._search_resolution_mode_combo.setFixedWidth(260)
+        self._search_resolution_mode_combo.currentIndexChanged.connect(
+            self._on_search_resolution_mode_changed
+        )
+        resolve_mode_row.addWidget(self._search_resolution_mode_combo)
+        resolve_mode_row.addStretch()
+        search_resolve_layout.addLayout(resolve_mode_row)
+
+        resolve_workers_row = QHBoxLayout()
+        resolve_workers_row.addWidget(
+            BodyLabel(
+                tr("Oreno3D ID concurrency", "Oreno3D ID 并发数", "Oreno3D ID 同時実行数"),
+                search_resolve_card,
+            )
+        )
+        self._search_resolution_workers_spin = SpinBox(search_resolve_card)
+        self._search_resolution_workers_spin.setRange(1, 8)
+        self._search_resolution_workers_spin.setFixedWidth(100)
+        self._search_resolution_workers_spin.valueChanged.connect(
+            self._on_search_resolution_workers_changed
+        )
+        resolve_workers_row.addWidget(self._search_resolution_workers_spin)
+        resolve_workers_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Independent Oreno3D detail requests; Iwara metadata remains rate-limited by its API session.",
+                    "使用独立 Oreno3D 详情请求；Iwara 元数据仍由 API 会话统一限速。",
+                    "Oreno3D 詳細リクエストは独立実行し、Iwara メタデータは API セッション側で制御します。",
+                ),
+                search_resolve_card,
+            )
+        )
+        resolve_workers_row.addStretch()
+        search_resolve_layout.addLayout(resolve_workers_row)
+        layout.addWidget(search_resolve_card)
+
         # ── Subscription prompt behavior ───────────────────────────────────
         sub_prompt_card = CardWidget(self._content)
         sub_prompt_layout = QVBoxLayout(sub_prompt_card)
@@ -622,6 +701,22 @@ class SettingsInterface(ScrollArea):
         self._search_limit_switch.setChecked(app_config.search_limit_enabled)
         self._search_limit_edit.setText(str(max(1, app_config.search_limit_count)))
         self._search_limit_edit.setEnabled(app_config.search_limit_enabled)
+        search_resolution_mode = str(
+            app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
+            or "eager"
+        ).strip().lower()
+        self._search_resolution_mode_combo.setCurrentIndex(
+            1 if search_resolution_mode == "on_demand" else 0
+        )
+        try:
+            search_resolution_workers = int(
+                app_config.get_ui_value("search_iwara_resolution_workers_v1", 4) or 4
+            )
+        except (TypeError, ValueError):
+            search_resolution_workers = 4
+        self._search_resolution_workers_spin.setValue(
+            max(1, min(8, search_resolution_workers))
+        )
 
         # Auth
         self._auth_switch.setChecked(app_config.auth_enabled)
@@ -849,6 +944,20 @@ class SettingsInterface(ScrollArea):
         self._search_limit_edit.setText(str(value))
         app_config.search_limit_count = value
 
+    def _on_search_resolution_mode_changed(self, _index: int):
+        if self._loading_settings:
+            return
+        mode = str(self._search_resolution_mode_combo.currentData() or "eager")
+        if mode not in {"eager", "on_demand"}:
+            mode = "eager"
+        app_config.set_ui_value("search_iwara_resolution_mode_v1", mode)
+
+    def _on_search_resolution_workers_changed(self, value: int):
+        if self._loading_settings:
+            return
+        value = max(1, min(8, int(value)))
+        app_config.set_ui_value("search_iwara_resolution_workers_v1", value)
+
     def _on_api_proxy_toggle(self, checked: bool):
         app_config.api_proxy_enabled = checked
         self._api_proxy_widget.setVisible(checked)
@@ -914,6 +1023,12 @@ class SettingsInterface(ScrollArea):
         app_config.subscription_prompt_mode = ["ask", "always", "never"][self._subscription_prompt_combo.currentIndex()]
         self._on_search_limit_input_finished()
         app_config.search_limit_enabled = self._search_limit_switch.isChecked()
+        self._on_search_resolution_mode_changed(
+            self._search_resolution_mode_combo.currentIndex()
+        )
+        self._on_search_resolution_workers_changed(
+            self._search_resolution_workers_spin.value()
+        )
         download_manager.apply_config()
         InfoBar.success(
             title=tr("Settings Saved", "设置已保存", "設定を保存しました"),

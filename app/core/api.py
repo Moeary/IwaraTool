@@ -441,6 +441,78 @@ class IwaraAPI:
 
     # ── Search / videos query ───────────────────────────────────────────────
 
+    def get_videos_page(
+        self,
+        query_params: dict[str, Any] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Fetch one bounded page of video stubs for the search UI.
+
+        The existing :meth:`get_videos_by_query` method intentionally keeps its
+        historical return shape for URL parsing and subscriptions.  This
+        method exposes pagination metadata separately so the UI can implement
+        safe page navigation without changing those callers.
+        """
+
+        try:
+            page_number = max(0, int(page))
+        except (TypeError, ValueError):
+            page_number = 0
+        try:
+            requested_limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            requested_limit = 32
+        params = {
+            str(key): str(value)
+            for key, value in (query_params or {}).items()
+            if str(value).strip()
+        }
+        params["page"] = str(page_number)
+        params["limit"] = str(requested_limit)
+        try:
+            data = self._get_json(f"{BASE_API}/videos", params=params)
+            if not isinstance(data, dict):
+                return [], None, False, tr(
+                    f"Unexpected video search response: {type(data).__name__}",
+                    f"视频搜索返回了无法识别的数据：{type(data).__name__}",
+                    f"動画検索の応答形式を認識できません: {type(data).__name__}",
+                )
+            results = data.get("results", data.get("data", []))
+            if not isinstance(results, list) and isinstance(results, dict):
+                results = results.get("results", results.get("items", []))
+            if not isinstance(results, list):
+                results = []
+            count_value = data.get("count", data.get("total", data.get("totalCount")))
+            try:
+                total = int(count_value) if count_value is not None else None
+            except (TypeError, ValueError):
+                total = None
+
+            explicit_more = next(
+                (
+                    data[key]
+                    for key in ("hasNext", "has_next", "hasMore", "has_more")
+                    if key in data
+                ),
+                None,
+            )
+            if explicit_more is not None:
+                if isinstance(explicit_more, str):
+                    has_more = explicit_more.strip().casefold() in {"1", "true", "yes", "y"}
+                else:
+                    has_more = bool(explicit_more)
+            elif total is not None:
+                has_more = (page_number + 1) * requested_limit < total
+            else:
+                has_more = len(results) >= requested_limit
+            if not results:
+                has_more = False
+            return results, total, has_more, ""
+        except Exception as exc:
+            return [], None, False, _friendly_request_error(str(exc))
+
     def get_videos_by_query(
         self,
         query_params: dict[str, str],
