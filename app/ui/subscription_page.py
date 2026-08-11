@@ -4,6 +4,8 @@ from __future__ import annotations
 import webbrowser
 import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlparse
 
@@ -158,33 +160,87 @@ class SubscriptionAvatarWorker(QThread):
         self.done.emit()
 
 
+_DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
+_MAX_COVER_DOWNLOAD_CONCURRENCY = 16
+
+
 class SubscriptionThumbnailWorker(QThread):
     thumbnail_ready = Signal(str, str)
     done = Signal()
 
-    def __init__(self, requests: list[tuple[str, str]], *, force: bool = False):
+    def __init__(
+        self,
+        requests: list[tuple[str, str]],
+        *,
+        force: bool = False,
+        concurrency: int = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+    ):
         super().__init__()
         self._requests = list(requests)
         self._force = bool(force)
+        self._concurrency = max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, int(concurrency)))
 
     def run(self):
-        for video_id, thumbnail_url in self._requests:
+        thread_state = threading.local()
+        clients: list[Any] = []
+        clients_lock = threading.Lock()
+
+        def fetch(request: tuple[str, str]) -> tuple[str, str]:
+            video_id, thumbnail_url = request
+            client = getattr(thread_state, "api_client", None)
+            if client is None:
+                create_client = getattr(download_manager, "create_worker_api_client", None)
+                if callable(create_client):
+                    client = create_client()
+                    thread_state.api_client = client
+                    with clients_lock:
+                        clients.append(client)
             try:
-                path = download_manager.cache_subscription_thumbnail(
-                    video_id,
-                    thumbnail_url,
-                    force=self._force,
-                )
-            except TypeError as exc:
-                # Keep compatibility with small manager fakes used by older
-                # integrations and tests that still expose the two-argument
-                # cache method.
-                if "force" not in str(exc):
-                    raise
-                path = download_manager.cache_subscription_thumbnail(video_id, thumbnail_url)
-            if path:
-                self.thumbnail_ready.emit(video_id, path)
-        self.done.emit()
+                try:
+                    path = download_manager.cache_subscription_thumbnail(
+                        video_id,
+                        thumbnail_url,
+                        force=self._force,
+                        api_client=client,
+                    )
+                except TypeError as exc:
+                    # Compatibility with manager fakes and older extensions
+                    # that have force= but not api_client=, or only two args.
+                    if "api_client" not in str(exc) and "force" not in str(exc):
+                        raise
+                    try:
+                        path = download_manager.cache_subscription_thumbnail(
+                            video_id,
+                            thumbnail_url,
+                            force=self._force,
+                        )
+                    except TypeError as force_exc:
+                        if "force" not in str(force_exc):
+                            raise
+                        path = download_manager.cache_subscription_thumbnail(video_id, thumbnail_url)
+                return video_id, path or ""
+            except Exception:
+                return video_id, ""
+
+        executor = ThreadPoolExecutor(
+            max_workers=min(self._concurrency, len(self._requests)),
+            thread_name_prefix="subscription-cover",
+        )
+        try:
+            futures = [executor.submit(fetch, request) for request in self._requests]
+            for future in as_completed(futures):
+                if self.isInterruptionRequested():
+                    break
+                video_id, path = future.result()
+                if path:
+                    self.thumbnail_ready.emit(video_id, path)
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+            close_client = getattr(download_manager, "close_worker_api_client", None)
+            if callable(close_client):
+                for client in clients:
+                    close_client(client)
+            self.done.emit()
 
 
 _CONTROL_HEIGHT = 36
@@ -372,14 +428,16 @@ class _FluentContentSplitter(QSplitter):
 def _style_content_splitter(splitter: QSplitter):
     """Make the vertical content splitter look like a subtle Fluent grab handle."""
     if isDarkTheme():
+        base = "rgba(255, 255, 255, 0.06)"
         hover = "rgba(255, 255, 255, 0.18)"
         pressed = "rgba(255, 255, 255, 0.28)"
     else:
+        base = "rgba(0, 0, 0, 0.04)"
         hover = "rgba(0, 0, 0, 0.10)"
         pressed = "rgba(0, 0, 0, 0.18)"
     splitter.setStyleSheet(
         f"""
-        QSplitter::handle {{ background: transparent; }}
+        QSplitter::handle {{ background: {base}; }}
         QSplitter::handle:horizontal {{ height: 10px; }}
         QSplitter::handle:vertical {{ width: 10px; }}
         QSplitter::handle:hover {{ background: {hover}; }}
@@ -442,6 +500,7 @@ class SubscriptionInterface(QWidget):
         self._source_render_index = 0
         self._item_render_index = 0
         self._items_refresh_pending = False
+        self._thumbnail_grid_resize_pending = False
         self._syncing_download_options = False
         self._source_render_timer = QTimer(self)
         self._source_render_timer.setInterval(0)
@@ -470,7 +529,7 @@ class SubscriptionInterface(QWidget):
         title_row.addStretch()
         root.addLayout(title_row)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter = _FluentContentSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
         self._splitter_is_vertical = False
         self._source_panel_visible = True
@@ -478,6 +537,8 @@ class SubscriptionInterface(QWidget):
         self._last_splitter_sizes = [1000, 1000]
         splitter.splitterMoved.connect(self._on_splitter_moved)
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(10)
+        _style_content_splitter(splitter)
         root.addWidget(splitter, stretch=1)
 
         left_panel = CardWidget(self)
@@ -992,7 +1053,7 @@ class SubscriptionInterface(QWidget):
         self._thumbnail_list.setSpacing(8)
         self._thumbnail_list.itemDoubleClicked.connect(self._on_thumbnail_item_activated)
         self._thumbnail_list.itemSelectionChanged.connect(self._update_selection_actions)
-        self._thumbnail_list.resized.connect(self._update_thumbnail_grid)
+        self._thumbnail_list.resized.connect(self._schedule_thumbnail_grid_update)
         self._thumbnail_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._thumbnail_list.customContextMenuRequested.connect(self._show_thumbnail_context_menu)
 
@@ -1017,6 +1078,7 @@ class SubscriptionInterface(QWidget):
         _apply_fluent_scrollbars(self._thumbnail_list)
         _apply_fluent_scrollbars(self._item_controls_scroll)
         self._thumbnail_list.setStyleSheet(_thumbnail_list_style())
+        _style_content_splitter(self._splitter)
         _style_content_splitter(self._item_content_splitter)
         self._sync_download_option_buttons()
         # Pending rows may have been staged before the theme changed. Reapply
@@ -1039,6 +1101,7 @@ class SubscriptionInterface(QWidget):
         self._fit_source_table_last_column()
         self._fit_item_table_last_column()
         self._update_thumbnail_grid()
+        self._schedule_thumbnail_grid_update()
 
     def _update_panel_toggle_buttons(self):
         if not hasattr(self, "_toggle_sources_btn"):
@@ -1088,6 +1151,7 @@ class SubscriptionInterface(QWidget):
         self._fit_source_table_last_column()
         self._fit_item_table_last_column()
         self._update_thumbnail_grid()
+        self._schedule_thumbnail_grid_update()
 
     def _toggle_source_panel(self):
         self._set_panel_visible(0, not self._source_panel_visible)
@@ -1144,6 +1208,19 @@ class SubscriptionInterface(QWidget):
         self._fit_source_table_last_column()
         self._fit_item_table_last_column()
         self._update_thumbnail_grid()
+        self._schedule_thumbnail_grid_update()
+
+    def _schedule_thumbnail_grid_update(self):
+        """Run one more layout pass after Qt has committed the new viewport size."""
+
+        if self._thumbnail_grid_resize_pending:
+            return
+        self._thumbnail_grid_resize_pending = True
+        QTimer.singleShot(0, self._run_scheduled_thumbnail_grid_update)
+
+    def _run_scheduled_thumbnail_grid_update(self):
+        self._thumbnail_grid_resize_pending = False
+        self._update_thumbnail_grid()
 
     def _update_thumbnail_grid(self):
         if not hasattr(self, "_thumbnail_list"):
@@ -1164,29 +1241,40 @@ class SubscriptionInterface(QWidget):
             )
         except (TypeError, ValueError):
             requested_columns = _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        minimum_card_width = 180
-        max_fit_columns = max(
-            1,
-            (available_width + spacing) // (minimum_card_width + spacing),
-        )
-        columns = max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, requested_columns, max_fit_columns))
+        # The selector is an explicit user preference.  Preserve the exact
+        # number of columns and shrink each card on compact split panes rather
+        # than silently reducing (for example) 8 columns to 4.
+        columns = max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, requested_columns))
         card_width = max(
-            minimum_card_width,
+            40,
             (available_width - spacing * (columns - 1)) // columns,
         )
         # The cover is the visual body of a card.  Match it to the item cell so
         # every column shares one exact left edge; the 1px allowance is for the
         # selection border rather than an arbitrary visual inset.
-        image_width = max(140, card_width - 2)
-        image_height = max(80, round(image_width * 9 / 16))
+        image_width = max(32, card_width - 2)
+        image_height = max(32, round(image_width * 9 / 16))
         text_height = _grid_text_height(
             self._thumbnail_list,
             max(40, card_width - 2),
             fallback_lines=4,
         )
-        self._thumbnail_list.setIconSize(QSize(image_width, image_height))
-        self._thumbnail_list.setGridSize(QSize(card_width, image_height + text_height + 14))
-        self._thumbnail_list.setSpacing(spacing)
+        grid_size = QSize(card_width, image_height + text_height + 14)
+        updates_enabled = self._thumbnail_list.updatesEnabled()
+        self._thumbnail_list.setUpdatesEnabled(False)
+        try:
+            self._thumbnail_list.setIconSize(QSize(image_width, image_height))
+            self._thumbnail_list.setGridSize(grid_size)
+            self._thumbnail_list.setSpacing(spacing)
+            for index in range(self._thumbnail_list.count()):
+                self._thumbnail_list.item(index).setSizeHint(grid_size)
+            # QListWidget may defer IconMode placement until the next paint.
+            # Force it now so a column-count change never shows a partial card.
+            self._thumbnail_list.doItemsLayout()
+        finally:
+            self._thumbnail_list.setUpdatesEnabled(updates_enabled)
+        if updates_enabled:
+            self._thumbnail_list.viewport().update()
 
     def _configure_source_columns(self):
         open_table_column_dialog(
@@ -1574,6 +1662,7 @@ class SubscriptionInterface(QWidget):
         )
         app_config.set_ui_value("subscription_grid_columns_v1", value)
         self._update_thumbnail_grid()
+        self._schedule_thumbnail_grid_update()
 
     def _render_thumbnail_items(self):
         self._update_thumbnail_grid()
@@ -1624,6 +1713,7 @@ class SubscriptionInterface(QWidget):
         # Recalculate after the real captions are present; long titles may
         # wrap to an extra line and should determine the row height.
         self._update_thumbnail_grid()
+        self._schedule_thumbnail_grid_update()
         self._start_thumbnail_worker_for_visible_items()
 
     def _thumbnail_placeholder_icon(self) -> QIcon:
@@ -1644,6 +1734,20 @@ class SubscriptionInterface(QWidget):
         x = max(0, (scaled.width() - size.width()) // 2)
         y = max(0, (scaled.height() - size.height()) // 2)
         return QIcon(scaled.copy(x, y, size.width(), size.height()))
+
+    @staticmethod
+    def _cover_download_concurrency() -> int:
+        try:
+            value = int(
+                app_config.get_ui_value(
+                    "cover_download_workers_v1",
+                    _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+                )
+                or _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
+            )
+        except (TypeError, ValueError):
+            value = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
+        return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
 
     def _start_thumbnail_worker_for_visible_items(self, *, force: bool = False) -> bool:
         if self._thumbnail_worker and self._thumbnail_worker.isRunning():
@@ -1673,7 +1777,11 @@ class SubscriptionInterface(QWidget):
         self._thumbnail_requested_video_ids.update(video_id for video_id, _url in requests)
         if force:
             self._thumbnail_force_refresh_ids.update(video_id for video_id, _url in requests)
-        self._thumbnail_worker = SubscriptionThumbnailWorker(requests, force=force)
+        self._thumbnail_worker = SubscriptionThumbnailWorker(
+            requests,
+            force=force,
+            concurrency=self._cover_download_concurrency(),
+        )
         self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
         self._thumbnail_worker.done.connect(self._on_thumbnail_worker_finished)
         self._thumbnail_worker.start()

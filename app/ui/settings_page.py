@@ -1,11 +1,21 @@
 """Settings Interface — login, quality, download dir, concurrency, proxy."""
 from __future__ import annotations
 
+import json
 import os
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QIntValidator
-from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QThread, Signal
+from PySide6.QtGui import QDrag, QIntValidator
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qfluentwidgets import (
     BodyLabel,
@@ -46,6 +56,199 @@ class LoginWorker(QThread):
     def run(self):
         ok, msg = download_manager.api.login(self._credential, self._password)
         self.finished.emit(ok, msg)
+
+
+class DraggableSettingsCard(CardWidget):
+    """A settings card that can be reordered inside the settings board."""
+
+    def __init__(self, card_key: str, board: "SettingsCardBoard"):
+        super().__init__(board)
+        self.card_key = str(card_key)
+        self._board = board
+        self._drag_start_pos = QPoint()
+        self._drag_start_global = QPoint()
+        self.setProperty("settingsCardKey", self.card_key)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setToolTip(
+            tr(
+                "Drag this card to reorder settings",
+                "拖动此卡片可调整设置顺序",
+                "このカードをドラッグして設定順を変更",
+            )
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            event.buttons() & Qt.MouseButton.LeftButton
+            and (event.position().toPoint() - self._drag_start_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            mime_data.setText(self.card_key)
+            drag.setMimeData(mime_data)
+            drag.exec(Qt.DropAction.MoveAction)
+            return
+        super().mouseMoveEvent(event)
+
+    def enable_drag_sources(self):
+        # Inputs keep their normal mouse behavior.  Text labels provide a
+        # reliable drag surface even when a compact card has no empty padding.
+        for child in self.findChildren(QWidget):
+            if isinstance(child, (BodyLabel, SubtitleLabel, TitleLabel)):
+                child.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_global = event.globalPosition().toPoint()
+        elif (
+            event.type() == QEvent.Type.MouseMove
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and (event.globalPosition().toPoint() - self._drag_start_global).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            mime_data.setText(self.card_key)
+            drag.setMimeData(mime_data)
+            drag.exec(Qt.DropAction.MoveAction)
+            return True
+        return super().eventFilter(watched, event)
+
+
+class SettingsCardBoard(QWidget):
+    """Responsive two-column board with persisted drag ordering."""
+
+    _ORDER_KEY = "settings_card_order_v1"
+    _DEFAULT_ORDER = (
+        "account",
+        "download_dir",
+        "quality",
+        "concurrency",
+        "cover_performance",
+        "search_bridge",
+        "behavior",
+        "proxy",
+        "search_limit",
+        "subscription_prompt",
+        "language",
+        "data_paths",
+        "aria2",
+    )
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("settingsCardBoard")
+        self.setAcceptDrops(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(16)
+        self._grid.setVerticalSpacing(16)
+        self._cards: dict[str, DraggableSettingsCard] = {}
+        self._saved_order = self._read_saved_order()
+
+    @staticmethod
+    def _read_saved_order() -> list[str]:
+        raw = app_config.get_ui_value(SettingsCardBoard._ORDER_KEY, "")
+        try:
+            value = json.loads(str(raw or ""))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def create_card(self, card_key: str) -> DraggableSettingsCard:
+        return DraggableSettingsCard(card_key, self)
+
+    def add_card(self, card_key: str, card: DraggableSettingsCard):
+        card_key = str(card_key).strip()
+        if not card_key:
+            return
+        self._cards[card_key] = card
+        card.setParent(self)
+        card.enable_drag_sources()
+        self._reflow()
+
+    def _ordered_keys(self) -> list[str]:
+        known = set(self._cards)
+        order: list[str] = []
+        for key in (*self._saved_order, *self._DEFAULT_ORDER, *self._cards.keys()):
+            if key in known and key not in order:
+                order.append(key)
+        return order
+
+    def _column_count(self) -> int:
+        width = max(0, self.width())
+        if width >= 760:
+            return 2
+        return 1
+
+    def _reflow(self):
+        while self._grid.count():
+            item = self._grid.takeAt(0)
+            if item.widget():
+                item.widget().show()
+        columns = self._column_count()
+        for column in range(2):
+            self._grid.setColumnStretch(column, 1 if column < columns else 0)
+        for index, card_key in enumerate(self._ordered_keys()):
+            card = self._cards[card_key]
+            row, column = divmod(index, columns)
+            self._grid.addWidget(card, row, column)
+        self.setMinimumHeight(self._grid.sizeHint().height())
+        self.updateGeometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _card_from_position(self, position: QPoint) -> DraggableSettingsCard | None:
+        widget = self.childAt(position)
+        while widget is not None and widget is not self:
+            if isinstance(widget, DraggableSettingsCard):
+                return widget
+            widget = widget.parentWidget()
+        return None
+
+    def _persist_order(self, order: list[str]):
+        self._saved_order = list(order)
+        app_config.set_ui_value(self._ORDER_KEY, json.dumps(order, ensure_ascii=False))
+
+    def dropEvent(self, event):
+        source_key = str(event.mimeData().text() or "").strip()
+        order = self._ordered_keys()
+        if source_key not in order:
+            event.ignore()
+            return
+        target = self._card_from_position(event.position().toPoint())
+        target_key = target.card_key if target else ""
+        order.remove(source_key)
+        if target_key and target_key != source_key:
+            target_index = order.index(target_key)
+            if event.position().toPoint().y() > target.geometry().center().y():
+                target_index += 1
+            order.insert(target_index, source_key)
+        else:
+            order.append(source_key)
+        self._persist_order(order)
+        self._reflow()
+        event.acceptProposedAction()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText() and event.mimeData().text() in self._cards:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
 
 
 # ── Settings Interface ────────────────────────────────────────────────────────
@@ -94,9 +297,11 @@ class SettingsInterface(ScrollArea):
         layout.setSpacing(16)
 
         layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self._content))
+        self._settings_board = SettingsCardBoard(self._content)
+        layout.addWidget(self._settings_board)
 
         # ── Language ─────────────────────────────────────────────────────────
-        lang_card = CardWidget(self._content)
+        lang_card = self._settings_board.create_card("language")
         lang_layout = QVBoxLayout(lang_card)
         lang_layout.setContentsMargins(20, 16, 20, 16)
         lang_layout.setSpacing(10)
@@ -122,10 +327,10 @@ class SettingsInterface(ScrollArea):
         lang_row.addStretch()
         lang_layout.addLayout(lang_row)
 
-        layout.addWidget(lang_card)
+        self._settings_board.add_card("language", lang_card)
 
         # ── Data location (portable mode) ───────────────────────────────────
-        data_card = CardWidget(self._content)
+        data_card = self._settings_board.create_card("data_paths")
         data_layout = QVBoxLayout(data_card)
         data_layout.setContentsMargins(20, 16, 20, 16)
         data_layout.setSpacing(8)
@@ -133,10 +338,10 @@ class SettingsInterface(ScrollArea):
         data_layout.addWidget(BodyLabel(f"{tr('Data dir', '数据目录', 'データディレクトリ')}: {app_config.app_data_dir}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('Config file', '配置文件', '設定ファイル')}: {app_config.config_path}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('History DB', '下载历史库', '履歴DB')}: {app_config.history_db_path}", data_card))
-        layout.addWidget(data_card)
+        self._settings_board.add_card("data_paths", data_card)
 
         # ── Account / Login card ──────────────────────────────────────────────
-        login_card = CardWidget(self._content)
+        login_card = self._settings_board.create_card("account")
         login_layout = QVBoxLayout(login_card)
         login_layout.setContentsMargins(20, 16, 20, 16)
         login_layout.setSpacing(10)
@@ -194,10 +399,10 @@ class SettingsInterface(ScrollArea):
         cred_layout.addWidget(self._login_status_lbl)
 
         login_layout.addWidget(self._cred_widget)
-        layout.addWidget(login_card)
+        self._settings_board.add_card("account", login_card)
 
         # ── Quality preference card ───────────────────────────────────────────
-        quality_card = CardWidget(self._content)
+        quality_card = self._settings_board.create_card("quality")
         quality_layout = QVBoxLayout(quality_card)
         quality_layout.setContentsMargins(20, 16, 20, 16)
         quality_layout.setSpacing(10)
@@ -222,10 +427,10 @@ class SettingsInterface(ScrollArea):
         quality_row.addWidget(self._quality_combo)
         quality_row.addStretch()
         quality_layout.addLayout(quality_row)
-        layout.addWidget(quality_card)
+        self._settings_board.add_card("quality", quality_card)
 
         # ── Download directory ────────────────────────────────────────────────
-        dir_card = CardWidget(self._content)
+        dir_card = self._settings_board.create_card("download_dir")
         dir_layout = QVBoxLayout(dir_card)
         dir_layout.setContentsMargins(20, 16, 20, 16)
         dir_layout.setSpacing(10)
@@ -272,10 +477,10 @@ class SettingsInterface(ScrollArea):
         cleanup_btn.clicked.connect(self._confirm_clear_temp_files)
         cleanup_row.addWidget(cleanup_btn)
         dir_layout.addLayout(cleanup_row)
-        layout.addWidget(dir_card)
+        self._settings_board.add_card("download_dir", dir_card)
 
         # ── Global download behavior ─────────────────────────────────────────
-        name_card = CardWidget(self._content)
+        name_card = self._settings_board.create_card("behavior")
         name_layout = QVBoxLayout(name_card)
         name_layout.setContentsMargins(20, 16, 20, 16)
         name_layout.setSpacing(10)
@@ -311,10 +516,10 @@ class SettingsInterface(ScrollArea):
         click_row.addWidget(self._completed_click_combo)
         name_layout.addLayout(click_row)
 
-        layout.addWidget(name_card)
+        self._settings_board.add_card("behavior", name_card)
 
         # ── Concurrency ───────────────────────────────────────────────────────
-        conc_card = CardWidget(self._content)
+        conc_card = self._settings_board.create_card("concurrency")
         conc_layout = QVBoxLayout(conc_card)
         conc_layout.setContentsMargins(20, 16, 20, 16)
         conc_layout.setSpacing(10)
@@ -394,10 +599,80 @@ class SettingsInterface(ScrollArea):
         self._auto_restore_stalled_switch.checkedChanged.connect(self._on_auto_restore_stalled_toggle)
         auto_restore_row.addWidget(self._auto_restore_stalled_switch)
         conc_layout.addLayout(auto_restore_row)
-        layout.addWidget(conc_card)
+        self._settings_board.add_card("concurrency", conc_card)
+
+        # ── Background refresh and cover performance ─────────────────────────
+        cover_card = self._settings_board.create_card("cover_performance")
+        cover_layout = QVBoxLayout(cover_card)
+        cover_layout.setContentsMargins(20, 16, 20, 16)
+        cover_layout.setSpacing(10)
+        cover_layout.addWidget(
+            SubtitleLabel(
+                tr(
+                    "Refresh and Cover Performance",
+                    "刷新与封面性能",
+                    "更新とカバーのパフォーマンス",
+                ),
+                cover_card,
+            )
+        )
+        cover_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Controls image downloads for search/subscriptions and incremental account-feed refresh.",
+                    "控制搜索/订阅封面并发，并让账户订阅刷新只检查已知视频之前的新内容。",
+                    "検索・購読カバーの同時数と、既知の動画までを確認する増分更新を設定します。",
+                ),
+                cover_card,
+            )
+        )
+
+        cover_workers_row = QHBoxLayout()
+        cover_workers_row.addWidget(
+            BodyLabel(tr("Cover download concurrency", "封面获取并发数", "カバー取得の同時数"), cover_card)
+        )
+        self._cover_download_workers_spin = SpinBox(cover_card)
+        self._cover_download_workers_spin.setRange(1, 16)
+        self._cover_download_workers_spin.setFixedWidth(132)
+        self._cover_download_workers_spin.valueChanged.connect(self._on_cover_download_workers_changed)
+        cover_workers_row.addWidget(self._cover_download_workers_spin)
+        cover_workers_row.addStretch()
+        cover_layout.addLayout(cover_workers_row)
+
+        refresh_workers_row = QHBoxLayout()
+        refresh_workers_row.addWidget(
+            BodyLabel(tr("Subscription refresh concurrency", "订阅刷新并发数", "購読更新の同時数"), cover_card)
+        )
+        self._subscription_refresh_workers_spin = SpinBox(cover_card)
+        self._subscription_refresh_workers_spin.setRange(1, 8)
+        self._subscription_refresh_workers_spin.setFixedWidth(132)
+        self._subscription_refresh_workers_spin.valueChanged.connect(self._on_subscription_refresh_workers_changed)
+        refresh_workers_row.addWidget(self._subscription_refresh_workers_spin)
+        refresh_workers_row.addStretch()
+        cover_layout.addLayout(refresh_workers_row)
+
+        incremental_row = QHBoxLayout()
+        incremental_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Incremental account subscription refresh",
+                    "账户订阅增量刷新",
+                    "アカウント購読を増分更新",
+                ),
+                cover_card,
+            )
+        )
+        incremental_row.addStretch()
+        self._subscription_incremental_switch = SwitchButton(cover_card)
+        self._subscription_incremental_switch.checkedChanged.connect(
+            self._on_subscription_incremental_toggle
+        )
+        incremental_row.addWidget(self._subscription_incremental_switch)
+        cover_layout.addLayout(incremental_row)
+        self._settings_board.add_card("cover_performance", cover_card)
 
         # ── Search download limit ───────────────────────────────────────────
-        search_card = CardWidget(self._content)
+        search_card = self._settings_board.create_card("search_limit")
         search_layout = QVBoxLayout(search_card)
         search_layout.setContentsMargins(20, 16, 20, 16)
         search_layout.setSpacing(10)
@@ -432,10 +707,10 @@ class SettingsInterface(ScrollArea):
         search_row.addWidget(self._search_limit_edit)
         search_row.addStretch()
         search_layout.addLayout(search_row)
-        layout.addWidget(search_card)
+        self._settings_board.add_card("search_limit", search_card)
 
         # ── Search bridge resolution ───────────────────────────────────────
-        search_resolve_card = CardWidget(self._content)
+        search_resolve_card = self._settings_board.create_card("search_bridge")
         search_resolve_layout = QVBoxLayout(search_resolve_card)
         search_resolve_layout.setContentsMargins(20, 16, 20, 16)
         search_resolve_layout.setSpacing(10)
@@ -493,7 +768,7 @@ class SettingsInterface(ScrollArea):
         )
         self._search_resolution_workers_spin = SpinBox(search_resolve_card)
         self._search_resolution_workers_spin.setRange(1, 8)
-        self._search_resolution_workers_spin.setFixedWidth(100)
+        self._search_resolution_workers_spin.setFixedWidth(132)
         self._search_resolution_workers_spin.valueChanged.connect(
             self._on_search_resolution_workers_changed
         )
@@ -510,10 +785,10 @@ class SettingsInterface(ScrollArea):
         )
         resolve_workers_row.addStretch()
         search_resolve_layout.addLayout(resolve_workers_row)
-        layout.addWidget(search_resolve_card)
+        self._settings_board.add_card("search_bridge", search_resolve_card)
 
         # ── Subscription prompt behavior ───────────────────────────────────
-        sub_prompt_card = CardWidget(self._content)
+        sub_prompt_card = self._settings_board.create_card("subscription_prompt")
         sub_prompt_layout = QVBoxLayout(sub_prompt_card)
         sub_prompt_layout.setContentsMargins(20, 16, 20, 16)
         sub_prompt_layout.setSpacing(10)
@@ -543,10 +818,10 @@ class SettingsInterface(ScrollArea):
         sub_prompt_row.addWidget(self._subscription_prompt_combo)
         sub_prompt_row.addStretch()
         sub_prompt_layout.addLayout(sub_prompt_row)
-        layout.addWidget(sub_prompt_card)
+        self._settings_board.add_card("subscription_prompt", sub_prompt_card)
 
         # ── Proxy ─────────────────────────────────────────────────────────────
-        proxy_card = CardWidget(self._content)
+        proxy_card = self._settings_board.create_card("proxy")
         proxy_layout = QVBoxLayout(proxy_card)
         proxy_layout.setContentsMargins(20, 16, 20, 16)
         proxy_layout.setSpacing(10)
@@ -616,10 +891,10 @@ class SettingsInterface(ScrollArea):
         proxy_apply_row.addStretch()
         proxy_apply_row.addWidget(apply_proxy_btn)
         proxy_layout.addLayout(proxy_apply_row)
-        layout.addWidget(proxy_card)
+        self._settings_board.add_card("proxy", proxy_card)
 
         # ── Aria2 RPC ───────────────────────────────────────────────────────
-        aria2_card = CardWidget(self._content)
+        aria2_card = self._settings_board.create_card("aria2")
         aria2_layout = QVBoxLayout(aria2_card)
         aria2_layout.setContentsMargins(20, 16, 20, 16)
         aria2_layout.setSpacing(10)
@@ -657,7 +932,7 @@ class SettingsInterface(ScrollArea):
         aria2_inner.addWidget(self._aria2_token_edit)
 
         aria2_layout.addWidget(self._aria2_widget)
-        layout.addWidget(aria2_card)
+        self._settings_board.add_card("aria2", aria2_card)
 
         # ── Save button ───────────────────────────────────────────────────────
         save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self._content, FluentIcon.SAVE)
@@ -717,6 +992,35 @@ class SettingsInterface(ScrollArea):
         self._search_resolution_workers_spin.setValue(
             max(1, min(8, search_resolution_workers))
         )
+        try:
+            cover_download_workers = int(
+                app_config.get_ui_value("cover_download_workers_v1", 6) or 6
+            )
+        except (TypeError, ValueError):
+            cover_download_workers = 6
+        self._cover_download_workers_spin.setValue(max(1, min(16, cover_download_workers)))
+        try:
+            subscription_refresh_workers = int(
+                app_config.get_ui_value("subscription_refresh_workers_v1", 3) or 3
+            )
+        except (TypeError, ValueError):
+            subscription_refresh_workers = 3
+        self._subscription_refresh_workers_spin.setValue(
+            max(1, min(8, subscription_refresh_workers))
+        )
+        incremental_value = app_config.get_ui_value(
+            "subscription_incremental_refresh_v1", True
+        )
+        if isinstance(incremental_value, str):
+            incremental_enabled = incremental_value.strip().casefold() not in {
+                "0",
+                "false",
+                "off",
+                "no",
+            }
+        else:
+            incremental_enabled = bool(incremental_value)
+        self._subscription_incremental_switch.setChecked(incremental_enabled)
 
         # Auth
         self._auth_switch.setChecked(app_config.auth_enabled)
@@ -958,6 +1262,23 @@ class SettingsInterface(ScrollArea):
         value = max(1, min(8, int(value)))
         app_config.set_ui_value("search_iwara_resolution_workers_v1", value)
 
+    def _on_cover_download_workers_changed(self, value: int):
+        if self._loading_settings:
+            return
+        value = max(1, min(16, int(value)))
+        app_config.set_ui_value("cover_download_workers_v1", value)
+
+    def _on_subscription_refresh_workers_changed(self, value: int):
+        if self._loading_settings:
+            return
+        value = max(1, min(8, int(value)))
+        app_config.set_ui_value("subscription_refresh_workers_v1", value)
+
+    def _on_subscription_incremental_toggle(self, checked: bool):
+        if self._loading_settings:
+            return
+        app_config.set_ui_value("subscription_incremental_refresh_v1", bool(checked))
+
     def _on_api_proxy_toggle(self, checked: bool):
         app_config.api_proxy_enabled = checked
         self._api_proxy_widget.setVisible(checked)
@@ -1029,6 +1350,11 @@ class SettingsInterface(ScrollArea):
         self._on_search_resolution_workers_changed(
             self._search_resolution_workers_spin.value()
         )
+        self._on_cover_download_workers_changed(self._cover_download_workers_spin.value())
+        self._on_subscription_refresh_workers_changed(
+            self._subscription_refresh_workers_spin.value()
+        )
+        self._on_subscription_incremental_toggle(self._subscription_incremental_switch.isChecked())
         download_manager.apply_config()
         InfoBar.success(
             title=tr("Settings Saved", "设置已保存", "設定を保存しました"),

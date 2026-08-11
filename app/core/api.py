@@ -364,10 +364,24 @@ class IwaraAPI:
             return None, str(exc)
 
     def get_user_videos(
-        self, user_id: str, max_pages: int = 100
+        self,
+        user_id: str,
+        max_pages: int = 100,
+        *,
+        known_video_ids: set[str] | None = None,
     ) -> list[dict]:
-        """Fetch all video stubs for a user (paginated)."""
+        """Fetch video stubs for a user, optionally stopping at a known item.
+
+        The user video endpoint is date-sorted.  When a caller already has
+        recent IDs, returning the page containing the first known ID is enough
+        to discover new items without walking the entire historical archive.
+        """
         videos: list[dict] = []
+        known_ids = {
+            str(video_id or "").strip().casefold()
+            for video_id in (known_video_ids or set())
+            if str(video_id or "").strip()
+        }
         for page in range(max_pages + 1):
             try:
                 data = self._get_json(
@@ -378,6 +392,13 @@ class IwaraAPI:
                 if not results:
                     break
                 videos.extend(results)
+                if known_ids and any(
+                    str(item.get("id", "") or item.get("video_id", "")).strip().casefold()
+                    in known_ids
+                    for item in results
+                    if isinstance(item, dict)
+                ):
+                    break
             except Exception:
                 break
         return videos
@@ -519,6 +540,7 @@ class IwaraAPI:
         *,
         max_pages: int = 100,
         max_results: int = 0,
+        stop_after_video_ids: set[str] | None = None,
     ) -> tuple[list[dict], str]:
         """Fetch videos from /videos with arbitrary query parameters.
 
@@ -526,6 +548,8 @@ class IwaraAPI:
             query_params: query-string key/value params, e.g. {"tags": "2d", "sort": "date"}.
             max_pages: safety page cap.
             max_results: hard cap for returned video stubs. 0 means unlimited.
+            stop_after_video_ids: stop after the first page containing one of
+                these IDs.  This is used by incremental subscription refresh.
 
         Returns:
             (videos, error_message). Partial results can be returned with error.
@@ -550,6 +574,11 @@ class IwaraAPI:
             effective_limit = max_results or explicit_limit
 
         videos: list[dict] = []
+        known_ids = {
+            str(video_id or "").strip().casefold()
+            for video_id in (stop_after_video_ids or set())
+            if str(video_id or "").strip()
+        }
         for page in range(start_page, start_page + max_pages):
             page_params = dict(base_params)
             page_params["page"] = str(page)
@@ -568,6 +597,14 @@ class IwaraAPI:
                 videos = videos[:effective_limit]
                 break
 
+            if known_ids and any(
+                str(item.get("id", "") or item.get("video_id", "")).strip().casefold()
+                in known_ids
+                for item in results
+                if isinstance(item, dict)
+            ):
+                break
+
             count = data.get("count")
             if isinstance(count, int) and len(videos) >= count:
                 break
@@ -579,6 +616,7 @@ class IwaraAPI:
         *,
         max_pages: int = 100,
         max_results: int = 0,
+        known_video_ids: set[str] | None = None,
     ) -> tuple[list[dict], str]:
         """Fetch the logged-in user's subscribed video feed."""
         if not self.token:
@@ -591,6 +629,7 @@ class IwaraAPI:
             {"subscribed": "true", "sort": "date"},
             max_pages=max_pages,
             max_results=max_results,
+            stop_after_video_ids=known_video_ids,
         )
 
     # ── Proxy ────────────────────────────────────────────────────────────────

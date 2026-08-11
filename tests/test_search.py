@@ -137,6 +137,30 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(captured["params"], {"sort": "views", "page": "1", "limit": "32"})
 
+    def test_api_query_incremental_refresh_stops_at_known_video(self):
+        api = object.__new__(IwaraAPI)
+        pages: list[int] = []
+
+        def fake_get_json(_url, **kwargs):
+            page = int(kwargs["params"]["page"])
+            pages.append(page)
+            return {
+                "results": (
+                    [{"id": "new-video"}, {"id": "known-video"}]
+                    if page == 0
+                    else [{"id": "old-video"}]
+                )
+            }
+
+        api._get_json = fake_get_json
+        videos, error = api.get_videos_by_query(
+            {"subscribed": "true", "sort": "date"},
+            stop_after_video_ids={"known-video"},
+        )
+        self.assertEqual(error, "")
+        self.assertEqual([item["id"] for item in videos], ["new-video", "known-video"])
+        self.assertEqual(pages, [0])
+
 
 class SearchImageCacheTests(unittest.TestCase):
     class _Response:

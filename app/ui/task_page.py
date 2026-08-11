@@ -142,30 +142,6 @@ class TaskCenterInterface(QWidget):
         self._exclude_downloaded_switch.setChecked(True)
         title_row.addWidget(BodyLabel(tr("Exclude downloaded", "排除已下载", "ダウンロード済みを除外"), self))
         title_row.addWidget(self._exclude_downloaded_switch)
-
-        retry_all_btn = PrimaryPushButton(tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC)
-        retry_all_btn.clicked.connect(self._retry_all_failed)
-        title_row.addWidget(retry_all_btn)
-
-        restore_all_btn = PrimaryPushButton(tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN)
-        restore_all_btn.clicked.connect(self._restore_all_cancelled)
-        title_row.addWidget(restore_all_btn)
-
-        cancel_all_btn = PrimaryPushButton(tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL)
-        cancel_all_btn.clicked.connect(self._cancel_all_active)
-        title_row.addWidget(cancel_all_btn)
-
-        clear_btn = PrimaryPushButton(
-            tr("Clear Done", "清除完成项", "完了項目をクリア"),
-            self,
-            FluentIcon.BROOM,
-        )
-        clear_btn.clicked.connect(self._clear_done)
-        title_row.addWidget(clear_btn)
-
-        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
-        columns_btn.clicked.connect(self._configure_columns)
-        title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
         filter_row = ResponsiveFlowLayout()
@@ -284,6 +260,43 @@ class TaskCenterInterface(QWidget):
         header.sectionMoved.connect(lambda *_args: fit_table_last_column(self._table))
 
         root.addWidget(self._table, stretch=1)
+
+        # Keep the task list and its filters visually primary.  Bulk actions
+        # live below the table so they do not compete with the page title on
+        # narrow workbench layouts.
+        action_row = ResponsiveFlowLayout()
+        retry_all_btn = PrimaryPushButton(
+            tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC
+        )
+        retry_all_btn.clicked.connect(self._retry_all_failed)
+        action_row.addWidget(retry_all_btn)
+
+        restore_all_btn = PrimaryPushButton(
+            tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN
+        )
+        restore_all_btn.clicked.connect(self._restore_all_cancelled)
+        action_row.addWidget(restore_all_btn)
+
+        cancel_all_btn = PrimaryPushButton(
+            tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL
+        )
+        cancel_all_btn.clicked.connect(self._cancel_all_active)
+        action_row.addWidget(cancel_all_btn)
+
+        clear_btn = PrimaryPushButton(
+            tr("Clear Done", "清除完成项", "完了項目をクリア"),
+            self,
+            FluentIcon.BROOM,
+        )
+        clear_btn.clicked.connect(self._clear_done)
+        action_row.addWidget(clear_btn)
+
+        columns_btn = PrimaryPushButton(
+            tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING
+        )
+        columns_btn.clicked.connect(self._configure_columns)
+        action_row.addWidget(columns_btn)
+        root.addLayout(action_row)
 
     def _configure_columns(self):
         open_table_column_dialog(

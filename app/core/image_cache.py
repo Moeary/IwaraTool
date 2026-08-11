@@ -86,6 +86,9 @@ class SearchImageCache:
         if not image_url or not image_url.startswith(("http://", "https://")):
             return ""
         path = self.path_for(kind, item_key, image_url)
+        # Only the local existence check is serialized.  Holding the lock while
+        # waiting for a remote image made every thumbnail worker effectively
+        # single-threaded, even when callers used a pool.
         with self._lock:
             try:
                 if not force and os.path.isfile(path) and os.path.getsize(path) > 0:
@@ -93,53 +96,56 @@ class SearchImageCache:
             except OSError:
                 return ""
 
-            os.makedirs(self.root, exist_ok=True)
-            temp_path = f"{path}.{threading.get_ident()}.tmp"
-            response = None
-            try:
-                response = session.get(
-                    image_url,
-                    headers=headers or {},
-                    stream=True,
-                    timeout=30,
-                )
-                if int(getattr(response, "status_code", 0) or 0) != 200:
-                    return ""
-                content_type = str(
-                    getattr(response, "headers", {}).get("content-type", "") or ""
-                ).lower()
-                if content_type and not (
-                    content_type.startswith("image/")
-                    or content_type in {"application/octet-stream", "binary/octet-stream"}
-                ):
-                    return ""
-                signature = bytearray()
-                with open(temp_path, "wb") as stream:
-                    for chunk in response.iter_content(chunk_size=65536):
-                        if chunk:
-                            if len(signature) < 16:
-                                signature.extend(chunk[: 16 - len(signature)])
-                            stream.write(chunk)
-                if not content_type.startswith("image/") and not self._looks_like_image(bytes(signature)):
-                    return ""
-                if os.path.isfile(temp_path) and os.path.getsize(temp_path) > 0:
-                    os.replace(temp_path, path)
-                    return path
+        os.makedirs(self.root, exist_ok=True)
+        temp_path = f"{path}.{threading.get_ident()}.tmp"
+        response = None
+        try:
+            response = session.get(
+                image_url,
+                headers=headers or {},
+                stream=True,
+                timeout=30,
+            )
+            if int(getattr(response, "status_code", 0) or 0) != 200:
                 return ""
-            except Exception:
+            content_type = str(
+                getattr(response, "headers", {}).get("content-type", "") or ""
+            ).lower()
+            if content_type and not (
+                content_type.startswith("image/")
+                or content_type in {"application/octet-stream", "binary/octet-stream"}
+            ):
                 return ""
-            finally:
-                close = getattr(response, "close", None)
-                if callable(close):
-                    try:
-                        close()
-                    except Exception:
-                        pass
+            signature = bytearray()
+            with open(temp_path, "wb") as stream:
+                for chunk in response.iter_content(chunk_size=65536):
+                    if chunk:
+                        if len(signature) < 16:
+                            signature.extend(chunk[: 16 - len(signature)])
+                        stream.write(chunk)
+            if not content_type.startswith("image/") and not self._looks_like_image(bytes(signature)):
+                return ""
+            if os.path.isfile(temp_path) and os.path.getsize(temp_path) > 0:
+                # Atomic replacement keeps readers safe.  A duplicate request
+                # may race here, but both files contain the same cache key and
+                # the final result remains a complete image.
+                os.replace(temp_path, path)
+                return path
+            return ""
+        except Exception:
+            return ""
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
                 try:
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-                except OSError:
+                    close()
+                except Exception:
                     pass
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
 
 
 class SubscriptionImageCache(SearchImageCache):

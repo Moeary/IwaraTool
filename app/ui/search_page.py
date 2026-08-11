@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import webbrowser
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import replace
@@ -76,6 +77,8 @@ _DEFAULT_GRID_COLUMNS = 4
 _MAX_GRID_COLUMNS = 8
 _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
 _MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
+_DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
+_MAX_COVER_DOWNLOAD_CONCURRENCY = 16
 
 
 def _format_duration(seconds: float) -> str:
@@ -447,18 +450,71 @@ class SearchImageWorker(QThread):
 
     image_ready = Signal(int, str, str, str)
 
-    def __init__(self, generation: int, jobs: list[tuple[str, str, str]]):
+    def __init__(
+        self,
+        generation: int,
+        jobs: list[tuple[str, str, str]],
+        *,
+        concurrency: int = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+    ):
         super().__init__()
         self.generation = generation
         self.jobs = jobs
+        self.concurrency = max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, int(concurrency)))
 
     def run(self):
-        for kind, item_key, image_url in self.jobs:
+        thread_state = threading.local()
+        clients: list[Any] = []
+        clients_lock = threading.Lock()
+
+        def fetch(job: tuple[str, str, str]):
+            kind, item_key, image_url = job
             if self.isInterruptionRequested():
-                break
-            path = download_manager.cache_search_image(kind, item_key, image_url)
-            if path:
-                self.image_ready.emit(self.generation, kind, item_key, path)
+                return kind, item_key, ""
+            client = getattr(thread_state, "api_client", None)
+            if client is None:
+                create_client = getattr(download_manager, "create_worker_api_client", None)
+                if callable(create_client):
+                    client = create_client()
+                    thread_state.api_client = client
+                    with clients_lock:
+                        clients.append(client)
+            try:
+                path = download_manager.cache_search_image(
+                    kind,
+                    item_key,
+                    image_url,
+                    api_client=client,
+                )
+            except TypeError as exc:
+                # Preserve compatibility with small manager fakes and older
+                # extensions that still expose the three-argument cache method.
+                if "api_client" not in str(exc):
+                    raise
+                path = download_manager.cache_search_image(kind, item_key, image_url)
+            return kind, item_key, path
+
+        executor = ThreadPoolExecutor(
+            max_workers=min(self.concurrency, len(self.jobs)),
+            thread_name_prefix="search-image",
+        )
+        try:
+            futures = [executor.submit(fetch, job) for job in self.jobs]
+            for future in as_completed(futures):
+                if self.isInterruptionRequested():
+                    break
+                try:
+                    kind, item_key, path = future.result()
+                except Exception:
+                    continue
+                if path:
+                    self.image_ready.emit(self.generation, kind, item_key, path)
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+            close_client = getattr(download_manager, "close_worker_api_client", None)
+            if callable(close_client):
+                for client in clients:
+                    close_client(client)
 
 
 class SearchTagDictionaryWorker(QThread):
@@ -695,6 +751,7 @@ class SearchInterface(QWidget):
         self._search_workers: list[SearchWorker] = []
         self._image_workers: list[SearchImageWorker] = []
         self._image_pending_keys: set[str] = set()
+        self._grid_resize_pending = False
         self._oreno_link_workers: list[SearchOrenoLinkWorker] = []
         self._tag_dictionary_worker: SearchTagDictionaryWorker | None = None
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
@@ -1029,6 +1086,20 @@ class SearchInterface(QWidget):
             value = _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY
         return max(1, min(_MAX_SEARCH_RESOLUTION_CONCURRENCY, value))
 
+    @staticmethod
+    def _cover_download_concurrency() -> int:
+        try:
+            value = int(
+                app_config.get_ui_value(
+                    "cover_download_workers_v1",
+                    _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+                )
+                or _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
+            )
+        except (TypeError, ValueError):
+            value = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
+        return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
+
     def _is_list_view(self) -> bool:
         return (
             str(self._view_combo.currentData() or "grid") == "list"
@@ -1068,6 +1139,7 @@ class SearchInterface(QWidget):
         value = max(1, min(_MAX_GRID_COLUMNS, value))
         app_config.set_ui_value("search_grid_columns_v1", value)
         self._resize_grid()
+        self._schedule_grid_resize()
 
     def _configure_result_columns(self):
         open_table_column_dialog(
@@ -1607,7 +1679,11 @@ class SearchInterface(QWidget):
         if not jobs:
             return
         self._image_pending_keys.update(f"{kind}:{item_key}" for kind, item_key, _ in jobs)
-        worker = SearchImageWorker(self._generation, jobs)
+        worker = SearchImageWorker(
+            self._generation,
+            jobs,
+            concurrency=self._cover_download_concurrency(),
+        )
         self._image_workers.append(worker)
         worker.image_ready.connect(self._on_image_ready)
         worker.finished.connect(lambda worker=worker: self._cleanup_image_worker(worker))
@@ -1659,6 +1735,7 @@ class SearchInterface(QWidget):
             self._results.setUpdatesEnabled(True)
             self._results.doItemsLayout()
             self._results.viewport().update()
+        self._schedule_grid_resize()
 
     def _render_video_table(self):
         self._results_table.setUpdatesEnabled(False)
@@ -1837,12 +1914,15 @@ class SearchInterface(QWidget):
     def _resize_grid(self):
         if not hasattr(self, "_results"):
             return
-        width = max(320, self._results.viewport().width())
+        width = self._results.viewport().width()
+        if width <= 0:
+            return
         try:
-            columns = int(self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS)
+            requested_columns = int(
+                self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS
+            )
         except (TypeError, ValueError):
-            columns = _DEFAULT_GRID_COLUMNS
-        columns = max(1, min(_MAX_GRID_COLUMNS, columns))
+            requested_columns = _DEFAULT_GRID_COLUMNS
         spacing = 12
         # Keep a small fixed reserve for the vertical scrollbar and Qt's list
         # layout rounding.  Without it a 1208px viewport calculates 301px
@@ -1853,8 +1933,12 @@ class SearchInterface(QWidget):
             int(self._results.verticalScrollBar().sizeHint().width()) - 1,
         )
         available_width = max(1, width - scrollbar_reserve)
+        # The selector is an explicit user preference.  Keep that exact
+        # column count even on compact panes and calculate a smaller cell
+        # instead of silently reducing 8 columns to 4.
+        columns = max(1, min(_MAX_GRID_COLUMNS, requested_columns))
         cell_width = max(
-            1,
+            40,
             (available_width - spacing * (columns - 1)) // columns,
         )
         # Let the cover occupy the card width.  The old 260px cap made a
@@ -1870,15 +1954,40 @@ class SearchInterface(QWidget):
         grid_height = image_height + text_height + 14
         self._grid_icon_size = QSize(image_width, image_height)
         self._grid_item_size = QSize(cell_width, grid_height)
-        self._results.setIconSize(self._grid_icon_size)
-        self._results.setGridSize(self._grid_item_size)
-        self._results.setSpacing(spacing)
-        for index in range(self._results.count()):
-            self._results.item(index).setSizeHint(self._grid_item_size)
+        updates_enabled = self._results.updatesEnabled()
+        self._results.setUpdatesEnabled(False)
+        try:
+            self._results.setIconSize(self._grid_icon_size)
+            self._results.setGridSize(self._grid_item_size)
+            self._results.setSpacing(spacing)
+            for index in range(self._results.count()):
+                self._results.item(index).setSizeHint(self._grid_item_size)
+            # Force IconMode to place every item before the next paint.  This
+            # removes the transient three-cards-then-fill-in effect when the
+            # column selector changes.
+            self._results.doItemsLayout()
+        finally:
+            self._results.setUpdatesEnabled(updates_enabled)
+        self._results.updateGeometry()
+        if updates_enabled:
+            self._results.viewport().update()
+
+    def _schedule_grid_resize(self):
+        """Repeat a grid pass after the parent layout has settled."""
+
+        if self._grid_resize_pending:
+            return
+        self._grid_resize_pending = True
+        QTimer.singleShot(0, self._run_scheduled_grid_resize)
+
+    def _run_scheduled_grid_resize(self):
+        self._grid_resize_pending = False
+        self._resize_grid()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._resize_grid()
+        self._schedule_grid_resize()
         self._fit_results_table_last_column()
 
     def _set_loading(self, loading: bool):

@@ -6,11 +6,13 @@ from datetime import datetime
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QPlainTextEdit,
     QSizePolicy,
     QSplitter,
+    QSplitterHandle,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +56,57 @@ def fluent_scrollbar_style() -> str:
     QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
     """
+
+
+class _FluentWorkbenchSplitterHandle(QSplitterHandle):
+    """Theme-neutral splitter handle used by the workbench's two panes."""
+
+    def __init__(self, orientation: Qt.Orientation, parent: QSplitter):
+        super().__init__(orientation, parent)
+        self._grip = QFrame(self)
+        self._grip.setObjectName("WorkbenchSplitterGrip")
+        self._grip.setFrameShape(QFrame.Shape.NoFrame)
+        self._grip.setStyleSheet(
+            "QFrame#WorkbenchSplitterGrip { background: rgba(0, 160, 170, 0.48); border-radius: 3px; }"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.orientation() == Qt.Orientation.Vertical:
+            grip_width, grip_height = min(56, max(32, self.width() - 12)), 4
+        else:
+            grip_width, grip_height = 4, min(56, max(32, self.height() - 12))
+        self._grip.setGeometry(
+            max(0, (self.width() - grip_width) // 2),
+            max(0, (self.height() - grip_height) // 2),
+            grip_width,
+            grip_height,
+        )
+
+
+class _FluentWorkbenchSplitter(QSplitter):
+    def createHandle(self):
+        return _FluentWorkbenchSplitterHandle(self.orientation(), self)
+
+
+def _style_workbench_splitter(splitter: QSplitter):
+    if isDarkTheme():
+        base = "rgba(255, 255, 255, 0.06)"
+        hover = "rgba(255, 255, 255, 0.18)"
+        pressed = "rgba(255, 255, 255, 0.28)"
+    else:
+        base = "rgba(0, 0, 0, 0.04)"
+        hover = "rgba(0, 0, 0, 0.10)"
+        pressed = "rgba(0, 0, 0, 0.18)"
+    splitter.setStyleSheet(
+        f"""
+        QSplitter::handle {{ background: {base}; }}
+        QSplitter::handle:horizontal {{ height: 10px; }}
+        QSplitter::handle:vertical {{ width: 10px; }}
+        QSplitter::handle:hover {{ background: {hover}; }}
+        QSplitter::handle:pressed {{ background: {pressed}; }}
+        """
+    )
 
 
 class _SubscriptionPromptDialog(MessageBoxBase):
@@ -410,8 +463,11 @@ class DownloadInterface(QWidget):
         title_row.addWidget(TitleLabel(tr("Download Workbench", "下载工作台", "ダウンロードワークベンチ"), self))
         root.addLayout(title_row)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter = _FluentWorkbenchSplitter(Qt.Orientation.Horizontal, self)
+        self._splitter = splitter
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(10)
+        _style_workbench_splitter(splitter)
         root.addWidget(splitter, stretch=1)
 
         left_panel = QWidget(self)
@@ -657,6 +713,8 @@ class DownloadInterface(QWidget):
 
     def refresh_theme_styles(self):
         """Reapply custom option-button colors after a runtime theme switch."""
+        if hasattr(self, "_splitter"):
+            _style_workbench_splitter(self._splitter)
         if hasattr(self, "_download_video_btn"):
             self._sync_option_controls()
         if hasattr(self, "_log_edit"):

@@ -27,7 +27,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import parse_qs, quote, urlparse
@@ -290,10 +290,50 @@ class DownloadManager:
         with self._api_lock:
             return self.tag_dictionary.update_from_remote(self.api.scraper)
 
-    def cache_search_image(self, kind: str, item_key: str, image_url: str) -> str:
-        """Cache one search card image using the configured API session."""
+    def create_worker_api_client(self) -> IwaraAPI:
+        """Create an isolated API session for background network work.
 
-        token = self._current_token()
+        The main API session is intentionally serialized because it is shared
+        by login, parsing and download metadata.  Image and subscription
+        workers can safely use independent cloudscraper sessions while
+        carrying over the current token and proxy configuration.
+        """
+        with self._api_lock:
+            token = self.api.token or ""
+            proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+        client = IwaraAPI()
+        client.token = token or None
+        client.scraper.proxies = proxies
+        return client
+
+    @staticmethod
+    def close_worker_api_client(client: IwaraAPI | None):
+        if client is None:
+            return
+        close = getattr(getattr(client, "scraper", None), "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def cache_search_image(
+        self,
+        kind: str,
+        item_key: str,
+        image_url: str,
+        *,
+        api_client: IwaraAPI | None = None,
+    ) -> str:
+        """Cache one search card image using an isolated or shared API session."""
+
+        if api_client is None:
+            with self._api_lock:
+                client = self.api
+                token = client.token or ""
+        else:
+            client = api_client
+            token = client.token or ""
         headers = {
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Referer": (
@@ -308,7 +348,7 @@ class DownloadManager:
             kind,
             item_key,
             image_url,
-            session=self.api.scraper,
+            session=client.scraper,
             headers=headers,
         )
 
@@ -764,6 +804,7 @@ class DownloadManager:
         thumbnail_url: str,
         *,
         force: bool = False,
+        api_client: IwaraAPI | None = None,
     ) -> str:
         """Cache a subscription cover and return its local path on success."""
         video_id = str(video_id or "").strip()
@@ -777,7 +818,10 @@ class DownloadManager:
         # cover.  Persist the resolved URL so subsequent refreshes do not need
         # another metadata request.
         if not thumbnail_url:
-            video_info, _error = self._api_call("get_video_info", video_id)
+            if api_client is None:
+                video_info, _error = self._api_call("get_video_info", video_id)
+            else:
+                video_info, _error = api_client.get_video_info(video_id)
             if isinstance(video_info, dict):
                 thumbnail_url = _subscription_thumbnail_url(video_info)
                 if thumbnail_url:
@@ -794,7 +838,12 @@ class DownloadManager:
             reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
             if reused:
                 return reused
-        token = self._current_token()
+        if api_client is None:
+            client = self.api
+            token = self._current_token()
+        else:
+            client = api_client
+            token = client.token or ""
         headers = {
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Referer": "https://www.iwara.tv/",
@@ -805,7 +854,7 @@ class DownloadManager:
             "video",
             str(video_id or ""),
             thumbnail_url,
-            session=self.api.scraper,
+            session=client.scraper,
             headers=headers,
             force=force,
         )
@@ -1102,39 +1151,115 @@ class DownloadManager:
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Refresh enabled sources and optionally report source-level progress."""
-        summaries: list[dict[str, Any]] = []
         sources = [
             source
             for source in self.get_subscription_sources()
             if int(source.get("enabled", 1) or 0)
         ]
         total = len(sources)
+        if not sources:
+            return self._subscription_refresh_summary([])
+
+        # Keep monkeypatched/fake API dispatchers deterministic for tests and
+        # integrations.  The production bound method uses isolated sessions
+        # below, so one slow source no longer blocks every other source.
+        if not self._uses_default_api_dispatch():
+            summaries: list[dict[str, Any]] = []
+            for index, source in enumerate(sources, start=1):
+                source_id = int(source["id"])
+                source_title = str(source.get("title", "") or source.get("source_key", "") or "")
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "stage": "started",
+                            "index": index,
+                            "total": total,
+                            "source_id": source_id,
+                            "title": source_title,
+                        }
+                    )
+                summary = self.refresh_subscription_source(source_id)
+                summaries.append(summary)
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "stage": "finished",
+                            "index": index,
+                            "total": total,
+                            "source_id": source_id,
+                            "title": str(summary.get("title", "") or source_title),
+                            "summary": summary,
+                        }
+                    )
+            return self._subscription_refresh_summary(summaries)
+
+        worker_count = min(self._subscription_refresh_workers(), total)
+        source_by_id = {int(source["id"]): source for source in sources}
+        index_by_id = {int(source["id"]): index for index, source in enumerate(sources, start=1)}
+
         for index, source in enumerate(sources, start=1):
-            source_id = int(source["id"])
-            source_title = str(source.get("title", "") or source.get("source_key", "") or "")
             if progress_callback:
                 progress_callback(
                     {
                         "stage": "started",
                         "index": index,
                         "total": total,
-                        "source_id": source_id,
-                        "title": source_title,
+                        "source_id": int(source["id"]),
+                        "title": str(source.get("title", "") or source.get("source_key", "") or ""),
                     }
                 )
-            summary = self.refresh_subscription_source(source_id)
-            summaries.append(summary)
-            if progress_callback:
-                progress_callback(
-                    {
-                        "stage": "finished",
-                        "index": index,
-                        "total": total,
+
+        summaries_by_id: dict[int, dict[str, Any]] = {}
+
+        def refresh_one(source_id: int) -> dict[str, Any]:
+            client = self.create_worker_api_client()
+            try:
+                return self.refresh_subscription_source(source_id, api_client=client)
+            finally:
+                self.close_worker_api_client(client)
+
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="subscription-refresh",
+        ) as executor:
+            futures = {
+                executor.submit(refresh_one, int(source["id"])): int(source["id"])
+                for source in sources
+            }
+            for future in as_completed(futures):
+                source_id = futures[future]
+                try:
+                    summary = future.result()
+                except Exception as exc:
+                    source = source_by_id[source_id]
+                    summary = {
                         "source_id": source_id,
-                        "title": str(summary.get("title", "") or source_title),
-                        "summary": summary,
+                        "title": str(source.get("title", "") or source.get("source_key", "") or ""),
+                        "new": 0,
+                        "total": self.subscriptions.count_items(source_id),
+                        "downloaded": 0,
+                        "fetched": 0,
+                        "error": str(exc),
                     }
-                )
+                summaries_by_id[source_id] = summary
+                if progress_callback:
+                    source = source_by_id[source_id]
+                    progress_callback(
+                        {
+                            "stage": "finished",
+                            "index": index_by_id[source_id],
+                            "total": total,
+                            "source_id": source_id,
+                            "title": str(
+                                summary.get("title", "")
+                                or source.get("title", "")
+                                or source.get("source_key", "")
+                            ),
+                            "summary": summary,
+                        }
+                    )
+
+        summaries = [summaries_by_id[int(source["id"])] for source in sources]
         return self._subscription_refresh_summary(summaries)
 
     def refresh_subscription_source(
@@ -1142,7 +1267,13 @@ class DownloadManager:
         source_id: int,
         *,
         ignore_enabled: bool = False,
+        api_client: IwaraAPI | None = None,
     ) -> dict[str, Any]:
+        def api_call(method_name: str, *args, **kwargs):
+            if api_client is None:
+                return self._api_call(method_name, *args, **kwargs)
+            return getattr(api_client, method_name)(*args, **kwargs)
+
         source = self.subscriptions.get_source(source_id)
         if not source:
             return {
@@ -1171,9 +1302,22 @@ class DownloadManager:
         videos: list[dict] = []
         err = ""
         cap = self._subscription_fetch_limit()
+        known_video_ids = self._known_subscription_video_ids(source_id)
+        source_origin = str(source.get("source_origin", "") or "").strip().casefold()
+        incremental = self._subscription_incremental_refresh() and source_origin == "account"
+        stop_after_video_ids = known_video_ids if incremental else None
 
         if source_type == "feed":
-            videos, err = self._api_call("get_subscribed_videos", max_results=cap)
+            try:
+                videos, err = api_call(
+                    "get_subscribed_videos",
+                    max_results=cap,
+                    known_video_ids=stop_after_video_ids,
+                )
+            except TypeError as exc:
+                if "known_video_ids" not in str(exc):
+                    raise
+                videos, err = api_call("get_subscribed_videos", max_results=cap)
         elif source_type == "author":
             remote_id = str(source.get("remote_id", "") or "")
             avatar_url = str(source.get("avatar_url", "") or "")
@@ -1182,7 +1326,7 @@ class DownloadManager:
             needs_profile = not remote_id or not avatar_url or title == source_key
             if needs_profile:
                 try:
-                    profile, _profile_err = self._api_call("get_user_profile", source_key)
+                    profile, _profile_err = api_call("get_user_profile", source_key)
                 except Exception:
                     profile = None
                 if profile:
@@ -1198,13 +1342,22 @@ class DownloadManager:
                     )
                     title = profile_title
             if not remote_id and not err:
-                remote_id, err = self._api_call("get_user_id", source_key)
+                remote_id, err = api_call("get_user_id", source_key)
                 if remote_id:
                     self.subscriptions.update_source_remote_id(source_id, remote_id)
             if remote_id:
-                videos = self._api_call("get_user_videos", remote_id)
+                try:
+                    videos = api_call(
+                        "get_user_videos",
+                        remote_id,
+                        known_video_ids=stop_after_video_ids,
+                    )
+                except TypeError as exc:
+                    if "known_video_ids" not in str(exc):
+                        raise
+                    videos = api_call("get_user_videos", remote_id)
         elif source_type == "playlist":
-            videos = self._api_call("get_playlist_videos", source_key)
+            videos = api_call("get_playlist_videos", source_key)
         else:
             err = tr(
                 f"Unknown subscription type: {source_type}",
@@ -1225,8 +1378,20 @@ class DownloadManager:
             }
 
         normalized_items = [_subscription_item_from_video(video) for video in videos]
+        if incremental:
+            known_casefold = {video_id.casefold() for video_id in known_video_ids}
+            validation_items = [
+                item
+                for item in normalized_items
+                if str(item.get("video_id", "") or "").strip().casefold() not in known_casefold
+            ]
+        else:
+            validation_items = normalized_items
         new_count, total_count = self.subscriptions.upsert_items(source_id, normalized_items)
-        unavailable_checked = self._validate_subscription_unavailable_items(normalized_items)
+        unavailable_checked = self._validate_subscription_unavailable_items(
+            validation_items,
+            api_client=api_client,
+        )
         self.subscriptions.touch_source_checked(source_id)
         items = self.get_subscription_items(source_id)
         downloaded_count = sum(1 for item in items if item.get("downloaded"))
@@ -1243,7 +1408,12 @@ class DownloadManager:
             "error": "",
         }
 
-    def _validate_subscription_unavailable_items(self, items: list[dict[str, Any]]) -> int:
+    def _validate_subscription_unavailable_items(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        api_client: IwaraAPI | None = None,
+    ) -> int:
         ids = list(
             dict.fromkeys(
                 str(item.get("video_id", "") or "").strip()
@@ -1268,8 +1438,13 @@ class DownloadManager:
                 candidates.append(video_id)
 
         checked = 0
+        api_call = (
+            self._api_call
+            if api_client is None
+            else lambda method_name, *args, **kwargs: getattr(api_client, method_name)(*args, **kwargs)
+        )
         for video_id in candidates:
-            video_info, err = self._api_call("get_video_info", video_id)
+            video_info, err = api_call("get_video_info", video_id)
             if not video_info:
                 download_state, download_reason = _subscription_download_block_from_error(err)
                 if download_state:
@@ -1286,6 +1461,35 @@ class DownloadManager:
                 self.subscriptions.update_item_download_state(video_id, "", "")
                 checked += 1
         return checked
+
+    def _known_subscription_video_ids(self, source_id: int) -> set[str]:
+        return {
+            str(item.get("video_id", "") or "").strip()
+            for item in self.subscriptions.list_items(source_id)
+            if str(item.get("video_id", "") or "").strip()
+        }
+
+    @staticmethod
+    def _subscription_refresh_workers() -> int:
+        try:
+            value = int(app_config.get_ui_value("subscription_refresh_workers_v1", 3) or 3)
+        except (TypeError, ValueError):
+            value = 3
+        return max(1, min(8, value))
+
+    @staticmethod
+    def _subscription_incremental_refresh() -> bool:
+        value = app_config.get_ui_value("subscription_incremental_refresh_v1", True)
+        if isinstance(value, str):
+            return value.strip().casefold() not in {"0", "false", "off", "no"}
+        return bool(value)
+
+    def _uses_default_api_dispatch(self) -> bool:
+        method = getattr(self, "_api_call", None)
+        return (
+            getattr(method, "__func__", None) is DownloadManager._api_call
+            and type(self.api) is IwaraAPI
+        )
 
     @staticmethod
     def _subscription_refresh_summary(summaries: list[dict[str, Any]]) -> dict[str, Any]:
