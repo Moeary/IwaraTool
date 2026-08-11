@@ -86,6 +86,18 @@ _STALL_WATCHDOG_INTERVAL_SECONDS = 1.0
 _SUBSCRIPTION_UNAVAILABLE_STATE = "unavailable"
 _CANCEL_ORIGIN_AUTO_STALL = "auto_stall"
 _CANCEL_ORIGIN_MANUAL = "manual"
+_WINDOWS_SAFE_PATH_LIMIT = 240
+_WINDOWS_MIN_PATH_SEGMENT_LENGTH = 32
+_WINDOWS_RESERVED_FILENAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+)
 
 
 class DownloadManager:
@@ -2754,14 +2766,75 @@ class DownloadManager:
         parts = [self._sanitize_path_segment(p) for p in parts]
         if not parts[-1].lower().endswith(".mp4"):
             parts[-1] += ".mp4"
+        parts = self._fit_output_path_to_windows_limit(parts)
         return os.path.join(*parts)
 
-    @staticmethod
-    def _sanitize_path_segment(name: str) -> str:
-        cleaned = re.sub(r'[\\/:*?"<>|\t\r\n]', "-", name).strip(" .")
+    @classmethod
+    def _sanitize_path_segment(cls, name: str) -> str:
+        """Return a portable, Windows-safe single path segment."""
+        cleaned = re.sub(r'[\x00-\x1f\\/:*?"<>|\x7f]', "-", str(name)).strip(" .")
         if cleaned in ("", ".", ".."):
             return "_"
-        return cleaned
+        stem = cleaned.split(".", 1)[0].rstrip(" ").upper()
+        if stem in _WINDOWS_RESERVED_FILENAMES:
+            cleaned = f"_{cleaned}"
+        return cls._shorten_path_segment(cleaned, _WINDOWS_SAFE_PATH_LIMIT)
+
+    @staticmethod
+    def _windows_path_length(path: str) -> int:
+        """Count UTF-16 code units, the length Windows uses for paths."""
+        return len(path.encode("utf-16-le")) // 2
+
+    @classmethod
+    def _shorten_path_segment(cls, name: str, max_length: int) -> str:
+        """Shorten a segment while retaining both its beginning and ending."""
+        if cls._windows_path_length(name) <= max_length:
+            return name
+
+        stem, extension = os.path.splitext(name)
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:10]
+        marker = f"-{digest}-"
+        available = max(1, max_length - cls._windows_path_length(extension) - cls._windows_path_length(marker))
+        prefix_length = max(1, available * 2 // 5)
+        suffix_length = max(1, available - prefix_length)
+        prefix = cls._trim_to_windows_length(stem, prefix_length)
+        suffix = cls._trim_to_windows_length(stem, suffix_length, from_end=True)
+        return f"{prefix}{marker}{suffix}{extension}"
+
+    @classmethod
+    def _fit_output_path_to_windows_limit(self, parts: list[str]) -> list[str]:
+        """Keep output paths usable by Windows and its temporary download files."""
+        result = list(parts)
+        base_dir = os.path.abspath(app_config.download_dir)
+        while self._windows_path_length(os.path.join(base_dir, *result)) > _WINDOWS_SAFE_PATH_LIMIT:
+            candidates = [
+                (self._windows_path_length(part), index)
+                for index, part in enumerate(result)
+                if self._windows_path_length(part) > _WINDOWS_MIN_PATH_SEGMENT_LENGTH
+            ]
+            if not candidates:
+                break
+            _, index = max(candidates)
+            current_length = self._windows_path_length(result[index])
+            excess = self._windows_path_length(os.path.join(base_dir, *result)) - _WINDOWS_SAFE_PATH_LIMIT
+            target_length = max(_WINDOWS_MIN_PATH_SEGMENT_LENGTH, current_length - excess)
+            result[index] = self._shorten_path_segment(result[index], target_length)
+        return result
+
+    @staticmethod
+    def _trim_to_windows_length(text: str, max_length: int, *, from_end: bool = False) -> str:
+        chars = reversed(text) if from_end else iter(text)
+        kept: list[str] = []
+        length = 0
+        for char in chars:
+            char_length = DownloadManager._windows_path_length(char)
+            if length + char_length > max_length:
+                break
+            kept.append(char)
+            length += char_length
+        if from_end:
+            kept.reverse()
+        return "".join(kept)
 
     # ── Terminal state helpers ────────────────────────────────────────────────
 
