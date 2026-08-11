@@ -39,7 +39,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI
 from .history import DownloadHistory
-from .image_cache import SearchImageCache
+from .image_cache import SearchImageCache, SubscriptionImageCache
 from .models import DownloadTask, TaskStatus
 from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
 from .oreno3d import Oreno3DClient
@@ -117,7 +117,9 @@ class DownloadManager:
         self.history = DownloadHistory()
         self.subscriptions = SubscriptionStore()
         self.search_image_cache = SearchImageCache()
+        self.subscription_image_cache = SubscriptionImageCache()
         self.tag_dictionary = TagDictionary()
+        self._migrate_subscription_avatar_cache()
 
         # task_id → DownloadTask
         self._tasks: dict[str, DownloadTask] = {}
@@ -585,6 +587,7 @@ class DownloadManager:
             "feed",
             "subscribed",
             tr("Following Feed", "账号订阅流", "購読フィード"),
+            source_origin="account",
         )
 
     def import_followed_author_subscriptions(self) -> dict[str, Any]:
@@ -647,6 +650,7 @@ class DownloadManager:
             "playlist",
             playlist_id,
             tr(f"Playlist {playlist_id}", f"播放列表 {playlist_id}", f"プレイリスト {playlist_id}"),
+            source_origin="playlist",
         )
 
     def detect_subscription_source(self, raw: str) -> tuple[str, str] | None:
@@ -722,7 +726,11 @@ class DownloadManager:
                 str(history_record.get("thumbnail_path", "") or "") if history_record else ""
             )
             thumbnail_url = str(item.get("thumbnail_url", "") or "")
-            cached_thumbnail_path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
+            cached_thumbnail_path = self._ensure_subscription_thumbnail_cache(
+                video_id,
+                thumbnail_url,
+                history_thumbnail_path,
+            )
             task_status, task_error = task_info_by_video_id.get(video_id.lower(), ("", ""))
             download_state = str(item.get("download_state", "") or "")
             download_reason = str(item.get("download_reason", "") or "")
@@ -735,13 +743,10 @@ class DownloadManager:
             item["downloaded"] = bool(history_record)
             item["download_file_path"] = file_path
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
-            item["thumbnail_path"] = next(
-                (
-                    path
-                    for path in (history_thumbnail_path, cached_thumbnail_path)
-                    if path and os.path.isfile(path)
-                ),
-                "",
+            item["thumbnail_path"] = cached_thumbnail_path or (
+                history_thumbnail_path
+                if history_thumbnail_path and os.path.isfile(history_thumbnail_path)
+                else ""
             )
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
@@ -753,11 +758,59 @@ class DownloadManager:
     def remove_subscription_source(self, source_id: int):
         self.subscriptions.remove_source(source_id)
 
-    def cache_subscription_thumbnail(self, video_id: str, thumbnail_url: str) -> str:
+    def cache_subscription_thumbnail(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+        *,
+        force: bool = False,
+    ) -> str:
         """Cache a subscription cover and return its local path on success."""
+        video_id = str(video_id or "").strip()
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id:
+            return ""
+
+        # Author/feed list endpoints frequently return only a video stub.  In
+        # that case there is no file ID yet, so derive the Iwara image URL from
+        # the canonical video detail API instead of silently skipping the
+        # cover.  Persist the resolved URL so subsequent refreshes do not need
+        # another metadata request.
+        if not thumbnail_url:
+            video_info, _error = self._api_call("get_video_info", video_id)
+            if isinstance(video_info, dict):
+                thumbnail_url = _subscription_thumbnail_url(video_info)
+                if thumbnail_url:
+                    self.subscriptions.update_item_thumbnail_url(video_id, thumbnail_url)
+
         path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
-        if path and self._download_subscription_avatar(thumbnail_url, path):
+        if not path:
+            return ""
+        if not force and os.path.isfile(path) and os.path.getsize(path) > 0:
             return path
+        history = self.history.get_record(str(video_id or ""))
+        history_path = str(history.get("thumbnail_path", "") or "") if history else ""
+        if not force:
+            reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
+            if reused:
+                return reused
+        token = self._current_token()
+        headers = {
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://www.iwara.tv/",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        fetched = self.subscription_image_cache.get_or_fetch(
+            "video",
+            str(video_id or ""),
+            thumbnail_url,
+            session=self.api.scraper,
+            headers=headers,
+            force=force,
+        )
+        if fetched:
+            return fetched
         return ""
 
     def set_subscription_enabled(self, source_id: int, enabled: bool):
@@ -1084,7 +1137,12 @@ class DownloadManager:
                 )
         return self._subscription_refresh_summary(summaries)
 
-    def refresh_subscription_source(self, source_id: int) -> dict[str, Any]:
+    def refresh_subscription_source(
+        self,
+        source_id: int,
+        *,
+        ignore_enabled: bool = False,
+    ) -> dict[str, Any]:
         source = self.subscriptions.get_source(source_id)
         if not source:
             return {
@@ -1096,7 +1154,7 @@ class DownloadManager:
                 "fetched": 0,
                 "error": tr("Subscription source does not exist", "订阅源不存在", "購読元が存在しません"),
             }
-        if not int(source.get("enabled", 1) or 0):
+        if not ignore_enabled and not int(source.get("enabled", 1) or 0):
             return {
                 "source_id": source_id,
                 "title": str(source.get("title", "") or ""),
@@ -1260,7 +1318,14 @@ class DownloadManager:
             title = str(user.get("name") or username).strip()
             remote_id = str(user.get("id") or "").strip()
             avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail")
-            if self.subscriptions.add_source("author", username, title, remote_id, avatar_url=avatar_url):
+            if self.subscriptions.add_source(
+                "author",
+                username,
+                title,
+                remote_id,
+                avatar_url=avatar_url,
+                source_origin="account",
+            ):
                 imported += 1
         return imported
 
@@ -3593,13 +3658,103 @@ class DownloadManager:
         if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
             ext = ".jpg"
         fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img")
-        return os.path.join(img_dir, f"cover_{video_id}_{fingerprint}{ext}")
+        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
+        return os.path.join(img_dir, f"video_{video_id}_{fingerprint}{ext}")
 
-    def _subscription_avatar_cache_path(self, source: dict[str, Any], avatar_url: str) -> str:
-        source_id = int(source.get("id", 0) or 0)
+    def _legacy_subscription_v2_thumbnail_cache_path(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+    ) -> str:
+        """Return the previous ``sub_video`` path for one-time migration."""
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id or not thumbnail_url:
+            return ""
+        url_name = os.path.basename(urlparse(thumbnail_url).path)
+        ext = os.path.splitext(url_name)[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
+            ext = ".jpg"
+        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(
+            app_config.app_data_dir,
+            "img",
+            "sub_video",
+            f"video_{video_id}_{fingerprint}{ext}",
+        )
+
+    def _legacy_subscription_thumbnail_cache_path(self, video_id: str, thumbnail_url: str) -> str:
+        """Return the pre-v2 cover path for one-time cache migration."""
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id or not thumbnail_url:
+            return ""
+        url_name = os.path.basename(urlparse(thumbnail_url).path)
+        ext = os.path.splitext(url_name)[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
+            ext = ".jpg"
+        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(
+            app_config.app_data_dir,
+            "img",
+            f"cover_{video_id}_{fingerprint}{ext}",
+        )
+
+    @staticmethod
+    def _copy_cached_image(source_path: str, target_path: str) -> bool:
+        source_path = str(source_path or "")
+        target_path = str(target_path or "")
+        if not source_path or not target_path or os.path.abspath(source_path) == os.path.abspath(target_path):
+            return bool(target_path and os.path.isfile(target_path) and os.path.getsize(target_path) > 0)
+        try:
+            if not os.path.isfile(source_path) or os.path.getsize(source_path) <= 0:
+                return False
+            if os.path.isfile(target_path) and os.path.getsize(target_path) > 0:
+                return True
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            temp_path = f"{target_path}.{threading.get_ident()}.tmp"
+            shutil.copy2(source_path, temp_path)
+            os.replace(temp_path, target_path)
+            return True
+        except OSError:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except (OSError, UnboundLocalError):
+                pass
+            return False
+
+    def _ensure_subscription_thumbnail_cache(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+        history_thumbnail_path: str = "",
+    ) -> str:
+        target = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
+        if not target:
+            return ""
+        if os.path.isfile(target) and os.path.getsize(target) > 0:
+            return target
+        candidates = [
+            str(history_thumbnail_path or ""),
+            self._legacy_subscription_v2_thumbnail_cache_path(video_id, thumbnail_url),
+            self._legacy_subscription_thumbnail_cache_path(video_id, thumbnail_url),
+        ]
+        for candidate in candidates:
+            if self._copy_cached_image(candidate, target):
+                return target
+        return ""
+
+    def _subscription_avatar_cache_path(
+        self,
+        source: dict[str, Any],
+        avatar_url: str,
+        legacy_path: str = "",
+    ) -> str:
         source_key = self._sanitize_path_segment(str(source.get("source_key", "") or "author"))
         url_name = os.path.basename(urlparse(str(avatar_url or "")).path)
+        if not url_name and legacy_path:
+            url_name = os.path.basename(str(legacy_path))
         ext = os.path.splitext(url_name)[1].lower()
         if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
             ext = ".jpg"
@@ -3607,9 +3762,57 @@ class DownloadManager:
         parts = [part for part in urlparse(str(avatar_url or "")).path.split("/") if part]
         if len(parts) >= 2:
             avatar_id = self._sanitize_path_segment(parts[-2])
-        suffix = avatar_id or uuid.uuid4().hex
-        img_dir = os.path.join(app_config.app_data_dir, "img")
-        return os.path.join(img_dir, f"avatar_{source_id}_{source_key}_{suffix}{ext}")
+        suffix = avatar_id or hashlib.sha1(str(avatar_url or source_key).encode("utf-8")).hexdigest()[:12]
+        img_dir = os.path.join(app_config.app_data_dir, "img", "avatar")
+        # The username is deliberately the first segment so the directory is
+        # understandable without opening the database. No legacy ``avatar_``
+        # prefix is used for new files.
+        return os.path.join(img_dir, f"{source_key}_{suffix}{ext}")
+
+    def _migrate_subscription_avatar_cache(self):
+        """Copy legacy ``data/img/avatar_*`` files into the named avatar cache.
+
+        Migration is intentionally copy-based: an interrupted first launch or
+        an older build can still read the original file. The source row is
+        updated only after the new file is present.
+        """
+        try:
+            sources = self.subscriptions.list_sources()
+        except Exception:
+            return
+        for source in sources:
+            if str(source.get("source_type", "") or "") != "author":
+                continue
+            old_path = str(source.get("avatar_path", "") or "")
+            avatar_url = str(source.get("avatar_url", "") or "")
+            target = self._subscription_avatar_cache_path(source, avatar_url, old_path)
+            if not target:
+                continue
+            if not old_path or not os.path.isfile(old_path):
+                source_id = int(source.get("id", 0) or 0)
+                old_dir = os.path.join(app_config.app_data_dir, "img")
+                prefix = f"avatar_{source_id}_"
+                try:
+                    old_path = next(
+                        (
+                            os.path.join(old_dir, name)
+                            for name in os.listdir(old_dir)
+                            if name.startswith(prefix) and os.path.isfile(os.path.join(old_dir, name))
+                        ),
+                        "",
+                    )
+                except OSError:
+                    old_path = ""
+            migrated = bool(old_path and self._copy_cached_image(old_path, target))
+            if not migrated and os.path.isfile(target) and os.path.getsize(target) > 0:
+                migrated = True
+            if migrated:
+                if old_path != target or str(source.get("avatar_path", "") or "") != target:
+                    self.subscriptions.update_source_avatar(
+                        int(source.get("id", 0) or 0),
+                        avatar_url,
+                        target,
+                    )
 
     def _download_subscription_avatar(self, avatar_url: str, avatar_path: str) -> bool:
         if not avatar_url or not avatar_path:

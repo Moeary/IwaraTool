@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QDialog,
+    QHeaderView,
     QHBoxLayout,
     QLayout,
     QLayoutItem,
@@ -205,6 +206,31 @@ def restore_table_widths(table: QTableWidget, key: str, default_widths: dict[int
     for col, default in default_widths.items():
         width = widths[col] if 0 <= col < len(widths) and widths[col] > 0 else default
         table.setColumnWidth(col, width)
+
+
+def fit_table_last_column(table: QTableWidget):
+    """Stretch the final visible column to the table's right edge.
+
+    The table pages let users hide and reorder fields. Applying this after
+    every layout/resize keeps the visible table flush with its container instead
+    of leaving a large blank strip when the saved widths are narrower than the
+    current window.
+    """
+    if table is None or table.columnCount() <= 0:
+        return
+    header = table.horizontalHeader()
+    visible_columns = [
+        column
+        for column in range(table.columnCount())
+        if not table.isColumnHidden(column)
+    ]
+    if not visible_columns:
+        return
+    visible_columns.sort(key=header.visualIndex)
+    last_column = visible_columns[-1]
+    for column in visible_columns:
+        header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+    header.setSectionResizeMode(last_column, QHeaderView.ResizeMode.Stretch)
 
 
 def connect_table_width_saver(table: QTableWidget, key: str):

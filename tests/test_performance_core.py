@@ -698,6 +698,32 @@ class ManagerPerformanceTests(unittest.TestCase):
             "https://cdn.example.test/image/original/file-cover-01/thumbnail-03.jpg",
         )
 
+    def test_cache_subscription_thumbnail_resolves_missing_url_from_details(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source("author", "cover-author", "Cover Author")
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [{"video_id": "cover-missing-01", "title": "Missing Cover URL"}],
+        )
+        detail = {
+            "id": "cover-missing-01",
+            "fileUrl": "https://files.iwara.tv/file/file-cover-01?expires=1",
+            "file": {"id": "file-cover-01"},
+            "thumbnail": 2,
+        }
+        with patch.object(mgr, "_api_call", return_value=(detail, "")):
+            with patch.object(
+                mgr.subscription_image_cache,
+                "get_or_fetch",
+                return_value="D:/cache/sub/video-cover.jpg",
+            ) as fetch:
+                path = mgr.cache_subscription_thumbnail("cover-missing-01", "")
+
+        self.assertEqual(path, "D:/cache/sub/video-cover.jpg")
+        fetch.assert_called_once()
+        stored = mgr.subscriptions.list_items(source_id)[0]
+        self.assertIn("thumbnail-02.jpg", stored["thumbnail_url"])
+
     def test_subscription_store_remove_source_deletes_items_only(self):
         mgr = make_manager()
         source_id = mgr.subscriptions.add_source("author", "dead-author", "")

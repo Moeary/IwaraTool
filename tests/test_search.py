@@ -203,6 +203,16 @@ class SearchImageCacheTests(unittest.TestCase):
             self.assertTrue(path)
             self.assertTrue(os.path.isfile(path))
 
+    def test_force_cache_refresh_replaces_existing_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache = SearchImageCache(root)
+            session = self._Session()
+            url = "https://images.example.test/cover.jpg"
+            first = cache.get_or_fetch("video", "video-1", url, session=session)
+            second = cache.get_or_fetch("video", "video-1", url, session=session, force=True)
+            self.assertEqual(first, second)
+            self.assertEqual(session.calls, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

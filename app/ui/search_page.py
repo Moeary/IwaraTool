@@ -8,8 +8,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QPoint, QThread, Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtCore import QPoint, QRect, QThread, Qt, QSize, QTimer, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -101,6 +101,27 @@ def _short_text(value: str, length: int) -> str:
     return text if len(text) <= length else f"{text[: max(1, length - 1)]}…"
 
 
+def _grid_text_height(list_widget: QListWidget, width: int, fallback_lines: int) -> int:
+    """Measure the tallest card caption after Qt word-wrapping it."""
+
+    text_width = max(1, int(width))
+    height = QFontMetrics(list_widget.font()).lineSpacing() * max(1, fallback_lines)
+    for index in range(list_widget.count()):
+        item = list_widget.item(index)
+        if item is None:
+            continue
+        metrics = QFontMetrics(item.font())
+        height = max(
+            height,
+            metrics.boundingRect(
+                QRect(0, 0, text_width, 10000),
+                Qt.TextFlag.TextWordWrap,
+                item.text(),
+            ).height(),
+        )
+    return height
+
+
 def _extract_playlist_id(value: str) -> str:
     text = str(value or "").strip()
     match = re.search(r"/playlist/([A-Za-z0-9_-]+)", text)
@@ -144,13 +165,13 @@ def _search_grid_style() -> str:
         card = "#252a31"
         border = "#3b424c"
         hover = "#313945"
-        selected = "#304a56"
+        selected = "#294b58"
         text = "#f7fbff"
     else:
         card = "#ffffff"
         border = "#d9e2e8"
         hover = "#f1f8fa"
-        selected = "#d8f0f3"
+        selected = "#c9f0f3"
         text = "#17343b"
     return f"""
         QListWidget {{
@@ -161,7 +182,7 @@ def _search_grid_style() -> str:
             background: {card};
             border: 1px solid {border};
             border-radius: 8px;
-            padding: 8px;
+            padding: 6px;
             color: {text};
         }}
         QListWidget::item:hover {{
@@ -797,6 +818,33 @@ class SearchInterface(QWidget):
         )
 
         result_header = QHBoxLayout()
+        # Keep paging beside the result controls so it remains readable and is
+        # immediately below the download-rule card instead of being stranded
+        # in the page's bottom margin.
+        pagination = QHBoxLayout()
+        pagination.setSpacing(8)
+        self._previous_page_btn = ToolButton(self)
+        self._previous_page_btn.setIcon(FluentIcon.LEFT_ARROW)
+        self._previous_page_btn.setFixedSize(44, 36)
+        self._previous_page_btn.setToolTip(
+            tr("Previous page", "上一页", "前のページ")
+        )
+        self._previous_page_btn.clicked.connect(self._go_previous_page)
+        pagination.addWidget(self._previous_page_btn)
+        self._page_label = BodyLabel("", self)
+        self._page_label.setMinimumWidth(112)
+        self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pagination.addWidget(self._page_label)
+        self._next_page_btn = ToolButton(self)
+        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
+        self._next_page_btn.setFixedSize(44, 36)
+        self._next_page_btn.setToolTip(
+            tr("Next page", "下一页", "次のページ")
+        )
+        self._next_page_btn.clicked.connect(self._go_next_page)
+        pagination.addWidget(self._next_page_btn)
+        result_header.addLayout(pagination)
+        result_header.addSpacing(12)
         self._status_label = BodyLabel(
             tr("Enter a query or search the latest videos", "输入条件后开始搜索，也可以直接查看最新视频", "条件を入力して検索してください"),
             self,
@@ -939,34 +987,6 @@ class SearchInterface(QWidget):
         result_layout.addWidget(self._results_stack)
         root.addWidget(result_card, 1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(8)
-        bottom_row.addStretch(1)
-        pagination = QHBoxLayout()
-        pagination.setSpacing(8)
-        self._previous_page_btn = ToolButton(self)
-        self._previous_page_btn.setIcon(FluentIcon.LEFT_ARROW)
-        self._previous_page_btn.setFixedSize(40, 32)
-        self._previous_page_btn.setToolTip(
-            tr("Previous page", "上一页", "前のページ")
-        )
-        self._previous_page_btn.clicked.connect(self._go_previous_page)
-        pagination.addWidget(self._previous_page_btn)
-        self._page_label = BodyLabel("", self)
-        self._page_label.setMinimumWidth(96)
-        self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pagination.addWidget(self._page_label)
-        self._next_page_btn = ToolButton(self)
-        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
-        self._next_page_btn.setFixedSize(40, 32)
-        self._next_page_btn.setToolTip(
-            tr("Next page", "下一页", "次のページ")
-        )
-        self._next_page_btn.clicked.connect(self._go_next_page)
-        pagination.addWidget(self._next_page_btn)
-        bottom_row.addLayout(pagination)
-        bottom_row.addStretch(1)
-        root.addLayout(bottom_row)
         self._on_scope_changed()
         self._on_source_changed()
         self._sync_view_controls()
@@ -1700,6 +1720,7 @@ class SearchInterface(QWidget):
         item.setSizeHint(getattr(self, "_grid_item_size", QSize(300, _DEFAULT_GRID_HEIGHT)))
         if key in self._image_path_by_key:
             item.setIcon(self._image_icon(self._image_path_by_key[key]))
+        self._resize_grid()
         self._sync_selection_buttons()
 
     def _result_field_value(self, video: SearchVideo, key: str) -> str:
@@ -1745,13 +1766,14 @@ class SearchInterface(QWidget):
             f"{_format_count(video.views)} 次观看 · {_format_count(video.likes)} 喜欢",
             f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
         )
-        if video.duration:
-            stats += tr(
-                f" · {_format_duration(video.duration)}",
-                f" · {_format_duration(video.duration)}",
-                f" · {_format_duration(video.duration)}",
-            )
-        return f"{_short_text(video.title, 46)}\n{author} · {date_text}\n{stats}"
+        duration = _format_duration(video.duration) if video.duration else "—"
+        return (
+            f"{_short_text(video.title, 46)}\n"
+            f"{author}\n"
+            f"{stats}\n"
+            f"{duration}\n"
+            f"{date_text}"
+        )
 
     def _add_video_item(self, video: SearchVideo):
         key = f"video:{video.video_id}"
@@ -1830,10 +1852,22 @@ class SearchInterface(QWidget):
             8,
             int(self._results.verticalScrollBar().sizeHint().width()) - 1,
         )
-        cell_width = max(1, (width - scrollbar_reserve - columns) // columns)
-        image_width = max(40, min(260, cell_width - 20))
+        available_width = max(1, width - scrollbar_reserve)
+        cell_width = max(
+            1,
+            (available_width - spacing * (columns - 1)) // columns,
+        )
+        # Let the cover occupy the card width.  The old 260px cap made a
+        # one-column result look like a small preview floating in a large
+        # blank card, and was especially obvious on wide displays.
+        image_width = max(40, cell_width - 12)
         image_height = max(40, round(image_width * 9 / 16))
-        grid_height = image_height + 96
+        text_height = _grid_text_height(
+            self._results,
+            max(40, cell_width - 12),
+            fallback_lines=5,
+        )
+        grid_height = image_height + text_height + 14
         self._grid_icon_size = QSize(image_width, image_height)
         self._grid_item_size = QSize(cell_width, grid_height)
         self._results.setIconSize(self._grid_icon_size)

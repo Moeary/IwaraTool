@@ -37,6 +37,7 @@ from .ui_state import (
     ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
+    fit_table_last_column,
     open_table_column_dialog,
     restore_table_columns,
     restore_table_widths,
@@ -190,7 +191,7 @@ class HistoryInterface(QWidget):
 
         self._table = TableWidget(self)
         self._table.setMinimumWidth(0)
-        self._table.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("historyTable")
         self._table.setColumnCount(16)
         self._table.setHorizontalHeaderLabels(
@@ -256,6 +257,8 @@ class HistoryInterface(QWidget):
         connect_table_width_saver(self._table, "history_table_widths")
         restore_table_columns(self._table, "history_table")
         connect_table_column_saver(self._table, "history_table")
+        header.sectionResized.connect(lambda *_args: fit_table_last_column(self._table))
+        header.sectionMoved.connect(lambda *_args: fit_table_last_column(self._table))
         root.addWidget(self._table, stretch=1)
 
     def _configure_columns(self):
@@ -265,6 +268,12 @@ class HistoryInterface(QWidget):
             title=tr("History Columns", "历史列表字段", "履歴列設定"),
             parent=self,
         )
+        fit_table_last_column(self._table)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_table"):
+            fit_table_last_column(self._table)
 
     def _load_history(self):
         self._all_records = download_manager.get_history_records()

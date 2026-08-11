@@ -69,8 +69,13 @@ class SearchImageCache:
         *,
         session,
         headers: dict[str, str] | None = None,
+        force: bool = False,
     ) -> str:
         """Return a cached path, downloading the image when needed.
+
+        ``force`` is used by an explicit refresh action.  It deliberately
+        keeps the same deterministic path and atomically replaces the old
+        file, so callers do not accumulate duplicate cache files.
 
         Network and image validation failures intentionally return an empty
         string.  Search cards can keep their placeholder without failing the
@@ -83,7 +88,7 @@ class SearchImageCache:
         path = self.path_for(kind, item_key, image_url)
         with self._lock:
             try:
-                if os.path.isfile(path) and os.path.getsize(path) > 0:
+                if not force and os.path.isfile(path) and os.path.getsize(path) > 0:
                     return path
             except OSError:
                 return ""
@@ -135,3 +140,23 @@ class SearchImageCache:
                         os.remove(temp_path)
                 except OSError:
                     pass
+
+
+class SubscriptionImageCache(SearchImageCache):
+    """Cache subscription-page video covers under ``data/img/sub``.
+
+    Search results and subscription results intentionally use different cache
+    roots.  A cover fetched while browsing subscriptions must not overwrite or
+    be mistaken for a cover produced by a download rule.
+    """
+
+    def __init__(self, root: str | None = None):
+        if root is None:
+            from ..config import app_config
+
+            root = os.path.join(app_config.app_data_dir, "img", "sub")
+        super().__init__(root)
+        # Keep the subscription cache directory visible even before the first
+        # successful image request.  This also makes the configured storage
+        # location unambiguous for users and diagnostics.
+        os.makedirs(self.root, exist_ok=True)
