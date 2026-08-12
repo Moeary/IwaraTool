@@ -52,6 +52,8 @@ class AppConfig:
         "filter_include_tags": "",
         "filter_exclude_tags_enabled": False,
         "filter_exclude_tags": "",
+        "filter_title_include": "",
+        "filter_title_exclude": "",
         "search_limit_enabled": True,
         "search_limit_count": 100,
         "aria2_rpc_enabled": False,
@@ -118,6 +120,8 @@ class AppConfig:
             "filter_include_tags",
             "filter_exclude_tags_enabled",
             "filter_exclude_tags",
+            "filter_title_include",
+            "filter_title_exclude",
             "search_limit_enabled",
             "search_limit_count",
             "aria2_rpc_enabled",
@@ -497,6 +501,22 @@ class AppConfig:
     @filter_exclude_tags.setter
     def filter_exclude_tags(self, v: str):
         self._set("filter_exclude_tags", v)
+
+    @property
+    def filter_title_include(self) -> str:
+        return self._get("filter_title_include")
+
+    @filter_title_include.setter
+    def filter_title_include(self, v: str):
+        self._set("filter_title_include", v)
+
+    @property
+    def filter_title_exclude(self) -> str:
+        return self._get("filter_title_exclude")
+
+    @filter_title_exclude.setter
+    def filter_title_exclude(self, v: str):
+        self._set("filter_title_exclude", v)
 
     @property
     def search_limit_enabled(self) -> bool:

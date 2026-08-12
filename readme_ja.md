@@ -14,6 +14,7 @@
 - ステートマシン制御で URL 失効問題を軽減。
 - ローカル重複回避 + SQLite 履歴センター。
 - ユーザー、プレイリスト、検索 URL の一括投入に対応。
+- より使いやすい Iwara 検索：Oreno3D オンライン動画検索、Iwara ライブ API の動画/作者/プレイリスト検索、英中日タグ候補に対応。
 - フォロー作者の取込、更新確認、新着件数、リスト/カバー表示を備えたローカル購読管理。
 - いいね、再生数、日付、タグ、タイトルキーワード、命名テンプレート、保存動作をまとめる名前付きルール。
 - 検索ダウンロード件数上限を個別設定可能。
@@ -48,21 +49,43 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
 
+## ローカルデータとキャッシュ
+
+実行時データは `data/` に保存され、用途ごとに分離されています。
+
+| パス | 用途 |
+| --- | --- |
+| `data/config.ini` | Token、UI、並列数、ダウンロード動作の設定 |
+| `data/history.db` | ダウンロード履歴とローカルファイル状態 |
+| `data/subscriptions.db` | 購読元、購読動画、更新状態 |
+| `data/rules.json` | 名前付きダウンロードルール |
+| `data/iwara_tags.json` | 三言語フィールドを含む生成済みオフラインタグ索引 |
+| `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | アプリに同梱する LoveIwara MIT 翻訳ソース |
+| `data/tag_translations/loveiwara_iwara_tags_localized.json` | 「タグを更新」で保存される実行時翻訳キャッシュ |
+| `data/img/search/` | 検索ページ画像キャッシュ |
+| `data/img/sub/` | 購読ページ動画カバーキャッシュ |
+| `data/img/avatar/` | 購読作者アバターキャッシュ |
+
+パッケージ版は `app/data/` の LoveIwara 辞書を同梱し、実行ファイル隣の `data/tag_translations/` に実行時キャッシュが無い場合、初回起動時に自動展開します。既存の実行時キャッシュは保持されます。開発環境の `data/` にあるその他のローカル状態は自動的に埋め込まれないため、更新時は既存の `data/` を残してください。
+
 ## 画面紹介
 
 1. ダウンロードワークベンチ
 
    ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
-2. 購読
+2. 検索
+
+   ![検索](./docs/panel_view/iwaratool_search_panel.jpg)
+3. 購読
 
    ![購読](./docs/panel_view/iwaratool_subscription_panel.jpg)
-3. 履歴
+4. 履歴
 
    ![履歴](./docs/panel_view/iwaratool_history_panel.jpg)
-4. ルール
+5. ルール
 
    ![ルール](./docs/panel_view/iwaratool_rule_panel.jpg)
-5. 設定
+6. 設定
 
    ![設定](./docs/panel_view/iwaratool_settings_panel.jpg)
 

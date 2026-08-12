@@ -53,6 +53,28 @@ from .ui_state import show_fluent_confirmation
 DRAFT_RULE_ID = "__draft_rule__"
 
 
+def _style_rule_splitter(splitter: QSplitter):
+    """Keep the rule editor splitter visible without a native white strip."""
+
+    if isDarkTheme():
+        handle = "rgba(255, 255, 255, 0.08)"
+        hover = "rgba(255, 255, 255, 0.18)"
+        pressed = "rgba(255, 255, 255, 0.28)"
+    else:
+        handle = "rgba(0, 0, 0, 0.04)"
+        hover = "rgba(0, 0, 0, 0.10)"
+        pressed = "rgba(0, 0, 0, 0.18)"
+    splitter.setStyleSheet(
+        f"""
+        QSplitter::handle {{ background: {handle}; }}
+        QSplitter::handle:horizontal {{ width: 10px; }}
+        QSplitter::handle:vertical {{ height: 10px; }}
+        QSplitter::handle:hover {{ background: {hover}; }}
+        QSplitter::handle:pressed {{ background: {pressed}; }}
+        """
+    )
+
+
 def _rule_summary(payload: dict[str, Any]) -> str:
     data = normalize_rule_payload(payload)
     actions = [tr("mark only", "仅标记", "マークのみ") if data["mark_submitted_as_downloaded"] else tr("video", "视频", "動画")]
@@ -401,7 +423,10 @@ class RulesInterface(QWidget):
         root.addWidget(intro)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self._splitter = splitter
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(10)
+        _style_rule_splitter(splitter)
         root.addWidget(splitter, 1)
 
         left = CardWidget(splitter)
@@ -692,6 +717,8 @@ class RulesInterface(QWidget):
         self._form.setStyleSheet(f"background-color: {surface};")
 
     def refresh_theme_styles(self):
+        if hasattr(self, "_splitter"):
+            _style_rule_splitter(self._splitter)
         self._list.setStyleSheet(self._list_style())
         self._reload_list(self._selected_id or None)
         self._apply_fluent_scrollbars()

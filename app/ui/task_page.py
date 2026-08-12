@@ -37,6 +37,7 @@ from .ui_state import (
     ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
+    fit_table_last_column,
     open_table_column_dialog,
     restore_table_columns,
     restore_table_widths,
@@ -142,15 +143,21 @@ class TaskCenterInterface(QWidget):
         title_row.addWidget(BodyLabel(tr("Exclude downloaded", "排除已下载", "ダウンロード済みを除外"), self))
         title_row.addWidget(self._exclude_downloaded_switch)
 
-        retry_all_btn = PrimaryPushButton(tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC)
+        retry_all_btn = PrimaryPushButton(
+            tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC
+        )
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
 
-        restore_all_btn = PrimaryPushButton(tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN)
+        restore_all_btn = PrimaryPushButton(
+            tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN
+        )
         restore_all_btn.clicked.connect(self._restore_all_cancelled)
         title_row.addWidget(restore_all_btn)
 
-        cancel_all_btn = PrimaryPushButton(tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL)
+        cancel_all_btn = PrimaryPushButton(
+            tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL
+        )
         cancel_all_btn.clicked.connect(self._cancel_all_active)
         title_row.addWidget(cancel_all_btn)
 
@@ -162,7 +169,9 @@ class TaskCenterInterface(QWidget):
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
 
-        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
+        columns_btn = PrimaryPushButton(
+            tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING
+        )
         columns_btn.clicked.connect(self._configure_columns)
         title_row.addWidget(columns_btn)
         root.addLayout(title_row)
@@ -223,7 +232,7 @@ class TaskCenterInterface(QWidget):
 
         self._table = TableWidget(self)
         self._table.setMinimumWidth(0)
-        self._table.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
         self._table.setColumnCount(11)
         self._table.setHorizontalHeaderLabels(
@@ -279,6 +288,8 @@ class TaskCenterInterface(QWidget):
         connect_table_width_saver(self._table, "task_table_widths")
         restore_table_columns(self._table, "task_table")
         connect_table_column_saver(self._table, "task_table")
+        header.sectionResized.connect(lambda *_args: fit_table_last_column(self._table))
+        header.sectionMoved.connect(lambda *_args: fit_table_last_column(self._table))
 
         root.addWidget(self._table, stretch=1)
 
@@ -289,6 +300,12 @@ class TaskCenterInterface(QWidget):
             title=tr("Task Columns", "任务列表字段", "タスク列設定"),
             parent=self,
         )
+        fit_table_last_column(self._table)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_table"):
+            fit_table_last_column(self._table)
 
     # ── Signals ───────────────────────────────────────────────────────────────
 

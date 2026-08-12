@@ -20,6 +20,7 @@ from ..signal_bus import signal_bus
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
 from .rules_page import RulesInterface
+from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 
@@ -50,6 +51,7 @@ class MainWindow(FluentWindow):
     def _init_navigation(self):
         # Create sub-interfaces
         self._download_page = DownloadInterface(self)
+        self._search_page = SearchInterface(self)
         self._subscription_page = SubscriptionInterface(self)
         self._history_page = HistoryInterface(self)
         self._rules_page = RulesInterface(self)
@@ -60,6 +62,11 @@ class MainWindow(FluentWindow):
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
             text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),
+        )
+        self.addSubInterface(
+            self._search_page,
+            icon=FluentIcon.SEARCH,
+            text=tr("Search", "搜索", "検索"),
         )
         self.addSubInterface(
             self._subscription_page,
@@ -129,6 +136,7 @@ class MainWindow(FluentWindow):
     def _refresh_theme_styles(self):
         for page in (
             getattr(self, "_download_page", None),
+            getattr(self, "_search_page", None),
             getattr(self, "_subscription_page", None),
             getattr(self, "_history_page", None),
             getattr(self, "_rules_page", None),

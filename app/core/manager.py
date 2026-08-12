@@ -27,19 +27,24 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import parse_qs, quote, urlparse
+
+import cloudscraper
 
 from ..config import app_config
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI
 from .history import DownloadHistory
+from .image_cache import SearchImageCache, SubscriptionImageCache
 from .models import DownloadTask, TaskStatus
 from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
+from .oreno3d import Oreno3DClient
 from .subscriptions import SubscriptionStore
+from .tag_dictionary import TagDictionary
 
 if TYPE_CHECKING:
     pass
@@ -86,6 +91,18 @@ _STALL_WATCHDOG_INTERVAL_SECONDS = 1.0
 _SUBSCRIPTION_UNAVAILABLE_STATE = "unavailable"
 _CANCEL_ORIGIN_AUTO_STALL = "auto_stall"
 _CANCEL_ORIGIN_MANUAL = "manual"
+_WINDOWS_SAFE_PATH_LIMIT = 240
+_WINDOWS_MIN_PATH_SEGMENT_LENGTH = 32
+_WINDOWS_RESERVED_FILENAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+)
 
 
 class DownloadManager:
@@ -99,6 +116,10 @@ class DownloadManager:
         self.api = IwaraAPI()
         self.history = DownloadHistory()
         self.subscriptions = SubscriptionStore()
+        self.search_image_cache = SearchImageCache()
+        self.subscription_image_cache = SubscriptionImageCache()
+        self.tag_dictionary = TagDictionary()
+        self._migrate_subscription_avatar_cache()
 
         # task_id → DownloadTask
         self._tasks: dict[str, DownloadTask] = {}
@@ -148,6 +169,188 @@ class DownloadManager:
     def add_url_mark_downloaded(self, url: str):
         """Parse URL and mark resolved videos as already downloaded in history."""
         self._parse_executor.submit(self._parse_and_mark_downloaded, url)
+
+    def get_search_video_page(
+        self,
+        query_params: dict[str, str] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Fetch one page for the search interface through the shared API session."""
+
+        return self._api_call(
+            "get_videos_page",
+            query_params or {},
+            page=page,
+            limit=limit,
+        )
+
+    def get_search_user_profile(self, username: str) -> tuple[dict | None, str]:
+        """Fetch one author profile for the search interface."""
+
+        return self._api_call("get_user_profile", str(username or "").strip())
+
+    def get_search_playlist_videos(self, playlist_id: str, *, max_pages: int = 4) -> list[dict]:
+        """Fetch a bounded playlist result set for the search interface."""
+
+        return self._api_call(
+            "get_playlist_videos",
+            str(playlist_id or "").strip(),
+            max_pages=max(0, min(20, int(max_pages))),
+        )
+
+    def get_oreno3d_search_page(
+        self,
+        keyword: str,
+        *,
+        page: int = 1,
+        sort: str = "latest",
+    ):
+        """Forward one page to Oreno3D's online search endpoint."""
+
+        with self._api_lock:
+            client = Oreno3DClient(self.api.scraper)
+            if str(keyword or "").strip():
+                return client.fetch_search_page(keyword, page=page, sort=sort)
+            return client.fetch_listing_page(page=page, sort=sort)
+
+    def resolve_oreno3d_video_id(
+        self,
+        source_id: str,
+        oreno3d_url: str,
+        *,
+        parallel: bool = False,
+    ) -> str:
+        """Resolve one Oreno3D card to its linked Iwara video ID.
+
+        Normal calls reuse the shared scraper and remain serialized with the
+        rest of the API traffic.  Search-page workers can opt into ``parallel``
+        to use a short-lived independent cloudscraper session per task.  This
+        keeps configurable Oreno3D ID resolution genuinely concurrent without
+        making the stateful shared API session thread-unsafe.
+        """
+
+        source_id = str(source_id or "").strip()
+        oreno3d_url = str(oreno3d_url or "").strip()
+        if not source_id or not oreno3d_url:
+            return ""
+        if parallel:
+            session = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "windows", "mobile": False}
+            )
+            # ``apply_config`` keeps the shared session's proxy current.  Copy
+            # only its proxy mapping; cookies and auth state are not needed for
+            # the public Oreno3D detail page.
+            session.proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+            try:
+                detail = Oreno3DClient(session).fetch_detail_url(
+                    source_id,
+                    oreno3d_url,
+                )
+            finally:
+                session.close()
+        else:
+            with self._api_lock:
+                detail = Oreno3DClient(self.api.scraper).fetch_detail_url(
+                    source_id,
+                    oreno3d_url,
+                )
+        external_url = detail.external_video_url
+        match = re.search(r"/video/([^/?#]+)", external_url)
+        return match.group(1) if match else ""
+
+    def resolve_oreno3d_video_url(self, source_id: str, oreno3d_url: str) -> str:
+        """Resolve an Oreno3D card and build its canonical Iwara URL from the ID."""
+
+        video_id = self.resolve_oreno3d_video_id(source_id, oreno3d_url)
+        return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+
+    def get_iwara_video_info(self, video_id: str) -> tuple[dict | None, str]:
+        """Fetch one Iwara video's metadata for online search result hydration."""
+
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return None, ""
+        return self._api_call("get_video_info", video_id)
+
+    def get_search_tag_suggestions(self, query: str, *, limit: int = 16):
+        """Return offline multilingual tag candidates for the search UI."""
+
+        return self.tag_dictionary.suggest(query, limit=limit)
+
+    def canonical_search_tag(self, value: str) -> str:
+        """Normalize a localized tag label to its canonical search key."""
+
+        return self.tag_dictionary.canonical_key(value)
+
+    def update_search_tag_dictionary(self) -> tuple[int, str]:
+        """Refresh the cached LoveIwara multilingual tag dictionary."""
+
+        with self._api_lock:
+            return self.tag_dictionary.update_from_remote(self.api.scraper)
+
+    def create_worker_api_client(self) -> IwaraAPI:
+        """Create an isolated API session for background network work.
+
+        The main API session is intentionally serialized because it is shared
+        by login, parsing and download metadata.  Image and subscription
+        workers can safely use independent cloudscraper sessions while
+        carrying over the current token and proxy configuration.
+        """
+        with self._api_lock:
+            token = self.api.token or ""
+            proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+        client = IwaraAPI()
+        client.token = token or None
+        client.scraper.proxies = proxies
+        return client
+
+    @staticmethod
+    def close_worker_api_client(client: IwaraAPI | None):
+        if client is None:
+            return
+        close = getattr(getattr(client, "scraper", None), "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def cache_search_image(
+        self,
+        kind: str,
+        item_key: str,
+        image_url: str,
+        *,
+        api_client: IwaraAPI | None = None,
+    ) -> str:
+        """Cache one search card image using an isolated or shared API session."""
+
+        if api_client is None:
+            with self._api_lock:
+                client = self.api
+                token = client.token or ""
+        else:
+            client = api_client
+            token = client.token or ""
+        headers = {
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": (
+                "https://oreno3d.com/"
+                if "oreno3d.com" in str(image_url or "").casefold()
+                else "https://www.iwara.tv/"
+            ),
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return self.search_image_cache.get_or_fetch(
+            kind,
+            item_key,
+            image_url,
+            session=client.scraper,
+            headers=headers,
+        )
 
     def enqueue_video_ids(self, video_ids: list[str], *, source_label: str = "") -> int:
         """Queue a list of video ids and return how many were accepted for parsing."""
@@ -424,6 +627,7 @@ class DownloadManager:
             "feed",
             "subscribed",
             tr("Following Feed", "账号订阅流", "購読フィード"),
+            source_origin="account",
         )
 
     def import_followed_author_subscriptions(self) -> dict[str, Any]:
@@ -486,6 +690,7 @@ class DownloadManager:
             "playlist",
             playlist_id,
             tr(f"Playlist {playlist_id}", f"播放列表 {playlist_id}", f"プレイリスト {playlist_id}"),
+            source_origin="playlist",
         )
 
     def detect_subscription_source(self, raw: str) -> tuple[str, str] | None:
@@ -561,7 +766,11 @@ class DownloadManager:
                 str(history_record.get("thumbnail_path", "") or "") if history_record else ""
             )
             thumbnail_url = str(item.get("thumbnail_url", "") or "")
-            cached_thumbnail_path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
+            cached_thumbnail_path = self._ensure_subscription_thumbnail_cache(
+                video_id,
+                thumbnail_url,
+                history_thumbnail_path,
+            )
             task_status, task_error = task_info_by_video_id.get(video_id.lower(), ("", ""))
             download_state = str(item.get("download_state", "") or "")
             download_reason = str(item.get("download_reason", "") or "")
@@ -574,13 +783,10 @@ class DownloadManager:
             item["downloaded"] = bool(history_record)
             item["download_file_path"] = file_path
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
-            item["thumbnail_path"] = next(
-                (
-                    path
-                    for path in (history_thumbnail_path, cached_thumbnail_path)
-                    if path and os.path.isfile(path)
-                ),
-                "",
+            item["thumbnail_path"] = cached_thumbnail_path or (
+                history_thumbnail_path
+                if history_thumbnail_path and os.path.isfile(history_thumbnail_path)
+                else ""
             )
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
@@ -592,11 +798,68 @@ class DownloadManager:
     def remove_subscription_source(self, source_id: int):
         self.subscriptions.remove_source(source_id)
 
-    def cache_subscription_thumbnail(self, video_id: str, thumbnail_url: str) -> str:
+    def cache_subscription_thumbnail(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+        *,
+        force: bool = False,
+        api_client: IwaraAPI | None = None,
+    ) -> str:
         """Cache a subscription cover and return its local path on success."""
+        video_id = str(video_id or "").strip()
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id:
+            return ""
+
+        # Author/feed list endpoints frequently return only a video stub.  In
+        # that case there is no file ID yet, so derive the Iwara image URL from
+        # the canonical video detail API instead of silently skipping the
+        # cover.  Persist the resolved URL so subsequent refreshes do not need
+        # another metadata request.
+        if not thumbnail_url:
+            if api_client is None:
+                video_info, _error = self._api_call("get_video_info", video_id)
+            else:
+                video_info, _error = api_client.get_video_info(video_id)
+            if isinstance(video_info, dict):
+                thumbnail_url = _subscription_thumbnail_url(video_info)
+                if thumbnail_url:
+                    self.subscriptions.update_item_thumbnail_url(video_id, thumbnail_url)
+
         path = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
-        if path and self._download_subscription_avatar(thumbnail_url, path):
+        if not path:
+            return ""
+        if not force and os.path.isfile(path) and os.path.getsize(path) > 0:
             return path
+        history = self.history.get_record(str(video_id or ""))
+        history_path = str(history.get("thumbnail_path", "") or "") if history else ""
+        if not force:
+            reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
+            if reused:
+                return reused
+        if api_client is None:
+            client = self.api
+            token = self._current_token()
+        else:
+            client = api_client
+            token = client.token or ""
+        headers = {
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://www.iwara.tv/",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        fetched = self.subscription_image_cache.get_or_fetch(
+            "video",
+            str(video_id or ""),
+            thumbnail_url,
+            session=client.scraper,
+            headers=headers,
+            force=force,
+        )
+        if fetched:
+            return fetched
         return ""
 
     def set_subscription_enabled(self, source_id: int, enabled: bool):
@@ -883,15 +1146,134 @@ class DownloadManager:
             )
         return result
 
-    def refresh_all_subscriptions(self) -> dict[str, Any]:
-        summaries: list[dict[str, Any]] = []
-        for source in self.get_subscription_sources():
-            if not int(source.get("enabled", 1) or 0):
-                continue
-            summaries.append(self.refresh_subscription_source(int(source["id"])))
+    def refresh_all_subscriptions(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Refresh enabled sources and optionally report source-level progress."""
+        sources = [
+            source
+            for source in self.get_subscription_sources()
+            if int(source.get("enabled", 1) or 0)
+        ]
+        total = len(sources)
+        if not sources:
+            return self._subscription_refresh_summary([])
+
+        # Keep monkeypatched/fake API dispatchers deterministic for tests and
+        # integrations.  The production bound method uses isolated sessions
+        # below, so one slow source no longer blocks every other source.
+        if not self._uses_default_api_dispatch():
+            summaries: list[dict[str, Any]] = []
+            for index, source in enumerate(sources, start=1):
+                source_id = int(source["id"])
+                source_title = str(source.get("title", "") or source.get("source_key", "") or "")
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "stage": "started",
+                            "index": index,
+                            "total": total,
+                            "source_id": source_id,
+                            "title": source_title,
+                        }
+                    )
+                summary = self.refresh_subscription_source(source_id)
+                summaries.append(summary)
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "stage": "finished",
+                            "index": index,
+                            "total": total,
+                            "source_id": source_id,
+                            "title": str(summary.get("title", "") or source_title),
+                            "summary": summary,
+                        }
+                    )
+            return self._subscription_refresh_summary(summaries)
+
+        worker_count = min(self._subscription_refresh_workers(), total)
+        source_by_id = {int(source["id"]): source for source in sources}
+        index_by_id = {int(source["id"]): index for index, source in enumerate(sources, start=1)}
+
+        for index, source in enumerate(sources, start=1):
+            if progress_callback:
+                progress_callback(
+                    {
+                        "stage": "started",
+                        "index": index,
+                        "total": total,
+                        "source_id": int(source["id"]),
+                        "title": str(source.get("title", "") or source.get("source_key", "") or ""),
+                    }
+                )
+
+        summaries_by_id: dict[int, dict[str, Any]] = {}
+
+        def refresh_one(source_id: int) -> dict[str, Any]:
+            client = self.create_worker_api_client()
+            try:
+                return self.refresh_subscription_source(source_id, api_client=client)
+            finally:
+                self.close_worker_api_client(client)
+
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="subscription-refresh",
+        ) as executor:
+            futures = {
+                executor.submit(refresh_one, int(source["id"])): int(source["id"])
+                for source in sources
+            }
+            for future in as_completed(futures):
+                source_id = futures[future]
+                try:
+                    summary = future.result()
+                except Exception as exc:
+                    source = source_by_id[source_id]
+                    summary = {
+                        "source_id": source_id,
+                        "title": str(source.get("title", "") or source.get("source_key", "") or ""),
+                        "new": 0,
+                        "total": self.subscriptions.count_items(source_id),
+                        "downloaded": 0,
+                        "fetched": 0,
+                        "error": str(exc),
+                    }
+                summaries_by_id[source_id] = summary
+                if progress_callback:
+                    source = source_by_id[source_id]
+                    progress_callback(
+                        {
+                            "stage": "finished",
+                            "index": index_by_id[source_id],
+                            "total": total,
+                            "source_id": source_id,
+                            "title": str(
+                                summary.get("title", "")
+                                or source.get("title", "")
+                                or source.get("source_key", "")
+                            ),
+                            "summary": summary,
+                        }
+                    )
+
+        summaries = [summaries_by_id[int(source["id"])] for source in sources]
         return self._subscription_refresh_summary(summaries)
 
-    def refresh_subscription_source(self, source_id: int) -> dict[str, Any]:
+    def refresh_subscription_source(
+        self,
+        source_id: int,
+        *,
+        ignore_enabled: bool = False,
+        api_client: IwaraAPI | None = None,
+    ) -> dict[str, Any]:
+        def api_call(method_name: str, *args, **kwargs):
+            if api_client is None:
+                return self._api_call(method_name, *args, **kwargs)
+            return getattr(api_client, method_name)(*args, **kwargs)
+
         source = self.subscriptions.get_source(source_id)
         if not source:
             return {
@@ -903,7 +1285,7 @@ class DownloadManager:
                 "fetched": 0,
                 "error": tr("Subscription source does not exist", "订阅源不存在", "購読元が存在しません"),
             }
-        if not int(source.get("enabled", 1) or 0):
+        if not ignore_enabled and not int(source.get("enabled", 1) or 0):
             return {
                 "source_id": source_id,
                 "title": str(source.get("title", "") or ""),
@@ -920,19 +1302,62 @@ class DownloadManager:
         videos: list[dict] = []
         err = ""
         cap = self._subscription_fetch_limit()
+        known_video_ids = self._known_subscription_video_ids(source_id)
+        source_origin = str(source.get("source_origin", "") or "").strip().casefold()
+        incremental = self._subscription_incremental_refresh() and source_origin == "account"
+        stop_after_video_ids = known_video_ids if incremental else None
 
         if source_type == "feed":
-            videos, err = self._api_call("get_subscribed_videos", max_results=cap)
+            try:
+                videos, err = api_call(
+                    "get_subscribed_videos",
+                    max_results=cap,
+                    known_video_ids=stop_after_video_ids,
+                )
+            except TypeError as exc:
+                if "known_video_ids" not in str(exc):
+                    raise
+                videos, err = api_call("get_subscribed_videos", max_results=cap)
         elif source_type == "author":
             remote_id = str(source.get("remote_id", "") or "")
-            if not remote_id:
-                remote_id, err = self._api_call("get_user_id", source_key)
+            avatar_url = str(source.get("avatar_url", "") or "")
+            # Refresh also repairs older/manual author sources that lack a
+            # display name, remote ID, or avatar URL.
+            needs_profile = not remote_id or not avatar_url or title == source_key
+            if needs_profile:
+                try:
+                    profile, _profile_err = api_call("get_user_profile", source_key)
+                except Exception:
+                    profile = None
+                if profile:
+                    user = _dict_or_empty(profile.get("user"))
+                    profile_title = str(user.get("name", "") or source_key).strip() or source_key
+                    remote_id = str(user.get("id", "") or remote_id).strip()
+                    avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail") or avatar_url
+                    self.subscriptions.update_source_profile(
+                        source_id,
+                        title=profile_title,
+                        remote_id=remote_id,
+                        avatar_url=avatar_url,
+                    )
+                    title = profile_title
+            if not remote_id and not err:
+                remote_id, err = api_call("get_user_id", source_key)
                 if remote_id:
                     self.subscriptions.update_source_remote_id(source_id, remote_id)
             if remote_id:
-                videos = self._api_call("get_user_videos", remote_id)
+                try:
+                    videos = api_call(
+                        "get_user_videos",
+                        remote_id,
+                        known_video_ids=stop_after_video_ids,
+                    )
+                except TypeError as exc:
+                    if "known_video_ids" not in str(exc):
+                        raise
+                    videos = api_call("get_user_videos", remote_id)
         elif source_type == "playlist":
-            videos = self._api_call("get_playlist_videos", source_key)
+            videos = api_call("get_playlist_videos", source_key)
         else:
             err = tr(
                 f"Unknown subscription type: {source_type}",
@@ -953,8 +1378,20 @@ class DownloadManager:
             }
 
         normalized_items = [_subscription_item_from_video(video) for video in videos]
+        if incremental:
+            known_casefold = {video_id.casefold() for video_id in known_video_ids}
+            validation_items = [
+                item
+                for item in normalized_items
+                if str(item.get("video_id", "") or "").strip().casefold() not in known_casefold
+            ]
+        else:
+            validation_items = normalized_items
         new_count, total_count = self.subscriptions.upsert_items(source_id, normalized_items)
-        unavailable_checked = self._validate_subscription_unavailable_items(normalized_items)
+        unavailable_checked = self._validate_subscription_unavailable_items(
+            validation_items,
+            api_client=api_client,
+        )
         self.subscriptions.touch_source_checked(source_id)
         items = self.get_subscription_items(source_id)
         downloaded_count = sum(1 for item in items if item.get("downloaded"))
@@ -971,7 +1408,12 @@ class DownloadManager:
             "error": "",
         }
 
-    def _validate_subscription_unavailable_items(self, items: list[dict[str, Any]]) -> int:
+    def _validate_subscription_unavailable_items(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        api_client: IwaraAPI | None = None,
+    ) -> int:
         ids = list(
             dict.fromkeys(
                 str(item.get("video_id", "") or "").strip()
@@ -996,8 +1438,13 @@ class DownloadManager:
                 candidates.append(video_id)
 
         checked = 0
+        api_call = (
+            self._api_call
+            if api_client is None
+            else lambda method_name, *args, **kwargs: getattr(api_client, method_name)(*args, **kwargs)
+        )
         for video_id in candidates:
-            video_info, err = self._api_call("get_video_info", video_id)
+            video_info, err = api_call("get_video_info", video_id)
             if not video_info:
                 download_state, download_reason = _subscription_download_block_from_error(err)
                 if download_state:
@@ -1014,6 +1461,35 @@ class DownloadManager:
                 self.subscriptions.update_item_download_state(video_id, "", "")
                 checked += 1
         return checked
+
+    def _known_subscription_video_ids(self, source_id: int) -> set[str]:
+        return {
+            str(item.get("video_id", "") or "").strip()
+            for item in self.subscriptions.list_items(source_id)
+            if str(item.get("video_id", "") or "").strip()
+        }
+
+    @staticmethod
+    def _subscription_refresh_workers() -> int:
+        try:
+            value = int(app_config.get_ui_value("subscription_refresh_workers_v1", 3) or 3)
+        except (TypeError, ValueError):
+            value = 3
+        return max(1, min(8, value))
+
+    @staticmethod
+    def _subscription_incremental_refresh() -> bool:
+        value = app_config.get_ui_value("subscription_incremental_refresh_v1", True)
+        if isinstance(value, str):
+            return value.strip().casefold() not in {"0", "false", "off", "no"}
+        return bool(value)
+
+    def _uses_default_api_dispatch(self) -> bool:
+        method = getattr(self, "_api_call", None)
+        return (
+            getattr(method, "__func__", None) is DownloadManager._api_call
+            and type(self.api) is IwaraAPI
+        )
 
     @staticmethod
     def _subscription_refresh_summary(summaries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1046,7 +1522,14 @@ class DownloadManager:
             title = str(user.get("name") or username).strip()
             remote_id = str(user.get("id") or "").strip()
             avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail")
-            if self.subscriptions.add_source("author", username, title, remote_id, avatar_url=avatar_url):
+            if self.subscriptions.add_source(
+                "author",
+                username,
+                title,
+                remote_id,
+                avatar_url=avatar_url,
+                source_origin="account",
+            ):
                 imported += 1
         return imported
 
@@ -1962,6 +2445,7 @@ class DownloadManager:
             return
 
         passed_filter, filter_reason = self._passes_filters(
+            title=title,
             likes=likes,
             views=views,
             published_at=published_at,
@@ -2700,14 +3184,75 @@ class DownloadManager:
         parts = [self._sanitize_path_segment(p) for p in parts]
         if not parts[-1].lower().endswith(".mp4"):
             parts[-1] += ".mp4"
+        parts = self._fit_output_path_to_windows_limit(parts)
         return os.path.join(*parts)
 
-    @staticmethod
-    def _sanitize_path_segment(name: str) -> str:
-        cleaned = re.sub(r'[\\/:*?"<>|\t\r\n]', "-", name).strip(" .")
+    @classmethod
+    def _sanitize_path_segment(cls, name: str) -> str:
+        """Return a portable, Windows-safe single path segment."""
+        cleaned = re.sub(r'[\x00-\x1f\\/:*?"<>|\x7f]', "-", str(name)).strip(" .")
         if cleaned in ("", ".", ".."):
             return "_"
-        return cleaned
+        stem = cleaned.split(".", 1)[0].rstrip(" ").upper()
+        if stem in _WINDOWS_RESERVED_FILENAMES:
+            cleaned = f"_{cleaned}"
+        return cls._shorten_path_segment(cleaned, _WINDOWS_SAFE_PATH_LIMIT)
+
+    @staticmethod
+    def _windows_path_length(path: str) -> int:
+        """Count UTF-16 code units, the length Windows uses for paths."""
+        return len(path.encode("utf-16-le")) // 2
+
+    @classmethod
+    def _shorten_path_segment(cls, name: str, max_length: int) -> str:
+        """Shorten a segment while retaining both its beginning and ending."""
+        if cls._windows_path_length(name) <= max_length:
+            return name
+
+        stem, extension = os.path.splitext(name)
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:10]
+        marker = f"-{digest}-"
+        available = max(1, max_length - cls._windows_path_length(extension) - cls._windows_path_length(marker))
+        prefix_length = max(1, available * 2 // 5)
+        suffix_length = max(1, available - prefix_length)
+        prefix = cls._trim_to_windows_length(stem, prefix_length)
+        suffix = cls._trim_to_windows_length(stem, suffix_length, from_end=True)
+        return f"{prefix}{marker}{suffix}{extension}"
+
+    @classmethod
+    def _fit_output_path_to_windows_limit(self, parts: list[str]) -> list[str]:
+        """Keep output paths usable by Windows and its temporary download files."""
+        result = list(parts)
+        base_dir = os.path.abspath(app_config.download_dir)
+        while self._windows_path_length(os.path.join(base_dir, *result)) > _WINDOWS_SAFE_PATH_LIMIT:
+            candidates = [
+                (self._windows_path_length(part), index)
+                for index, part in enumerate(result)
+                if self._windows_path_length(part) > _WINDOWS_MIN_PATH_SEGMENT_LENGTH
+            ]
+            if not candidates:
+                break
+            _, index = max(candidates)
+            current_length = self._windows_path_length(result[index])
+            excess = self._windows_path_length(os.path.join(base_dir, *result)) - _WINDOWS_SAFE_PATH_LIMIT
+            target_length = max(_WINDOWS_MIN_PATH_SEGMENT_LENGTH, current_length - excess)
+            result[index] = self._shorten_path_segment(result[index], target_length)
+        return result
+
+    @staticmethod
+    def _trim_to_windows_length(text: str, max_length: int, *, from_end: bool = False) -> str:
+        chars = reversed(text) if from_end else iter(text)
+        kept: list[str] = []
+        length = 0
+        for char in chars:
+            char_length = DownloadManager._windows_path_length(char)
+            if length + char_length > max_length:
+                break
+            kept.append(char)
+            length += char_length
+        if from_end:
+            kept.reverse()
+        return "".join(kept)
 
     # ── Terminal state helpers ────────────────────────────────────────────────
 
@@ -3119,11 +3664,31 @@ class DownloadManager:
 
     def _passes_filters(
         self,
+        title: str,
         likes: int,
         views: int,
         published_at: str,
         tags: list[Any],
     ) -> tuple[bool, str]:
+        normalized_title = str(title or "").casefold()
+        title_include_terms = _split_filter_tags(app_config.filter_title_include)
+        if title_include_terms and not any(term in normalized_title for term in title_include_terms):
+            return False, tr(
+                f"title did not include any of: {', '.join(title_include_terms)}",
+                f"标题未包含任一关键词：{', '.join(title_include_terms)}",
+                f"タイトルに指定語句が含まれません：{', '.join(title_include_terms)}",
+            )
+
+        title_exclude_terms = _split_filter_tags(app_config.filter_title_exclude)
+        if title_exclude_terms:
+            hit = [term for term in title_exclude_terms if term in normalized_title]
+            if hit:
+                return False, tr(
+                    f"title matched exclude keywords: {', '.join(hit)}",
+                    f"标题命中排除关键词：{', '.join(hit)}",
+                    f"タイトルが除外語句に一致：{', '.join(hit)}",
+                )
+
         if not app_config.filter_enabled:
             return True, ""
 
@@ -3297,13 +3862,103 @@ class DownloadManager:
         if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
             ext = ".jpg"
         fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img")
-        return os.path.join(img_dir, f"cover_{video_id}_{fingerprint}{ext}")
+        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
+        return os.path.join(img_dir, f"video_{video_id}_{fingerprint}{ext}")
 
-    def _subscription_avatar_cache_path(self, source: dict[str, Any], avatar_url: str) -> str:
-        source_id = int(source.get("id", 0) or 0)
+    def _legacy_subscription_v2_thumbnail_cache_path(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+    ) -> str:
+        """Return the previous ``sub_video`` path for one-time migration."""
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id or not thumbnail_url:
+            return ""
+        url_name = os.path.basename(urlparse(thumbnail_url).path)
+        ext = os.path.splitext(url_name)[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
+            ext = ".jpg"
+        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(
+            app_config.app_data_dir,
+            "img",
+            "sub_video",
+            f"video_{video_id}_{fingerprint}{ext}",
+        )
+
+    def _legacy_subscription_thumbnail_cache_path(self, video_id: str, thumbnail_url: str) -> str:
+        """Return the pre-v2 cover path for one-time cache migration."""
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        thumbnail_url = str(thumbnail_url or "").strip()
+        if not video_id or not thumbnail_url:
+            return ""
+        url_name = os.path.basename(urlparse(thumbnail_url).path)
+        ext = os.path.splitext(url_name)[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
+            ext = ".jpg"
+        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(
+            app_config.app_data_dir,
+            "img",
+            f"cover_{video_id}_{fingerprint}{ext}",
+        )
+
+    @staticmethod
+    def _copy_cached_image(source_path: str, target_path: str) -> bool:
+        source_path = str(source_path or "")
+        target_path = str(target_path or "")
+        if not source_path or not target_path or os.path.abspath(source_path) == os.path.abspath(target_path):
+            return bool(target_path and os.path.isfile(target_path) and os.path.getsize(target_path) > 0)
+        try:
+            if not os.path.isfile(source_path) or os.path.getsize(source_path) <= 0:
+                return False
+            if os.path.isfile(target_path) and os.path.getsize(target_path) > 0:
+                return True
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            temp_path = f"{target_path}.{threading.get_ident()}.tmp"
+            shutil.copy2(source_path, temp_path)
+            os.replace(temp_path, target_path)
+            return True
+        except OSError:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except (OSError, UnboundLocalError):
+                pass
+            return False
+
+    def _ensure_subscription_thumbnail_cache(
+        self,
+        video_id: str,
+        thumbnail_url: str,
+        history_thumbnail_path: str = "",
+    ) -> str:
+        target = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
+        if not target:
+            return ""
+        if os.path.isfile(target) and os.path.getsize(target) > 0:
+            return target
+        candidates = [
+            str(history_thumbnail_path or ""),
+            self._legacy_subscription_v2_thumbnail_cache_path(video_id, thumbnail_url),
+            self._legacy_subscription_thumbnail_cache_path(video_id, thumbnail_url),
+        ]
+        for candidate in candidates:
+            if self._copy_cached_image(candidate, target):
+                return target
+        return ""
+
+    def _subscription_avatar_cache_path(
+        self,
+        source: dict[str, Any],
+        avatar_url: str,
+        legacy_path: str = "",
+    ) -> str:
         source_key = self._sanitize_path_segment(str(source.get("source_key", "") or "author"))
         url_name = os.path.basename(urlparse(str(avatar_url or "")).path)
+        if not url_name and legacy_path:
+            url_name = os.path.basename(str(legacy_path))
         ext = os.path.splitext(url_name)[1].lower()
         if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
             ext = ".jpg"
@@ -3311,9 +3966,57 @@ class DownloadManager:
         parts = [part for part in urlparse(str(avatar_url or "")).path.split("/") if part]
         if len(parts) >= 2:
             avatar_id = self._sanitize_path_segment(parts[-2])
-        suffix = avatar_id or uuid.uuid4().hex
-        img_dir = os.path.join(app_config.app_data_dir, "img")
-        return os.path.join(img_dir, f"avatar_{source_id}_{source_key}_{suffix}{ext}")
+        suffix = avatar_id or hashlib.sha1(str(avatar_url or source_key).encode("utf-8")).hexdigest()[:12]
+        img_dir = os.path.join(app_config.app_data_dir, "img", "avatar")
+        # The username is deliberately the first segment so the directory is
+        # understandable without opening the database. No legacy ``avatar_``
+        # prefix is used for new files.
+        return os.path.join(img_dir, f"{source_key}_{suffix}{ext}")
+
+    def _migrate_subscription_avatar_cache(self):
+        """Copy legacy ``data/img/avatar_*`` files into the named avatar cache.
+
+        Migration is intentionally copy-based: an interrupted first launch or
+        an older build can still read the original file. The source row is
+        updated only after the new file is present.
+        """
+        try:
+            sources = self.subscriptions.list_sources()
+        except Exception:
+            return
+        for source in sources:
+            if str(source.get("source_type", "") or "") != "author":
+                continue
+            old_path = str(source.get("avatar_path", "") or "")
+            avatar_url = str(source.get("avatar_url", "") or "")
+            target = self._subscription_avatar_cache_path(source, avatar_url, old_path)
+            if not target:
+                continue
+            if not old_path or not os.path.isfile(old_path):
+                source_id = int(source.get("id", 0) or 0)
+                old_dir = os.path.join(app_config.app_data_dir, "img")
+                prefix = f"avatar_{source_id}_"
+                try:
+                    old_path = next(
+                        (
+                            os.path.join(old_dir, name)
+                            for name in os.listdir(old_dir)
+                            if name.startswith(prefix) and os.path.isfile(os.path.join(old_dir, name))
+                        ),
+                        "",
+                    )
+                except OSError:
+                    old_path = ""
+            migrated = bool(old_path and self._copy_cached_image(old_path, target))
+            if not migrated and os.path.isfile(target) and os.path.getsize(target) > 0:
+                migrated = True
+            if migrated:
+                if old_path != target or str(source.get("avatar_path", "") or "") != target:
+                    self.subscriptions.update_source_avatar(
+                        int(source.get("id", 0) or 0),
+                        avatar_url,
+                        target,
+                    )
 
     def _download_subscription_avatar(self, avatar_url: str, avatar_path: str) -> bool:
         if not avatar_url or not avatar_path:

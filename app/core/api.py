@@ -364,10 +364,24 @@ class IwaraAPI:
             return None, str(exc)
 
     def get_user_videos(
-        self, user_id: str, max_pages: int = 100
+        self,
+        user_id: str,
+        max_pages: int = 100,
+        *,
+        known_video_ids: set[str] | None = None,
     ) -> list[dict]:
-        """Fetch all video stubs for a user (paginated)."""
+        """Fetch video stubs for a user, optionally stopping at a known item.
+
+        The user video endpoint is date-sorted.  When a caller already has
+        recent IDs, returning the page containing the first known ID is enough
+        to discover new items without walking the entire historical archive.
+        """
         videos: list[dict] = []
+        known_ids = {
+            str(video_id or "").strip().casefold()
+            for video_id in (known_video_ids or set())
+            if str(video_id or "").strip()
+        }
         for page in range(max_pages + 1):
             try:
                 data = self._get_json(
@@ -378,6 +392,13 @@ class IwaraAPI:
                 if not results:
                     break
                 videos.extend(results)
+                if known_ids and any(
+                    str(item.get("id", "") or item.get("video_id", "")).strip().casefold()
+                    in known_ids
+                    for item in results
+                    if isinstance(item, dict)
+                ):
+                    break
             except Exception:
                 break
         return videos
@@ -441,12 +462,85 @@ class IwaraAPI:
 
     # ── Search / videos query ───────────────────────────────────────────────
 
+    def get_videos_page(
+        self,
+        query_params: dict[str, Any] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Fetch one bounded page of video stubs for the search UI.
+
+        The existing :meth:`get_videos_by_query` method intentionally keeps its
+        historical return shape for URL parsing and subscriptions.  This
+        method exposes pagination metadata separately so the UI can implement
+        safe page navigation without changing those callers.
+        """
+
+        try:
+            page_number = max(0, int(page))
+        except (TypeError, ValueError):
+            page_number = 0
+        try:
+            requested_limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            requested_limit = 32
+        params = {
+            str(key): str(value)
+            for key, value in (query_params or {}).items()
+            if str(value).strip()
+        }
+        params["page"] = str(page_number)
+        params["limit"] = str(requested_limit)
+        try:
+            data = self._get_json(f"{BASE_API}/videos", params=params)
+            if not isinstance(data, dict):
+                return [], None, False, tr(
+                    f"Unexpected video search response: {type(data).__name__}",
+                    f"视频搜索返回了无法识别的数据：{type(data).__name__}",
+                    f"動画検索の応答形式を認識できません: {type(data).__name__}",
+                )
+            results = data.get("results", data.get("data", []))
+            if not isinstance(results, list) and isinstance(results, dict):
+                results = results.get("results", results.get("items", []))
+            if not isinstance(results, list):
+                results = []
+            count_value = data.get("count", data.get("total", data.get("totalCount")))
+            try:
+                total = int(count_value) if count_value is not None else None
+            except (TypeError, ValueError):
+                total = None
+
+            explicit_more = next(
+                (
+                    data[key]
+                    for key in ("hasNext", "has_next", "hasMore", "has_more")
+                    if key in data
+                ),
+                None,
+            )
+            if explicit_more is not None:
+                if isinstance(explicit_more, str):
+                    has_more = explicit_more.strip().casefold() in {"1", "true", "yes", "y"}
+                else:
+                    has_more = bool(explicit_more)
+            elif total is not None:
+                has_more = (page_number + 1) * requested_limit < total
+            else:
+                has_more = len(results) >= requested_limit
+            if not results:
+                has_more = False
+            return results, total, has_more, ""
+        except Exception as exc:
+            return [], None, False, _friendly_request_error(str(exc))
+
     def get_videos_by_query(
         self,
         query_params: dict[str, str],
         *,
         max_pages: int = 100,
         max_results: int = 0,
+        stop_after_video_ids: set[str] | None = None,
     ) -> tuple[list[dict], str]:
         """Fetch videos from /videos with arbitrary query parameters.
 
@@ -454,6 +548,8 @@ class IwaraAPI:
             query_params: query-string key/value params, e.g. {"tags": "2d", "sort": "date"}.
             max_pages: safety page cap.
             max_results: hard cap for returned video stubs. 0 means unlimited.
+            stop_after_video_ids: stop after the first page containing one of
+                these IDs.  This is used by incremental subscription refresh.
 
         Returns:
             (videos, error_message). Partial results can be returned with error.
@@ -478,6 +574,11 @@ class IwaraAPI:
             effective_limit = max_results or explicit_limit
 
         videos: list[dict] = []
+        known_ids = {
+            str(video_id or "").strip().casefold()
+            for video_id in (stop_after_video_ids or set())
+            if str(video_id or "").strip()
+        }
         for page in range(start_page, start_page + max_pages):
             page_params = dict(base_params)
             page_params["page"] = str(page)
@@ -496,6 +597,14 @@ class IwaraAPI:
                 videos = videos[:effective_limit]
                 break
 
+            if known_ids and any(
+                str(item.get("id", "") or item.get("video_id", "")).strip().casefold()
+                in known_ids
+                for item in results
+                if isinstance(item, dict)
+            ):
+                break
+
             count = data.get("count")
             if isinstance(count, int) and len(videos) >= count:
                 break
@@ -507,6 +616,7 @@ class IwaraAPI:
         *,
         max_pages: int = 100,
         max_results: int = 0,
+        known_video_ids: set[str] | None = None,
     ) -> tuple[list[dict], str]:
         """Fetch the logged-in user's subscribed video feed."""
         if not self.token:
@@ -519,6 +629,7 @@ class IwaraAPI:
             {"subscribed": "true", "sort": "date"},
             max_pages=max_pages,
             max_results=max_results,
+            stop_after_video_ids=known_video_ids,
         )
 
     # ── Proxy ────────────────────────────────────────────────────────────────

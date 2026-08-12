@@ -1,6 +1,6 @@
 # IwaraTool API Notes
 
-[简体中文](./API.zh.md) | [日本語](./API.ja.md)
+[简体中文](./API_zh.md) | [日本語](./API_ja.md)
 
 This document describes API capabilities currently implemented in this project.
 
@@ -72,7 +72,24 @@ The app now supports API search URLs directly from the download input box.
 - If enabled, only the first `N` videos from search results are enqueued
 - If URL also includes `limit`, effective cap is `min(url limit, setting limit)`
 
-## 5. Filters
+## 5. Fluent Search Page
+
+The search page is an online browsing and batch-enqueue UI. It does not build a local mirror of the Oreno3D catalog.
+
+- Oreno3D mode supports online video/tag search through its `/search` page, normally 36 cards per page, with `keyword`, `sort`, and `page` parameters.
+- Iwara live API mode supports videos, authors, tags, and playlists.
+- Oreno3D cards resolve their Iwara ID asynchronously, hydrate title/author/statistics/tags from `GET /video/{id}`, and open `https://www.iwara.tv/video/{id}` as the final URL.
+- Grid mode supports a user-selected column count; list mode avoids thumbnails and exposes configurable fields.
+- Search images are cached under `data/img/search/`; Oreno3D thumbnails remain the only cover shown for Oreno3D cards to avoid duplicate image downloads.
+- Settings control Oreno3D ID resolution timing/concurrency, cover-download workers, and incremental subscription refresh workers.
+
+## 6. NFO Generation and Media-Center Compatibility
+
+When the `NFO` action is enabled in a download rule, the app writes a same-name `.nfo` sidecar next to the video. It is UTF-8 `<movie>` XML intended for Emby, Jellyfin, and Kodi.
+
+The generated file contains standard fields such as `title`, `originaltitle`, `premiered`, `runtime`, `rating`, `genre`, `tag`, `thumb`, and `fileinfo/streamdetails`, plus Iwara identifiers and statistics (`video_id`, `uniqueid`, `iwaraid`, `likes`, `views`, `comments`, and their `iwara_*` aliases). Existing NFO files are not rewritten automatically after an upgrade.
+
+## 7. Filters
 
 Global filter switch applies during resolve stage.
 
@@ -90,7 +107,7 @@ Global filter switch applies during resolve stage.
 - Normalizes and compares against API tag fields:
   - `id`, `type`, `slug`, `name`, `title`
 
-## 6. Input URL Types Supported by UI
+## 8. Input URL Types Supported by UI
 
 - Single video URL:
   - `https://www.iwara.tv/video/{id}`
@@ -102,7 +119,7 @@ Global filter switch applies during resolve stage.
   - `https://api.iwara.tv/videos?...`
   - `https://www.iwara.tv/videos?...`
 
-## 7. Tag Crawl Script (Preparation for Future One-Click Tag Filter)
+## 9. Tag Crawl Script (Preparation for Future One-Click Tag Filter)
 
 - Script path:
   - `app/core/crawl_iwara_tags.py`
@@ -120,3 +137,12 @@ Global filter switch applies during resolve stage.
   - can override via `--translation-map path/to/map.json`
 - Example:
   - `pixi run python app/core/crawl_iwara_tags.py`
+
+### Local translation cache
+
+- Project-generated offline index: `data/iwara_tags.json`
+- LoveIwara MIT translation cache: `data/tag_translations/loveiwara_iwara_tags_localized.json`
+- The search page loads the cached LoveIwara dictionary first and falls back to `data/iwara_tags.json`.
+- “Update Tags” downloads the dictionary on demand; startup does not require a network request.
+- The bundled source is `app/data/tag_translations/loveiwara_iwara_tags_localized.json`; Nuitka and GitHub Actions include it explicitly.
+- On first run, the bundled source is expanded to `data/tag_translations/` beside the executable only when the runtime cache is missing. Existing user caches are not replaced.

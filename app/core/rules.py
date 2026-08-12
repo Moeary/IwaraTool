@@ -83,6 +83,8 @@ def current_rule_payload() -> dict[str, Any]:
     payload = default_rule_payload()
     for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         payload[key] = getattr(app_config, key)
+    payload["title_include"] = app_config.filter_title_include
+    payload["title_exclude"] = app_config.filter_title_exclude
     return payload
 
 
@@ -136,6 +138,8 @@ def apply_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_rule_payload(payload)
     for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
         setattr(app_config, key, normalized[key])
+    app_config.filter_title_include = normalized["title_include"]
+    app_config.filter_title_exclude = normalized["title_exclude"]
     return normalized
 
 

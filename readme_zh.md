@@ -15,7 +15,8 @@
 - 状态机下载调度，减少 URL 过期问题。
 - 本地去重 + SQLite 历史记录中心。
 - 支持作者页、播放列表、搜索链接批量入队。
-- 本地订阅管理，支持导入关注作者、刷新追踪、新增统计和列表/封面视图。
+- 支持更好的 Iwara 搜索：支持 Oreno3D 在线视频搜索、Iwara 实时视频/作者/播放列表搜索，以及中日英 tag 候选。
+- 本地订阅管理，支持区分 Iwara 账户订阅、本地作者和订阅列表，导入关注作者时会覆盖同名本地作者来源；支持刷新追踪、新增统计和列表/封面视图。
 - 命名规则统一管理点赞、播放、日期、标签、标题关键词、命名模板和下载行为。
 - 搜索下载上限可单独配置。
 - 登录 token 缓存在 `data/config.ini`，提升启动速度。
@@ -48,17 +49,38 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 `sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
 `tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
 
+## 本地数据与缓存
+
+应用运行数据默认位于 `data/`，不同用途分开保存，搜索和订阅封面不会与下载规则生成的本地封面混用。
+
+| 路径 | 用途 |
+| --- | --- |
+| `data/config.ini` | 登录 token、界面、并发和下载行为配置 |
+| `data/history.db` | 下载历史与已下载状态 |
+| `data/subscriptions.db` | 订阅源、订阅视频和刷新状态 |
+| `data/rules.json` | 命名、筛选、封面和 NFO 等下载规则 |
+| `data/iwara_tags.json` | 项目生成的离线标签索引与三语字段 |
+| `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | 随程序打包的 LoveIwara MIT 标签翻译源文件 |
+| `data/tag_translations/loveiwara_iwara_tags_localized.json` | 运行时标签翻译缓存，由“更新标签”刷新 |
+| `data/img/search/` | 搜索页的 Oreno3D/Iwara 图片缓存 |
+| `data/img/sub/` | 订阅页视频封面缓存，可复用历史中的 Iwara 封面 |
+| `data/img/avatar/` | 订阅作者头像缓存；旧版 `avatar_*` 文件会在启动时迁移式复用 |
+
+编译版会把 `app/data/` 下的 LoveIwara 词典带入程序，并在程序所在目录的 `data/tag_translations/` 缺少运行时缓存时首次自动展开；已有运行时缓存会保留。开发机 `data/` 中的其他本地状态不会自动编译进程序，更新程序时仍应保留旧 `data/` 目录。
+
 ## 页面展示
 
 1. 下载工作台
 ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
-2. 订阅页
+2. 搜索页
+![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
+3. 订阅页
 ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
-3. 历史记录页
+4. 历史记录页
 ![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
-4. 规则页
+5. 规则页
 ![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
-5. 设置页
+6. 设置页
 ![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
 
 ## 文档
