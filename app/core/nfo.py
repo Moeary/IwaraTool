@@ -57,6 +57,11 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
     add("title", title)
     add("originaltitle", title)
     add("sorttitle", title)
+    # Keep the long-standing field names alongside the newer Iwara-specific
+    # aliases.  Emby is forgiving about unknown tags, but it does not map
+    # every custom name (for example ``iwara_views``) back to its standard
+    # movie metadata field.
+    add("video_id", video_id)
     add("id", video_id)
     add("uniqueid", video_id, {"type": "iwara", "default": "true"})
     add("iwaraid", video_id)
@@ -67,6 +72,7 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
 
     author = str(getattr(task, "author", "") or "")
     if author:
+        add("author", author)
         add("director", author)
         add("studio", author)
 
@@ -80,7 +86,9 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
     if runtime:
         add("runtime", runtime)
 
-    add("mpaa", getattr(task, "rating", ""))
+    rating = getattr(task, "rating", "")
+    add("rating", rating)
+    add("mpaa", rating)
     if author_message:
         add("plot", author_message)
         add("outline", author_message.splitlines()[0][:240])
@@ -96,15 +104,31 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
 
     duration_seconds = int(getattr(task, "duration", 0) or 0)
     if duration_seconds > 0:
+        # ``duration`` is used by the older NFO files that are already known
+        # to import correctly in Emby.  Keep the precise stream detail too.
+        add("duration", duration_seconds)
         fileinfo = ET.SubElement(root, "fileinfo")
         streamdetails = ET.SubElement(fileinfo, "streamdetails")
         video = ET.SubElement(streamdetails, "video")
         duration = ET.SubElement(video, "durationinseconds")
         duration.text = str(duration_seconds)
 
-    add("iwara_likes", getattr(task, "likes", 0))
-    add("iwara_views", getattr(task, "views", 0))
-    add("iwara_comments", getattr(task, "comments", 0))
+    likes = getattr(task, "likes", 0)
+    views = getattr(task, "views", 0)
+    comments = getattr(task, "comments", 0)
+    add("likes", likes)
+    add("views", views)
+    add("comments", comments)
+    add("iwara_likes", likes)
+    add("iwara_views", views)
+    add("iwara_comments", comments)
+
+    # Preserve the source tag payload when it is available.  This is an
+    # optional compatibility field; the repeated ``genre``/``tag`` nodes
+    # above remain the primary Emby-friendly representation.
+    raw_tags_json = str(getattr(task, "tags_json", "") or "").strip()
+    if raw_tags_json:
+        add("tags_json", raw_tags_json)
 
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")

@@ -1,6 +1,6 @@
 # IwaraTool API 说明（简体中文）
 
-[English](./API.md) | [日本語](./API.ja.md)
+[English](./API.md) | [日本語](./API_ja.md)
 
 本文档说明当前项目中已实现的 API 能力。
 
@@ -131,6 +131,9 @@
 - 标签搜索输入框支持英文、简体中文和日文候选提示；输入逗号分隔的下一个词时会继续匹配候选，查询结果仍由当前数据源决定，Oreno3D 模式直接走上述原生 `keyword` 搜索。
 - 点击候选后会保留输入焦点和分隔符，可继续编辑多个 Oreno3D 搜索关键词。
 - 标签词典默认使用项目已有的 `data/iwara_tags.json` 离线回退；点击“更新标签”后，会将 LoveIwara 的 MIT 授权词典缓存到 `data/tag_translations/`，启动时不会强制联网。
+- 完整缓存文件为 `data/tag_translations/loveiwara_iwara_tags_localized.json`；项目生成的备用索引为 `data/iwara_tags.json`。
+- 随包源文件为 `app/data/tag_translations/loveiwara_iwara_tags_localized.json`，Nuitka 与 GitHub Actions 会显式将其加入编译产物。
+- 首次运行且可执行文件旁的 `data/tag_translations/` 缺少缓存时，程序会自动展开内置词典；已有用户缓存不会被覆盖。开发机 `data/` 中的其他运行时文件仍需自行保留。
 - 第三方来源及许可证见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## 6. 筛选
@@ -181,3 +184,21 @@
   - 可通过 `--translation-map path/to/map.json` 覆盖
 - 示例：
   - `pixi run python app/core/crawl_iwara_tags.py`
+
+## 9. NFO 生成与 Emby 兼容
+
+下载规则启用 `NFO` 行为后，程序会在视频文件旁生成同名 `.nfo` 文件。文件是 UTF-8 编码的 `<movie>` XML，可被 Emby、Jellyfin 和 Kodi 作为本地元数据读取。
+
+### 输出字段
+
+- 标题：`title`、`originaltitle`、`sorttitle`
+- Iwara 标识：`video_id`、`id`、`uniqueid type="iwara"`、`iwaraid`
+- 来源：`source`、`source_url`、`slug`、`quality`
+- 作者：`author`，同时写入 `director` 和 `studio`
+- 日期：`premiered`、`releasedate`、`year`、`published_at`
+- 时长：分钟级 `runtime`、秒级 `duration`，以及 `fileinfo/streamdetails/video/durationinseconds`
+- 评分与统计：`rating`、`mpaa`、`likes`、`views`、`comments`，并保留 `iwara_likes`、`iwara_views`、`iwara_comments` 别名
+- 描述和标签：`plot`、`outline`、重复写入的 `genre`/`tag`，以及可选的 `tags_json`
+- 封面：仅当本地封面已经存在时写入 `thumb`，内容为与视频同目录的文件名
+
+标准字段与 Iwara 专用字段会同时写入，便于媒体中心识别，也不会丢失 Iwara 原始信息。已有 NFO 不会在启动时自动改写；升级后需要重新下载、重新生成元数据，或使用外部工具重新生成，才会得到新增的标准字段。

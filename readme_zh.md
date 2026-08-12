@@ -15,11 +15,7 @@
 - 状态机下载调度，减少 URL 过期问题。
 - 本地去重 + SQLite 历史记录中心。
 - 支持作者页、播放列表、搜索链接批量入队。
-- 新增 Fluent 搜索页：支持 Oreno3D 在线视频搜索、Iwara 实时视频/作者/播放列表搜索，以及中日英 tag 候选。
-- 搜索结果支持分页、批量加入下载队列，封面/头像按需缓存到 `data/img/search`。
-- 搜索结果支持网格/列表视图；网格可设置每行列数，列表字段可像订阅页一样自定义和持久化。
-- Oreno3D 搜索只作为在线桥接，不建立几十万条视频的本地镜像；搜索结果按条目异步获取 Iwara ID，再通过 Iwara API 补齐标题、作者、播放、点赞、评论和标签，最终直接进入 `iwara.tv/video/{id}`。设置页可选择后台预解析或点击/下载时解析，并调整 Oreno3D ID 并发数。
-- 搜索页直接复用下载规则，统一处理筛选、命名、封面、NFO 和下载行为。
+- 支持更好的 Iwara 搜索：支持 Oreno3D 在线视频搜索、Iwara 实时视频/作者/播放列表搜索，以及中日英 tag 候选。
 - 本地订阅管理，支持区分 Iwara 账户订阅、本地作者和订阅列表，导入关注作者时会覆盖同名本地作者来源；支持刷新追踪、新增统计和列表/封面视图。
 - 命名规则统一管理点赞、播放、日期、标签、标题关键词、命名模板和下载行为。
 - 搜索下载上限可单独配置。
@@ -53,12 +49,31 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 `sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
 `tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
 
+## 本地数据与缓存
+
+应用运行数据默认位于 `data/`，不同用途分开保存，搜索和订阅封面不会与下载规则生成的本地封面混用。
+
+| 路径 | 用途 |
+| --- | --- |
+| `data/config.ini` | 登录 token、界面、并发和下载行为配置 |
+| `data/history.db` | 下载历史与已下载状态 |
+| `data/subscriptions.db` | 订阅源、订阅视频和刷新状态 |
+| `data/rules.json` | 命名、筛选、封面和 NFO 等下载规则 |
+| `data/iwara_tags.json` | 项目生成的离线标签索引与三语字段 |
+| `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | 随程序打包的 LoveIwara MIT 标签翻译源文件 |
+| `data/tag_translations/loveiwara_iwara_tags_localized.json` | 运行时标签翻译缓存，由“更新标签”刷新 |
+| `data/img/search/` | 搜索页的 Oreno3D/Iwara 图片缓存 |
+| `data/img/sub/` | 订阅页视频封面缓存，可复用历史中的 Iwara 封面 |
+| `data/img/avatar/` | 订阅作者头像缓存；旧版 `avatar_*` 文件会在启动时迁移式复用 |
+
+编译版会把 `app/data/` 下的 LoveIwara 词典带入程序，并在程序所在目录的 `data/tag_translations/` 缺少运行时缓存时首次自动展开；已有运行时缓存会保留。开发机 `data/` 中的其他本地状态不会自动编译进程序，更新程序时仍应保留旧 `data/` 目录。
+
 ## 页面展示
 
 1. 下载工作台
 ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
 2. 搜索页
-搜索页使用 Fluent 卡片式结果网格；Oreno3D 结果来自在线搜索，Iwara 结果来自实时 API，图片缓存于 `data/img/search`。网格支持直接选择每行列数，Oreno3D 卡片只保留原站缩略图，另有不加载缩略图的列表模式和左右翻页；列表字段可像订阅页一样自定义。Oreno3D 数据源仅开放视频/标签搜索，作者和播放列表需切换 Iwara API。
+![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
 3. 订阅页
 ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
 4. 历史记录页

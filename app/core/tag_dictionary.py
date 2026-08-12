@@ -1,14 +1,18 @@
 """Multi-language Iwara tag dictionary and autocomplete helpers.
 
-The LoveIwara dictionary is fetched on demand and cached under ``data``.  The
-application also understands the project's generated ``data/iwara_tags.json``
-so tag suggestions remain available offline on existing installations.
+The LoveIwara dictionary is shipped as an application resource, expanded into
+the runtime ``data`` directory on first launch, and refreshed there on demand.
+The application also understands the project's generated
+``data/iwara_tags.json`` so tag suggestions remain available offline on
+existing installations.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 import threading
 import unicodedata
 from dataclasses import dataclass
@@ -23,6 +27,31 @@ LOVEIWARA_TAGS_URL = (
     "master/tool/data/iwara_tags/iwara_tags_localized.json"
 )
 LOVEIWARA_TAGS_SOURCE = "FoxSensei001/LoveIwara tool/data/iwara_tags/iwara_tags_localized.json"
+LOVEIWARA_TAGS_FILENAME = "loveiwara_iwara_tags_localized.json"
+LOVEIWARA_TAGS_BUNDLED_RELATIVE_PATH = os.path.join(
+    "data", "tag_translations", LOVEIWARA_TAGS_FILENAME
+)
+
+
+def _bundled_tag_path() -> str | None:
+    """Return the bundled dictionary path in source and Nuitka layouts."""
+
+    module_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    executable_root = os.path.dirname(os.path.abspath(sys.argv[0] or os.curdir))
+    candidates = (
+        os.path.join(module_root, LOVEIWARA_TAGS_BUNDLED_RELATIVE_PATH),
+        os.path.join(executable_root, "app", LOVEIWARA_TAGS_BUNDLED_RELATIVE_PATH),
+        os.path.join(executable_root, LOVEIWARA_TAGS_BUNDLED_RELATIVE_PATH),
+    )
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = os.path.abspath(candidate)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,12 +89,42 @@ class TagDictionary:
         self.cache_path = os.path.join(
             self.data_dir,
             "tag_translations",
-            "loveiwara_iwara_tags_localized.json",
+            LOVEIWARA_TAGS_FILENAME,
         )
         self._entries: dict[str, TagSuggestion] = {}
         self._aliases: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._ensure_bundled_cache()
         self.reload()
+
+    def _ensure_bundled_cache(self) -> None:
+        """Expand the packaged dictionary without replacing user data."""
+
+        try:
+            if os.path.isfile(self.cache_path) and os.path.getsize(self.cache_path) > 0:
+                return
+        except OSError:
+            pass
+
+        source_path = _bundled_tag_path()
+        if not source_path or os.path.abspath(source_path) == os.path.abspath(self.cache_path):
+            return
+
+        temp_path = f"{self.cache_path}.{os.getpid()}.{threading.get_ident()}.bundle.tmp"
+        try:
+            os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+            shutil.copyfile(source_path, temp_path)
+            os.replace(temp_path, self.cache_path)
+        except OSError:
+            # A read-only data directory should not prevent the application from
+            # using the bundled resource or the generated tag cache.
+            pass
+        finally:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
 
     @property
     def count(self) -> int:

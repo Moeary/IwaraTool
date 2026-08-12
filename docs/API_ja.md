@@ -1,6 +1,6 @@
 # IwaraTool API ノート（日本語）
 
-[English](./API.md) | [简体中文](./API.zh.md)
+[English](./API.md) | [简体中文](./API_zh.md)
 
 このドキュメントは、現在このプロジェクトで実装済みの API 機能をまとめたものです。
 
@@ -120,3 +120,12 @@
   - `--translation-map path/to/map.json` で上書き可能
 - 例：
   - `pixi run python app/core/crawl_iwara_tags.py`
+
+### ローカル翻訳キャッシュ
+
+- プロジェクト生成のオフライン索引：`data/iwara_tags.json`
+- LoveIwara MIT 翻訳キャッシュ：`data/tag_translations/loveiwara_iwara_tags_localized.json`
+- 検索ページは LoveIwara キャッシュを優先し、無い場合は `data/iwara_tags.json` にフォールバックします。
+- 「タグを更新」で必要な時だけ取得し、起動時にネットワークを必須としません。
+- 同梱ソースは `app/data/tag_translations/loveiwara_iwara_tags_localized.json` で、Nuitka と GitHub Actions のビルドに明示的に含めます。
+- 初回起動時、実行ファイル隣の `data/tag_translations/` にキャッシュが無ければ内蔵辞書を自動展開します。既存のユーザーキャッシュは置き換えません。

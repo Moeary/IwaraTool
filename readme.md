@@ -14,6 +14,8 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Stateful scheduler to avoid early URL expiration.
 - Local dedup + SQLite history center.
 - Batch enqueue from user profile, playlist, and search URLs.
+- Fluent search page with online Oreno3D video/tag search, live Iwara video/author/playlist search, bilingual/trilingual tag suggestions, pagination, grid/list views, and configurable columns.
+- Oreno3D is used only as an online search bridge: the app resolves the Iwara ID, hydrates metadata from the Iwara API, and opens the canonical `iwara.tv/video/{id}` page without mirroring the Oreno3D catalog locally.
 - Local subscription management with followed-author import, refresh tracking, new-item counts, and list/cover views.
 - Named rules for likes, views, date range, tags, title keywords, naming templates, and download behavior.
 - Search-only result cap.
@@ -22,6 +24,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Runtime light/dark theme switching.
 - Filename template placeholders for flexible naming and directory layout.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
+- Download rules can generate Emby/Kodi/Jellyfin-friendly `<movie>` NFO sidecars with standard metadata fields plus Iwara IDs and statistics.
 - History center with search, filters, sorting, open-file actions, rename, and moved-record cleanup.
 - Configurable table columns, persistent widths/order, and responsive split layouts.
 - Retry now cleans matching temporary cache files before re-downloading.
@@ -48,21 +51,47 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` supports see [Tag index](./docs/iwara_tags.md).
 
+## Local Data and Caches
+
+Runtime data is stored under `data/` and is separated by purpose:
+
+| Path | Purpose |
+| --- | --- |
+| `data/config.ini` | Token, UI, concurrency, and download behavior settings |
+| `data/history.db` | Download history and local file state |
+| `data/subscriptions.db` | Subscription sources, videos, and refresh state |
+| `data/rules.json` | Named download rules |
+| `data/iwara_tags.json` | Generated offline tag index with localized fields |
+| `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | Bundled MIT-licensed LoveIwara translation source |
+| `data/tag_translations/loveiwara_iwara_tags_localized.json` | Runtime translation cache, refreshed by “Update Tags” |
+| `data/img/search/` | Search-page image cache |
+| `data/img/sub/` | Subscription-page video cover cache |
+| `data/img/avatar/` | Subscription author avatar cache |
+
+Packaged builds embed the LoveIwara dictionary under `app/data/` and expand it to `data/tag_translations/` beside the executable on first run when no runtime cache exists. Existing runtime caches are kept. Other files from the development machine's `data/` directory are not embedded; keep that directory beside an updated executable to retain local state.
+
+When NFO generation is enabled in a download rule, the NFO is written beside the video with the same base name. New files include standard movie metadata fields for media-center import and retain Iwara-specific aliases; existing NFO files are not rewritten automatically.
+
+The search page keeps Oreno3D results online and only caches the current result images. Oreno3D supports video/tag search in this bridge; switch to the Iwara live API for author or playlist results.
+
 ## Screenshots
 
 1. Download Workbench
 
    ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
-2. Subscriptions
+2. Search
+
+   ![Search](./docs/panel_view/iwaratool_search_panel.jpg)
+3. Subscriptions
 
    ![Subscriptions](./docs/panel_view/iwaratool_subscription_panel.jpg)
-3. History
+4. History
 
    ![History](./docs/panel_view/iwaratool_history_panel.jpg)
-4. Rules
+5. Rules
 
    ![Rules](./docs/panel_view/iwaratool_rule_panel.jpg)
-5. Settings
+6. Settings
 
    ![Settings](./docs/panel_view/iwaratool_settings_panel.jpg)
 

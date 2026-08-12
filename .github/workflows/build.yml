@@ -60,6 +60,7 @@ jobs:
             --include-package-data=cloudscraper \
             --windows-icon-from-ico=app/icon.ico \
             --include-data-file=app/icon.ico=app/icon.ico \
+            --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
             --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe" \
             --output-dir=dist \
             --remove-output \
@@ -79,6 +80,7 @@ jobs:
             --enable-plugin=pyside6 \
             --include-package-data=cloudscraper \
             --include-data-file=app/icon.ico=app/icon.ico \
+            --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
             --output-filename="IwaraTool-Linux-AMD64-${VERSION}" \
             --output-dir=dist \
             --remove-output \

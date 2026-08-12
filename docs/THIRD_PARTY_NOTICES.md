@@ -2,9 +2,12 @@
 
 ## LoveIwara localized Iwara tag dictionary
 
-IwaraTool can download and cache the localized tag dictionary used by
-LoveIwara for search suggestions and multilingual matching. The application
-does not bundle the file; it is fetched on demand from:
+IwaraTool bundles the localized tag dictionary used by LoveIwara for search
+suggestions and multilingual matching at
+`app/data/tag_translations/loveiwara_iwara_tags_localized.json`. On first run,
+the file is expanded to `data/tag_translations/`; an existing user cache is
+kept and is never replaced by the bundled copy. The application can refresh
+the cache from:
 
 - Source repository: <https://github.com/FoxSensei001/LoveIwara>
 - Source file: <https://github.com/FoxSensei001/LoveIwara/blob/master/tool/data/iwara_tags/iwara_tags_localized.json>

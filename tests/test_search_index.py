@@ -134,7 +134,12 @@ class SearchOnlineTests(unittest.TestCase):
 
     def test_tag_dictionary_suggests_and_canonicalizes_localized_values(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = os.path.join(directory, "iwara_tags.json")
+            translation_directory = os.path.join(directory, "tag_translations")
+            os.makedirs(translation_directory)
+            path = os.path.join(
+                translation_directory,
+                "loveiwara_iwara_tags_localized.json",
+            )
             with open(path, "w", encoding="utf-8") as stream:
                 json.dump(
                     {
@@ -152,6 +157,35 @@ class SearchOnlineTests(unittest.TestCase):
             self.assertEqual(dictionary.canonical_key("Genshin Impact"), "genshin")
             self.assertEqual(dictionary.entry_for("genshin").zh, "原神")
             self.assertEqual(dictionary.suggest("原", limit=1)[0].key, "genshin")
+
+    def test_tag_dictionary_expands_bundled_dictionary_to_empty_data_dir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dictionary = TagDictionary(data_dir=directory)
+            cache_path = os.path.join(
+                directory,
+                "tag_translations",
+                "loveiwara_iwara_tags_localized.json",
+            )
+            self.assertTrue(os.path.isfile(cache_path))
+            with open(cache_path, "r", encoding="utf-8") as stream:
+                self.assertTrue(json.load(stream))
+            self.assertGreater(dictionary.count, 0)
+
+    def test_tag_dictionary_preserves_existing_translation_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache_directory = os.path.join(directory, "tag_translations")
+            os.makedirs(cache_directory)
+            cache_path = os.path.join(
+                cache_directory,
+                "loveiwara_iwara_tags_localized.json",
+            )
+            with open(cache_path, "w", encoding="utf-8") as stream:
+                json.dump({"custom-tag": {"en": "Custom tag"}}, stream)
+
+            dictionary = TagDictionary(data_dir=directory)
+
+            self.assertEqual(dictionary.canonical_key("Custom tag"), "custom-tag")
+            self.assertEqual(dictionary.count, 1)
 
     def test_online_search_forwards_keyword_and_page_to_oreno3d(self):
         session = _FakeSession(
