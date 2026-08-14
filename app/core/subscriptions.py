@@ -112,8 +112,8 @@ class SubscriptionStore:
                     if not source_type or not source_key:
                         continue
                     target.execute(
-                        "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, enabled, last_checked_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                        "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, enabled, created_at, last_checked_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?) "
                         "ON CONFLICT(source_type, source_key) DO UPDATE SET "
                         "source_origin=CASE WHEN excluded.source_origin != '' THEN excluded.source_origin ELSE source_origin END, "
                         "title=CASE WHEN excluded.title != '' THEN excluded.title ELSE title END, "
@@ -128,6 +128,7 @@ class SubscriptionStore:
                             str(source.get("title", "") or source_key),
                             str(source.get("remote_id", "") or ""),
                             1 if int(source.get("enabled", 1) or 0) else 0,
+                            str(source.get("created_at", "") or ""),
                             str(source.get("last_checked_at", "") or ""),
                         ),
                     )
@@ -544,8 +545,8 @@ class SubscriptionStore:
                     continue
                 conn.execute(
                     "INSERT OR IGNORE INTO sources "
-                    "(source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, created_at, last_checked_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?)",
                     (
                         source_type,
                         _normalize_source_origin(source.get("source_origin", ""))
@@ -556,6 +557,7 @@ class SubscriptionStore:
                         str(source.get("avatar_url", "") or ""),
                         str(source.get("avatar_path", "") or ""),
                         1 if int(source.get("enabled", 1) or 0) else 0,
+                        str(source.get("created_at", "") or ""),
                         str(source.get("last_checked_at", "") or ""),
                     ),
                 )
@@ -564,11 +566,11 @@ class SubscriptionStore:
     def _export_sources_backup(self, conn: sqlite3.Connection):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at "
+            "SELECT source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, created_at, last_checked_at "
             "FROM sources ORDER BY source_type ASC, title COLLATE NOCASE ASC"
         ).fetchall()
         payload = {
-            "version": 2,
+            "version": 3,
             "sources": [dict(row) for row in rows],
         }
         tmp_path = f"{self._backup_path}.tmp"
@@ -584,6 +586,11 @@ class SubscriptionStore:
             "source_origin": "TEXT NOT NULL DEFAULT 'local'",
             "avatar_url": "TEXT DEFAULT ''",
             "avatar_path": "TEXT DEFAULT ''",
+            # ``created_at`` is present in new databases, but older installs
+            # need a migration so the import-time column remains available.
+            # SQLite does not allow CURRENT_TIMESTAMP in ALTER TABLE defaults;
+            # blank legacy values are filled immediately below.
+            "created_at": "TEXT DEFAULT ''",
         }
         origin_was_added = "source_origin" not in existing
         for col, ddl in required.items():
@@ -597,6 +604,10 @@ class SubscriptionStore:
             "WHEN 'playlist' THEN 'playlist' "
             "ELSE 'local' END "
             + ("" if origin_was_added else "WHERE source_origin IS NULL OR source_origin=''")
+        )
+        conn.execute(
+            "UPDATE sources SET created_at=CURRENT_TIMESTAMP "
+            "WHERE created_at IS NULL OR created_at=''"
         )
         # Feed/list rows cannot be local author subscriptions. This also
         # repairs databases initialized by the first version of this migration

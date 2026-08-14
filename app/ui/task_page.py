@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     ComboBox,
     FluentIcon,
@@ -23,6 +24,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
+    RoundMenu,
     SwitchButton,
     TableWidget,
     TitleLabel,
@@ -274,7 +276,9 @@ class TaskCenterInterface(QWidget):
             ]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # ExtendedSelection gives the table native Ctrl-click toggles and
+        # Shift-click range selection without a second selection model.
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setBorderVisible(True)
@@ -285,6 +289,8 @@ class TaskCenterInterface(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(34)
         self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._table.cellClicked.connect(self._on_cell_clicked)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -784,9 +790,127 @@ class TaskCenterInterface(QWidget):
         elif action == "remove":
             self._remove_task(task_id)
 
-    def _set_selected_priority(self):
+    def _selected_task_ids(self) -> list[str]:
+        if not hasattr(self, "_table"):
+            return []
+        rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
+        task_ids = [
+            self._visible_task_ids[row]
+            for row in rows
+            if 0 <= row < len(self._visible_task_ids)
+        ]
+        if task_ids:
+            return task_ids
         row = self._table.currentRow()
-        if row < 0 or row >= len(self._visible_task_ids):
+        if 0 <= row < len(self._visible_task_ids):
+            return [self._visible_task_ids[row]]
+        return []
+
+    def _selected_tasks_by_status(self, task_ids: list[str]) -> dict[TaskStatus, list[str]]:
+        grouped: dict[TaskStatus, list[str]] = {}
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None:
+                continue
+            grouped.setdefault(task.status, []).append(task_id)
+        return grouped
+
+    def _show_context_menu(self, position):
+        item = self._table.itemAt(position)
+        if item is not None:
+            selected_rows = {index.row() for index in self._table.selectionModel().selectedRows()}
+            if item.row() not in selected_rows:
+                self._table.clearSelection()
+                self._table.selectRow(item.row())
+
+        task_ids = self._selected_task_ids()
+        if not task_ids:
+            return
+        grouped = self._selected_tasks_by_status(task_ids)
+        failed_ids = grouped.get(TaskStatus.FAILED, [])
+        cancelled_ids = grouped.get(TaskStatus.CANCELLED, [])
+        cancelling_ids = grouped.get(TaskStatus.CANCELLING, [])
+        interruptible_ids = [
+            task_id
+            for status, ids in grouped.items()
+            if status in _ACTIVE_STATUSES and status != TaskStatus.CANCELLING
+            for task_id in ids
+        ]
+
+        menu = RoundMenu(parent=self)
+        if failed_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.SYNC,
+                    tr(
+                        f"Retry selected failed ({len(failed_ids)})",
+                        f"重试所选失败任务（{len(failed_ids)}）",
+                        f"選択した失敗タスクを再試行（{len(failed_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(failed_ids): self._retry_task_ids(ids),
+                )
+            )
+        if cancelled_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.RETURN,
+                    tr(
+                        f"Restore selected cancelled ({len(cancelled_ids)})",
+                        f"恢复所选中断任务（{len(cancelled_ids)}）",
+                        f"選択した中断タスクを復元（{len(cancelled_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(cancelled_ids): self._restore_task_ids(ids),
+                )
+            )
+        if interruptible_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.CANCEL,
+                    tr(
+                        f"Interrupt selected active ({len(interruptible_ids)})",
+                        f"中断所选进行中任务（{len(interruptible_ids)}）",
+                        f"選択した実行中タスクを中断（{len(interruptible_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(interruptible_ids): self._cancel_task_ids(ids),
+                )
+            )
+        if cancelling_ids and not interruptible_ids:
+            # Keep the menu honest for rows that are already waiting for a
+            # cancellation callback; requesting it again has no effect.
+            menu.addAction(
+                Action(
+                    FluentIcon.INFO,
+                    tr(
+                        f"Cancellation already requested ({len(cancelling_ids)})",
+                        f"已请求中断（{len(cancelling_ids)}）",
+                        f"中断要求済み（{len(cancelling_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False: None,
+                )
+            )
+        if menu.actions():
+            menu.addSeparator()
+        menu.addAction(
+            Action(
+                FluentIcon.DELETE,
+                tr(
+                    f"Remove selected tasks ({len(task_ids)})",
+                    f"移除所选任务（{len(task_ids)}）",
+                    f"選択したタスクを削除（{len(task_ids)}）",
+                ),
+                self,
+                triggered=lambda _checked=False, ids=tuple(task_ids): self._remove_task_ids(ids),
+            )
+        )
+        menu.exec(self._table.viewport().mapToGlobal(position))
+
+    def _set_selected_priority(self):
+        task_ids = self._selected_task_ids()
+        if not task_ids:
             InfoBar.warning(
                 title=tr("Select a task", "请选择任务", "タスクを選択してください"),
                 content="",
@@ -797,9 +921,10 @@ class TaskCenterInterface(QWidget):
                 parent=self,
             )
             return
-        task_id = self._visible_task_ids[row]
         priority = int(self._priority_combo.currentData() or 0)
-        download_manager.set_task_priority(task_id, priority)
+        for task_id in task_ids:
+            download_manager.set_task_priority(task_id, priority)
+        self._schedule_refresh(0)
 
     def _retry_task(self, task_id: str):
         download_manager.retry_task(task_id)
@@ -826,6 +951,86 @@ class TaskCenterInterface(QWidget):
 
     def _remove_task(self, task_id: str):
         download_manager.remove_task(task_id)
+
+    def _retry_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        ids = [
+            task_id
+            for task_id in task_ids
+            if self._tasks_by_id.get(task_id)
+            and self._tasks_by_id[task_id].status == TaskStatus.FAILED
+        ]
+        for task_id in ids:
+            download_manager.retry_task(task_id)
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Retry requested", "已请求重试", "再試行を要求しました"),
+            tr(
+                f"Retried {len(ids)} failed tasks",
+                f"已重试 {len(ids)} 个失败任务",
+                f"失敗タスク {len(ids)} 件を再試行しました",
+            ),
+        )
+
+    def _restore_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        restored = 0
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None or task.status != TaskStatus.CANCELLED:
+                continue
+            if download_manager.restore_cancelled_task(task_id):
+                restored += 1
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Restore requested", "已请求恢复", "復元を要求しました"),
+            tr(
+                f"Restored {restored} cancelled tasks",
+                f"已恢复 {restored} 个中断任务",
+                f"中断タスク {restored} 件を復元しました",
+            ),
+        )
+
+    def _cancel_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        cancelled = 0
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None or task.status not in _ACTIVE_STATUSES or task.status == TaskStatus.CANCELLING:
+                continue
+            if download_manager.cancel_task(task_id):
+                cancelled += 1
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Interrupt requested", "已请求中断", "中断を要求しました"),
+            tr(
+                f"Requested interruption for {cancelled} active tasks",
+                f"已请求中断 {cancelled} 个进行中任务",
+                f"実行中タスク {cancelled} 件に中断を要求しました",
+            ),
+        )
+
+    def _remove_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        ids = [task_id for task_id in task_ids if task_id in self._tasks_by_id]
+        for task_id in ids:
+            download_manager.remove_task(task_id)
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Tasks removed", "任务已移除", "タスクを削除しました"),
+            tr(
+                f"Removed {len(ids)} selected tasks",
+                f"已移除 {len(ids)} 个所选任务",
+                f"選択したタスク {len(ids)} 件を削除しました",
+            ),
+        )
+
+    def _show_bulk_feedback(self, title: str, content: str):
+        InfoBar.info(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
 
     def _open_task(self, task_id: str):
         ok, message = download_manager.open_task_output(task_id)

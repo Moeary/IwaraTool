@@ -9,9 +9,14 @@ from app.core.oreno3d import (
     parse_detail_page,
     parse_listing_page,
 )
-from app.core.search import SearchVideo, normalize_oreno3d_listing
+from app.core.search import SearchAuthor, SearchVideo, normalize_oreno3d_listing
 from app.core.tag_dictionary import TagDictionary
-from app.ui.search_page import SearchInterface, SearchOrenoLinkWorker
+from app.ui.search_page import (
+    SearchInterface,
+    SearchIwaraAuthorWorker,
+    SearchOrenoLinkWorker,
+    _author_subscription_target,
+)
 
 
 class _FakeResponse:
@@ -35,6 +40,115 @@ class _FakeSession:
 
 
 class SearchOnlineTests(unittest.TestCase):
+    def test_search_result_author_target_is_normalized_for_subscription(self):
+        author = _author_subscription_target(
+            SearchAuthor(
+                author_id="user-1",
+                username="@creator",
+                name="Creator Display",
+                avatar_url="https://img/avatar.jpg",
+            )
+        )
+        self.assertEqual(
+            author,
+            ("creator", "Creator Display", "user-1", "https://img/avatar.jpg"),
+        )
+
+        video = SearchVideo(
+            video_id="video-1",
+            title="Example",
+            author_username="",
+            author_name="Oreno Creator",
+            raw={"user": {"username": "oreno-creator", "id": "user-2"}},
+        )
+        self.assertEqual(
+            _author_subscription_target(video),
+            ("oreno-creator", "Oreno Creator", "user-2", ""),
+        )
+
+        bridge = normalize_oreno3d_listing(
+            {
+                "id": "movie-1",
+                "title": "Oreno title",
+                "author": "oreno-uploader",
+                "oreno3d_url": "https://oreno3d.com/movies/movie-1",
+            }
+        )
+        self.assertIsNotNone(bridge)
+        self.assertIsNone(_author_subscription_target(bridge))
+        bridge.raw.update(
+            {
+                "_iwara_metadata_loaded": True,
+                "user": {"id": "iwara-1", "username": "iwara-author", "name": "Iwara Author"},
+            }
+        )
+        self.assertEqual(
+            _author_subscription_target(bridge),
+            ("iwara-author", "Iwara Author", "iwara-1", ""),
+        )
+        bridge.raw["user"] = {}
+        self.assertIsNone(_author_subscription_target(bridge))
+
+    def test_author_context_action_persists_source_and_emits_feedback(self):
+        class _FakeManager:
+            def __init__(self):
+                self.call = None
+
+            def add_author_subscription(self, *args, **kwargs):
+                self.call = (args, kwargs)
+                return 42
+
+        fake_manager = _FakeManager()
+        # The success branch only uses the object as the InfoBar parent; an
+        # ordinary object keeps this regression test independent of Qt object
+        # lifetime and still exercises the real unbound method.
+        page = object()
+        class _FakeSignal:
+            def __init__(self):
+                self.calls = []
+
+            def emit(self, *args):
+                self.calls.append(args)
+
+        class _FakeBus:
+            def __init__(self):
+                self.subscription_source_added = _FakeSignal()
+                self.log_message = _FakeSignal()
+
+        fake_bus = _FakeBus()
+        with (
+            patch("app.ui.search_page.download_manager", fake_manager),
+            patch("app.ui.search_page.InfoBar.success") as success,
+            patch("app.ui.search_page.signal_bus", fake_bus),
+        ):
+            SearchInterface._subscribe_to_author(
+                page,
+                ("creator", "Creator Display", "user-1", "https://img/avatar.jpg")
+            )
+
+        self.assertEqual(
+            fake_manager.call,
+            (
+                ("creator",),
+                {
+                    "title": "Creator Display",
+                    "remote_id": "user-1",
+                    "avatar_url": "https://img/avatar.jpg",
+                },
+            ),
+        )
+        self.assertEqual(fake_bus.subscription_source_added.calls, [(42,)])
+        success.assert_called_once()
+
+    def test_author_menu_callback_keeps_target_when_qaction_emits_checked(self):
+        target = ("creator", "Creator Display", "user-1", "")
+        captured = []
+        callback = lambda _checked=False, target=target: captured.append(target)
+        # QAction.triggered emits a checked bool; preserve the closed-over
+        # target instead of letting that bool replace it.
+        callback(False)
+        self.assertEqual(captured, [target])
+
     def test_oreno_worker_uses_iwara_id_url_and_api_metadata(self):
         class _FakeManager:
             def resolve_oreno3d_video_id(self, source_id, source_url):
@@ -62,6 +176,85 @@ class SearchOnlineTests(unittest.TestCase):
         self.assertEqual(link["id"], "iwara-1")
         self.assertEqual(link["url"], "https://www.iwara.tv/video/iwara-1")
         self.assertEqual(link["metadata"]["title"], "Iwara title")
+
+    def test_iwara_author_worker_fetches_video_details_before_subscription(self):
+        class _FakeManager:
+            def __init__(self):
+                self.video_ids = []
+
+            def get_iwara_video_info(self, video_id):
+                self.video_ids.append(video_id)
+                return {
+                    "id": video_id,
+                    "title": "Iwara title",
+                    "user": {"id": "author-1", "username": "iwara-author"},
+                }, ""
+
+        fake_manager = _FakeManager()
+        results = []
+        with patch("app.ui.search_page.download_manager", fake_manager):
+            worker = SearchIwaraAuthorWorker(9, "iwara-1")
+            worker.result_ready.connect(results.append)
+            worker.run()
+
+        self.assertEqual(fake_manager.video_ids, ["iwara-1"])
+        self.assertEqual(results[0]["generation"], 9)
+        self.assertEqual(results[0]["video_id"], "iwara-1")
+        self.assertEqual(results[0]["metadata"]["user"]["username"], "iwara-author")
+        self.assertEqual(results[0]["error"], "")
+
+    def test_iwara_author_result_hydrates_bridge_and_subscribes_iwara_user(self):
+        bridge = normalize_oreno3d_listing(
+            {
+                "id": "movie-2",
+                "title": "Oreno title",
+                "author": "oreno-uploader",
+                "oreno3d_url": "https://oreno3d.com/movies/movie-2",
+            }
+        )
+        self.assertIsNotNone(bridge)
+        interface = SearchInterface.__new__(SearchInterface)
+        interface._generation = 10
+        interface._all_videos = [bridge]
+        interface._pending_author_subscription_video_ids = {bridge.video_id}
+        subscribed = []
+        interface._update_video_presentation = lambda _video: None
+        interface._start_image_loading = lambda: None
+        interface._subscribe_to_author = subscribed.append
+        interface._show_warning = lambda _message: self.fail(_message)
+
+        SearchInterface._apply_oreno_link(
+            interface,
+            bridge,
+            {
+                "id": "iwara-2",
+                "url": "https://www.iwara.tv/video/iwara-2",
+                "metadata": {},
+            },
+        )
+        SearchInterface._on_iwara_author_result(
+            interface,
+            {
+                "generation": 10,
+                "video_id": "iwara-2",
+                "metadata": {
+                    "id": "iwara-2",
+                    "title": "Iwara title",
+                    "user": {
+                        "id": "iwara-author-2",
+                        "username": "iwara-author-2",
+                        "name": "Iwara Author",
+                    },
+                },
+                "error": "",
+            },
+        )
+
+        self.assertEqual(
+            subscribed,
+            [("iwara-author-2", "Iwara Author", "iwara-author-2", "")],
+        )
+        self.assertEqual(bridge.raw["_iwara_metadata_loaded"], True)
 
     def test_oreno_worker_can_emit_ids_without_waiting_for_metadata(self):
         class _FakeManager:

@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QSizePolicy,
     QStackedWidget,
     QTableWidgetItem,
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CardWidget,
     ComboBox,
@@ -36,6 +36,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    RoundMenu,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
@@ -68,6 +69,7 @@ from ..core.search import (
 )
 from ..core.tag_dictionary import TagSuggestion
 from ..i18n import tr
+from ..signal_bus import signal_bus
 from .rules_page import RulePicker
 from .ui_state import (
     connect_table_column_saver,
@@ -142,6 +144,109 @@ def _extract_playlist_id(value: str) -> str:
 def _extract_iwara_video_id(value: str) -> str:
     match = re.search(r"/video/([^/?#]+)", str(value or ""))
     return match.group(1) if match else ""
+
+
+def _author_subscription_target(
+    value: SearchAuthor | SearchVideo | object,
+) -> tuple[str, str, str, str] | None:
+    """Return ``(username, title, remote_id, avatar_url)`` for one result."""
+
+    def _field_text(candidate: object, *keys: str) -> str:
+        if isinstance(candidate, dict):
+            for key in keys:
+                raw_value = candidate.get(key)
+                if isinstance(raw_value, str) and raw_value.strip():
+                    return raw_value.strip()
+        return ""
+
+    def _author_key(candidate: object) -> str:
+        text = str(candidate or "").strip()
+        if not text:
+            return ""
+        # Search adapters may return a profile URL instead of a username.
+        # Keep the last profile segment so the subscription store receives the
+        # same key as a manually entered author subscription.
+        match = re.search(r"/(?:profile|user|author)/([^/?#]+)", text, re.IGNORECASE)
+        if match:
+            text = match.group(1)
+        return text.lstrip("@").strip().strip("/")
+
+    if isinstance(value, SearchAuthor):
+        raw = value.raw if isinstance(value.raw, dict) else {}
+        raw_profile = raw.get("profile") if isinstance(raw.get("profile"), dict) else {}
+        username = _author_key(
+            value.username
+            or _field_text(raw, "username", "slug", "author_username")
+            or _field_text(raw_profile, "username", "slug")
+        )
+        if not username:
+            return None
+        return (
+            username,
+            str(value.name or _field_text(raw, "name", "displayName") or username).strip() or username,
+            str(value.author_id or _field_text(raw, "id", "userId", "author_id")).strip(),
+            str(value.avatar_url or _field_text(raw, "avatar_url", "avatar", "image")).strip(),
+        )
+    if not isinstance(value, SearchVideo):
+        return None
+
+    raw = value.raw if isinstance(value.raw, dict) else {}
+    # An Oreno3D card carries Oreno's uploader name, which is not an Iwara
+    # account.  Do not turn that bridge-side label into a local Iwara source
+    # until the linked Iwara video metadata has been hydrated.
+    if raw.get("oreno3d_url") and raw.get("_iwara_metadata_loaded") is not True:
+        return None
+    raw_user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
+    raw_author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
+    bridge_metadata_loaded = bool(
+        raw.get("oreno3d_url") and raw.get("_iwara_metadata_loaded") is True
+    )
+    if bridge_metadata_loaded:
+        # Once the bridge has been hydrated, only fields from the Iwara
+        # payload may identify the account.  Falling back to the Oreno card's
+        # uploader here would silently subscribe the wrong site user.
+        username = _author_key(
+            _field_text(raw_user, "username", "slug", "handle")
+            or _field_text(raw_author, "username", "slug", "handle")
+            or _field_text(raw, "username", "slug", "author_username")
+        )
+    else:
+        username = _author_key(
+            value.author_username
+            or _field_text(raw_user, "username", "slug", "handle")
+            or _field_text(raw_author, "username", "slug", "handle")
+            or _field_text(raw, "username", "slug", "author_username", "author_url")
+            or value.author_name
+            or _field_text(raw, "author_name", "author")
+        )
+    if not username:
+        return None
+    if bridge_metadata_loaded:
+        title = str(
+            _field_text(raw_user, "name", "displayName")
+            or _field_text(raw_author, "name", "displayName")
+            or _field_text(raw, "author_name")
+            or username
+        ).strip() or username
+    else:
+        title = str(
+            value.author_name
+            or _field_text(raw_user, "name", "displayName")
+            or _field_text(raw_author, "name", "displayName")
+            or _field_text(raw, "author_name", "author")
+            or username
+        ).strip() or username
+    remote_id = str(
+        _field_text(raw_user, "id", "userId", "author_id")
+        or _field_text(raw_author, "id", "userId", "author_id")
+        or _field_text(raw, "user_id", "author_id")
+    ).strip()
+    avatar_url = str(
+        _field_text(raw_user, "avatar_url", "avatar", "image")
+        or _field_text(raw_author, "avatar_url", "avatar", "image")
+        or _field_text(raw, "avatar_url", "author_avatar")
+    ).strip()
+    return username, title, remote_id, avatar_url
 
 
 def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str:
@@ -746,6 +851,35 @@ class SearchOrenoLinkWorker(QThread):
         )
 
 
+class SearchIwaraAuthorWorker(QThread):
+    """Hydrate one Iwara video's metadata before author subscription."""
+
+    result_ready = Signal(object)
+
+    def __init__(self, generation: int, video_id: str):
+        super().__init__()
+        self.generation = generation
+        self.video_id = str(video_id or "").strip()
+
+    def run(self):
+        metadata: dict[str, Any] = {}
+        error = ""
+        try:
+            value, error = download_manager.get_iwara_video_info(self.video_id)
+            if isinstance(value, dict):
+                metadata = dict(value)
+        except Exception as exc:
+            error = str(exc)
+        self.result_ready.emit(
+            {
+                "generation": self.generation,
+                "video_id": self.video_id,
+                "metadata": metadata,
+                "error": str(error or ""),
+            }
+        )
+
+
 class SearchInterface(QWidget):
     """Search page with Fluent controls, cached covers, and a configurable list."""
 
@@ -782,11 +916,13 @@ class SearchInterface(QWidget):
         self._image_pending_keys: set[str] = set()
         self._grid_resize_pending = False
         self._oreno_link_workers: list[SearchOrenoLinkWorker] = []
+        self._iwara_author_workers: list[SearchIwaraAuthorWorker] = []
         self._tag_dictionary_worker: SearchTagDictionaryWorker | None = None
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
+        self._pending_author_subscription_video_ids: set[str] = set()
         self._build_ui()
 
     def _build_ui(self):
@@ -1398,11 +1534,14 @@ class SearchInterface(QWidget):
 
     def _interrupt_search_workers(self):
         self._generation += 1
+        self._pending_author_subscription_video_ids.clear()
         for worker in self._search_workers:
             worker.requestInterruption()
         for worker in self._image_workers:
             worker.requestInterruption()
         for worker in self._oreno_link_workers:
+            worker.requestInterruption()
+        for worker in self._iwara_author_workers:
             worker.requestInterruption()
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
@@ -1412,6 +1551,7 @@ class SearchInterface(QWidget):
             *self._search_workers,
             *self._image_workers,
             *self._oreno_link_workers,
+            *self._iwara_author_workers,
             self._tag_dictionary_worker,
             self._queue_resolve_worker,
         ]
@@ -1675,6 +1815,7 @@ class SearchInterface(QWidget):
             webbrowser.open(video.iwara_url)
         self._update_video_presentation(video)
         self._start_image_loading()
+        self._maybe_subscribe_pending_author(video)
         if isinstance(focused, LineEdit) and focused.isVisible():
             QTimer.singleShot(0, lambda focused=focused: self._restore_tag_edit_focus(focused))
         self._update_status()
@@ -1684,9 +1825,39 @@ class SearchInterface(QWidget):
             return
         links = result.get("links") or {}
         errors = [str(error) for error in result.get("errors") or []]
+        pending_ids = list(self._pending_author_subscription_video_ids)
+        for video_key in pending_ids:
+            video = next(
+                (candidate for candidate in self._all_videos if candidate.video_id == video_key),
+                None,
+            )
+            if video is None:
+                self._pending_author_subscription_video_ids.discard(video_key)
+                continue
+            self._maybe_subscribe_pending_author(video)
+            if video_key in self._pending_author_subscription_video_ids and (
+                video_key not in links or errors
+            ):
+                self._pending_author_subscription_video_ids.discard(video_key)
+                self._show_warning(
+                    tr(
+                        "Could not resolve the Iwara author for this Oreno3D result",
+                        "无法解析该 Oreno3D 结果对应的 Iwara 作者",
+                        "この Oreno3D 結果に対応する Iwara 作者を解析できません",
+                    )
+                )
         self._update_status()
         if errors and not links:
             self._show_warning(errors[0])
+
+    def _maybe_subscribe_pending_author(self, video: SearchVideo):
+        if video.video_id not in self._pending_author_subscription_video_ids:
+            return
+        target = _author_subscription_target(video)
+        if not target:
+            return
+        self._pending_author_subscription_video_ids.discard(video.video_id)
+        self._subscribe_to_author(target)
 
     def _cleanup_oreno_link_worker(self, worker: SearchOrenoLinkWorker):
         if worker in self._oreno_link_workers:
@@ -2257,18 +2428,302 @@ class SearchInterface(QWidget):
         values = self._selected_data()
         if not values:
             return
-        menu = QMenu(self)
+        global_position = target.viewport().mapToGlobal(position)
+        menu = RoundMenu(parent=self)
         video_values = [value for value in values if value.get("kind") == "video"]
         author_values = [value for value in values if value.get("kind") == "author"]
         if video_values:
-            queue_action = menu.addAction(tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"))
-            queue_action.triggered.connect(self._queue_selected)
-        open_action = menu.addAction(tr("Open page", "打开页面", "ページを開く"))
-        open_action.triggered.connect(self._open_selected)
+            menu.addAction(
+                Action(
+                    FluentIcon.DOWNLOAD,
+                    tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"),
+                    self,
+                    triggered=self._queue_selected,
+                )
+            )
+        author_target = self._selected_author_subscription_target(values)
+        if author_target:
+            if menu.actions():
+                menu.addSeparator()
+            menu.addAction(
+                Action(
+                    FluentIcon.PEOPLE,
+                    tr("Favorite author / add subscription", "收藏作者 / 加入订阅", "作者をお気に入り／購読に追加"),
+                    self,
+                    triggered=lambda _checked=False, target=author_target: self._subscribe_to_author(target),
+                )
+            )
+        elif len(video_values) == 1 and not author_values:
+            video = video_values[0].get("data")
+            if isinstance(video, SearchVideo) and self._needs_iwara_author_hydration(video):
+                if menu.actions():
+                    menu.addSeparator()
+                menu.addAction(
+                    Action(
+                        FluentIcon.PEOPLE,
+                        tr(
+                            "Resolve Iwara author and favorite",
+                            "解析 Iwara 作者后收藏",
+                            "Iwara 作者を解析してお気に入りに追加",
+                        ),
+                        self,
+                        triggered=lambda _checked=False, video=video: self._resolve_and_subscribe_author(video),
+                    )
+                )
+        elif video_values or author_values:
+            # Never leave a right-click without an explanation.  A few remote
+            # search records only contain a display name, or have not finished
+            # hydrating their author metadata yet; in that case expose a
+            # disabled-looking action that tells the user how to proceed.
+            if menu.actions():
+                menu.addSeparator()
+            menu.addAction(
+                Action(
+                    FluentIcon.PEOPLE,
+                    tr("Favorite author (select one result)", "收藏作者（请只选择一个结果）", "作者をお気に入りに追加（1件を選択）"),
+                    self,
+                    triggered=lambda _checked=False: self._show_warning(
+                        tr(
+                            "The selected result has no usable author name. Select one result after its author details load.",
+                            "当前结果没有可用的作者名；请等待作者信息加载后只选择一个结果。",
+                            "選択結果に利用できる作者名がありません。作者情報の読込後に1件だけ選択してください。",
+                        )
+                    ),
+                )
+            )
+        if menu.actions():
+            menu.addSeparator()
+        menu.addAction(
+            Action(
+                FluentIcon.VIEW,
+                tr("Open page", "打开页面", "ページを開く"),
+                self,
+                triggered=self._open_selected,
+            )
+        )
         if author_values and len(author_values) == 1:
-            search_action = menu.addAction(tr("Search this author's videos", "搜索该作者的视频", "この作者の動画を検索"))
-            search_action.triggered.connect(self._search_selected_author)
-        menu.exec(target.viewport().mapToGlobal(position))
+            menu.addAction(
+                Action(
+                    FluentIcon.SEARCH,
+                    tr("Search this author's videos", "搜索该作者的视频", "この作者の動画を検索"),
+                    self,
+                    triggered=self._search_selected_author,
+                )
+            )
+        menu.exec(global_position)
+
+    def _selected_author_subscription_target(
+        self,
+        values: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, str, str, str] | None:
+        """Return one author target when the current selection is unambiguous."""
+
+        targets: dict[str, tuple[str, str, str, str]] = {}
+        for value in values if values is not None else self._selected_data():
+            if value.get("kind") not in {"video", "author"}:
+                continue
+            target = _author_subscription_target(value.get("data"))
+            if target:
+                targets.setdefault(target[0].casefold(), target)
+        return next(iter(targets.values())) if len(targets) == 1 else None
+
+    @staticmethod
+    def _needs_iwara_author_hydration(video: SearchVideo) -> bool:
+        raw = video.raw if isinstance(video.raw, dict) else {}
+        if raw.get("oreno3d_url") and raw.get("_iwara_metadata_loaded") is not True:
+            return True
+        return bool(
+            video.download_video_id
+            and raw.get("_iwara_metadata_loaded") is not True
+            and not _author_subscription_target(video)
+        )
+
+    def _resolve_and_subscribe_author(self, video: SearchVideo):
+        if video.video_id in self._pending_author_subscription_video_ids:
+            self._show_warning(
+                tr(
+                    "Iwara author resolution is already running",
+                    "Iwara 作者解析已在进行中",
+                    "Iwara 作者の解析は既に実行中です",
+                )
+            )
+            return
+        self._pending_author_subscription_video_ids.add(video.video_id)
+        iwara_id = video.download_video_id or _extract_iwara_video_id(video.iwara_url)
+        if iwara_id:
+            if not video.download_video_id:
+                self._apply_oreno_link(
+                    video,
+                    {
+                        "id": iwara_id,
+                        "url": f"https://www.iwara.tv/video/{iwara_id}",
+                        "metadata": {},
+                    },
+                )
+            self._start_iwara_author_hydration(video)
+        elif video.source_kind == "oreno3d":
+            self._start_oreno_link_resolution(
+                [video],
+                priority=True,
+                hydrate_metadata=True,
+            )
+        else:
+            self._pending_author_subscription_video_ids.discard(video.video_id)
+            self._show_warning(
+                tr(
+                    "This result has no Iwara video ID to resolve",
+                    "当前结果没有可解析的 Iwara 视频 ID",
+                    "この結果には解析可能な Iwara 動画 ID がありません",
+                )
+            )
+            return
+        self._status_label.setText(
+            tr(
+                "Resolving the Iwara author…",
+                "正在解析 Iwara 作者…",
+                "Iwara 作者を解析中…",
+            )
+        )
+
+    def _start_iwara_author_hydration(self, video: SearchVideo):
+        iwara_id = str(video.download_video_id or "").strip()
+        if not iwara_id:
+            self._pending_author_subscription_video_ids.discard(video.video_id)
+            return
+        if any(
+            worker.isRunning() and worker.video_id == iwara_id
+            for worker in self._iwara_author_workers
+        ):
+            return
+        worker = SearchIwaraAuthorWorker(self._generation, iwara_id)
+        self._iwara_author_workers.append(worker)
+        worker.result_ready.connect(self._on_iwara_author_result)
+        worker.finished.connect(lambda worker=worker: self._cleanup_iwara_author_worker(worker))
+        worker.start()
+
+    def _on_iwara_author_result(self, result: object):
+        if not isinstance(result, dict) or int(result.get("generation", -1)) != self._generation:
+            return
+        iwara_id = str(result.get("video_id") or "").strip()
+        video = next(
+            (
+                candidate
+                for candidate in self._all_videos
+                if candidate.download_video_id == iwara_id
+            ),
+            None,
+        )
+        if video is None:
+            return
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            self._apply_iwara_metadata(video, metadata)
+            self._update_video_presentation(video)
+            self._start_image_loading()
+        target = _author_subscription_target(video)
+        if video.video_id in self._pending_author_subscription_video_ids:
+            self._pending_author_subscription_video_ids.discard(video.video_id)
+            if target:
+                self._subscribe_to_author(target)
+            else:
+                self._show_warning(
+                    tr(
+                        "Iwara video metadata did not contain an author",
+                        "Iwara 视频详情中没有作者信息",
+                        "Iwara 動画詳細に作者情報がありません",
+                    )
+                )
+        if result.get("error") and not target:
+            self._status_label.setText(str(result.get("error")))
+
+    def _cleanup_iwara_author_worker(self, worker: SearchIwaraAuthorWorker):
+        if worker in self._iwara_author_workers:
+            self._iwara_author_workers.remove(worker)
+        worker.deleteLater()
+
+    def _apply_iwara_metadata(self, video: SearchVideo, metadata: dict[str, Any]):
+        normalized = normalize_video(metadata)
+        if normalized is not None:
+            for field_name in (
+                "title",
+                "author_username",
+                "author_name",
+                "published_at",
+                "likes",
+                "views",
+                "duration",
+                "comments",
+                "rating",
+                "tags",
+                "origins",
+                "characters",
+                "thumbnail_url",
+                "slug",
+            ):
+                setattr(video, field_name, getattr(normalized, field_name))
+        video.raw.update(metadata)
+        video.raw["_iwara_metadata_loaded"] = normalized is not None
+        video.raw["iwara_id"] = video.download_video_id
+        video.raw["iwara_url"] = video.iwara_url
+
+    def _subscribe_to_author(self, target: tuple[str, str, str, str]):
+        username, title, remote_id, avatar_url = target
+        try:
+            source_id = download_manager.add_author_subscription(
+                username,
+                title=title,
+                remote_id=remote_id,
+                avatar_url=avatar_url,
+            )
+        except TypeError as exc:
+            # Keep lightweight manager fakes and older integrations usable.
+            if not any(name in str(exc) for name in ("title", "remote_id", "avatar_url")):
+                self._report_author_subscription_failure(username, exc)
+                return
+            try:
+                source_id = download_manager.add_author_subscription(username)
+            except Exception as fallback_exc:
+                self._report_author_subscription_failure(username, fallback_exc)
+                return
+        except Exception as exc:  # database/network integrations should never fail silently
+            self._report_author_subscription_failure(username, exc)
+            return
+        source_id = int(source_id or 0)
+        if not source_id:
+            self._report_author_subscription_failure(username, None)
+            return
+        try:
+            signal_bus.subscription_source_added.emit(int(source_id))
+        except Exception as exc:
+            # A refresh listener must not hide a successful database insert or
+            # suppress the confirmation shown to the user.
+            signal_bus.log_message.emit(f"Subscription refresh notification failed: {exc}")
+        signal_bus.log_message.emit(f"Author subscription added: @{username}")
+        InfoBar.success(
+            title=tr("Author added", "作者已加入订阅", "作者を購読に追加しました"),
+            content=tr(
+                f"@{username} is now in your local subscriptions",
+                f"@{username} 已加入本地订阅，可在订阅页查看可下载内容",
+                f"@{username} をローカル購読に追加しました",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3500,
+            parent=self,
+        )
+
+    def _report_author_subscription_failure(self, username: str, error: Exception | None):
+        detail = str(error or "").strip()
+        content = tr(
+            f"Could not add @{username} to subscriptions",
+            f"无法将 @{username} 加入订阅",
+            f"@{username} を購読に追加できません",
+        )
+        if detail:
+            content += f": {detail}"
+        signal_bus.log_message.emit(f"Author subscription failed: @{username} {detail}".strip())
+        self._show_warning(content)
 
     def _search_selected_author(self):
         values = self._selected_data()
@@ -2291,6 +2746,9 @@ class SearchInterface(QWidget):
         self._results_table.clearSelection()
         for worker in self._oreno_link_workers:
             worker.requestInterruption()
+        for worker in self._iwara_author_workers:
+            worker.requestInterruption()
+        self._pending_author_subscription_video_ids.clear()
         self._pending_open_video_ids.clear()
         self._current_page = 0
         self._last_page = None

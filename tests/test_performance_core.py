@@ -4,12 +4,13 @@ import json
 import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableWidget
+from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidget
+from qfluentwidgets import Action, FluentIcon
 
 from app.config import app_config
 from app.core.history import DownloadHistory
@@ -32,7 +33,6 @@ from app.ui.ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
-
 TEMP_DIRS: list[str] = []
 
 
@@ -929,6 +929,75 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertFalse(page._refresh_pending)
         self.assertEqual(len(page._row_by_task_id), 50)
 
+    def test_task_table_supports_extended_selection_and_bulk_status_actions(self):
+        page = TaskCenterInterface()
+        self.assertEqual(
+            page._table.selectionMode(),
+            QAbstractItemView.SelectionMode.ExtendedSelection,
+        )
+
+        tasks = {
+            "failed": DownloadTask(
+                task_id="failed",
+                url="",
+                video_id="failed-video",
+                title="Failed",
+                status=TaskStatus.FAILED,
+            ),
+            "cancelled": DownloadTask(
+                task_id="cancelled",
+                url="",
+                video_id="cancelled-video",
+                title="Cancelled",
+                status=TaskStatus.CANCELLED,
+            ),
+            "active": DownloadTask(
+                task_id="active",
+                url="",
+                video_id="active-video",
+                title="Active",
+                status=TaskStatus.DOWNLOADING,
+            ),
+        }
+        page._tasks_by_id = tasks
+        page._visible_task_ids = list(tasks)
+        page._schedule_refresh = lambda *_args: None
+
+        with patch("app.ui.task_page.download_manager") as manager, patch(
+            "app.ui.task_page.InfoBar.info"
+        ):
+            manager.retry_task.return_value = True
+            manager.restore_cancelled_task.return_value = True
+            manager.cancel_task.return_value = True
+
+            page._retry_task_ids(("failed", "active"))
+            page._restore_task_ids(("cancelled", "failed"))
+            page._cancel_task_ids(("active", "cancelled"))
+            page._remove_task_ids(tuple(tasks))
+
+        manager.retry_task.assert_called_once_with("failed")
+        manager.restore_cancelled_task.assert_called_once_with("cancelled")
+        manager.cancel_task.assert_called_once_with("active")
+        manager.remove_task.assert_has_calls(
+            [
+                call("failed"),
+                call("cancelled"),
+                call("active"),
+            ]
+        )
+        self.assertEqual(manager.remove_task.call_count, 3)
+
+    def test_task_menu_callback_keeps_selected_ids_when_qaction_emits_checked(self):
+        selected_ids = ("failed", "active")
+        captured = []
+        action = Action(
+            FluentIcon.DELETE,
+            "Remove selected tasks",
+            triggered=lambda _checked=False, ids=selected_ids: captured.append(ids),
+        )
+        action.trigger()
+        self.assertEqual(captured, [selected_ids])
+
     def test_table_width_saver_records_resize_immediately(self):
         key = f"test_table_widths_{id(self)}"
         table = QTableWidget()
@@ -1095,6 +1164,30 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertEqual([source["source_key"] for source in ordered], ["alice", "plist01", "zeta"])
         self.assertIn("alice", _source_search_text(sources[1]))
         self.assertIn("iwara.tv/profile/alice", _source_search_text(sources[1]))
+
+    def test_subscription_source_sort_supports_import_time_and_numeric_fields(self):
+        sources = [
+            {
+                "source_type": "author",
+                "source_key": "old",
+                "title": "Same",
+                "created_at": "2025-01-01 00:00:00",
+                "new_count": 2,
+            },
+            {
+                "source_type": "author",
+                "source_key": "new",
+                "title": "Same",
+                "created_at": "2025-02-01 00:00:00",
+                "new_count": 8,
+            },
+        ]
+
+        by_import_time = sorted(sources, key=lambda source: _source_sort_key(source, "created_at"))
+        by_new_count = sorted(sources, key=lambda source: _source_sort_key(source, "new_count"), reverse=True)
+
+        self.assertEqual([source["source_key"] for source in by_import_time], ["old", "new"])
+        self.assertEqual([source["source_key"] for source in by_new_count], ["new", "old"])
 
 
 def tearDownModule():

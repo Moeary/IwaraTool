@@ -894,9 +894,26 @@ class DownloadManager(DownloadPathMixin):
             ),
         }
 
-    def add_author_subscription(self, username: str) -> int:
-        username = username.strip().strip("/")
-        return self.subscriptions.add_source("author", username, username)
+    def add_author_subscription(
+        self,
+        username: str,
+        *,
+        title: str = "",
+        remote_id: str = "",
+        avatar_url: str = "",
+    ) -> int:
+        """Add or re-enable one local author subscription source."""
+
+        username = str(username or "").strip().lstrip("@").strip("/")
+        if not username:
+            return 0
+        return self.subscriptions.add_source(
+            "author",
+            username,
+            str(title or username).strip() or username,
+            str(remote_id or "").strip(),
+            avatar_url=str(avatar_url or "").strip(),
+        )
 
     def add_playlist_subscription(self, playlist_id: str) -> int:
         playlist_id = playlist_id.strip().strip("/")

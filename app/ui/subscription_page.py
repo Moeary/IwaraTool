@@ -248,6 +248,17 @@ _CONTROL_HEIGHT = 36
 _ROW_SPACING = 10
 _DEFAULT_SUBSCRIPTION_GRID_COLUMNS = 3
 _MAX_SUBSCRIPTION_GRID_COLUMNS = 8
+_SOURCE_SORT_OPTIONS = (
+    "title",
+    "created_at",
+    "last_checked_at",
+    "new_count",
+    "undownloaded_count",
+    "item_count",
+    "source_origin",
+    "source_key",
+)
+_SOURCE_SORT_FIELDS = frozenset(_SOURCE_SORT_OPTIONS)
 
 
 
@@ -458,9 +469,10 @@ class SubscriptionInterface(QWidget):
     _SRC_UNDOWNLOADED = 5
     _SRC_ITEMS = 6
     _SRC_CHECKED = 7
-    _SRC_KEY = 8
-    _SRC_URL = 9
-    _SRC_OPEN = 10
+    _SRC_CREATED = 8
+    _SRC_KEY = 9
+    _SRC_URL = 10
+    _SRC_OPEN = 11
 
     _ITEM_STATE = 0
     _ITEM_REASON = 1
@@ -499,6 +511,14 @@ class SubscriptionInterface(QWidget):
         self._title_filter_error = ""
         self._refresh_info_bar: InfoBar | None = None
         self._refresh_progress: ProgressBar | None = None
+        self._source_sort_field = str(
+            app_config.get_ui_value("subscription_source_sort_field_v1", "title") or "title"
+        ).strip().casefold()
+        if self._source_sort_field not in _SOURCE_SORT_FIELDS:
+            self._source_sort_field = "title"
+        self._source_sort_desc = _parse_ui_bool(
+            app_config.get_ui_value("subscription_source_sort_desc_v1", "0")
+        )
         self._source_render_index = 0
         self._item_render_index = 0
         self._items_refresh_pending = False
@@ -686,6 +706,26 @@ class SubscriptionInterface(QWidget):
         self._source_search_edit.setMinimumWidth(240)
         self._source_search_edit.textChanged.connect(self._apply_source_filters)
         source_meta_row.addWidget(self._source_search_edit)
+
+        source_sort_label = BodyLabel(tr("Sort by", "排序字段", "並び替え項目"), self)
+        _style_inline_label(source_sort_label)
+        source_meta_row.addWidget(source_sort_label)
+        self._source_sort_combo = ComboBox(self)
+        for field in _SOURCE_SORT_OPTIONS:
+            self._source_sort_combo.addItem(_source_sort_label(field))
+            self._source_sort_combo.setItemData(self._source_sort_combo.count() - 1, field)
+        saved_sort_index = self._source_sort_combo.findData(self._source_sort_field)
+        self._source_sort_combo.setCurrentIndex(max(0, saved_sort_index))
+        self._source_sort_combo.setFixedWidth(142)
+        self._source_sort_combo.currentIndexChanged.connect(self._on_source_sort_changed)
+        source_meta_row.addWidget(self._source_sort_combo)
+
+        self._source_sort_direction_btn = ToolButton(self)
+        self._source_sort_direction_btn.setFixedSize(36, _CONTROL_HEIGHT)
+        self._source_sort_direction_btn.clicked.connect(self._toggle_source_sort_direction)
+        source_meta_row.addWidget(self._source_sort_direction_btn)
+        self._update_source_sort_direction_button()
+
         source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
         _style_action_button(source_columns_btn, min_width=96)
         source_columns_btn.clicked.connect(self._configure_source_columns)
@@ -693,7 +733,7 @@ class SubscriptionInterface(QWidget):
         left_layout.addLayout(source_meta_row)
 
         self._source_table = TableWidget(self)
-        self._source_table.setColumnCount(11)
+        self._source_table.setColumnCount(12)
         self._source_table.setHorizontalHeaderLabels(
             [
                 tr("Avatar", "头像", "アイコン"),
@@ -704,6 +744,7 @@ class SubscriptionInterface(QWidget):
                 tr("Missing", "未下载", "未保存"),
                 tr("Items", "项目", "項目"),
                 tr("Last Check", "上次刷新", "最終確認"),
+                tr("Imported", "导入时间", "取込日時"),
                 tr("Username", "名称（username）", "ユーザー名"),
                 tr("Source URL", "来源URL", "元URL"),
                 tr("Page", "主页", "ページ"),
@@ -732,15 +773,16 @@ class SubscriptionInterface(QWidget):
             self._SRC_UNDOWNLOADED: 72,
             self._SRC_ITEMS: 58,
             self._SRC_CHECKED: 150,
+            self._SRC_CREATED: 150,
             self._SRC_KEY: 170,
             self._SRC_URL: 220,
             self._SRC_OPEN: 68,
         }
-        restore_table_widths(self._source_table, "subscription_source_widths_v4", source_widths)
-        connect_table_width_saver(self._source_table, "subscription_source_widths_v4")
+        restore_table_widths(self._source_table, "subscription_source_widths_v5", source_widths)
+        connect_table_width_saver(self._source_table, "subscription_source_widths_v5")
         restore_table_columns(
             self._source_table,
-            "subscription_source_table_v4",
+            "subscription_source_table_v5",
             default_visible=[
                 self._SRC_AVATAR,
                 self._SRC_STATE,
@@ -749,10 +791,11 @@ class SubscriptionInterface(QWidget):
                 self._SRC_NEW,
                 self._SRC_UNDOWNLOADED,
                 self._SRC_ITEMS,
+                self._SRC_CREATED,
                 self._SRC_URL,
             ],
         )
-        connect_table_column_saver(self._source_table, "subscription_source_table_v4")
+        connect_table_column_saver(self._source_table, "subscription_source_table_v5")
         source_header.sectionResized.connect(lambda *_args: self._fit_source_table_last_column())
         source_header.sectionMoved.connect(lambda *_args: self._fit_source_table_last_column())
         left_layout.addWidget(self._source_table, stretch=1)
@@ -1281,7 +1324,7 @@ class SubscriptionInterface(QWidget):
     def _configure_source_columns(self):
         open_table_column_dialog(
             self._source_table,
-            "subscription_source_table_v4",
+            "subscription_source_table_v5",
             title=tr("Source Columns", "订阅源字段", "購読元列設定"),
             default_visible=[
                 self._SRC_AVATAR,
@@ -1291,6 +1334,7 @@ class SubscriptionInterface(QWidget):
                 self._SRC_NEW,
                 self._SRC_UNDOWNLOADED,
                 self._SRC_ITEMS,
+                self._SRC_CREATED,
                 self._SRC_URL,
             ],
             parent=self,
@@ -1306,6 +1350,39 @@ class SubscriptionInterface(QWidget):
         )
         self._fit_item_table_last_column()
 
+    def _on_source_sort_changed(self, index: int):
+        if not hasattr(self, "_source_sort_combo"):
+            return
+        field = self._source_sort_combo.itemData(index)
+        field = str(field or "title").strip().casefold()
+        if field not in _SOURCE_SORT_FIELDS:
+            field = "title"
+        self._source_sort_field = field
+        app_config.set_ui_value("subscription_source_sort_field_v1", field)
+        self._apply_source_filters()
+
+    def _toggle_source_sort_direction(self):
+        self._source_sort_desc = not self._source_sort_desc
+        app_config.set_ui_value(
+            "subscription_source_sort_desc_v1",
+            "1" if self._source_sort_desc else "0",
+        )
+        self._update_source_sort_direction_button()
+        self._apply_source_filters()
+
+    def _update_source_sort_direction_button(self):
+        button = getattr(self, "_source_sort_direction_btn", None)
+        if button is None:
+            return
+        button.setIcon(FluentIcon.DOWN if self._source_sort_desc else FluentIcon.UP)
+        button.setToolTip(
+            tr(
+                "Descending order" if self._source_sort_desc else "Ascending order",
+                "倒序排列" if self._source_sort_desc else "正序排列",
+                "降順" if self._source_sort_desc else "昇順",
+            )
+        )
+
     def _load_sources(self):
         previous_source_id = self._selected_source_id()
         self._all_sources = download_manager.get_subscription_sources()
@@ -1319,7 +1396,14 @@ class SubscriptionInterface(QWidget):
     def _apply_source_filters(self, *_args, preferred_source_id: int | None = None):
         selected_source_id = preferred_source_id if preferred_source_id is not None else self._selected_source_id()
         query = self._source_search_edit.text().strip().casefold() if hasattr(self, "_source_search_edit") else ""
-        sources = sorted(self._all_sources, key=_source_sort_key)
+        sources = sorted(
+            self._all_sources,
+            key=lambda source: _source_sort_key(
+                source,
+                getattr(self, "_source_sort_field", "title"),
+            ),
+            reverse=bool(getattr(self, "_source_sort_desc", False)),
+        )
         if query:
             sources = [source for source in sources if query in _source_search_text(source)]
         self._sources = sources
@@ -1391,6 +1475,7 @@ class SubscriptionInterface(QWidget):
             self._SRC_UNDOWNLOADED: str(source.get("undownloaded_count", 0) or 0),
             self._SRC_ITEMS: str(source.get("item_count", 0) or 0),
             self._SRC_CHECKED: str(source.get("last_checked_at", "") or ""),
+            self._SRC_CREATED: str(source.get("created_at", "") or ""),
             self._SRC_KEY: str(source.get("source_key", "") or ""),
         }
         for col, value in values.items():
@@ -2029,7 +2114,7 @@ class SubscriptionInterface(QWidget):
                     FluentIcon.RETURN,
                     tr("Remove From Pending", "移出待操作", "操作待ちから外す"),
                     self,
-                    triggered=lambda: self._remove_pending_video_ids(video_ids),
+                    triggered=lambda _checked=False: self._remove_pending_video_ids(video_ids),
                 )
             )
         else:
@@ -2038,7 +2123,7 @@ class SubscriptionInterface(QWidget):
                     FluentIcon.ACCEPT,
                     tr("Add To Pending", "加入待操作", "操作待ちに追加"),
                     self,
-                    triggered=lambda: self._add_pending_video_ids(video_ids),
+                    triggered=lambda _checked=False: self._add_pending_video_ids(video_ids),
                 )
             )
         if self._pending_video_ids:
@@ -2859,11 +2944,47 @@ def _source_origin_color(source: dict[str, Any]) -> str:
     return "#107c10"
 
 
-def _source_sort_key(source: dict[str, Any]) -> tuple[str, str, str]:
-    title = str(source.get("title", "") or "").casefold()
+def _parse_ui_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def _source_sort_label(field: str) -> str:
+    labels = {
+        "title": tr("Display Name", "名称（作者名）", "表示名"),
+        "created_at": tr("Import Time", "导入时间", "取込日時"),
+        "last_checked_at": tr("Last Check", "上次刷新", "最終確認"),
+        "new_count": tr("New", "新增", "新規"),
+        "undownloaded_count": tr("Missing", "未下载", "未保存"),
+        "item_count": tr("Items", "项目", "項目"),
+        "source_origin": tr("Subscription Source", "订阅来源", "購読元"),
+        "source_key": tr("Username", "名称（username）", "ユーザー名"),
+    }
+    return labels.get(str(field or "").strip().casefold(), str(field or ""))
+
+
+def _source_sort_key(source: dict[str, Any], field: str = "title") -> tuple[Any, ...]:
+    """Return a stable key for source-table field sorting.
+
+    ``field`` is intentionally data-oriented so the UI combo can persist a
+    compact value without coupling the table to translated labels.
+    """
+
     source_key = str(source.get("source_key", "") or "").casefold()
     source_type = str(source.get("source_type", "") or "").casefold()
-    return (title or source_key, source_key, source_type)
+    field = str(field or "title").strip().casefold()
+    if field == "title":
+        title = str(source.get("title", "") or "").casefold()
+        return (title or source_key, source_key, source_type)
+    if field in {"new_count", "undownloaded_count", "item_count"}:
+        try:
+            numeric = int(source.get(field, 0) or 0)
+        except (TypeError, ValueError):
+            numeric = 0
+        return (numeric, source_key, source_type)
+    value = str(source.get(field, "") or "").casefold()
+    return (value, source_key, source_type)
 
 
 def _source_search_text(source: dict[str, Any]) -> str:
@@ -2874,6 +2995,8 @@ def _source_search_text(source: dict[str, Any]) -> str:
         source.get("source_origin", ""),
         _source_type_label(str(source.get("source_type", "") or "")),
         _source_origin_label(source),
+        source.get("created_at", ""),
+        source.get("last_checked_at", ""),
         _source_url(source),
     ]
     return " ".join(str(value or "") for value in values).casefold()
