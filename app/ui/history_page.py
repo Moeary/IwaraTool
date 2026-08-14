@@ -6,7 +6,7 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -73,6 +73,11 @@ class HistoryInterface(QWidget):
         self._records_by_id: dict[str, dict[str, Any]] = {}
         self._sort_column = self._COL_DOWNLOADED
         self._sort_reverse = True
+        self._history_dirty = False
+        self._history_refresh_timer = QTimer(self)
+        self._history_refresh_timer.setSingleShot(True)
+        self._history_refresh_timer.setInterval(120)
+        self._history_refresh_timer.timeout.connect(self._load_history)
 
         self._build_ui()
         self._load_history()
@@ -276,13 +281,28 @@ class HistoryInterface(QWidget):
             fit_table_last_column(self._table)
 
     def _load_history(self):
+        self._history_refresh_timer.stop()
         self._all_records = download_manager.get_history_records()
         self._records_by_id = {
             str(row.get("video_id", "") or ""): row
             for row in self._all_records
             if str(row.get("video_id", "") or "")
         }
+        self._history_dirty = False
         self._apply_filters()
+
+    def _schedule_history_refresh(self):
+        self._history_dirty = True
+        # HistoryInterface is constructed with the main window even when its
+        # navigation page is hidden.  Avoid reading SQLite and rebuilding a
+        # large table for every completion while the user is downloading.
+        if self.isVisible() and not self._history_refresh_timer.isActive():
+            self._history_refresh_timer.start()
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        if self._history_dirty and not self._history_refresh_timer.isActive():
+            self._history_refresh_timer.start()
 
     def _apply_filters(self, *_args):
         query = self._search_edit.text().strip().lower() if hasattr(self, "_search_edit") else ""
@@ -782,7 +802,7 @@ class HistoryInterface(QWidget):
 
     def _on_task_status_changed(self, _task_id: str, status_str: str):
         if status_str == TaskStatus.COMPLETED.value:
-            self._load_history()
+            self._schedule_history_refresh()
 
 
 def _date_only(value: str) -> str:

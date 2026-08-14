@@ -8,7 +8,9 @@ the UI and the HTTP client independent from each other.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
+from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
 
@@ -20,6 +22,7 @@ _ENTITY_PATHS = {
     "character": "characters",
     "characters": "characters",
 }
+_TAG_QUERY_PREFIXES = frozenset({"tag", "tags", "origin", "origins", "character", "characters"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,3 +111,94 @@ def map_oreno3d_sort(sort: str) -> str:
         "views": "views",
         "likes": "favorites",
     }.get(_clean(sort).casefold(), "latest")
+
+
+def parse_oreno3d_tag_ids(value: str) -> tuple[str, ...]:
+    """Return explicit tag ids from a tag-scope input.
+
+    Oreno3D exposes one direct entity route per tag.  This helper deliberately
+    accepts only tag terms; an ``origin:`` or ``character:`` expression is left
+    to the normal single-query parser instead of being silently misinterpreted
+    as a tag.
+    """
+
+    terms = re.split(r"[,，;；|\s]+", str(value or "").strip())
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in terms:
+        token = raw.strip()
+        if not token:
+            continue
+        if ":" in token:
+            prefix, token = token.split(":", 1)
+            if prefix.casefold() not in {"tag", "tags"}:
+                return ()
+        token = token.lstrip("#").strip()
+        if not token:
+            continue
+        key = token.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(token)
+    return tuple(result)
+
+
+def tag_suggestion_query(value: str) -> str:
+    """Extract the current autocomplete token without losing ``tag:``."""
+
+    match = re.search(r"([^,，;；|\s]*)$", str(value or ""))
+    if not match:
+        return ""
+    token = match.group(1)
+    if ":" not in token:
+        return token.strip()
+    prefix, query = token.split(":", 1)
+    return query.strip() if prefix.casefold() in _TAG_QUERY_PREFIXES else token.strip()
+
+
+def apply_tag_suggestion(value: str, suggestion: str) -> str:
+    """Replace the current autocomplete token while preserving its prefix."""
+
+    text = str(value or "")
+    match = re.search(r"([^,，;；|\s]*)$", text)
+    if not match:
+        return text
+    token = match.group(1)
+    marker = ""
+    if ":" in token:
+        prefix, _query = token.split(":", 1)
+        if prefix.casefold() in _TAG_QUERY_PREFIXES:
+            marker = f"{prefix}:"
+    head = text[: match.start()].rstrip(" ,，;；|")
+    return f"{head + ', ' if head else ''}{marker}{str(suggestion or '').strip()}, "
+
+
+def intersect_oreno3d_listings(groups: Sequence[Sequence[Any]]) -> list[Any]:
+    """Intersect listing cards by movie id and merge their visible tags."""
+
+    if not groups or any(not group for group in groups):
+        return []
+    indexes: list[dict[str, Any]] = []
+    for group in groups:
+        index = {
+            str(getattr(item, "source_id", "") or "").casefold(): item
+            for item in group
+            if str(getattr(item, "source_id", "") or "").strip()
+        }
+        indexes.append(index)
+    first_group = groups[0]
+    result: list[Any] = []
+    for item in first_group:
+        key = str(getattr(item, "source_id", "") or "").casefold()
+        if not key or any(key not in index for index in indexes[1:]):
+            continue
+        merged_tags: list[str] = []
+        seen_tags: set[str] = set()
+        for index in indexes:
+            for tag in getattr(index[key], "tags", ()) or ():
+                tag_text = str(tag or "").strip()
+                if tag_text and tag_text.casefold() not in seen_tags:
+                    seen_tags.add(tag_text.casefold())
+                    merged_tags.append(tag_text)
+        result.append(replace(item, tags=tuple(merged_tags)))
+    return result

@@ -45,6 +45,7 @@ from .image_cache import SearchImageCache, SubscriptionImageCache
 from .models import DownloadTask, TaskStatus
 from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
 from .oreno3d import Oreno3DClient
+from .oreno3d_search import intersect_oreno3d_listings
 from .rules import current_rule_payload, rule_store
 from .subscription_automation import matches_rule_metadata
 from .subscriptions import SubscriptionStore
@@ -338,6 +339,49 @@ class DownloadManager(DownloadPathMixin):
                     entity_id=entity_id,
                 )
             return client.fetch_listing_page(page=page, sort=sort)
+
+    def get_oreno3d_tag_search_page(
+        self,
+        tags: list[str] | tuple[str, ...],
+        *,
+        page: int = 1,
+        sort: str = "latest",
+    ):
+        """Search several Oreno3D tags and return their intersection.
+
+        Oreno3D exposes one entity route per tag, so multi-tag matching is a
+        client-side intersection of the same result page from each route.
+        The smallest route page count is used for pagination.
+        """
+
+        unique_tags: list[str] = []
+        seen: set[str] = set()
+        for value in tags:
+            tag = str(value or "").strip()
+            if not tag or tag.casefold() in seen:
+                continue
+            seen.add(tag.casefold())
+            unique_tags.append(tag)
+        if not unique_tags:
+            return [], 0
+        if len(unique_tags) == 1:
+            return self.get_oreno3d_search_page(
+                "",
+                page=page,
+                sort=sort,
+                search_type="tag",
+                entity_id=unique_tags[0],
+            )
+
+        with self._api_lock:
+            client = Oreno3DClient(self.api.scraper)
+            pages = [
+                client.fetch_entity_page("tag", tag, page=page, sort=sort)
+                for tag in unique_tags
+            ]
+        groups = [items for items, _last_page in pages]
+        last_page = min((last_page for _items, last_page in pages), default=0)
+        return intersect_oreno3d_listings(groups), last_page
 
     def resolve_oreno3d_video_id(
         self,

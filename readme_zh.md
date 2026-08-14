@@ -50,7 +50,7 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 `sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
 `tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
 
-Oreno3D 标签桥接支持单标签直达 `/tags/{id}`；也可输入 `tag:<id>`、`origin:<id>`、`character:<id>` 或对应的 Oreno3D 实体 URL。结果仍会解析为正式的 Iwara 视频后再打开或加入队列。
+Oreno3D 标签桥接支持单标签直达 `/tags/{id}`，多个标签会在客户端取交集；也可输入 `tag:<id>`、`origin:<id>`、`character:<id>` 或对应的 Oreno3D 实体 URL。结果仍会解析为正式的 Iwara 视频后再打开或加入队列。
 
 ## 本地数据与缓存
 

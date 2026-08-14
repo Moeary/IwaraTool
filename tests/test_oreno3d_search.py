@@ -1,13 +1,23 @@
+import os
 import unittest
 from unittest.mock import patch
 
-from app.core.oreno3d import Oreno3DClient
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
+from app.core.oreno3d import Oreno3DClient, Oreno3DListing
 from app.core.oreno3d_search import (
+    apply_tag_suggestion,
+    intersect_oreno3d_listings,
     map_oreno3d_sort,
     parse_oreno3d_query,
+    parse_oreno3d_tag_ids,
+    tag_suggestion_query,
 )
 from app.core.search import SearchFilters
-from app.ui.search_page import SearchWorker
+from app.ui.search_page import SearchWorker, TagSuggestionPopup
 
 
 class _FakeResponse:
@@ -50,6 +60,33 @@ class Oreno3DSearchQueryTests(unittest.TestCase):
     def test_sort_mapping_has_safe_default(self):
         self.assertEqual(map_oreno3d_sort("likes"), "favorites")
         self.assertEqual(map_oreno3d_sort("unknown"), "latest")
+
+    def test_multi_tag_input_is_split_into_direct_tag_ids(self):
+        self.assertEqual(
+            parse_oreno3d_tag_ids("tag:azur_lane, rape, "),
+            ("azur_lane", "rape"),
+        )
+
+    def test_autocomplete_preserves_explicit_tag_prefix(self):
+        self.assertEqual(tag_suggestion_query("tag:azur"), "azur")
+        self.assertEqual(
+            apply_tag_suggestion("mmd, tag:azur", "azur_lane"),
+            "mmd, tag:azur_lane, ",
+        )
+
+    def test_multi_tag_listing_intersection_merges_tags(self):
+        first = Oreno3DListing(
+            "movie-1", "https://oreno3d.com/movies/movie-1", "one", "a", "", 1, 1, ("azur_lane",)
+        )
+        first_only = Oreno3DListing(
+            "movie-2", "https://oreno3d.com/movies/movie-2", "two", "a", "", 1, 1, ("azur_lane",)
+        )
+        second = Oreno3DListing(
+            "movie-1", "https://oreno3d.com/movies/movie-1", "one", "a", "", 1, 1, ("rape",)
+        )
+        result = intersect_oreno3d_listings(((first, first_only), (second,)))
+        self.assertEqual([item.source_id for item in result], ["movie-1"])
+        self.assertEqual(result[0].tags, ("azur_lane", "rape"))
 
 
 class Oreno3DEntityRequestTests(unittest.TestCase):
@@ -109,6 +146,41 @@ class Oreno3DSearchWorkerTests(unittest.TestCase):
             {"search_type": "tag", "entity_id": "genshin"},
         )
         self.assertEqual(len(results), 1)
+
+    def test_worker_uses_multi_tag_intersection(self):
+        class _FakeManager:
+            def __init__(self):
+                self.call = None
+
+            def get_oreno3d_tag_search_page(self, tags, **kwargs):
+                self.call = (tuple(tags), kwargs)
+                return [], 1
+
+        manager = _FakeManager()
+        with patch("app.ui.search_page.download_manager", manager):
+            worker = SearchWorker(
+                SearchFilters(keyword="azur_lane, rape", sort="date"),
+                "tags",
+                0,
+                1,
+                replace_results=True,
+                source="oreno3d",
+            )
+            worker.run()
+
+        self.assertEqual(manager.call[0], ("azur_lane", "rape"))
+
+
+class TagSuggestionPopupTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_popup_does_not_capture_keyboard_focus(self):
+        popup = TagSuggestionPopup()
+        self.assertNotEqual(popup.windowType(), Qt.WindowType.Popup)
+        self.assertEqual(popup.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        popup.deleteLater()
 
 
 if __name__ == "__main__":

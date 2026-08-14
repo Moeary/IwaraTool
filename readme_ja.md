@@ -50,7 +50,7 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
 
-Oreno3D のタグブリッジでは、タグスコープの単一ラベルを `/tags/{id}` へ直接検索できます。`tag:<id>`、`origin:<id>`、`character:<id>`、Oreno3D エンティティ URL にも対応し、結果は開く／キューへ追加する前に正式な Iwara 動画へ解決されます。
+Oreno3D のタグブリッジでは、タグスコープの単一ラベルを `/tags/{id}` へ直接検索でき、複数ラベルはクライアント側で共通結果を求めます。`tag:<id>`、`origin:<id>`、`character:<id>`、Oreno3D エンティティ URL にも対応し、結果は開く／キューへ追加する前に正式な Iwara 動画へ解決されます。
 
 ## ローカルデータとキャッシュ
 

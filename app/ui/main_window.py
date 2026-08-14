@@ -1,7 +1,9 @@
 """Main FluentWindow with sidebar navigation."""
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from concurrent.futures import Future, ThreadPoolExecutor
+
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -23,11 +25,22 @@ from ..config import app_config
 from ..core.manager import download_manager
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
+from .notification_dispatcher import (
+    PreparedTaskNotifications,
+    TaskNotificationBatch,
+    prepare_task_notifications,
+)
 from .rules_page import RulesInterface
 from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 from .ui_state import show_fluent_confirmation
+
+
+class _NotificationBridge(QObject):
+    """Deliver worker results back to the owning Qt event loop."""
+
+    prepared = Signal(object)
 
 
 class MainWindow(FluentWindow):
@@ -38,6 +51,17 @@ class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         self._reloading_language = False
+        self._task_notification_batch = TaskNotificationBatch()
+        self._task_notification_timer = QTimer(self)
+        self._task_notification_timer.setSingleShot(True)
+        self._task_notification_timer.setInterval(180)
+        self._task_notification_timer.timeout.connect(self._flush_task_notifications)
+        self._task_notification_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="iwara-notification",
+        )
+        self._notification_bridge = _NotificationBridge(self)
+        self._notification_bridge.prepared.connect(self._present_task_notifications)
         self._init_window()
         self._init_navigation()
         self._init_desktop_notifications()
@@ -200,22 +224,87 @@ class MainWindow(FluentWindow):
             QDesktopServices.openUrl(QUrl(url))
 
     def _on_task_status_notification(self, task_id: str, status: str):
-        if status not in {"completed", "failed"}:
+        if self._task_notification_executor is None or status not in {"completed", "failed"}:
             return
-        task = download_manager.get_task(task_id)
-        if task is None:
+        if not self._task_notification_batch.add(task_id, status):
             return
-        title = task.title or task.video_id
-        if status == "completed":
+        # Do not build or animate an InfoBar from every worker completion.
+        # The short debounce combines bursts into one paint operation.
+        if not self._task_notification_timer.isActive():
+            self._task_notification_timer.start()
+
+    def _flush_task_notifications(self):
+        events = self._task_notification_batch.drain()
+        if not events or self._task_notification_executor is None:
+            return
+        future = self._task_notification_executor.submit(
+            prepare_task_notifications,
+            events,
+            download_manager.get_task,
+        )
+        future.add_done_callback(self._on_task_notifications_prepared)
+
+    def _on_task_notifications_prepared(self, future: Future):
+        if self._task_notification_executor is None:
+            return
+        try:
+            prepared = future.result()
+        except Exception as exc:
+            signal_bus.log_message.emit(f"[Notification] {exc}")
+            return
+        if isinstance(prepared, PreparedTaskNotifications):
+            # Emitting from the worker is safe; the bridge's receiver lives in
+            # the GUI thread, so Qt queues this slot for the next event turn.
+            self._notification_bridge.prepared.emit(prepared)
+
+    def _present_task_notifications(self, prepared: PreparedTaskNotifications):
+        completed = prepared.completed_titles
+        failed = prepared.failed_messages
+        if not completed and not failed:
+            return
+
+        if len(completed) == 1 and not failed:
             self._show_desktop_notification(
                 tr("Download completed", "下载完成", "ダウンロード完了"),
-                title,
+                completed[0],
             )
-        else:
+            return
+        if len(failed) == 1 and not completed:
             self._show_desktop_notification(
                 tr("Download failed", "下载失败", "ダウンロード失敗"),
-                f"{title}: {task.error_msg}",
+                failed[0],
             )
+            return
+
+        parts: list[str] = []
+        if completed:
+            parts.append(
+                tr(
+                    f"{len(completed)} downloads completed",
+                    f"{len(completed)} 个下载已完成",
+                    f"{len(completed)} 件のダウンロードが完了",
+                )
+            )
+        if failed:
+            parts.append(
+                tr(
+                    f"{len(failed)} downloads failed",
+                    f"{len(failed)} 个下载失败",
+                    f"{len(failed)} 件のダウンロードに失敗",
+                )
+            )
+        self._show_desktop_notification(
+            tr("Download updates", "下载任务更新", "ダウンロード更新"),
+            "；".join(parts),
+        )
+
+    def _shutdown_task_notification_worker(self):
+        self._task_notification_timer.stop()
+        self._task_notification_batch.clear()
+        executor = getattr(self, "_task_notification_executor", None)
+        if executor is not None:
+            self._task_notification_executor = None
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _toggle_dark_mode(self):
         setTheme(Theme.LIGHT if isDarkTheme() else Theme.DARK)
@@ -260,6 +349,7 @@ class MainWindow(FluentWindow):
             if not self._shutdown_page_workers():
                 event.ignore()
                 return
+            self._shutdown_task_notification_worker()
             super().closeEvent(event)
             return
 
@@ -297,6 +387,7 @@ class MainWindow(FluentWindow):
         from ..core.background_services import background_service
 
         background_service.stop(wait=False)
+        self._shutdown_task_notification_worker()
         download_manager.shutdown(wait=False)
         MainWindow._window_ref = None
         super().closeEvent(event)

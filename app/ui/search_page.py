@@ -45,7 +45,13 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
-from ..core.oreno3d_search import map_oreno3d_sort, parse_oreno3d_query
+from ..core.oreno3d_search import (
+    apply_tag_suggestion,
+    map_oreno3d_sort,
+    parse_oreno3d_query,
+    parse_oreno3d_tag_ids,
+    tag_suggestion_query,
+)
 from ..core.search import (
     SearchAuthor,
     SearchFilters,
@@ -236,7 +242,12 @@ class TagSuggestionPopup(QListWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowFlag(Qt.WindowType.Popup)
+        # ``Qt.Popup`` grabs the application's keyboard even with
+        # ``NoFocus``.  That makes the first typed character open the list and
+        # prevents the user from continuing to type a tag.  A non-activating
+        # tool window keeps mouse selection while leaving the LineEdit active.
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setMinimumWidth(360)
@@ -328,19 +339,35 @@ class SearchWorker(QThread):
     def _run_oreno3d_search(self):
         """Forward one free-text or direct-tag page to Oreno3D."""
 
-        query = parse_oreno3d_query(
-            self.filters.keyword,
-            scope="tags" if self.scope == "tags" else "videos",
-        )
         sort = map_oreno3d_sort(self.filters.sort)
         online_page = self.page + 1
-        listings, last_page = download_manager.get_oreno3d_search_page(
-            query.keyword,
-            page=online_page,
-            sort=sort,
-            search_type=query.search_type or None,
-            entity_id=query.entity_id or None,
+        tag_ids = (
+            parse_oreno3d_tag_ids(self.filters.keyword)
+            if self.scope == "tags"
+            else ()
         )
+        if len(tag_ids) > 1:
+            search_tags = getattr(download_manager, "get_oreno3d_tag_search_page", None)
+            if callable(search_tags):
+                listings, last_page = search_tags(
+                    tag_ids,
+                    page=online_page,
+                    sort=sort,
+                )
+            else:
+                listings, last_page = [], 0
+        else:
+            query = parse_oreno3d_query(
+                self.filters.keyword,
+                scope="tags" if self.scope == "tags" else "videos",
+            )
+            listings, last_page = download_manager.get_oreno3d_search_page(
+                query.keyword,
+                page=online_page,
+                sort=sort,
+                search_type=query.search_type or None,
+                entity_id=query.entity_id or None,
+            )
         videos = [normalize_oreno3d_listing(item) for item in listings]
         videos = [video for video in videos if video is not None]
         has_more = online_page < last_page
@@ -803,10 +830,14 @@ class SearchInterface(QWidget):
         query_row.addWidget(self._source_combo)
         query_row.addWidget(BodyLabel(tr("Scope", "搜索类型", "検索対象"), query_card))
         self._scope_combo = ComboBox(query_card)
-        self._add_combo_item(self._scope_combo, tr("Videos", "视频", "動画"), "videos")
-        self._add_combo_item(self._scope_combo, tr("Authors", "作者", "作者"), "authors")
-        self._add_combo_item(self._scope_combo, tr("Tags", "标签", "タグ"), "tags")
-        self._add_combo_item(self._scope_combo, tr("Playlists", "播放列表", "プレイリスト"), "playlists")
+        self._scope_items = [
+            (tr("Videos", "视频", "動画"), "videos"),
+            (tr("Authors", "作者", "作者"), "authors"),
+            (tr("Tags", "标签", "タグ"), "tags"),
+            (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
+        ]
+        for text, data in self._scope_items:
+            self._add_combo_item(self._scope_combo, text, data)
         self._scope_combo.setMinimumWidth(132)
         self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
         query_row.addWidget(self._scope_combo)
@@ -872,6 +903,7 @@ class SearchInterface(QWidget):
 
         self._tag_popup = TagSuggestionPopup(self)
         self._tag_popup.suggestion_chosen.connect(self._apply_tag_suggestion)
+        self._keyword_edit.editingFinished.connect(self._tag_popup.hide)
         self._keyword_edit.textChanged.connect(
             lambda text: self._show_tag_suggestions(self._keyword_edit, text)
         )
@@ -1184,9 +1216,9 @@ class SearchInterface(QWidget):
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
                 hint = tr(
-                    "Use one tag for the direct Oreno3D tag index; tag:<id>, origin:<id>, and character:<id> are also supported.",
-                    "单个标签会走 Oreno3D 的标签索引；也支持 tag:<id>、origin:<id>、character:<id>。",
-                    "単一タグはOreno3Dのタグ索引を使用します。tag:<id>・origin:<id>・character:<id>にも対応します。",
+                    "One tag uses the direct Oreno3D index; multiple tags are matched by intersection. tag:<id>, origin:<id>, and character:<id> are also supported.",
+                    "单个标签会走 Oreno3D 标签索引；多个标签会取交集；也支持 tag:<id>、origin:<id>、character:<id>。",
+                    "単一タグはOreno3Dのタグ索引を使用し、複数タグは共通結果を求めます。tag:<id>・origin:<id>・character:<id>にも対応します。",
                 )
             else:
                 hint = tr(
@@ -1243,16 +1275,17 @@ class SearchInterface(QWidget):
             "tags",
             "playlists",
         }
-        for index in range(self._scope_combo.count()):
-            value = str(self._scope_combo.itemData(index) or "")
-            enabled = value in supported
-            self._scope_combo.setItemEnabled(index, enabled)
-
         current_scope = str(self._scope_combo.currentData() or "videos")
-        if current_scope not in supported:
-            video_index = self._scope_index("videos")
-            if video_index >= 0:
-                self._scope_combo.setCurrentIndex(video_index)
+        self._scope_combo.blockSignals(True)
+        self._scope_combo.clear()
+        for text, data in self._scope_items:
+            if data in supported:
+                self._add_combo_item(self._scope_combo, text, data)
+        selected_scope = current_scope if current_scope in supported else "videos"
+        selected_index = self._scope_index(selected_scope)
+        if selected_index >= 0:
+            self._scope_combo.setCurrentIndex(selected_index)
+        self._scope_combo.blockSignals(False)
 
     def _on_source_changed(self, *_args):
         source = str(self._source_combo.currentData() or "oreno3d")
@@ -1281,8 +1314,7 @@ class SearchInterface(QWidget):
         if str(self._scope_combo.currentData() or "videos") != "tags":
             self._tag_popup.hide()
             return
-        match = re.search(r"([^,，;；|\s]*)$", str(text or ""))
-        query = match.group(1).strip() if match else ""
+        query = tag_suggestion_query(text)
         if not query:
             self._tag_popup.hide()
             return
@@ -1304,16 +1336,9 @@ class SearchInterface(QWidget):
         edit = self._active_tag_edit
         if edit is None:
             return
-        text = edit.text()
-        match = re.search(r"([^,，;；|\s]*)$", text)
         if self._tag_popup is not None:
             self._tag_popup.hide()
-        if match:
-            prefix = text[: match.start()].rstrip(" ,，;；|")
-            value = f"{prefix}, {key}" if prefix else key
-        else:
-            value = key
-        edit.setText(f"{value}, ")
+        edit.setText(apply_tag_suggestion(edit.text(), key))
         edit.setFocus(Qt.FocusReason.OtherFocusReason)
         edit.setCursorPosition(len(edit.text()))
         QTimer.singleShot(0, lambda edit=edit: self._restore_tag_edit_focus(edit))
