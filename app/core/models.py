@@ -69,6 +69,8 @@ class DownloadTask:
     file_id: str = ""
     thumbnail_index: int = 0
     thumbnail_path: str = ""
+    priority: int = 0
+    rule_id: str = ""
     cancel_requested: bool = False
     delete_temp_on_cancel: bool = False
     remove_after_cancel: bool = False

@@ -45,6 +45,7 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
+from ..core.oreno3d_search import map_oreno3d_sort, parse_oreno3d_query
 from ..core.search import (
     SearchAuthor,
     SearchFilters,
@@ -69,6 +70,7 @@ from .ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
+from .worker_lifecycle import stop_qthreads
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)
@@ -324,20 +326,20 @@ class SearchWorker(QThread):
             )
 
     def _run_oreno3d_search(self):
-        """Forward one page to Oreno3D's online search endpoint."""
+        """Forward one free-text or direct-tag page to Oreno3D."""
 
-        sort = {
-            "date": "latest",
-            "trending": "hot",
-            "popularity": "popularity",
-            "views": "views",
-            "likes": "favorites",
-        }.get(self.filters.sort, "latest")
+        query = parse_oreno3d_query(
+            self.filters.keyword,
+            scope="tags" if self.scope == "tags" else "videos",
+        )
+        sort = map_oreno3d_sort(self.filters.sort)
         online_page = self.page + 1
         listings, last_page = download_manager.get_oreno3d_search_page(
-            self.filters.keyword,
+            query.keyword,
             page=online_page,
             sort=sort,
+            search_type=query.search_type or None,
+            entity_id=query.entity_id or None,
         )
         videos = [normalize_oreno3d_listing(item) for item in listings]
         videos = [video for video in videos if video is not None]
@@ -1182,9 +1184,9 @@ class SearchInterface(QWidget):
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
                 hint = tr(
-                    "Type tags as Oreno3D keywords. Select a candidate, then keep typing after the comma.",
-                    "标签会按 Oreno3D 关键词搜索；选择候选后会保留逗号，可继续输入下一个标签。",
-                    "タグはOreno3Dのキーワードとして検索します。候補選択後もカンマの後から続けて入力できます。",
+                    "Use one tag for the direct Oreno3D tag index; tag:<id>, origin:<id>, and character:<id> are also supported.",
+                    "单个标签会走 Oreno3D 的标签索引；也支持 tag:<id>、origin:<id>、character:<id>。",
+                    "単一タグはOreno3Dのタグ索引を使用します。tag:<id>・origin:<id>・character:<id>にも対応します。",
                 )
             else:
                 hint = tr(
@@ -1377,6 +1379,18 @@ class SearchInterface(QWidget):
             worker.requestInterruption()
         for worker in self._oreno_link_workers:
             worker.requestInterruption()
+
+    def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
+        """Stop all page-owned search and image workers before window teardown."""
+        self._interrupt_search_workers()
+        workers: list[QThread | None] = [
+            *self._search_workers,
+            *self._image_workers,
+            *self._oreno_link_workers,
+            self._tag_dictionary_worker,
+            self._queue_resolve_worker,
+        ]
+        return stop_qthreads(workers, timeout_ms=timeout_ms)
 
     def _load_more(self):
         """Compatibility alias for callers that used the old load-more action."""

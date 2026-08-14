@@ -65,6 +65,18 @@ class AppConfig:
         "mark_submitted_as_downloaded": False,
         "subscription_prompt_mode": "ask",  # ask / always / never
         "completed_task_click_action": "folder",
+        "subscription_auto_refresh_enabled": False,
+        "subscription_refresh_interval_minutes": 30,
+        "desktop_notifications_enabled": True,
+        "subscription_auto_enqueue_enabled": False,
+        "subscription_auto_enqueue_rule_id": "__builtin_default__",
+        "global_speed_limit_enabled": False,
+        "global_speed_limit_kib": 0,
+        "download_schedule_enabled": False,
+        "download_schedule_start": "00:00",
+        "download_schedule_end": "00:00",
+        "update_check_enabled": True,
+        "update_last_prompted_version": "",
     }
 
     def __init__(self):
@@ -133,6 +145,18 @@ class AppConfig:
             "mark_submitted_as_downloaded",
             "subscription_prompt_mode",
             "completed_task_click_action",
+            "subscription_auto_refresh_enabled",
+            "subscription_refresh_interval_minutes",
+            "desktop_notifications_enabled",
+            "subscription_auto_enqueue_enabled",
+            "subscription_auto_enqueue_rule_id",
+            "global_speed_limit_enabled",
+            "global_speed_limit_kib",
+            "download_schedule_enabled",
+            "download_schedule_start",
+            "download_schedule_end",
+            "update_check_enabled",
+            "update_last_prompted_version",
         }
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
@@ -607,6 +631,102 @@ class AppConfig:
     @completed_task_click_action.setter
     def completed_task_click_action(self, v: str):
         self._set("completed_task_click_action", v)
+
+    @property
+    def subscription_auto_refresh_enabled(self) -> bool:
+        return self._get("subscription_auto_refresh_enabled")
+
+    @subscription_auto_refresh_enabled.setter
+    def subscription_auto_refresh_enabled(self, v: bool):
+        self._set("subscription_auto_refresh_enabled", bool(v))
+
+    @property
+    def subscription_refresh_interval_minutes(self) -> int:
+        return max(1, min(24 * 60, self._get("subscription_refresh_interval_minutes")))
+
+    @subscription_refresh_interval_minutes.setter
+    def subscription_refresh_interval_minutes(self, v: int):
+        self._set("subscription_refresh_interval_minutes", max(1, min(24 * 60, int(v))))
+
+    @property
+    def desktop_notifications_enabled(self) -> bool:
+        return self._get("desktop_notifications_enabled")
+
+    @desktop_notifications_enabled.setter
+    def desktop_notifications_enabled(self, v: bool):
+        self._set("desktop_notifications_enabled", bool(v))
+
+    @property
+    def subscription_auto_enqueue_enabled(self) -> bool:
+        return self._get("subscription_auto_enqueue_enabled")
+
+    @subscription_auto_enqueue_enabled.setter
+    def subscription_auto_enqueue_enabled(self, v: bool):
+        self._set("subscription_auto_enqueue_enabled", bool(v))
+
+    @property
+    def subscription_auto_enqueue_rule_id(self) -> str:
+        return str(self._get("subscription_auto_enqueue_rule_id") or "__builtin_default__")
+
+    @subscription_auto_enqueue_rule_id.setter
+    def subscription_auto_enqueue_rule_id(self, v: str):
+        self._set("subscription_auto_enqueue_rule_id", str(v or "__builtin_default__"))
+
+    @property
+    def global_speed_limit_enabled(self) -> bool:
+        return self._get("global_speed_limit_enabled")
+
+    @global_speed_limit_enabled.setter
+    def global_speed_limit_enabled(self, v: bool):
+        self._set("global_speed_limit_enabled", bool(v))
+
+    @property
+    def global_speed_limit_kib(self) -> int:
+        return max(0, min(10 * 1024 * 1024, self._get("global_speed_limit_kib")))
+
+    @global_speed_limit_kib.setter
+    def global_speed_limit_kib(self, v: int):
+        self._set("global_speed_limit_kib", max(0, min(10 * 1024 * 1024, int(v))))
+
+    @property
+    def download_schedule_enabled(self) -> bool:
+        return self._get("download_schedule_enabled")
+
+    @download_schedule_enabled.setter
+    def download_schedule_enabled(self, v: bool):
+        self._set("download_schedule_enabled", bool(v))
+
+    @property
+    def download_schedule_start(self) -> str:
+        return str(self._get("download_schedule_start") or "00:00")
+
+    @download_schedule_start.setter
+    def download_schedule_start(self, v: str):
+        self._set("download_schedule_start", str(v or "00:00"))
+
+    @property
+    def download_schedule_end(self) -> str:
+        return str(self._get("download_schedule_end") or "00:00")
+
+    @download_schedule_end.setter
+    def download_schedule_end(self, v: str):
+        self._set("download_schedule_end", str(v or "00:00"))
+
+    @property
+    def update_check_enabled(self) -> bool:
+        return self._get("update_check_enabled")
+
+    @update_check_enabled.setter
+    def update_check_enabled(self, v: bool):
+        self._set("update_check_enabled", bool(v))
+
+    @property
+    def update_last_prompted_version(self) -> str:
+        return str(self._get("update_last_prompted_version") or "")
+
+    @update_last_prompted_version.setter
+    def update_last_prompted_version(self, v: str):
+        self._set("update_last_prompted_version", str(v or ""))
 
 
 # Module-level singleton

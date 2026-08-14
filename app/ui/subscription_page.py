@@ -70,6 +70,7 @@ from .ui_state import (
     show_fluent_confirmation,
     show_fluent_text_input,
 )
+from .worker_lifecycle import stop_qthreads
 
 
 class SubscriptionRefreshWorker(QThread):
@@ -483,6 +484,7 @@ class SubscriptionInterface(QWidget):
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
         self._avatar_worker: SubscriptionAvatarWorker | None = None
         self._thumbnail_worker: SubscriptionThumbnailWorker | None = None
+        self._shutting_down = False
         self._avatar_requested_source_ids: set[int] = set()
         self._thumbnail_requested_video_ids: set[str] = set()
         self._thumbnail_force_refresh_ids: set[str] = set()
@@ -1446,6 +1448,8 @@ class SubscriptionInterface(QWidget):
         return item
 
     def _start_avatar_worker_for_missing_sources(self):
+        if self._shutting_down:
+            return
         if self._avatar_worker and self._avatar_worker.isRunning():
             return
         source_ids: list[int] = []
@@ -1750,6 +1754,8 @@ class SubscriptionInterface(QWidget):
         return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
 
     def _start_thumbnail_worker_for_visible_items(self, *, force: bool = False) -> bool:
+        if self._shutting_down:
+            return False
         if self._thumbnail_worker and self._thumbnail_worker.isRunning():
             if force:
                 self._thumbnail_force_refresh_pending = True
@@ -2727,6 +2733,20 @@ class SubscriptionInterface(QWidget):
             duration=3000,
             parent=self,
         )
+
+    def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
+        """Stop timers and subscription workers before the page is destroyed."""
+        self._shutting_down = True
+        self._source_render_timer.stop()
+        self._item_render_timer.stop()
+        workers: list[QThread | None] = [
+            self._worker,
+            self._import_worker,
+            self._enqueue_worker,
+            self._avatar_worker,
+            self._thumbnail_worker,
+        ]
+        return stop_qthreads(workers, timeout_ms=timeout_ms)
 
     def _show_error(self, msg: str):
         InfoBar.error(

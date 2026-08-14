@@ -12,11 +12,19 @@ from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Iterable
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 
 BASE_URL = "https://oreno3d.com"
 _ICON_PREFIXES = {"face", "local_library", "accessibility_new", "local_offer"}
+_ENTITY_PATHS = {
+    "tag": "tags",
+    "tags": "tags",
+    "origin": "origins",
+    "origins": "origins",
+    "character": "characters",
+    "characters": "characters",
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -381,8 +389,17 @@ class Oreno3DClient:
 
     def fetch_listing_page(self, page: int, *, sort: str = "latest") -> tuple[list[Oreno3DListing], int]:
         params = {"sort": sort, "page": max(1, int(page))}
+        return self._fetch_listing_path("/", params=params, page=page)
+
+    def _fetch_listing_path(
+        self,
+        path: str,
+        *,
+        params: dict[str, object],
+        page: int,
+    ) -> tuple[list[Oreno3DListing], int]:
         response = self.session.get(
-            f"{BASE_URL}/",
+            f"{BASE_URL}{path}",
             params=params,
             headers={"Accept": "text/html,application/xhtml+xml", "Referer": BASE_URL + "/"},
             timeout=self.timeout,
@@ -402,32 +419,46 @@ class Oreno3DClient:
         page: int = 1,
         *,
         sort: str = "latest",
+        search_type: str | None = None,
+        entity_id: str | None = None,
     ) -> tuple[list[Oreno3DListing], int]:
-        """Query Oreno3D's own online search endpoint.
+        """Query Oreno3D's free-text or entity search endpoint.
 
-        Oreno3D exposes the same card markup on ``/search`` as on its home
-        listing.  Keeping this as a separate method makes it explicit that
-        the application is forwarding a query to the site, not building a
-        local mirror.
+        Oreno3D exposes the same card markup on ``/search`` and on entity
+        routes such as ``/tags/{id}``.  Entity routes intentionally omit the
+        free-text ``keyword`` parameter, matching the public client used by
+        LoveIwara.
         """
 
-        params = {"keyword": _clean_text(keyword), "page": max(1, int(page))}
+        normalized_type = _clean_text(search_type).casefold()
+        normalized_id = _clean_text(entity_id).strip("/")
+        path = "/search"
+        params: dict[str, object] = {"page": max(1, int(page))}
+        if normalized_type in _ENTITY_PATHS and normalized_id:
+            path = f"/{_ENTITY_PATHS[normalized_type]}/{quote(normalized_id, safe='')}"
+        else:
+            params["keyword"] = _clean_text(keyword)
         if sort:
             params["sort"] = sort
-        response = self.session.get(
-            f"{BASE_URL}/search",
-            params=params,
-            headers={"Accept": "text/html,application/xhtml+xml", "Referer": BASE_URL + "/"},
-            timeout=self.timeout,
+        return self._fetch_listing_path(path, params=params, page=page)
+
+    def fetch_entity_page(
+        self,
+        search_type: str,
+        entity_id: str,
+        page: int = 1,
+        *,
+        sort: str = "latest",
+    ) -> tuple[list[Oreno3DListing], int]:
+        """Fetch a tag, origin, or character result page."""
+
+        return self.fetch_search_page(
+            "",
+            page=page,
+            sort=sort,
+            search_type=search_type,
+            entity_id=entity_id,
         )
-        try:
-            if int(getattr(response, "status_code", 0) or 0) >= 400:
-                raise RuntimeError(f"Oreno3D HTTP {response.status_code}")
-            return parse_listing_page(response.text, page=max(1, int(page)))
-        finally:
-            close = getattr(response, "close", None)
-            if callable(close):
-                close()
 
     def fetch_detail_url(self, source_id: str, oreno3d_url: str) -> Oreno3DDetail:
         """Fetch one detail page without creating a local Oreno3D mirror."""

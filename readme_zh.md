@@ -13,6 +13,7 @@
 - 支持 `X-Version` 签名计算。
 - 画质自动回退：`Source -> 540 -> 360`。
 - 状态机下载调度，减少 URL 过期问题。
+- 任务队列持久化；安全退出时保留任务与临时文件，下次启动自动恢复。
 - 本地去重 + SQLite 历史记录中心。
 - 支持作者页、播放列表、搜索链接批量入队。
 - 支持更好的 Iwara 搜索：支持 Oreno3D 在线视频搜索、Iwara 实时视频/作者/播放列表搜索，以及中日英 tag 候选。
@@ -49,6 +50,8 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 `sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
 `tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
 
+Oreno3D 标签桥接支持单标签直达 `/tags/{id}`；也可输入 `tag:<id>`、`origin:<id>`、`character:<id>` 或对应的 Oreno3D 实体 URL。结果仍会解析为正式的 Iwara 视频后再打开或加入队列。
+
 ## 本地数据与缓存
 
 应用运行数据默认位于 `data/`，不同用途分开保存，搜索和订阅封面不会与下载规则生成的本地封面混用。
@@ -56,6 +59,7 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 | 路径 | 用途 |
 | --- | --- |
 | `data/config.ini` | 登录 token、界面、并发和下载行为配置 |
+| `data/tasks.json` | 可恢复的排队、运行中、失败和已中断任务状态 |
 | `data/history.db` | 下载历史与已下载状态 |
 | `data/subscriptions.db` | 订阅源、订阅视频和刷新状态 |
 | `data/rules.json` | 命名、筛选、封面和 NFO 等下载规则 |

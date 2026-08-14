@@ -38,9 +38,12 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
+from ..core.download_policy import normalize_hhmm
+from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import show_fluent_confirmation
+from .worker_lifecycle import stop_qthreads
 
 
 # ── Worker thread for login ───────────────────────────────────────────────────
@@ -131,6 +134,9 @@ class SettingsCardBoard(QWidget):
         "quality",
         "concurrency",
         "cover_performance",
+        "subscription_automation",
+        "download_policy",
+        "updates",
         "search_bridge",
         "behavior",
         "proxy",
@@ -281,6 +287,7 @@ class SettingsInterface(ScrollArea):
 
         self._build_ui()
         self._load_settings()
+        signal_bus.rules_changed.connect(self._reload_auto_enqueue_rules)
 
         # Startup auth: prefer cached token for faster boot; fallback to credential login.
         if download_manager.restore_cached_login():
@@ -288,6 +295,10 @@ class SettingsInterface(ScrollArea):
             signal_bus.login_state_changed.emit(True)
         elif app_config.auth_enabled and app_config.username and app_config.password:
             self._do_login(silent=True)
+
+    def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
+        """Wait for an in-flight login request before destroying its QThread."""
+        return stop_qthreads([self._worker], timeout_ms=timeout_ms)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -934,6 +945,153 @@ class SettingsInterface(ScrollArea):
         aria2_layout.addWidget(self._aria2_widget)
         self._settings_board.add_card("aria2", aria2_card)
 
+        # ── Subscription automation ─────────────────────────────────────────
+        automation_card = self._settings_board.create_card("subscription_automation")
+        automation_layout = QVBoxLayout(automation_card)
+        automation_layout.setContentsMargins(20, 16, 20, 16)
+        automation_layout.setSpacing(10)
+
+        refresh_header = QHBoxLayout()
+        refresh_header.addWidget(
+            SubtitleLabel(
+                tr("Subscription Automation", "订阅自动化", "購読自動化"),
+                automation_card,
+            )
+        )
+        refresh_header.addStretch()
+        self._auto_refresh_switch = SwitchButton(automation_card)
+        refresh_header.addWidget(self._auto_refresh_switch)
+        automation_layout.addLayout(refresh_header)
+
+        refresh_interval_row = QHBoxLayout()
+        refresh_interval_row.addWidget(
+            BodyLabel(tr("Refresh interval", "刷新间隔", "更新間隔"), automation_card)
+        )
+        self._auto_refresh_interval_spin = SpinBox(automation_card)
+        self._auto_refresh_interval_spin.setRange(1, 1440)
+        self._auto_refresh_interval_spin.setSuffix(
+            tr(" min", " 分钟", " 分")
+        )
+        self._auto_refresh_interval_spin.setFixedWidth(140)
+        refresh_interval_row.addWidget(self._auto_refresh_interval_spin)
+        refresh_interval_row.addStretch()
+        automation_layout.addLayout(refresh_interval_row)
+
+        notification_row = QHBoxLayout()
+        notification_row.addWidget(
+            BodyLabel(tr("Desktop notifications", "桌面通知", "デスクトップ通知"), automation_card)
+        )
+        notification_row.addStretch()
+        self._desktop_notification_switch = SwitchButton(automation_card)
+        notification_row.addWidget(self._desktop_notification_switch)
+        automation_layout.addLayout(notification_row)
+
+        enqueue_row = QHBoxLayout()
+        enqueue_row.addWidget(
+            BodyLabel(tr("Auto queue rule matches", "命中规则后自动入队", "ルール一致を自動追加"), automation_card)
+        )
+        enqueue_row.addStretch()
+        self._auto_enqueue_switch = SwitchButton(automation_card)
+        enqueue_row.addWidget(self._auto_enqueue_switch)
+        automation_layout.addLayout(enqueue_row)
+
+        rule_row = QHBoxLayout()
+        rule_row.addWidget(BodyLabel(tr("Matching rule", "匹配规则", "照合ルール"), automation_card))
+        self._auto_enqueue_rule_combo = ComboBox(automation_card)
+        self._auto_enqueue_rule_combo.setFixedWidth(220)
+        rule_row.addWidget(self._auto_enqueue_rule_combo)
+        rule_row.addStretch()
+        automation_layout.addLayout(rule_row)
+
+        refresh_now_btn = PrimaryPushButton(
+            tr("Refresh Now", "立即刷新", "今すぐ更新"),
+            automation_card,
+            FluentIcon.SYNC,
+        )
+        refresh_now_btn.clicked.connect(self._refresh_subscriptions_now)
+        automation_layout.addWidget(refresh_now_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._settings_board.add_card("subscription_automation", automation_card)
+
+        # ── Runtime download policy ──────────────────────────────────────────
+        policy_card = self._settings_board.create_card("download_policy")
+        policy_layout = QVBoxLayout(policy_card)
+        policy_layout.setContentsMargins(20, 16, 20, 16)
+        policy_layout.setSpacing(10)
+        policy_layout.addWidget(
+            SubtitleLabel(tr("Download Policy", "下载策略", "ダウンロード方針"), policy_card)
+        )
+
+        speed_row = QHBoxLayout()
+        speed_row.addWidget(BodyLabel(tr("Global speed limit", "全局限速", "全体速度制限"), policy_card))
+        self._speed_limit_spin = SpinBox(policy_card)
+        self._speed_limit_spin.setRange(1, 10 * 1024 * 1024)
+        self._speed_limit_spin.setSuffix(" KiB/s")
+        self._speed_limit_spin.setFixedWidth(170)
+        speed_row.addWidget(self._speed_limit_spin)
+        speed_row.addStretch()
+        self._speed_limit_switch = SwitchButton(policy_card)
+        speed_row.addWidget(self._speed_limit_switch)
+        policy_layout.addLayout(speed_row)
+
+        schedule_row = QHBoxLayout()
+        schedule_row.addWidget(BodyLabel(tr("Scheduled starts", "分时下载", "時間帯ダウンロード"), policy_card))
+        self._schedule_start_edit = LineEdit(policy_card)
+        self._schedule_start_edit.setPlaceholderText("00:00")
+        self._schedule_start_edit.setFixedWidth(76)
+        schedule_row.addWidget(self._schedule_start_edit)
+        schedule_row.addWidget(BodyLabel("—", policy_card))
+        self._schedule_end_edit = LineEdit(policy_card)
+        self._schedule_end_edit.setPlaceholderText("00:00")
+        self._schedule_end_edit.setFixedWidth(76)
+        schedule_row.addWidget(self._schedule_end_edit)
+        schedule_row.addStretch()
+        self._schedule_switch = SwitchButton(policy_card)
+        schedule_row.addWidget(self._schedule_switch)
+        policy_layout.addLayout(schedule_row)
+        policy_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Only new tasks start inside the window; active transfers finish normally. Equal times mean all day.",
+                    "仅在时间窗内启动新任务；已开始的传输会正常完成。起止相同表示全天。",
+                    "時間帯内だけ新規開始し、実行中の転送は完了まで継続します。同時刻は終日です。",
+                ),
+                policy_card,
+            )
+        )
+        self._settings_board.add_card("download_policy", policy_card)
+
+        # ── GitHub Release updates ───────────────────────────────────────────
+        update_card = self._settings_board.create_card("updates")
+        update_layout = QVBoxLayout(update_card)
+        update_layout.setContentsMargins(20, 16, 20, 16)
+        update_layout.setSpacing(10)
+        update_header = QHBoxLayout()
+        update_header.addWidget(
+            SubtitleLabel(tr("GitHub Release Updates", "GitHub Release 更新", "GitHub Release 更新"), update_card)
+        )
+        update_header.addStretch()
+        self._update_check_switch = SwitchButton(update_card)
+        update_header.addWidget(self._update_check_switch)
+        update_layout.addLayout(update_header)
+        update_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Check Moeary/IwaraTool Releases at startup and open the release page on confirmation.",
+                    "启动后检查 Moeary/IwaraTool Releases，确认后打开 Release 页面。",
+                    "起動後に Moeary/IwaraTool Releases を確認し、承認後にページを開きます。",
+                ),
+                update_card,
+            )
+        )
+        check_update_btn = PrimaryPushButton(
+            tr("Check Now", "立即检查", "今すぐ確認"),
+            update_card,
+            FluentIcon.UPDATE,
+        )
+        check_update_btn.clicked.connect(self._check_updates_now)
+        update_layout.addWidget(check_update_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._settings_board.add_card("updates", update_card)
+
         # ── Save button ───────────────────────────────────────────────────────
         save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self._content, FluentIcon.SAVE)
         save_btn.setFixedWidth(140)
@@ -961,6 +1119,17 @@ class SettingsInterface(ScrollArea):
         self._aria2_url_edit.setText(app_config.aria2_rpc_url)
         self._aria2_token_edit.setText(app_config.aria2_rpc_token)
         self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
+        self._auto_refresh_switch.setChecked(app_config.subscription_auto_refresh_enabled)
+        self._auto_refresh_interval_spin.setValue(app_config.subscription_refresh_interval_minutes)
+        self._desktop_notification_switch.setChecked(app_config.desktop_notifications_enabled)
+        self._auto_enqueue_switch.setChecked(app_config.subscription_auto_enqueue_enabled)
+        self._reload_auto_enqueue_rules(app_config.subscription_auto_enqueue_rule_id)
+        self._speed_limit_switch.setChecked(app_config.global_speed_limit_enabled)
+        self._speed_limit_spin.setValue(max(1, app_config.global_speed_limit_kib or 1024))
+        self._schedule_switch.setChecked(app_config.download_schedule_enabled)
+        self._schedule_start_edit.setText(normalize_hhmm(app_config.download_schedule_start))
+        self._schedule_end_edit.setText(normalize_hhmm(app_config.download_schedule_end))
+        self._update_check_switch.setChecked(app_config.update_check_enabled)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
@@ -1300,6 +1469,68 @@ class SettingsInterface(ScrollArea):
         app_config.aria2_rpc_enabled = checked
         self._aria2_widget.setVisible(checked)
 
+    def _reload_auto_enqueue_rules(self, selected_rule_id: str = ""):
+        if not hasattr(self, "_auto_enqueue_rule_combo"):
+            return
+        selected = str(
+            selected_rule_id
+            or self._auto_enqueue_rule_combo.currentData()
+            or app_config.subscription_auto_enqueue_rule_id
+            or BUILTIN_DEFAULT_RULE_ID
+        )
+        self._auto_enqueue_rule_combo.blockSignals(True)
+        self._auto_enqueue_rule_combo.clear()
+        target_index = 0
+        for index, rule in enumerate(rule_store.list_available()):
+            self._auto_enqueue_rule_combo.addItem(str(rule.get("name", "") or ""))
+            self._auto_enqueue_rule_combo.setItemData(index, str(rule.get("id", "") or ""))
+            if str(rule.get("id", "") or "") == selected:
+                target_index = index
+        self._auto_enqueue_rule_combo.setCurrentIndex(target_index)
+        self._auto_enqueue_rule_combo.blockSignals(False)
+
+    def _refresh_subscriptions_now(self):
+        self._save_background_settings()
+        from ..core.background_services import background_service
+
+        background_service.refresh_subscriptions_now()
+        InfoBar.info(
+            title=tr("Refresh queued", "刷新已提交", "更新を受け付けました"),
+            content="",
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self,
+        )
+
+    def _check_updates_now(self):
+        self._save_background_settings()
+        from ..core.background_services import background_service
+
+        background_service.check_updates_now()
+
+    def _save_background_settings(self):
+        app_config.subscription_auto_refresh_enabled = self._auto_refresh_switch.isChecked()
+        app_config.subscription_refresh_interval_minutes = self._auto_refresh_interval_spin.value()
+        app_config.desktop_notifications_enabled = self._desktop_notification_switch.isChecked()
+        app_config.subscription_auto_enqueue_enabled = self._auto_enqueue_switch.isChecked()
+        app_config.subscription_auto_enqueue_rule_id = str(
+            self._auto_enqueue_rule_combo.currentData() or BUILTIN_DEFAULT_RULE_ID
+        )
+        app_config.global_speed_limit_enabled = self._speed_limit_switch.isChecked()
+        app_config.global_speed_limit_kib = self._speed_limit_spin.value()
+        app_config.download_schedule_enabled = self._schedule_switch.isChecked()
+        start = normalize_hhmm(self._schedule_start_edit.text())
+        end = normalize_hhmm(self._schedule_end_edit.text())
+        self._schedule_start_edit.setText(start)
+        self._schedule_end_edit.setText(end)
+        app_config.download_schedule_start = start
+        app_config.download_schedule_end = end
+        app_config.update_check_enabled = self._update_check_switch.isChecked()
+        download_manager.resume_scheduled_downloads()
+        signal_bus.background_settings_changed.emit()
+
     def _apply_proxy(self):
         app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
         app_config.api_proxy_url = self._api_proxy_edit.text().strip() or "http://127.0.0.1:7890"
@@ -1355,6 +1586,7 @@ class SettingsInterface(ScrollArea):
             self._subscription_refresh_workers_spin.value()
         )
         self._on_subscription_incremental_toggle(self._subscription_incremental_switch.isChecked())
+        self._save_background_settings()
         download_manager.apply_config()
         InfoBar.success(
             title=tr("Settings Saved", "设置已保存", "設定を保存しました"),

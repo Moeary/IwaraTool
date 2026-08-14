@@ -30,7 +30,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 import cloudscraper
 
@@ -38,13 +38,31 @@ from ..config import app_config
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI
+from .download_paths import DownloadPathMixin
+from .download_policy import SharedRateLimiter, is_time_in_window
 from .history import DownloadHistory
 from .image_cache import SearchImageCache, SubscriptionImageCache
 from .models import DownloadTask, TaskStatus
 from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
 from .oreno3d import Oreno3DClient
+from .rules import current_rule_payload, rule_store
+from .subscription_automation import matches_rule_metadata
 from .subscriptions import SubscriptionStore
 from .tag_dictionary import TagDictionary
+from .task_metadata import (
+    SUBSCRIPTION_UNAVAILABLE_STATE as _SUBSCRIPTION_UNAVAILABLE_STATE,
+    _compact_video_raw_json,
+    _dict_or_empty,
+    _extract_date_text,
+    _iwara_image_url,
+    _normalize_video_tags,
+    _split_filter_tags,
+    _subscription_download_block_from_error,
+    _subscription_download_block_from_video_info,
+    _subscription_item_from_video,
+    _subscription_thumbnail_url,
+)
+from .task_queue import TaskPersistenceCoordinator, TaskQueueStore
 
 if TYPE_CHECKING:
     pass
@@ -86,33 +104,20 @@ _STALL_WATCH_STATUSES = frozenset(
 
 _LIVE_TERMINAL_KEEP_LIMIT = 100
 _EXISTING_FILE_INDEX_TTL_SECONDS = 60
-_MAX_STORED_TEXT_CHARS = 20000
 _STALL_WATCHDOG_INTERVAL_SECONDS = 1.0
-_SUBSCRIPTION_UNAVAILABLE_STATE = "unavailable"
 _CANCEL_ORIGIN_AUTO_STALL = "auto_stall"
 _CANCEL_ORIGIN_MANUAL = "manual"
-_WINDOWS_SAFE_PATH_LIMIT = 240
-_WINDOWS_MIN_PATH_SEGMENT_LENGTH = 32
-_WINDOWS_RESERVED_FILENAMES = frozenset(
-    {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        *(f"COM{number}" for number in range(1, 10)),
-        *(f"LPT{number}" for number in range(1, 10)),
-    }
-)
+_CANCEL_ORIGIN_SHUTDOWN = "shutdown"
 
 
-class DownloadManager:
+class DownloadManager(DownloadPathMixin):
     """Central manager for all download tasks.
 
     Thread-safe: all internal state mutations are protected by self._lock.
     Qt signals are emitted *outside* the lock to avoid deadlocks.
     """
 
-    def __init__(self):
+    def __init__(self, *, task_store: TaskQueueStore | None = None):
         self.api = IwaraAPI()
         self.history = DownloadHistory()
         self.subscriptions = SubscriptionStore()
@@ -130,6 +135,7 @@ class DownloadManager:
         self._terminal_task_id_set: set[str] = set()
         self._lock = threading.Lock()
         self._api_lock = threading.RLock()
+        self._subscription_refresh_guard = threading.Lock()
         self._existing_file_index_lock = threading.Lock()
         self._existing_file_index: dict[str, str] = {}
         self._existing_file_index_root = ""
@@ -138,12 +144,26 @@ class DownloadManager:
         self._terminal_events_since_gc = 0
         self._last_gc_at = 0.0
         self._task_last_activity: dict[str, float] = {}
+        self._task_store = task_store
+        self._task_persistence: TaskPersistenceCoordinator | None = None
+        self._shutting_down = False
+        self._started = False
+        self._last_aria2_global_limit = ""
+        self._last_aria2_limit_attempted = ""
+        self._last_aria2_limit_attempt_at = 0.0
+        self._rate_limiter = SharedRateLimiter(self._global_speed_limit_bytes)
 
         # Keep parse, resolve, and download work isolated so a large batch cannot
         # starve metadata resolution or leave the UI looking stuck.
         self._parse_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="iwara-parse")
         self._resolve_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-resolve")
         self._download_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="iwara-download")
+        self._restored_task_count = self._load_persisted_tasks()
+        if self._task_store is not None:
+            self._task_persistence = TaskPersistenceCoordinator(
+                self._task_store,
+                self._create_task_snapshot,
+            )
         self._watchdog_stop = threading.Event()
         self._watchdog_thread = threading.Thread(
             target=self._stall_watchdog_loop,
@@ -153,6 +173,102 @@ class DownloadManager:
         self._watchdog_thread.start()
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    def start(self):
+        """Activate tasks restored from disk after configuration and login load."""
+        with self._lock:
+            if self._started or self._shutting_down:
+                return
+            self._started = True
+            restored_count = self._restored_task_count
+        if self._task_store is not None and self._task_store.last_error:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Queue] Saved task queue could not be read: {self._task_store.last_error}",
+                    f"[队列] 无法读取已保存任务：{self._task_store.last_error}",
+                    f"[キュー] 保存済みタスクを読み込めませんでした: {self._task_store.last_error}",
+                )
+            )
+        elif restored_count:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Queue] restored {restored_count} tasks from the previous session",
+                    f"[队列] 已恢复上次会话的 {restored_count} 个任务",
+                    f"[キュー] 前回のセッションから {restored_count} 件を復元しました",
+                )
+            )
+        self._try_activate()
+
+    def pending_task_count(self) -> int:
+        """Return the number of queued or running tasks that need safe shutdown."""
+        with self._lock:
+            return sum(
+                1
+                for task in self._tasks.values()
+                if task.status not in _TERMINAL_STATUSES
+            )
+
+    def flush_task_queue(self):
+        """Synchronously persist the current recoverable queue state."""
+        if self._task_persistence is not None:
+            self._task_persistence.flush()
+
+    def shutdown(self, *, wait: bool = False) -> int:
+        """Pause active work, persist it for restart, and stop background workers."""
+        with self._lock:
+            if self._shutting_down:
+                return 0
+            self._shutting_down = True
+            pending = 0
+            for task in self._tasks.values():
+                if task.status in _TERMINAL_STATUSES:
+                    continue
+                pending += 1
+                if task.status != TaskStatus.QUEUED_META:
+                    task.cancel_requested = True
+                    task.cancel_origin = _CANCEL_ORIGIN_SHUTDOWN
+                    task.delete_temp_on_cancel = False
+                    task.remove_after_cancel = False
+
+        # Close persistence before workers observe cancellation so the saved
+        # snapshot represents paused work that will be re-queued on next start.
+        if self._task_persistence is not None:
+            self._task_persistence.close()
+        self._watchdog_stop.set()
+        self._parse_executor.shutdown(wait=wait, cancel_futures=True)
+        self._resolve_executor.shutdown(wait=wait, cancel_futures=True)
+        self._download_executor.shutdown(wait=wait, cancel_futures=True)
+        if wait and self._watchdog_thread is not threading.current_thread():
+            self._watchdog_thread.join(timeout=2)
+        return pending
+
+    def _load_persisted_tasks(self) -> int:
+        if self._task_store is None:
+            return 0
+        restored = self._task_store.load()
+        with self._lock:
+            for task in restored:
+                video_key = task.video_id.casefold()
+                if task.task_id in self._tasks or video_key in self._task_id_by_video_id:
+                    continue
+                self._tasks[task.task_id] = task
+                self._task_id_by_video_id[video_key] = task.task_id
+                if task.status == TaskStatus.QUEUED_META:
+                    self._queued_meta_ids.append(task.task_id)
+                elif task.status in _TERMINAL_STATUSES:
+                    self._terminal_task_ids.append(task.task_id)
+                    self._terminal_task_id_set.add(task.task_id)
+        return len(restored)
+
+    def _create_task_snapshot(self) -> dict[str, Any]:
+        if self._task_store is None:
+            return {"version": 1, "tasks": []}
+        with self._lock:
+            return self._task_store.create_snapshot(self._tasks.values())
+
+    def _schedule_task_persist(self):
+        if self._task_persistence is not None:
+            self._task_persistence.schedule()
 
     def get_tasks(self) -> list[DownloadTask]:
         with self._lock:
@@ -206,13 +322,21 @@ class DownloadManager:
         *,
         page: int = 1,
         sort: str = "latest",
+        search_type: str | None = None,
+        entity_id: str | None = None,
     ):
-        """Forward one page to Oreno3D's online search endpoint."""
+        """Forward one free-text or entity page to Oreno3D."""
 
         with self._api_lock:
             client = Oreno3DClient(self.api.scraper)
-            if str(keyword or "").strip():
-                return client.fetch_search_page(keyword, page=page, sort=sort)
+            if str(keyword or "").strip() or (search_type and entity_id):
+                return client.fetch_search_page(
+                    keyword,
+                    page=page,
+                    sort=sort,
+                    search_type=search_type,
+                    entity_id=entity_id,
+                )
             return client.fetch_listing_page(page=page, sort=sort)
 
     def resolve_oreno3d_video_id(
@@ -352,15 +476,50 @@ class DownloadManager:
             headers=headers,
         )
 
-    def enqueue_video_ids(self, video_ids: list[str], *, source_label: str = "") -> int:
+    def enqueue_video_ids(
+        self,
+        video_ids: list[str],
+        *,
+        source_label: str = "",
+        priority: int = 0,
+        rule_id: str = "",
+    ) -> int:
         """Queue a list of video ids and return how many were accepted for parsing."""
         items = [
             (str(raw_id or "").strip(), f"https://www.iwara.tv/video/{str(raw_id or '').strip()}")
             for raw_id in video_ids
             if str(raw_id or "").strip()
         ]
-        summary = self._enqueue_video_ids_bulk(items, source_label=source_label)
+        summary = self._enqueue_video_ids_bulk(
+            items,
+            source_label=source_label,
+            priority=priority,
+            rule_id=rule_id,
+        )
         return int(summary.get("queued", 0) or 0)
+
+    def set_task_priority(self, task_id: str, priority: int) -> bool:
+        """Set a persisted queue priority without pre-empting active work."""
+        value = max(-100, min(100, int(priority)))
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task.priority = value
+        signal_bus.task_priority_changed.emit(task_id, value)
+        self._schedule_task_persist()
+        self._try_activate()
+        return True
+
+    def resume_scheduled_downloads(self):
+        """Wake the scheduler after a configured time window opens."""
+        self._try_activate()
+
+    def apply_runtime_download_policy(self):
+        """Apply mutable policies to the scheduler and an aria2 backend."""
+        self._try_activate()
+        if app_config.aria2_rpc_enabled:
+            self._apply_aria2_global_speed_limit()
 
     def retry_task(self, task_id: str):
         """Re-queue a failed task."""
@@ -406,6 +565,7 @@ class DownloadManager:
         if not requeued:
             return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        self._schedule_task_persist()
         self._try_activate()
 
     def restore_cancelled_task(self, task_id: str) -> bool:
@@ -430,6 +590,7 @@ class DownloadManager:
             )
         )
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        self._schedule_task_persist()
         self._try_activate()
         return True
 
@@ -469,6 +630,7 @@ class DownloadManager:
                     f"[復元] {len(restored_ids)} 件の中断タスクをキューへ戻しました",
                 )
             )
+            self._schedule_task_persist()
             self._try_activate()
         return len(restored_ids)
 
@@ -533,6 +695,8 @@ class DownloadManager:
             retried_count += 1
             signal_bus.task_status_changed.emit(tid, TaskStatus.QUEUED_META.value)
 
+        if retried_count or to_complete:
+            self._schedule_task_persist()
         self._try_activate()
         return retried_count, len(to_complete)
 
@@ -568,6 +732,7 @@ class DownloadManager:
             )
         else:
             signal_bus.task_status_changed.emit(task_id, TaskStatus.CANCELLING.value)
+            self._schedule_task_persist()
         return True
 
     def cancel_all_active(self) -> int:
@@ -595,6 +760,7 @@ class DownloadManager:
             return
         if removed:
             signal_bus.task_removed.emit(task_id)
+            self._schedule_task_persist()
 
     def clear_completed(self):
         """Remove finished tasks from UI board, keeping retry/restore candidates."""
@@ -610,6 +776,8 @@ class DownloadManager:
                     removed_ids.append(tid)
         for tid in removed_ids:
             signal_bus.task_removed.emit(tid)
+        if removed_ids:
+            self._schedule_task_persist()
 
     def get_history_records(self) -> list[dict[str, Any]]:
         return self.history.list_records()
@@ -1150,6 +1318,30 @@ class DownloadManager:
         self,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
+        """Serialize manual and timed refreshes to avoid duplicate API work."""
+        if not self._subscription_refresh_guard.acquire(blocking=False):
+            return {
+                **self._subscription_refresh_summary([]),
+                "busy": True,
+                "errors": [
+                    {
+                        "error": tr(
+                            "A subscription refresh is already running",
+                            "已有订阅刷新正在运行",
+                            "購読更新は既に実行中です",
+                        )
+                    }
+                ],
+            }
+        try:
+            return self._refresh_all_subscriptions_impl(progress_callback)
+        finally:
+            self._subscription_refresh_guard.release()
+
+    def _refresh_all_subscriptions_impl(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """Refresh enabled sources and optionally report source-level progress."""
         sources = [
             source
@@ -1378,8 +1570,16 @@ class DownloadManager:
             }
 
         normalized_items = [_subscription_item_from_video(video) for video in videos]
+        known_casefold = {video_id.casefold() for video_id in known_video_ids}
+        new_video_ids = list(
+            dict.fromkeys(
+                str(item.get("video_id", "") or "").strip()
+                for item in normalized_items
+                if str(item.get("video_id", "") or "").strip()
+                and str(item.get("video_id", "") or "").strip().casefold() not in known_casefold
+            )
+        )
         if incremental:
-            known_casefold = {video_id.casefold() for video_id in known_video_ids}
             validation_items = [
                 item
                 for item in normalized_items
@@ -1405,6 +1605,7 @@ class DownloadManager:
             "unavailable": unavailable_count,
             "unavailable_checked": unavailable_checked,
             "fetched": len(videos),
+            "new_video_ids": new_video_ids,
             "error": "",
         }
 
@@ -1493,6 +1694,14 @@ class DownloadManager:
 
     @staticmethod
     def _subscription_refresh_summary(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+        new_video_ids = list(
+            dict.fromkeys(
+                str(video_id or "").strip()
+                for summary in summaries
+                for video_id in list(summary.get("new_video_ids", []) or [])
+                if str(video_id or "").strip()
+            )
+        )
         return {
             "sources": len(summaries),
             "new": sum(int(s.get("new", 0) or 0) for s in summaries),
@@ -1501,6 +1710,7 @@ class DownloadManager:
             "unavailable": sum(int(s.get("unavailable", 0) or 0) for s in summaries),
             "unavailable_checked": sum(int(s.get("unavailable_checked", 0) or 0) for s in summaries),
             "errors": [s for s in summaries if s.get("error")],
+            "new_video_ids": new_video_ids,
             "details": summaries,
         }
 
@@ -2067,6 +2277,8 @@ class DownloadManager:
         items: list[tuple[str, str]],
         *,
         source_label: str = "",
+        priority: int = 0,
+        rule_id: str = "",
     ) -> dict[str, int]:
         seen_input: set[str] = set()
         normalized: list[tuple[str, str]] = []
@@ -2114,7 +2326,13 @@ class DownloadManager:
                     skipped_duplicate += 1
                     continue
                 task_id = str(uuid.uuid4())
-                task = DownloadTask(task_id=task_id, url=original_url, video_id=video_id)
+                task = DownloadTask(
+                    task_id=task_id,
+                    url=original_url,
+                    video_id=video_id,
+                    priority=max(-100, min(100, int(priority))),
+                    rule_id=str(rule_id or ""),
+                )
                 self._tasks[task_id] = task
                 self._task_id_by_video_id[key] = task_id
                 self._queued_meta_ids.append(task_id)
@@ -2125,6 +2343,7 @@ class DownloadManager:
                         "title": video_id,
                         "author": "",
                         "status": TaskStatus.QUEUED_META.value,
+                        "priority": task.priority,
                     }
                 )
             queued_count = len(self._queued_meta_ids)
@@ -2145,6 +2364,8 @@ class DownloadManager:
                 f"[キュー] 追加 {len(added_infos)} 件{label}; 重複 {skipped_duplicate + skipped_input_duplicate}; 既存 {skipped_existing}; 待機 {queued_count}; 稼働 {active_count}/{limit}",
             )
         )
+        if added_infos:
+            self._schedule_task_persist()
         self._try_activate()
         return {
             "queued": len(added_infos),
@@ -2294,12 +2515,18 @@ class DownloadManager:
 
     def _try_activate(self):
         """Promote QUEUED_META tasks into RESOLVING up to the concurrency limit."""
+        if not self._download_schedule_allows_start():
+            return
         to_resolve: list[str] = []
         with self._lock:
+            if self._shutting_down:
+                return
             active = self._count_active()
             limit = app_config.max_concurrent
             while active < limit and self._queued_meta_ids:
-                task_id = self._queued_meta_ids.popleft()
+                task_id = self._pop_next_queued_task_locked()
+                if not task_id:
+                    break
                 task = self._tasks.get(task_id)
                 if not task or task.status != TaskStatus.QUEUED_META:
                     continue
@@ -2312,6 +2539,44 @@ class DownloadManager:
         for tid in to_resolve:
             signal_bus.task_status_changed.emit(tid, TaskStatus.RESOLVING.value)
             self._resolve_executor.submit(self._resolve_task, tid)
+
+    def _pop_next_queued_task_locked(self) -> str:
+        """Pop the oldest valid task among the highest queued priority."""
+        best_task_id = ""
+        best_priority = -101
+        stale: list[str] = []
+        for task_id in self._queued_meta_ids:
+            task = self._tasks.get(task_id)
+            if task is None or task.status != TaskStatus.QUEUED_META:
+                stale.append(task_id)
+                continue
+            if task.priority > best_priority:
+                best_task_id = task_id
+                best_priority = task.priority
+        for task_id in stale:
+            try:
+                self._queued_meta_ids.remove(task_id)
+            except ValueError:
+                pass
+        if best_task_id:
+            self._queued_meta_ids.remove(best_task_id)
+        return best_task_id
+
+    @staticmethod
+    def _download_schedule_allows_start() -> bool:
+        if not app_config.download_schedule_enabled:
+            return True
+        return is_time_in_window(
+            datetime.now().time(),
+            app_config.download_schedule_start,
+            app_config.download_schedule_end,
+        )
+
+    @staticmethod
+    def _global_speed_limit_bytes() -> int:
+        if not app_config.global_speed_limit_enabled:
+            return 0
+        return max(0, int(app_config.global_speed_limit_kib)) * 1024
 
     # ── Resolution stage ──────────────────────────────────────────────────────
 
@@ -2450,6 +2715,7 @@ class DownloadManager:
             views=views,
             published_at=published_at,
             tags=raw_tags if isinstance(raw_tags, list) else [],
+            payload=(rule_store.find(task.rule_id) or {}).get("payload") if task.rule_id else None,
         )
         if not passed_filter:
             self._skip_task(
@@ -2587,6 +2853,7 @@ class DownloadManager:
             return
 
         signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_DOWNLOAD.value)
+        self._schedule_task_persist()
         # Immediately transition to download — slot is already counted
         self._start_downloading(task_id)
 
@@ -2661,6 +2928,7 @@ class DownloadManager:
             )
             return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.DOWNLOADING.value)
+        self._schedule_task_persist()
         self._download_executor.submit(self._download_task, task_id)
 
     def _download_task(self, task_id: str):
@@ -2791,6 +3059,8 @@ class DownloadManager:
             options["header"] = headers
         if app_config.download_proxy_enabled and app_config.download_proxy_url:
             options["all-proxy"] = app_config.download_proxy_url
+
+        self._apply_aria2_global_speed_limit()
 
         signal_bus.log_message.emit(
             tr(
@@ -3020,6 +3290,16 @@ class DownloadManager:
                         return
                     if not chunk:
                         continue
+                    if not self._rate_limiter.throttle(
+                        len(chunk),
+                        cancelled=lambda: self._is_cancel_requested(task_id),
+                        on_wait=lambda: self._touch_task_activity(task_id),
+                    ):
+                        self._cancel_task_terminal(
+                            task_id,
+                            tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                        )
+                        return
                     fh.write(chunk)
                     downloaded += len(chunk)
                     self._touch_task_activity(task_id)
@@ -3130,129 +3410,6 @@ class DownloadManager:
             self._existing_file_index_root = root
             self._existing_file_index_built_at = now
             return dict(index)
-
-    def _build_output_relative_path(
-        self,
-        *,
-        title: str,
-        video_id: str,
-        author: str,
-        published_at: str,
-        quality: str,
-        likes: int,
-        views: int,
-        comments: int,
-        duration: int,
-        slug: str,
-        rating: str,
-    ) -> str:
-        raw_template = (
-            app_config.filename_template or ""
-        ).strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
-        template = raw_template.replace("\\", "/")
-
-        date_text = _extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
-        year, month, day = date_text.split("-")
-        username = (author or "unknown").strip() or "unknown"
-        safe = lambda v: str(v).replace("/", "-").replace("\\", "-")
-
-        mapping = {
-            "{YYYY-MM-DD}": safe(date_text),
-            "{YYYY}": safe(year),
-            "{MM}": safe(month),
-            "{DD}": safe(day),
-            "{date}": safe(date_text),
-            "{title}": safe(title),
-            "{id}": safe(video_id),
-            "{username}": safe(username),
-            "{author}": safe(username),
-            "{quality}": safe(quality or "unknown"),
-            "{likes}": safe(str(likes)),
-            "{views}": safe(str(views)),
-            "{comments}": safe(str(comments)),
-            "{duration}": safe(str(duration)),
-            "{slug}": safe(slug),
-            "{rating}": safe(rating),
-        }
-        for token, value in mapping.items():
-            template = template.replace(token, str(value))
-
-        parts = [p for p in template.split("/") if p.strip()]
-        if not parts:
-            parts = [f"{date_text}_{title}_{video_id}.mp4"]
-
-        parts = [self._sanitize_path_segment(p) for p in parts]
-        if not parts[-1].lower().endswith(".mp4"):
-            parts[-1] += ".mp4"
-        parts = self._fit_output_path_to_windows_limit(parts)
-        return os.path.join(*parts)
-
-    @classmethod
-    def _sanitize_path_segment(cls, name: str) -> str:
-        """Return a portable, Windows-safe single path segment."""
-        cleaned = re.sub(r'[\x00-\x1f\\/:*?"<>|\x7f]', "-", str(name)).strip(" .")
-        if cleaned in ("", ".", ".."):
-            return "_"
-        stem = cleaned.split(".", 1)[0].rstrip(" ").upper()
-        if stem in _WINDOWS_RESERVED_FILENAMES:
-            cleaned = f"_{cleaned}"
-        return cls._shorten_path_segment(cleaned, _WINDOWS_SAFE_PATH_LIMIT)
-
-    @staticmethod
-    def _windows_path_length(path: str) -> int:
-        """Count UTF-16 code units, the length Windows uses for paths."""
-        return len(path.encode("utf-16-le")) // 2
-
-    @classmethod
-    def _shorten_path_segment(cls, name: str, max_length: int) -> str:
-        """Shorten a segment while retaining both its beginning and ending."""
-        if cls._windows_path_length(name) <= max_length:
-            return name
-
-        stem, extension = os.path.splitext(name)
-        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:10]
-        marker = f"-{digest}-"
-        available = max(1, max_length - cls._windows_path_length(extension) - cls._windows_path_length(marker))
-        prefix_length = max(1, available * 2 // 5)
-        suffix_length = max(1, available - prefix_length)
-        prefix = cls._trim_to_windows_length(stem, prefix_length)
-        suffix = cls._trim_to_windows_length(stem, suffix_length, from_end=True)
-        return f"{prefix}{marker}{suffix}{extension}"
-
-    @classmethod
-    def _fit_output_path_to_windows_limit(self, parts: list[str]) -> list[str]:
-        """Keep output paths usable by Windows and its temporary download files."""
-        result = list(parts)
-        base_dir = os.path.abspath(app_config.download_dir)
-        while self._windows_path_length(os.path.join(base_dir, *result)) > _WINDOWS_SAFE_PATH_LIMIT:
-            candidates = [
-                (self._windows_path_length(part), index)
-                for index, part in enumerate(result)
-                if self._windows_path_length(part) > _WINDOWS_MIN_PATH_SEGMENT_LENGTH
-            ]
-            if not candidates:
-                break
-            _, index = max(candidates)
-            current_length = self._windows_path_length(result[index])
-            excess = self._windows_path_length(os.path.join(base_dir, *result)) - _WINDOWS_SAFE_PATH_LIMIT
-            target_length = max(_WINDOWS_MIN_PATH_SEGMENT_LENGTH, current_length - excess)
-            result[index] = self._shorten_path_segment(result[index], target_length)
-        return result
-
-    @staticmethod
-    def _trim_to_windows_length(text: str, max_length: int, *, from_end: bool = False) -> str:
-        chars = reversed(text) if from_end else iter(text)
-        kept: list[str] = []
-        length = 0
-        for char in chars:
-            char_length = DownloadManager._windows_path_length(char)
-            if length + char_length > max_length:
-                break
-            kept.append(char)
-            length += char_length
-        if from_end:
-            kept.reverse()
-        return "".join(kept)
 
     # ── Terminal state helpers ────────────────────────────────────────────────
 
@@ -3490,6 +3647,7 @@ class DownloadManager:
             signal_bus.task_removed.emit(task_id)
         else:
             self._prune_terminal_tasks()
+        self._schedule_task_persist()
         self._try_activate()
 
     def _fail_task(self, task_id: str, reason: str):
@@ -3514,6 +3672,7 @@ class DownloadManager:
         signal_bus.task_status_changed.emit(task_id, TaskStatus.FAILED.value)
         signal_bus.task_error.emit(task_id, reason)
         self._prune_terminal_tasks()
+        self._schedule_task_persist()
         # Free concurrency slot
         self._try_activate()
 
@@ -3669,82 +3828,47 @@ class DownloadManager:
         views: int,
         published_at: str,
         tags: list[Any],
+        payload: dict[str, Any] | None = None,
     ) -> tuple[bool, str]:
-        normalized_title = str(title or "").casefold()
-        title_include_terms = _split_filter_tags(app_config.filter_title_include)
-        if title_include_terms and not any(term in normalized_title for term in title_include_terms):
-            return False, tr(
-                f"title did not include any of: {', '.join(title_include_terms)}",
-                f"标题未包含任一关键词：{', '.join(title_include_terms)}",
-                f"タイトルに指定語句が含まれません：{', '.join(title_include_terms)}",
+        return matches_rule_metadata(
+            title=title,
+            likes=likes,
+            views=views,
+            published_at=published_at,
+            tags=tags,
+            payload=payload or current_rule_payload(),
+        )
+
+    def _apply_aria2_global_speed_limit(self):
+        limit = (
+            f"{max(0, int(app_config.global_speed_limit_kib))}K"
+            if app_config.global_speed_limit_enabled and app_config.global_speed_limit_kib > 0
+            else "0"
+        )
+        if limit == self._last_aria2_global_limit:
+            return
+        now = time.monotonic()
+        if (
+            limit == self._last_aria2_limit_attempted
+            and now - self._last_aria2_limit_attempt_at < 60
+        ):
+            return
+        self._last_aria2_limit_attempted = limit
+        self._last_aria2_limit_attempt_at = now
+        data, error = self._aria2_rpc_call(
+            "aria2.changeGlobalOption",
+            [{"max-overall-download-limit": limit}],
+        )
+        if data:
+            self._last_aria2_global_limit = limit
+        elif error:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Speed limit] aria2 global limit failed: {error}",
+                    f"[限速] aria2 全局限速应用失败：{error}",
+                    f"[速度制限] aria2 の全体制限に失敗：{error}",
+                )
             )
-
-        title_exclude_terms = _split_filter_tags(app_config.filter_title_exclude)
-        if title_exclude_terms:
-            hit = [term for term in title_exclude_terms if term in normalized_title]
-            if hit:
-                return False, tr(
-                    f"title matched exclude keywords: {', '.join(hit)}",
-                    f"标题命中排除关键词：{', '.join(hit)}",
-                    f"タイトルが除外語句に一致：{', '.join(hit)}",
-                )
-
-        if not app_config.filter_enabled:
-            return True, ""
-
-        if app_config.filter_min_likes_enabled and likes < app_config.filter_min_likes:
-            return False, tr(
-                f"likes {likes} < {app_config.filter_min_likes}",
-                f"点赞 {likes} < {app_config.filter_min_likes}",
-                f"いいね {likes} < {app_config.filter_min_likes}",
-            )
-
-        if app_config.filter_min_views_enabled and views < app_config.filter_min_views:
-            return False, tr(
-                f"views {views} < {app_config.filter_min_views}",
-                f"播放 {views} < {app_config.filter_min_views}",
-                f"再生数 {views} < {app_config.filter_min_views}",
-            )
-
-        if app_config.filter_date_enabled:
-            date_text = _extract_date_text(published_at)
-            if not date_text:
-                return False, tr(
-                    "invalid publish date",
-                    "无有效发布日期",
-                    "有効な公開日がありません",
-                )
-            start = app_config.filter_start_date or "1970-01-01"
-            end = app_config.filter_end_date or datetime.now().strftime("%Y-%m-%d")
-            if date_text < start or date_text > end:
-                return False, tr(
-                    f"date {date_text} is out of range {start} ~ {end}",
-                    f"日期 {date_text} 不在 {start} ~ {end}",
-                    f"日付 {date_text} が範囲外です {start} ~ {end}",
-                )
-
-        normalized_tags = _normalize_video_tags(tags)
-        include_terms = _split_filter_tags(app_config.filter_include_tags)
-        if app_config.filter_include_tags_enabled and include_terms:
-            hit = [term for term in include_terms if term in normalized_tags]
-            if not hit:
-                return False, tr(
-                    f"no include tags matched ({', '.join(include_terms)})",
-                    f"未命中包含标签（{', '.join(include_terms)}）",
-                    f"包含タグに一致しませんでした（{', '.join(include_terms)}）",
-                )
-
-        exclude_terms = _split_filter_tags(app_config.filter_exclude_tags)
-        if app_config.filter_exclude_tags_enabled and exclude_terms:
-            hit = [term for term in exclude_terms if term in normalized_tags]
-            if hit:
-                return False, tr(
-                    f"matched exclude tags ({', '.join(hit)})",
-                    f"命中排除标签（{', '.join(hit)}）",
-                    f"除外タグに一致しました（{', '.join(hit)}）",
-                )
-
-        return True, ""
 
     def _skip_task(self, task_id: str, reason: str):
         if self._is_cancel_requested(task_id):
@@ -3768,6 +3892,7 @@ class DownloadManager:
         )
         signal_bus.task_status_changed.emit(task_id, TaskStatus.SKIPPED.value)
         self._prune_terminal_tasks()
+        self._schedule_task_persist()
         self._try_activate()
 
     def _aria2_rpc_call(self, method: str, params: list) -> tuple[dict | None, str]:
@@ -4235,13 +4360,14 @@ class DownloadManager:
                 self._mark_terminal_locked(live_task)
         signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
         self._prune_terminal_tasks()
+        self._schedule_task_persist()
         # Free concurrency slot
         self._try_activate()
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────
 
-download_manager = DownloadManager()
+download_manager = DownloadManager(task_store=TaskQueueStore())
 
 
 # ── Utility ──────────────────────────────────────────────────────────────────
@@ -4263,200 +4389,3 @@ def _fmt_bytes(n: int) -> str:
     if n >= 1024:
         return f"{n / 1024:.1f} KB"
     return f"{n} B"
-
-
-def _dict_or_empty(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _iwara_image_url(image: dict[str, Any], *, variant: str = "thumbnail") -> str:
-    image_id = str(image.get("id", "") or "").strip()
-    name = str(image.get("name", "") or "").strip()
-    variant = str(variant or "thumbnail").strip() or "thumbnail"
-    if image_id and name:
-        return f"https://i.iwara.tv/image/{quote(variant)}/{quote(image_id)}/{quote(name)}"
-    path = str(image.get("path", "") or "").strip().strip("/")
-    if path and name:
-        encoded_path = "/".join(quote(part) for part in path.split("/") if part)
-        return f"https://i.iwara.tv/image/{quote(variant)}/{encoded_path}/{quote(name)}"
-    return ""
-
-
-def _clip_stored_text(value: Any, limit: int = _MAX_STORED_TEXT_CHARS) -> str:
-    text = str(value or "")
-    if len(text) <= limit:
-        return text
-    return text[:limit]
-
-
-def _copy_compact_fields(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key in keys:
-        value = data.get(key)
-        if value is None or value == "":
-            continue
-        if isinstance(value, str):
-            compact[key] = _clip_stored_text(value)
-        elif isinstance(value, (int, float, bool)):
-            compact[key] = value
-    return compact
-
-
-def _compact_video_raw_json(video_info: dict[str, Any]) -> str:
-    """Keep only NFO-relevant API fields instead of the full video payload."""
-    if not isinstance(video_info, dict):
-        return "{}"
-
-    compact = _copy_compact_fields(
-        video_info,
-        (
-            "id",
-            "title",
-            "slug",
-            "rating",
-            "createdAt",
-            "body",
-            "description",
-            "message",
-        ),
-    )
-
-    user = _dict_or_empty(video_info.get("user"))
-    if user:
-        compact_user = _copy_compact_fields(
-            user,
-            ("id", "username", "name", "body", "description", "bio", "about"),
-        )
-        profile = _dict_or_empty(user.get("profile"))
-        if profile:
-            compact_profile = _copy_compact_fields(
-                profile,
-                ("body", "description", "bio", "about"),
-            )
-            if compact_profile:
-                compact_user["profile"] = compact_profile
-        if compact_user:
-            compact["user"] = compact_user
-
-    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
-
-
-def _subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
-    video_id = str(video.get("id", "") or video.get("videoId", "") or "").strip()
-    user = video.get("user")
-    author = ""
-    if isinstance(user, dict):
-        author = str(user.get("username") or user.get("name") or "").strip()
-    download_state, download_reason = _subscription_download_block_from_video_info(video)
-    return {
-        "video_id": video_id,
-        "title": str(video.get("title", "") or video_id),
-        "author": author,
-        "published_at": str(video.get("createdAt", "") or video.get("updatedAt", "") or ""),
-        "source_url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
-        "thumbnail_url": _subscription_thumbnail_url(video),
-        "download_state": download_state,
-        "download_reason": download_reason,
-        "download_state_known": bool(download_state or download_reason or video.get("fileUrl")),
-    }
-
-
-def _subscription_thumbnail_url(video: dict[str, Any]) -> str:
-    custom_thumbnail = _dict_or_empty(video.get("customThumbnail"))
-    if custom_thumbnail:
-        custom_url = _iwara_image_url(custom_thumbnail, variant="original")
-        if custom_url:
-            return custom_url
-    file_info = _dict_or_empty(video.get("file"))
-    file_id = str(file_info.get("id", "") or "").strip()
-    host = urlparse(str(video.get("fileUrl", "") or "")).netloc
-    if not file_id or not host:
-        return ""
-    index = max(0, int(video.get("thumbnail", 0) or 0))
-    return f"https://{host}/image/original/{quote(file_id)}/thumbnail-{index:02d}.jpg"
-
-
-def _subscription_download_block_from_video_info(video_info: dict[str, Any]) -> tuple[str, str]:
-    file_url = str(video_info.get("fileUrl", "") or "")
-    if file_url:
-        return "", ""
-    embed = str(video_info.get("embedUrl", "") or "")
-    embed_lower = embed.lower()
-    if "youtube" in embed_lower or "youtu.be" in embed_lower:
-        return _SUBSCRIPTION_UNAVAILABLE_STATE, tr(
-            f"External YouTube embed; cannot be downloaded directly: {embed}",
-            f"YouTube 外部嵌入视频，无法直接下载：{embed}",
-            f"YouTube 外部埋め込みのため直接保存できません: {embed}",
-        )
-    message = str(video_info.get("message", "") or "")
-    private = bool(video_info.get("private"))
-    if message == "errors.privateVideo" or private:
-        return _SUBSCRIPTION_UNAVAILABLE_STATE, tr(
-            "Private video. The current account has no permission to download it.",
-            "私有作品，当前账号没有权限下载。",
-            "非公開動画です。現在のアカウントには保存権限がありません。",
-        )
-    return "", ""
-
-
-def _subscription_download_block_from_error(error: str) -> tuple[str, str]:
-    text = str(error or "").strip()
-    lower = text.lower()
-    if (
-        "no permission" in lower
-        or "403" in lower
-        or "forbidden" in lower
-        or "没有权限" in text
-        or "不可见" in text
-        or "私有" in text
-        or "private" in lower
-    ):
-        return _SUBSCRIPTION_UNAVAILABLE_STATE, tr(
-            "The current account has no permission to view or download this video.",
-            "当前账号没有权限查看或下载该作品。",
-            "現在のアカウントにはこの動画を表示または保存する権限がありません。",
-        )
-    return "", ""
-
-
-def _extract_date_text(published_at: str) -> str:
-    if not published_at:
-        return ""
-    text = published_at.strip()
-    if not text:
-        return ""
-    # Iwara often returns ISO 8601 with trailing Z.
-    iso_text = text.replace("Z", "+00:00")
-    try:
-        dt = datetime.fromisoformat(iso_text)
-        return dt.strftime("%Y-%m-%d")
-    except ValueError:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
-        return m.group(1) if m else ""
-
-
-def _split_filter_tags(text: str) -> list[str]:
-    if not text:
-        return []
-    parts = re.split(r"[\s,，;；|]+", text.strip())
-    normalized: list[str] = []
-    for part in parts:
-        token = part.strip().lower().lstrip("#")
-        if token and token not in normalized:
-            normalized.append(token)
-    return normalized
-
-
-def _normalize_video_tags(tags: list[Any]) -> set[str]:
-    normalized: set[str] = set()
-    for item in tags:
-        if isinstance(item, dict):
-            for key in ("id", "type", "slug", "name", "title"):
-                raw = str(item.get(key, "") or "").strip().lower().lstrip("#")
-                if raw:
-                    normalized.add(raw)
-            continue
-        text = str(item or "").strip().lower().lstrip("#")
-        if text:
-            normalized.add(text)
-    return normalized

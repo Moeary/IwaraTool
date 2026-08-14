@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import setTheme, Theme
 
 from app.core.manager import download_manager
+from app.core.background_services import background_service
 from app.ui.main_window import MainWindow
 
 
@@ -36,6 +37,10 @@ def main():
     download_manager.restore_cached_login()
 
     window = MainWindow()
+    download_manager.start()
+    background_service.start()
+    app.aboutToQuit.connect(lambda: background_service.stop(wait=False))
+    app.aboutToQuit.connect(lambda: download_manager.shutdown(wait=False))
     if icon_path.exists():
         window.setWindowIcon(QIcon(str(icon_path)))
     window.show()

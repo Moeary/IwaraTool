@@ -12,6 +12,7 @@
 - `X-Version` 署名計算に対応。
 - 画質フォールバック：`Source -> 540 -> 360`。
 - ステートマシン制御で URL 失効問題を軽減。
+- 安全終了時にタスクと一時ファイルを保持し、次回起動時に自動復元する永続キュー。
 - ローカル重複回避 + SQLite 履歴センター。
 - ユーザー、プレイリスト、検索 URL の一括投入に対応。
 - より使いやすい Iwara 検索：Oreno3D オンライン動画検索、Iwara ライブ API の動画/作者/プレイリスト検索、英中日タグ候補に対応。
@@ -49,6 +50,8 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 `tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
 
+Oreno3D のタグブリッジでは、タグスコープの単一ラベルを `/tags/{id}` へ直接検索できます。`tag:<id>`、`origin:<id>`、`character:<id>`、Oreno3D エンティティ URL にも対応し、結果は開く／キューへ追加する前に正式な Iwara 動画へ解決されます。
+
 ## ローカルデータとキャッシュ
 
 実行時データは `data/` に保存され、用途ごとに分離されています。
@@ -56,6 +59,7 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 | パス | 用途 |
 | --- | --- |
 | `data/config.ini` | Token、UI、並列数、ダウンロード動作の設定 |
+| `data/tasks.json` | 復元可能な待機中、実行中、失敗、中断タスクの状態 |
 | `data/history.db` | ダウンロード履歴とローカルファイル状態 |
 | `data/subscriptions.db` | 購読元、購読動画、更新状態 |
 | `data/rules.json` | 名前付きダウンロードルール |

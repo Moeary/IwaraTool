@@ -97,10 +97,11 @@ class TaskCenterInterface(QWidget):
     _COL_SIZE = 4
     _COL_SPEED = 5
     _COL_QUALITY = 6
-    _COL_URL = 7
-    _COL_ID = 8
-    _COL_ACTION = 9
-    _COL_REMOVE = 10
+    _COL_PRIORITY = 7
+    _COL_URL = 8
+    _COL_ID = 9
+    _COL_ACTION = 10
+    _COL_REMOVE = 11
 
     _SORT_DEFAULT = -1
     _SORT_ADDED = -2
@@ -209,6 +210,7 @@ class TaskCenterInterface(QWidget):
                 tr("Progress", "进度", "進捗"),
                 tr("Size", "大小", "サイズ"),
                 tr("Added", "加入顺序", "追加順"),
+                tr("Priority", "优先级", "優先度"),
                 tr("Quality", "画质", "画質"),
                 "ID",
             ]
@@ -222,6 +224,26 @@ class TaskCenterInterface(QWidget):
         self._sort_dir_btn.clicked.connect(self._toggle_sort_direction)
         filter_row.addWidget(self._sort_dir_btn)
 
+        self._priority_combo = ComboBox(self)
+        self._priority_combo.addItems(
+            [
+                tr("High Priority", "高优先级", "高優先度"),
+                tr("Normal Priority", "普通优先级", "通常優先度"),
+                tr("Low Priority", "低优先级", "低優先度"),
+            ]
+        )
+        self._priority_combo.setItemData(0, 10)
+        self._priority_combo.setItemData(1, 0)
+        self._priority_combo.setItemData(2, -10)
+        self._priority_combo.setCurrentIndex(1)
+        self._priority_combo.setFixedWidth(130)
+        filter_row.addWidget(self._priority_combo)
+        priority_btn = PrimaryPushButton(
+            tr("Set Priority", "设置优先级", "優先度を設定"), self
+        )
+        priority_btn.clicked.connect(self._set_selected_priority)
+        filter_row.addWidget(priority_btn)
+
         root.addLayout(filter_row)
 
         self._summary_label = BodyLabel("", self)
@@ -234,7 +256,7 @@ class TaskCenterInterface(QWidget):
         self._table.setMinimumWidth(0)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
-        self._table.setColumnCount(11)
+        self._table.setColumnCount(12)
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -244,6 +266,7 @@ class TaskCenterInterface(QWidget):
                 tr("Size", "大小", "サイズ"),
                 tr("Speed", "速度", "速度"),
                 tr("Quality", "画质", "画質"),
+                tr("Priority", "优先级", "優先度"),
                 "URL",
                 "ID",
                 tr("Action", "操作", "操作"),
@@ -279,6 +302,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE: 142,
             self._COL_SPEED: 96,
             self._COL_QUALITY: 72,
+            self._COL_PRIORITY: 82,
             self._COL_URL: 68,
             self._COL_ID: 126,
             self._COL_ACTION: 66,
@@ -317,6 +341,7 @@ class TaskCenterInterface(QWidget):
         signal_bus.task_error.connect(self._on_task_error)
         signal_bus.tasks_removed.connect(self._on_tasks_removed)
         signal_bus.task_removed.connect(self._on_task_removed)
+        signal_bus.task_priority_changed.connect(self._on_task_priority_changed)
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -362,6 +387,7 @@ class TaskCenterInterface(QWidget):
             self._size_text(task),
             task.speed_str,
             task.quality,
+            self._priority_text(task.priority),
             _video_url(task.video_id),
             task.video_id,
         ]
@@ -379,6 +405,8 @@ class TaskCenterInterface(QWidget):
                 item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
             elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            elif col_idx == self._COL_PRIORITY:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             else:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
@@ -476,6 +504,7 @@ class TaskCenterInterface(QWidget):
             title=str(info.get("title", "") or video_id),
             author=str(info.get("author", "") or ""),
             status=status,
+            priority=int(info.get("priority", 0) or 0),
         )
 
     def _fetch_task(self, task_id: str, info: dict | None = None) -> DownloadTask | None:
@@ -573,7 +602,7 @@ class TaskCenterInterface(QWidget):
             order = self._task_order.get(task.task_id, 0)
             progress = self._progress_ratio(task)
             if self._sort_column == self._SORT_DEFAULT:
-                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)
             if self._sort_column == self._SORT_ADDED:
                 return order
             if self._sort_column == self._COL_STATE:
@@ -590,11 +619,13 @@ class TaskCenterInterface(QWidget):
                 return (text(task.speed_str), order)
             if self._sort_column == self._COL_QUALITY:
                 return (text(task.quality), order)
+            if self._sort_column == self._COL_PRIORITY:
+                return (task.priority, order)
             if self._sort_column == self._COL_URL:
                 return (text(_video_url(task.video_id)), order)
             if self._sort_column == self._COL_ID:
                 return (text(task.video_id), order)
-            return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+            return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)
 
         return sorted(tasks, key=key, reverse=self._sort_reverse)
 
@@ -607,11 +638,12 @@ class TaskCenterInterface(QWidget):
             4: self._COL_PROGRESS,
             5: self._COL_SIZE,
             6: self._SORT_ADDED,
-            7: self._COL_QUALITY,
-            8: self._COL_ID,
+            7: self._COL_PRIORITY,
+            8: self._COL_QUALITY,
+            9: self._COL_ID,
         }
         self._sort_column = mapping.get(index, self._SORT_DEFAULT)
-        if index in (4, 5):
+        if index in (4, 5, 7):
             self._sort_reverse = True
         elif index == 0:
             self._sort_reverse = False
@@ -628,7 +660,11 @@ class TaskCenterInterface(QWidget):
             self._sort_reverse = not self._sort_reverse
         else:
             self._sort_column = column
-            self._sort_reverse = column in (self._COL_PROGRESS, self._COL_SIZE)
+            self._sort_reverse = column in (
+                self._COL_PROGRESS,
+                self._COL_SIZE,
+                self._COL_PRIORITY,
+            )
         self._sync_sort_combo()
         self._update_sort_button()
         self._restore_sort_indicator()
@@ -649,6 +685,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE,
             self._COL_SPEED,
             self._COL_QUALITY,
+            self._COL_PRIORITY,
             self._COL_URL,
             self._COL_ID,
         }
@@ -668,8 +705,9 @@ class TaskCenterInterface(QWidget):
             self._COL_PROGRESS: 4,
             self._COL_SIZE: 5,
             self._SORT_ADDED: 6,
-            self._COL_QUALITY: 7,
-            self._COL_ID: 8,
+            self._COL_PRIORITY: 7,
+            self._COL_QUALITY: 8,
+            self._COL_ID: 9,
         }
         self._sort_combo.blockSignals(True)
         self._sort_combo.setCurrentIndex(mapping.get(self._sort_column, 0))
@@ -745,6 +783,23 @@ class TaskCenterInterface(QWidget):
             self._restore_task(task_id)
         elif action == "remove":
             self._remove_task(task_id)
+
+    def _set_selected_priority(self):
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._visible_task_ids):
+            InfoBar.warning(
+                title=tr("Select a task", "请选择任务", "タスクを選択してください"),
+                content="",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1800,
+                parent=self,
+            )
+            return
+        task_id = self._visible_task_ids[row]
+        priority = int(self._priority_combo.currentData() or 0)
+        download_manager.set_task_priority(task_id, priority)
 
     def _retry_task(self, task_id: str):
         download_manager.retry_task(task_id)
@@ -907,6 +962,15 @@ class TaskCenterInterface(QWidget):
         if self._sort_column in (self._SORT_DEFAULT, self._COL_STATE):
             self._schedule_refresh(300)
 
+    def _on_task_priority_changed(self, task_id: str, _priority: int):
+        task = self._fetch_task(task_id)
+        if not task:
+            return
+        self._tasks_by_id[task_id] = task
+        self._upsert_task_row(task)
+        if self._sort_column in (self._SORT_DEFAULT, self._COL_PRIORITY):
+            self._schedule_refresh(0)
+
     def _on_task_progress(self, task_id: str, _downloaded: int, _total: int, _speed: str):
         self._ensure_order(task_id)
         task = self._tasks_by_id.get(task_id)
@@ -1002,6 +1066,14 @@ class TaskCenterInterface(QWidget):
         if column == self._COL_PROGRESS and task.error_msg:
             return task.error_msg
         return value
+
+    @staticmethod
+    def _priority_text(priority: int) -> str:
+        if priority > 0:
+            return tr("High", "高", "高")
+        if priority < 0:
+            return tr("Low", "低", "低")
+        return tr("Normal", "普通", "通常")
 
     def _progress_ratio(self, task: DownloadTask) -> float:
         if task.status == TaskStatus.COMPLETED:
