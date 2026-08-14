@@ -13,6 +13,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
+from .oreno3d_mapping import resolve_oreno3d_entity
+
 
 _ENTITY_PATHS = {
     "tag": "tags",
@@ -64,6 +66,18 @@ def _entity_query(search_type: str, entity_id: str) -> Oreno3DSearchQuery:
     )
 
 
+def _mapped_entity_query(search_type: str, entity_id: str) -> Oreno3DSearchQuery | None:
+    """Resolve a human label while retaining numeric IDs as-is."""
+
+    value = _clean(entity_id)
+    if not value or value.isdigit():
+        return None
+    resolved = resolve_oreno3d_entity(value)
+    if resolved is None:
+        return None
+    return _entity_query(resolved.kind, resolved.entity_id)
+
+
 def parse_oreno3d_query(value: str, *, scope: str = "videos") -> Oreno3DSearchQuery:
     """Parse the compact query grammar used by the search page.
 
@@ -89,7 +103,7 @@ def parse_oreno3d_query(value: str, *, scope: str = "videos") -> Oreno3DSearchQu
     if ":" in text:
         prefix, entity_id = text.split(":", 1)
         if prefix.casefold() in _ENTITY_PATHS and _clean(entity_id):
-            return _entity_query(prefix, entity_id)
+            return _mapped_entity_query(prefix, entity_id) or _entity_query(prefix, entity_id)
 
     if (
         (scope == "tags" or text.startswith("#"))
@@ -97,7 +111,8 @@ def parse_oreno3d_query(value: str, *, scope: str = "videos") -> Oreno3DSearchQu
         and "，" not in text
         and " " not in text
     ):
-        return _entity_query("tag", text.lstrip("#"))
+        value = text.lstrip("#")
+        return _mapped_entity_query("tag", value) or _entity_query("tag", value)
     return Oreno3DSearchQuery(keyword=text)
 
 
@@ -116,10 +131,10 @@ def map_oreno3d_sort(sort: str) -> str:
 def parse_oreno3d_tag_ids(value: str) -> tuple[str, ...]:
     """Return explicit tag ids from a tag-scope input.
 
-    Oreno3D exposes one direct entity route per tag.  This helper deliberately
-    accepts only tag terms; an ``origin:`` or ``character:`` expression is left
-    to the normal single-query parser instead of being silently misinterpreted
-    as a tag.
+    Numeric Oreno3D tag IDs have direct entity routes; names are resolved by
+    the public keyword endpoint.  This helper deliberately accepts only tag
+    terms; an ``origin:`` or ``character:`` expression is left to the normal
+    single-query parser instead of being silently misinterpreted as a tag.
     """
 
     terms = re.split(r"[,，;；|\s]+", str(value or "").strip())

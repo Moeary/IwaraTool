@@ -14,6 +14,8 @@ from html.parser import HTMLParser
 from typing import Any, Iterable
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 
+from .oreno3d_mapping import resolve_oreno3d_entity
+
 
 BASE_URL = "https://oreno3d.com"
 _ICON_PREFIXES = {"face", "local_library", "accessibility_new", "local_offer"}
@@ -424,20 +426,38 @@ class Oreno3DClient:
     ) -> tuple[list[Oreno3DListing], int]:
         """Query Oreno3D's free-text or entity search endpoint.
 
-        Oreno3D exposes the same card markup on ``/search`` and on entity
-        routes such as ``/tags/{id}``.  Entity routes intentionally omit the
-        free-text ``keyword`` parameter, matching the public client used by
-        LoveIwara.
+        Oreno3D exposes the same card markup on ``/search`` and on numeric
+        entity routes such as ``/tags/{id}``.  Human-readable labels are first
+        resolved through the bundled strict-unique Iwara/Oreno map; unknown
+        labels fall back to the site's regular keyword search instead of
+        producing a 404.
         """
 
         normalized_type = _clean_text(search_type).casefold()
         normalized_id = _clean_text(entity_id).strip("/")
+        if ":" in normalized_id:
+            prefix, value = normalized_id.split(":", 1)
+            if prefix.casefold() in _ENTITY_PATHS and value.strip():
+                normalized_type = prefix.casefold()
+                normalized_id = value.strip()
+        if normalized_type in _ENTITY_PATHS and normalized_id and not normalized_id.isdigit():
+            resolved = resolve_oreno3d_entity(normalized_id)
+            if resolved is not None:
+                normalized_type = resolved.kind
+                normalized_id = resolved.entity_id
         path = "/search"
         params: dict[str, object] = {"page": max(1, int(page))}
-        if normalized_type in _ENTITY_PATHS and normalized_id:
+        if (
+            normalized_type in _ENTITY_PATHS
+            and normalized_id
+            and normalized_id.isdigit()
+        ):
             path = f"/{_ENTITY_PATHS[normalized_type]}/{quote(normalized_id, safe='')}"
         else:
-            params["keyword"] = _clean_text(keyword)
+            # ``tag:azur_lane`` and similar inputs are names, not Oreno's
+            # numeric entity IDs.  Its public search endpoint accepts these
+            # names and is preferable to requesting /tags/azur_lane (404).
+            params["keyword"] = _clean_text(keyword) or normalized_id
         if sort:
             params["sort"] = sort
         return self._fetch_listing_path(path, params=params, page=page)

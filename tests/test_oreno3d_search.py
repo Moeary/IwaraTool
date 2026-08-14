@@ -41,21 +41,30 @@ class Oreno3DSearchQueryTests(unittest.TestCase):
     def test_entity_prefix_and_url_are_normalized(self):
         self.assertEqual(
             parse_oreno3d_query("tag:genshin").search_type,
-            "tag",
+            "origin",
         )
         self.assertEqual(
             parse_oreno3d_query("tag:genshin").entity_id,
-            "genshin",
+            "276",
         )
         query = parse_oreno3d_query("https://oreno3d.com/characters/traveler")
         self.assertEqual((query.search_type, query.entity_id), ("character", "traveler"))
 
     def test_tag_scope_uses_direct_index_only_for_one_term(self):
         direct = parse_oreno3d_query("原神", scope="tags")
-        self.assertEqual((direct.search_type, direct.entity_id), ("tag", "原神"))
+        self.assertEqual((direct.search_type, direct.entity_id), ("origin", "276"))
         combined = parse_oreno3d_query("原神 mmd", scope="tags")
         self.assertEqual(combined.keyword, "原神 mmd")
         self.assertFalse(combined.is_entity_search)
+
+    def test_localized_entity_name_is_normalized_to_numeric_route(self):
+        query = parse_oreno3d_query("tag:azur_lane", scope="tags")
+        self.assertEqual((query.search_type, query.entity_id), ("origin", "14"))
+        self.assertEqual(
+            (parse_oreno3d_query("1234", scope="tags").search_type,
+             parse_oreno3d_query("1234", scope="tags").entity_id),
+            ("tag", "1234"),
+        )
 
     def test_sort_mapping_has_safe_default(self):
         self.assertEqual(map_oreno3d_sort("likes"), "favorites")
@@ -94,13 +103,58 @@ class Oreno3DEntityRequestTests(unittest.TestCase):
         session = _FakeSession()
         Oreno3DClient(session).fetch_entity_page(
             "tag",
-            "genshin impact",
+            "2",
             page=2,
             sort="latest",
         )
         url, kwargs = session.calls[0]
-        self.assertEqual(url, "https://oreno3d.com/tags/genshin%20impact")
+        self.assertEqual(url, "https://oreno3d.com/tags/2")
         self.assertEqual(kwargs["params"], {"page": 2, "sort": "latest"})
+
+    def test_unknown_named_entity_falls_back_to_keyword_search(self):
+        session = _FakeSession()
+        Oreno3DClient(session).fetch_entity_page(
+            "tag",
+            "not_in_oreno_map",
+            page=2,
+            sort="latest",
+        )
+        url, kwargs = session.calls[0]
+        self.assertEqual(url, "https://oreno3d.com/search")
+        self.assertEqual(
+            kwargs["params"],
+            {"page": 2, "keyword": "not_in_oreno_map", "sort": "latest"},
+        )
+
+    def test_mapped_named_entity_uses_typed_numeric_route(self):
+        session = _FakeSession()
+        Oreno3DClient(session).fetch_entity_page(
+            "tag",
+            "azur_lane",
+            page=2,
+            sort="latest",
+        )
+        url, kwargs = session.calls[0]
+        self.assertEqual(url, "https://oreno3d.com/origins/14")
+        self.assertEqual(kwargs["params"], {"page": 2, "sort": "latest"})
+
+    def test_named_multi_tag_requests_use_keyword_endpoint(self):
+        session = _FakeSession()
+        client = Oreno3DClient(session)
+        for tag in ("azur_lane", "elf"):
+            client.fetch_entity_page("tag", tag, page=1, sort="latest")
+
+        self.assertEqual(
+            [url for url, _kwargs in session.calls],
+            ["https://oreno3d.com/origins/14", "https://oreno3d.com/search"],
+        )
+        self.assertEqual(
+            [kwargs["params"] for _url, kwargs in session.calls],
+            [
+                {"page": 1, "sort": "latest"},
+                {"page": 1, "keyword": "elf", "sort": "latest"},
+            ],
+        )
 
     def test_free_text_request_keeps_keyword_endpoint(self):
         session = _FakeSession()
@@ -143,7 +197,7 @@ class Oreno3DSearchWorkerTests(unittest.TestCase):
                 key: manager.call[1][key]
                 for key in ("search_type", "entity_id")
             },
-            {"search_type": "tag", "entity_id": "genshin"},
+            {"search_type": "origin", "entity_id": "276"},
         )
         self.assertEqual(len(results), 1)
 

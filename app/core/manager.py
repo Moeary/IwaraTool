@@ -349,9 +349,11 @@ class DownloadManager(DownloadPathMixin):
     ):
         """Search several Oreno3D tags and return their intersection.
 
-        Oreno3D exposes one entity route per tag, so multi-tag matching is a
-        client-side intersection of the same result page from each route.
-        The smallest route page count is used for pagination.
+        Numeric Oreno3D IDs use their entity routes; mapped Iwara labels are
+        resolved to the corresponding typed route and unknown names use the
+        public keyword endpoint.  Multi-tag matching is a client-side
+        intersection of the same result page from each query.  The smallest
+        result page count is used for pagination.
         """
 
         unique_tags: list[str] = []

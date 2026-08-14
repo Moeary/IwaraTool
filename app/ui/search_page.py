@@ -1216,9 +1216,9 @@ class SearchInterface(QWidget):
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
                 hint = tr(
-                    "One tag uses the direct Oreno3D index; multiple tags are matched by intersection. tag:<id>, origin:<id>, and character:<id> are also supported.",
-                    "单个标签会走 Oreno3D 标签索引；多个标签会取交集；也支持 tag:<id>、origin:<id>、character:<id>。",
-                    "単一タグはOreno3Dのタグ索引を使用し、複数タグは共通結果を求めます。tag:<id>・origin:<id>・character:<id>にも対応します。",
+                    "Mapped Iwara labels use typed numeric Oreno3D routes; unknown names fall back to keyword search. Multiple tags are matched by intersection. tag:<id>, origin:<id>, and character:<id> are also supported.",
+                    "已匹配的 Iwara 标签会自动转为对应的 Oreno3D 数字路由；未知名称回退到关键词搜索。多个标签会取交集；也支持 tag:<id>、origin:<id>、character:<id>。",
+                    "対応するIwaraラベルはOreno3Dの型付き数値ルートに変換し、未知名はキーワード検索に戻します。複数タグは共通結果を求めます。tag:<id>・origin:<id>・character:<id>にも対応します。",
                 )
             else:
                 hint = tr(

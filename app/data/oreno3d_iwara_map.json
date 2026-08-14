@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "source": "FoxSensei001/LoveIwara",
+  "source_urls": {
+    "iwara_tags": "https://raw.githubusercontent.com/FoxSensei001/LoveIwara/master/tool/data/iwara_tags/iwara_tags_localized.json",
+    "oreno3d_entities": "https://raw.githubusercontent.com/FoxSensei001/LoveIwara/master/tool/data/oreno3d_tags/oreno3d_tags.min.json"
+  },
+  "generated": "2026-08-14",
+  "matching": "NFKC/casefold localized-name exact match; ambiguous matches omitted",
+  "counts": {
+    "entries": 1040,
+    "aliases": 3470,
+    "ambiguous_iwara_terms": 46
+  },
+  "entry_files": [
+    "oreno3d_iwara_map_entries_01.json",
+    "oreno3d_iwara_map_entries_02.json",
+    "oreno3d_iwara_map_entries_03.json",
+    "oreno3d_iwara_map_entries_04.json"
+  ],
+  "alias_files": [
+    "oreno3d_iwara_map_aliases_01.json",
+    "oreno3d_iwara_map_aliases_02.json",
+    "oreno3d_iwara_map_aliases_03.json",
+    "oreno3d_iwara_map_aliases_04.json",
+    "oreno3d_iwara_map_aliases_05.json"
+  ]
+}
