@@ -2921,6 +2921,8 @@ def _source_type_label(source_type: str) -> str:
 def _source_origin_label(source: dict[str, Any]) -> str:
     origin = str(source.get("source_origin", "") or "").strip().casefold()
     source_type = str(source.get("source_type", "") or "").strip().casefold()
+    if origin == "oreno3d":
+        return tr("Oreno3D author", "Oreno3D 作者", "Oreno3D作者")
     if origin == "account" or source_type == "feed":
         return tr("Iwara account", "Iwara 账户订阅", "Iwaraアカウント")
     if origin == "playlist" or source_type == "playlist":
@@ -2932,11 +2934,15 @@ def _source_origin_color(source: dict[str, Any]) -> str:
     origin = str(source.get("source_origin", "") or "").strip().casefold()
     source_type = str(source.get("source_type", "") or "").strip().casefold()
     if isDarkTheme():
+        if origin == "oreno3d":
+            return "#ffb86c"
         if origin == "account" or source_type == "feed":
             return "#4cc2ff"
         if origin == "playlist" or source_type == "playlist":
             return "#c3a6ff"
         return "#6bdc7a"
+    if origin == "oreno3d":
+        return "#d97706"
     if origin == "account" or source_type == "feed":
         return "#0078d4"
     if origin == "playlist" or source_type == "playlist":
@@ -3110,6 +3116,9 @@ def _detect_source_input(text: str) -> tuple[str, str]:
 def _source_url(source: dict[str, Any]) -> str:
     source_type = str(source.get("source_type", "") or "")
     key = str(source.get("source_key", "") or "").strip()
+    durable_url = str(source.get("source_url", "") or "").strip()
+    if source_type == "author" and durable_url:
+        return durable_url
     if source_type == "author" and key:
         return f"https://www.iwara.tv/profile/{key}"
     if source_type == "playlist" and key:

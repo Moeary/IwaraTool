@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import webbrowser
@@ -89,6 +90,85 @@ _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
 _MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
 _DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
 _MAX_COVER_DOWNLOAD_CONCURRENCY = 16
+_SEARCH_HISTORY_KEY = "search_history_v1"
+_DEFAULT_SEARCH_HISTORY_LIMIT = 20
+_MAX_SEARCH_HISTORY_LIMIT = 100
+
+
+def _normalize_search_history_entry(value: object) -> dict[str, str] | None:
+    """Keep one persisted search-history item small, valid, and portable."""
+
+    if not isinstance(value, dict):
+        return None
+    entry = {
+        "keyword": str(value.get("keyword") or "").strip(),
+        "source": str(value.get("source") or "oreno3d").strip().lower(),
+        "scope": str(value.get("scope") or "videos").strip().lower(),
+        "sort": str(value.get("sort") or "date").strip().lower(),
+    }
+    if entry["source"] not in {"oreno3d", "iwara"}:
+        entry["source"] = "oreno3d"
+    if entry["scope"] not in {"videos", "authors", "tags", "playlists"}:
+        entry["scope"] = "videos"
+    if not entry["keyword"] and entry["scope"] != "videos":
+        return None
+    return entry
+
+
+def _upsert_search_history(
+    history: object,
+    entry: object,
+    limit: int = _DEFAULT_SEARCH_HISTORY_LIMIT,
+) -> list[dict[str, str]]:
+    """Return an MRU history list with duplicate queries collapsed."""
+
+    normalized_entry = _normalize_search_history_entry(entry)
+    if normalized_entry is None:
+        return []
+    try:
+        safe_limit = max(1, min(_MAX_SEARCH_HISTORY_LIMIT, int(limit)))
+    except (TypeError, ValueError):
+        safe_limit = _DEFAULT_SEARCH_HISTORY_LIMIT
+
+    values = history if isinstance(history, list) else []
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for value in [normalized_entry, *values]:
+        item = _normalize_search_history_entry(value)
+        if item is None:
+            continue
+        key = tuple(item[field].casefold() for field in ("keyword", "source", "scope", "sort"))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(item)
+        if len(normalized) >= safe_limit:
+            break
+    return normalized
+
+
+def _decode_search_history(value: object) -> list[dict[str, str]]:
+    """Decode persisted JSON while tolerating old or manually edited values."""
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    if not isinstance(value, list):
+        return []
+    decoded: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for candidate in value:
+        item = _normalize_search_history_entry(candidate)
+        if item is None:
+            continue
+        key = tuple(item[field].casefold() for field in ("keyword", "source", "scope", "sort"))
+        if key in seen:
+            continue
+        seen.add(key)
+        decoded.append(item)
+    return decoded
 
 
 def _format_duration(seconds: float) -> str:
@@ -146,6 +226,17 @@ def _extract_iwara_video_id(value: str) -> str:
     return match.group(1) if match else ""
 
 
+def _oreno3d_video_url(video: SearchVideo) -> str:
+    """Return the original Oreno3D URL even after bridge hydration mutates the card."""
+
+    raw = video.raw if isinstance(video.raw, dict) else {}
+    return str(
+        raw.get("oreno3d_url")
+        or (video.source_url if video.source_kind == "oreno3d" else "")
+        or ""
+    ).strip()
+
+
 def _author_subscription_target(
     value: SearchAuthor | SearchVideo | object,
 ) -> tuple[str, str, str, str] | None:
@@ -191,6 +282,23 @@ def _author_subscription_target(
         return None
 
     raw = value.raw if isinstance(value.raw, dict) else {}
+    # Oreno author resolution may use a surviving work on the author page
+    # rather than the selected (possibly deleted) Iwara video.  Keep that
+    # mapping independent from the bridge video's hydration flag.
+    mapped_author = raw.get("oreno_iwara_author")
+    if isinstance(mapped_author, dict):
+        username = _author_key(
+            mapped_author.get("username")
+            or mapped_author.get("slug")
+            or mapped_author.get("profile_url")
+        )
+        if username:
+            return (
+                username,
+                str(mapped_author.get("name") or username).strip() or username,
+                str(mapped_author.get("id") or "").strip(),
+                str(mapped_author.get("avatar_url") or "").strip(),
+            )
     # An Oreno3D card carries Oreno's uploader name, which is not an Iwara
     # account.  Do not turn that bridge-side label into a local Iwara source
     # until the linked Iwara video metadata has been hydrated.
@@ -247,6 +355,18 @@ def _author_subscription_target(
         or _field_text(raw, "avatar_url", "author_avatar")
     ).strip()
     return username, title, remote_id, avatar_url
+
+
+def _author_source_info(value: SearchAuthor | SearchVideo | object) -> tuple[str, str]:
+    """Return a durable author page URL and its source origin for one result."""
+
+    if isinstance(value, SearchAuthor):
+        return str(value.source_url or "").strip(), "iwara"
+    if isinstance(value, SearchVideo):
+        raw = value.raw if isinstance(value.raw, dict) else {}
+        if value.source_kind == "oreno3d" or raw.get("oreno3d_url"):
+            return str(raw.get("oreno3d_author_url") or "").strip(), "oreno3d"
+    return "", ""
 
 
 def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str:
@@ -396,6 +516,85 @@ class TagSuggestionPopup(QListWidget):
         value = item.data(Qt.ItemDataRole.UserRole)
         if value:
             self.suggestion_chosen.emit(str(value))
+
+
+class SearchKeywordEdit(LineEdit):
+    """Line edit that lets the page anchor an on-demand history popup."""
+
+    activated = Signal()
+    deactivated = Signal()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.activated.emit()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.deactivated.emit()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.activated.emit()
+
+
+class SearchHistoryPopup(QListWidget):
+    """Non-activating dropdown anchored to the search keyword field."""
+
+    history_chosen = Signal(str)
+    clear_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setMinimumWidth(360)
+        self.setMaximumHeight(280)
+        self.setStyleSheet(
+            f"""
+            QListWidget {{
+                background: {"#252a31" if isDarkTheme() else "#ffffff"};
+                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 7px 9px;
+                border-radius: 5px;
+            }}
+            QListWidget::item:selected {{
+                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
+                color: {"#ffffff" if isDarkTheme() else "#12313a"};
+            }}
+            """
+        )
+        self.itemClicked.connect(self._choose_item)
+
+    def set_history(self, entries: list[dict[str, str]], formatter):
+        self.clear()
+        for entry in entries:
+            item = QListWidgetItem(formatter(entry))
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                json.dumps(entry, ensure_ascii=False, separators=(",", ":")),
+            )
+            self.addItem(item)
+        if entries:
+            clear_item = QListWidgetItem(
+                tr("Clear search history", "清空搜索历史", "検索履歴を消去")
+            )
+            clear_item.setData(Qt.ItemDataRole.UserRole, "__clear__")
+            self.addItem(clear_item)
+            self.setCurrentRow(0)
+
+    def _choose_item(self, item: QListWidgetItem):
+        value = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        self.hide()
+        if value == "__clear__":
+            self.clear_requested.emit()
+        elif value:
+            self.history_chosen.emit(value)
 
 
 class SearchWorker(QThread):
@@ -880,6 +1079,57 @@ class SearchIwaraAuthorWorker(QThread):
         )
 
 
+class SearchOrenoAuthorWorker(QThread):
+    """Resolve an Oreno3D author page and map it to an Iwara profile."""
+
+    result_ready = Signal(object)
+
+    def __init__(self, generation: int, video: SearchVideo, *, max_videos: int = 8):
+        super().__init__()
+        self.generation = generation
+        self.video = video
+        self.video_id = str(video.video_id or "").strip()
+        self.max_videos = max(1, min(20, int(max_videos)))
+
+    def run(self):
+        result: dict[str, Any] = {}
+        error = ""
+        try:
+            resolver = getattr(download_manager, "resolve_oreno3d_author", None)
+            if not callable(resolver):
+                raise RuntimeError("Oreno3D author resolver is unavailable")
+            raw = self.video.raw if isinstance(self.video.raw, dict) else {}
+            source_id = self.video_id.removeprefix("oreno3d:")
+            kwargs = {
+                "author_url": str(raw.get("oreno3d_author_url") or "").strip(),
+                "author_name": str(raw.get("oreno3d_author_name") or self.video.author_name or "").strip(),
+                "max_videos": self.max_videos,
+                "parallel": True,
+            }
+            try:
+                value = resolver(source_id, self.video.source_url, **kwargs)
+            except TypeError as exc:
+                # Keep older integrations/fakes usable while the manager API
+                # rolls out the durable-author parameters.
+                if not any(name in str(exc) for name in ("author_url", "author_name", "max_videos", "parallel")):
+                    raise
+                value = resolver(source_id, self.video.source_url)
+            if isinstance(value, dict):
+                result = dict(value)
+            else:
+                error = "Oreno3D author resolver returned no result"
+        except Exception as exc:
+            error = str(exc)
+        self.result_ready.emit(
+            {
+                "generation": self.generation,
+                "video_id": self.video_id,
+                "result": result,
+                "error": error,
+            }
+        )
+
+
 class SearchInterface(QWidget):
     """Search page with Fluent controls, cached covers, and a configurable list."""
 
@@ -917,11 +1167,13 @@ class SearchInterface(QWidget):
         self._grid_resize_pending = False
         self._oreno_link_workers: list[SearchOrenoLinkWorker] = []
         self._iwara_author_workers: list[SearchIwaraAuthorWorker] = []
+        self._oreno_author_workers: list[SearchOrenoAuthorWorker] = []
         self._tag_dictionary_worker: SearchTagDictionaryWorker | None = None
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
+        self._pending_open_author_video_ids: set[str] = set()
         self._pending_author_subscription_video_ids: set[str] = set()
         self._build_ui()
 
@@ -991,7 +1243,7 @@ class SearchInterface(QWidget):
         self._sort_combo.setMinimumWidth(132)
         query_row.addWidget(self._sort_combo)
 
-        self._keyword_edit = LineEdit(query_card)
+        self._keyword_edit = SearchKeywordEdit(query_card)
         self._keyword_edit.setClearButtonEnabled(True)
         self._keyword_edit.setPlaceholderText(
             tr(
@@ -1043,6 +1295,12 @@ class SearchInterface(QWidget):
         self._keyword_edit.textChanged.connect(
             lambda text: self._show_tag_suggestions(self._keyword_edit, text)
         )
+        self._search_history_popup = SearchHistoryPopup(self)
+        self._search_history_popup.history_chosen.connect(self._apply_search_history)
+        self._search_history_popup.clear_requested.connect(self._clear_search_history)
+        self._keyword_edit.activated.connect(self._show_search_history_popup)
+        self._keyword_edit.deactivated.connect(self._hide_search_history_popup)
+        self._refresh_search_history_popup()
 
         result_header = QHBoxLayout()
         # Keep paging beside the result controls so it remains readable and is
@@ -1233,6 +1491,100 @@ class SearchInterface(QWidget):
             SearchInterface._add_combo_item(combo, text, data)
         combo.setCurrentIndex(0)
         return combo
+
+    @staticmethod
+    def _set_combo_data(combo: ComboBox, value: str) -> bool:
+        target = str(value or "").strip()
+        for index in range(combo.count()):
+            if str(combo.itemData(index) or "") == target:
+                combo.setCurrentIndex(index)
+                return True
+        return False
+
+    @staticmethod
+    def _search_history_label(entry: dict[str, str]) -> str:
+        keyword = entry.get("keyword", "") or tr(
+            "Latest videos", "最新视频", "最新動画"
+        )
+        scope_labels = {
+            "videos": tr("Videos", "视频", "動画"),
+            "authors": tr("Authors", "作者", "作者"),
+            "tags": tr("Tags", "标签", "タグ"),
+            "playlists": tr("Playlists", "播放列表", "プレイリスト"),
+        }
+        source_labels = {
+            "oreno3d": tr("Oreno3D", "Oreno3D", "Oreno3D"),
+            "iwara": tr("Iwara", "Iwara", "Iwara"),
+        }
+        scope = scope_labels.get(entry.get("scope", "videos"), entry.get("scope", "videos"))
+        source = source_labels.get(entry.get("source", "oreno3d"), entry.get("source", "oreno3d"))
+        return f"{keyword} · {scope} · {source}"
+
+    def _read_search_history(self) -> list[dict[str, str]]:
+        history = _decode_search_history(app_config.get_ui_value(_SEARCH_HISTORY_KEY, "[]"))
+        return history[: app_config.search_history_limit]
+
+    def _refresh_search_history_popup(self):
+        if not hasattr(self, "_search_history_popup"):
+            return
+        self._search_history_popup.set_history(
+            self._read_search_history(),
+            self._search_history_label,
+        )
+
+    def _show_search_history_popup(self):
+        if not hasattr(self, "_search_history_popup"):
+            return
+        history = self._read_search_history()
+        if not history:
+            self._search_history_popup.hide()
+            return
+        self._search_history_popup.resize(
+            min(620, max(360, self._keyword_edit.width())),
+            min(280, max(60, self._search_history_popup.sizeHint().height())),
+        )
+        self._search_history_popup.move(
+            self._keyword_edit.mapToGlobal(QPoint(0, self._keyword_edit.height()))
+        )
+        self._search_history_popup.show()
+        self._search_history_popup.raise_()
+
+    def _hide_search_history_popup(self):
+        if hasattr(self, "_search_history_popup"):
+            self._search_history_popup.hide()
+
+    def _record_current_search(self):
+        entry = {
+            "keyword": self._keyword_edit.text().strip(),
+            "source": str(self._source_combo.currentData() or "oreno3d"),
+            "scope": str(self._scope_combo.currentData() or "videos"),
+            "sort": str(self._sort_combo.currentData() or "date"),
+        }
+        history = _upsert_search_history(
+            _decode_search_history(app_config.get_ui_value(_SEARCH_HISTORY_KEY, "[]")),
+            entry,
+            app_config.search_history_limit,
+        )
+        app_config.set_ui_value(
+            _SEARCH_HISTORY_KEY,
+            json.dumps(history, ensure_ascii=False, separators=(",", ":")),
+        )
+        self._refresh_search_history_popup()
+
+    def _apply_search_history(self, payload: str):
+        decoded = _decode_search_history(payload)
+        if not decoded:
+            return
+        entry = decoded[0]
+        self._set_combo_data(self._source_combo, entry["source"])
+        self._set_combo_data(self._scope_combo, entry["scope"])
+        self._set_combo_data(self._sort_combo, entry["sort"])
+        self._keyword_edit.setText(entry["keyword"])
+        QTimer.singleShot(0, self._start_search)
+
+    def _clear_search_history(self):
+        app_config.set_ui_value(_SEARCH_HISTORY_KEY, "[]")
+        self._refresh_search_history_popup()
 
     @staticmethod
     def _search_resolution_mode() -> str:
@@ -1447,6 +1799,8 @@ class SearchInterface(QWidget):
     def _show_tag_suggestions(self, edit: LineEdit, text: str):
         if self._tag_popup is None:
             return
+        if str(text or "").strip():
+            self._hide_search_history_popup()
         if str(self._scope_combo.currentData() or "videos") != "tags":
             self._tag_popup.hide()
             return
@@ -1493,6 +1847,7 @@ class SearchInterface(QWidget):
         )
 
     def _start_search(self, *_args):
+        self._hide_search_history_popup()
         try:
             filters = self._build_filters()
         except ValueError as exc:
@@ -1519,10 +1874,12 @@ class SearchInterface(QWidget):
             self._show_error(tr("Enter a playlist ID or URL", "请输入播放列表 ID 或链接", "プレイリストIDまたはURLを入力してください"))
             return
 
+        self._record_current_search()
         self._interrupt_search_workers()
         self._current_page = 0
         self._last_page = None
         self._pending_open_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         self._next_page = 0
         self._total = None
         self._all_videos.clear()
@@ -1535,6 +1892,7 @@ class SearchInterface(QWidget):
     def _interrupt_search_workers(self):
         self._generation += 1
         self._pending_author_subscription_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         for worker in self._search_workers:
             worker.requestInterruption()
         for worker in self._image_workers:
@@ -1542,6 +1900,8 @@ class SearchInterface(QWidget):
         for worker in self._oreno_link_workers:
             worker.requestInterruption()
         for worker in self._iwara_author_workers:
+            worker.requestInterruption()
+        for worker in self._oreno_author_workers:
             worker.requestInterruption()
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
@@ -1552,6 +1912,7 @@ class SearchInterface(QWidget):
             *self._image_workers,
             *self._oreno_link_workers,
             *self._iwara_author_workers,
+            *self._oreno_author_workers,
             self._tag_dictionary_worker,
             self._queue_resolve_worker,
         ]
@@ -1591,6 +1952,7 @@ class SearchInterface(QWidget):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         self._current_page = page
         self._next_page = None
         self._run_search(filters, scope, source=source, page=page, replace_results=True)
@@ -2398,6 +2760,70 @@ class SearchInterface(QWidget):
         if url:
             webbrowser.open(url)
 
+    def _open_oreno3d_video_page(self, video: SearchVideo):
+        """Open the bridge source directly for diagnosing Oreno3D records."""
+
+        url = _oreno3d_video_url(video)
+        if not url:
+            self._show_warning(
+                tr(
+                    "This result has no Oreno3D source URL",
+                    "当前结果没有 Oreno3D 来源链接",
+                    "この結果にはOreno3D元URLがありません",
+                )
+            )
+            return
+        webbrowser.open(url)
+
+    def _open_author_page_for_result(self):
+        values = self._selected_data()
+        if len(values) != 1:
+            self._show_warning(
+                tr(
+                    "Select one result to open its author page",
+                    "请只选择一个结果后打开作者页",
+                    "作者ページを開くには1件だけ選択してください",
+                )
+            )
+            return
+        data = values[0].get("data")
+        if isinstance(data, SearchAuthor):
+            url = str(data.source_url or "").strip()
+            if url:
+                webbrowser.open(url)
+            return
+        if not isinstance(data, SearchVideo):
+            return
+        source_url, source_origin = _author_source_info(data)
+        if source_url:
+            webbrowser.open(source_url)
+            return
+        if source_origin == "oreno3d":
+            if data.video_id in self._pending_open_author_video_ids:
+                return
+            self._pending_open_author_video_ids.add(data.video_id)
+            self._start_oreno_author_resolution(data)
+            self._status_label.setText(
+                tr(
+                    "Resolving the Oreno3D author page…",
+                    "正在解析 Oreno3D 作者页…",
+                    "Oreno3D作者ページを解析中…",
+                )
+            )
+            return
+        target = _author_subscription_target(data)
+        if target:
+            webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
+
+    def _open_iwara_author_page_for_result(self):
+        values = self._selected_data()
+        if len(values) != 1:
+            return
+        data = values[0].get("data")
+        target = _author_subscription_target(data)
+        if target:
+            webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
+
     def _open_item(self, item: QListWidgetItem):
         value = item.data(self._DATA_ROLE)
         if isinstance(value, dict):
@@ -2441,6 +2867,47 @@ class SearchInterface(QWidget):
                     triggered=self._queue_selected,
                 )
             )
+        if len(values) == 1 and len(video_values) == 1 and not author_values:
+            selected_video = video_values[0].get("data")
+            if isinstance(selected_video, SearchVideo) and _oreno3d_video_url(selected_video):
+                if menu.actions():
+                    menu.addSeparator()
+                menu.addAction(
+                    Action(
+                        FluentIcon.VIEW,
+                        tr(
+                            "Open Oreno3D video page",
+                            "打开 Oreno3D 视频页",
+                            "Oreno3D動画ページを開く",
+                        ),
+                        self,
+                        triggered=lambda _checked=False, video=selected_video: self._open_oreno3d_video_page(video),
+                    )
+                )
+        if len(values) == 1 and (video_values or author_values):
+            if menu.actions():
+                menu.addSeparator()
+            menu.addAction(
+                Action(
+                    FluentIcon.PEOPLE,
+                    tr("Open author page", "打开作者页", "作者ページを開く"),
+                    self,
+                    triggered=lambda _checked=False: self._open_author_page_for_result(),
+                )
+            )
+            selected_data = values[0].get("data")
+            if isinstance(selected_data, SearchVideo):
+                target = _author_subscription_target(selected_data)
+                source_url, source_origin = _author_source_info(selected_data)
+                if target and source_origin == "oreno3d" and source_url:
+                    menu.addAction(
+                        Action(
+                            FluentIcon.VIEW,
+                            tr("Open Iwara author page", "打开 Iwara 作者页", "Iwara作者ページを開く"),
+                            self,
+                            triggered=lambda _checked=False: self._open_iwara_author_page_for_result(),
+                        )
+                    )
         author_target = self._selected_author_subscription_target(values)
         if author_target:
             if menu.actions():
@@ -2462,9 +2929,9 @@ class SearchInterface(QWidget):
                     Action(
                         FluentIcon.PEOPLE,
                         tr(
-                            "Resolve Iwara author and favorite",
-                            "解析 Iwara 作者后收藏",
-                            "Iwara 作者を解析してお気に入りに追加",
+                            "Find author and favorite",
+                            "解析作者后收藏",
+                            "作者を解析してお気に入りに追加",
                         ),
                         self,
                         triggered=lambda _checked=False, video=video: self._resolve_and_subscribe_author(video),
@@ -2549,6 +3016,16 @@ class SearchInterface(QWidget):
             )
             return
         self._pending_author_subscription_video_ids.add(video.video_id)
+        if video.source_kind == "oreno3d":
+            self._start_oreno_author_resolution(video)
+            self._status_label.setText(
+                tr(
+                    "Finding the durable Oreno3D author page…",
+                    "正在查找可长期访问的 Oreno3D 作者页…",
+                    "永続的なOreno3D作者ページを検索中…",
+                )
+            )
+            return
         iwara_id = video.download_video_id or _extract_iwara_video_id(video.iwara_url)
         if iwara_id:
             if not video.download_video_id:
@@ -2584,6 +3061,75 @@ class SearchInterface(QWidget):
                 "Iwara 作者を解析中…",
             )
         )
+
+    def _start_oreno_author_resolution(self, video: SearchVideo):
+        if any(
+            worker.isRunning() and worker.video_id == video.video_id
+            for worker in self._oreno_author_workers
+        ):
+            return
+        worker = SearchOrenoAuthorWorker(self._generation, video)
+        self._oreno_author_workers.append(worker)
+        worker.result_ready.connect(self._on_oreno_author_result)
+        worker.finished.connect(lambda worker=worker: self._cleanup_oreno_author_worker(worker))
+        worker.start()
+
+    def _on_oreno_author_result(self, result: object):
+        if not isinstance(result, dict) or int(result.get("generation", -1)) != self._generation:
+            return
+        video_id = str(result.get("video_id") or "").strip()
+        video = next((candidate for candidate in self._all_videos if candidate.video_id == video_id), None)
+        if video is None:
+            return
+        resolved = result.get("result")
+        resolved = dict(resolved) if isinstance(resolved, dict) else {}
+        raw = video.raw if isinstance(video.raw, dict) else {}
+        video.raw = raw
+        for key in ("oreno_author_url", "oreno_author_name", "oreno_author_id"):
+            value = str(resolved.get(key) or "").strip()
+            if value:
+                raw[key.replace("oreno_", "oreno3d_")] = value
+        iwara_author = resolved.get("iwara_author")
+        if isinstance(iwara_author, dict):
+            raw["oreno_iwara_author"] = dict(iwara_author)
+        if raw.get("oreno3d_author_url"):
+            video.raw["oreno3d_author_url"] = str(raw["oreno3d_author_url"])
+        self._update_video_presentation(video)
+        self._start_image_loading()
+
+        target = _author_subscription_target(video)
+        if video.video_id in self._pending_author_subscription_video_ids:
+            self._pending_author_subscription_video_ids.discard(video.video_id)
+            if target:
+                source_url, source_origin = _author_source_info(video)
+                if source_url:
+                    self._subscribe_to_author(
+                        target,
+                        source_url=source_url,
+                        source_origin=source_origin,
+                    )
+                else:
+                    self._subscribe_to_author(target)
+            else:
+                self._show_warning(
+                    tr(
+                        "No surviving Iwara author could be found from this Oreno3D author page",
+                        "无法从该 Oreno3D 作者页找到仍可用的 Iwara 作者",
+                        "このOreno3D作者ページから有効なIwara作者を特定できません",
+                    )
+                )
+        if video.video_id in self._pending_open_author_video_ids:
+            self._pending_open_author_video_ids.discard(video.video_id)
+            source_url, _source_origin = _author_source_info(video)
+            if source_url:
+                webbrowser.open(source_url)
+        if result.get("error") and not raw.get("oreno3d_author_url"):
+            self._status_label.setText(str(result.get("error")))
+
+    def _cleanup_oreno_author_worker(self, worker: SearchOrenoAuthorWorker):
+        if worker in self._oreno_author_workers:
+            self._oreno_author_workers.remove(worker)
+        worker.deleteLater()
 
     def _start_iwara_author_hydration(self, video: SearchVideo):
         iwara_id = str(video.download_video_id or "").strip()
@@ -2624,7 +3170,15 @@ class SearchInterface(QWidget):
         if video.video_id in self._pending_author_subscription_video_ids:
             self._pending_author_subscription_video_ids.discard(video.video_id)
             if target:
-                self._subscribe_to_author(target)
+                source_url, source_origin = _author_source_info(video)
+                if source_url:
+                    self._subscribe_to_author(
+                        target,
+                        source_url=source_url,
+                        source_origin=source_origin,
+                    )
+                else:
+                    self._subscribe_to_author(target)
             else:
                 self._show_warning(
                     tr(
@@ -2666,18 +3220,31 @@ class SearchInterface(QWidget):
         video.raw["iwara_id"] = video.download_video_id
         video.raw["iwara_url"] = video.iwara_url
 
-    def _subscribe_to_author(self, target: tuple[str, str, str, str]):
+    def _subscribe_to_author(
+        self,
+        target: tuple[str, str, str, str],
+        *,
+        source_url: str = "",
+        source_origin: str = "",
+    ):
         username, title, remote_id, avatar_url = target
+        kwargs: dict[str, str] = {
+            "title": title,
+            "remote_id": remote_id,
+            "avatar_url": avatar_url,
+        }
+        if str(source_url or "").strip():
+            kwargs["source_url"] = str(source_url).strip()
+        if str(source_origin or "").strip():
+            kwargs["source_origin"] = str(source_origin).strip()
         try:
             source_id = download_manager.add_author_subscription(
                 username,
-                title=title,
-                remote_id=remote_id,
-                avatar_url=avatar_url,
+                **kwargs,
             )
         except TypeError as exc:
             # Keep lightweight manager fakes and older integrations usable.
-            if not any(name in str(exc) for name in ("title", "remote_id", "avatar_url")):
+            if not any(name in str(exc) for name in ("title", "remote_id", "avatar_url", "source_url", "source_origin")):
                 self._report_author_subscription_failure(username, exc)
                 return
             try:
@@ -2738,6 +3305,7 @@ class SearchInterface(QWidget):
         self._start_search()
 
     def _reset_filters(self):
+        self._hide_search_history_popup()
         self._keyword_edit.clear()
         self._source_combo.setCurrentIndex(0)
         self._scope_combo.setCurrentIndex(0)
@@ -2748,8 +3316,11 @@ class SearchInterface(QWidget):
             worker.requestInterruption()
         for worker in self._iwara_author_workers:
             worker.requestInterruption()
+        for worker in self._oreno_author_workers:
+            worker.requestInterruption()
         self._pending_author_subscription_video_ids.clear()
         self._pending_open_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         self._current_page = 0
         self._last_page = None
         self._next_page = None

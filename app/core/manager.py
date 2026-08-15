@@ -385,14 +385,14 @@ class DownloadManager(DownloadPathMixin):
         last_page = min((last_page for _items, last_page in pages), default=0)
         return intersect_oreno3d_listings(groups), last_page
 
-    def resolve_oreno3d_video_id(
+    def resolve_oreno3d_video_details(
         self,
         source_id: str,
         oreno3d_url: str,
         *,
         parallel: bool = False,
-    ) -> str:
-        """Resolve one Oreno3D card to its linked Iwara video ID.
+    ) -> dict[str, Any]:
+        """Resolve one Oreno3D card and keep its durable author metadata.
 
         Normal calls reuse the shared scraper and remain serialized with the
         rest of the API traffic.  Search-page workers can opt into ``parallel``
@@ -404,7 +404,7 @@ class DownloadManager(DownloadPathMixin):
         source_id = str(source_id or "").strip()
         oreno3d_url = str(oreno3d_url or "").strip()
         if not source_id or not oreno3d_url:
-            return ""
+            return {}
         if parallel:
             session = cloudscraper.create_scraper(
                 browser={"browser": "chrome", "platform": "windows", "mobile": False}
@@ -428,7 +428,147 @@ class DownloadManager(DownloadPathMixin):
                 )
         external_url = detail.external_video_url
         match = re.search(r"/video/([^/?#]+)", external_url)
-        return match.group(1) if match else ""
+        author = detail.author
+        return {
+            "video_id": match.group(1) if match else "",
+            "video_url": external_url,
+            "oreno_author_id": author.source_id if author else "",
+            "oreno_author_name": author.name if author else "",
+            "oreno_author_url": author.url if author else "",
+            "oreno_title": detail.title,
+        }
+
+    def resolve_oreno3d_video_id(
+        self,
+        source_id: str,
+        oreno3d_url: str,
+        *,
+        parallel: bool = False,
+    ) -> str:
+        """Resolve one Oreno3D card to its linked Iwara video ID."""
+
+        return str(
+            self.resolve_oreno3d_video_details(
+                source_id,
+                oreno3d_url,
+                parallel=parallel,
+            ).get("video_id", "")
+            or ""
+        )
+
+    def resolve_oreno3d_author(
+        self,
+        source_id: str = "",
+        oreno3d_url: str = "",
+        *,
+        author_url: str = "",
+        author_name: str = "",
+        max_videos: int = 8,
+        parallel: bool = False,
+    ) -> dict[str, Any]:
+        """Map an Oreno3D author page to an Iwara author when possible.
+
+        The Oreno author page is the durable anchor.  We first try the same
+        author name against Iwara's profile endpoint, then inspect a bounded
+        number of Oreno works and use any surviving Iwara link as a fallback.
+        This keeps author navigation useful after the originally selected
+        Iwara video has been deleted.
+        """
+
+        source_id = str(source_id or "").strip()
+        oreno3d_url = str(oreno3d_url or "").strip()
+        resolved_author_url = str(author_url or "").strip()
+        resolved_author_name = str(author_name or "").strip()
+        detail_records: list[Any] = []
+
+        if parallel:
+            session = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "windows", "mobile": False}
+            )
+            session.proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+            try:
+                client = Oreno3DClient(session)
+                if not resolved_author_url and source_id and oreno3d_url:
+                    original = client.fetch_detail_url(source_id, oreno3d_url)
+                    if original.author:
+                        resolved_author_url = original.author.url
+                        resolved_author_name = resolved_author_name or original.author.name
+                if resolved_author_url:
+                    listings, _last_page = client.fetch_author_page(resolved_author_url, page=1)
+                    for listing in listings[: max(1, min(20, int(max_videos)))]:
+                        try:
+                            detail_records.append(client.fetch_detail(listing))
+                        except Exception:
+                            continue
+            finally:
+                session.close()
+        else:
+            with self._api_lock:
+                client = Oreno3DClient(self.api.scraper)
+                if not resolved_author_url and source_id and oreno3d_url:
+                    original = client.fetch_detail_url(source_id, oreno3d_url)
+                    if original.author:
+                        resolved_author_url = original.author.url
+                        resolved_author_name = resolved_author_name or original.author.name
+                if resolved_author_url:
+                    listings, _last_page = client.fetch_author_page(resolved_author_url, page=1)
+                    for listing in listings[: max(1, min(20, int(max_videos)))]:
+                        try:
+                            detail_records.append(client.fetch_detail(listing))
+                        except Exception:
+                            continue
+
+        result: dict[str, Any] = {
+            "oreno_author_url": resolved_author_url,
+            "oreno_author_name": resolved_author_name,
+        }
+        if not resolved_author_name:
+            for detail in detail_records:
+                if detail.author:
+                    resolved_author_name = detail.author.name
+                    result["oreno_author_name"] = resolved_author_name
+                    result["oreno_author_url"] = detail.author.url
+                    break
+
+        def _profile_target(profile: object) -> dict[str, str]:
+            profile_map = _dict_or_empty(profile)
+            user = _dict_or_empty(profile_map.get("user"))
+            username = str(user.get("username", "") or user.get("slug", "") or "").strip()
+            if not username:
+                return {}
+            avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail")
+            return {
+                "username": username,
+                "name": str(user.get("name", "") or username).strip() or username,
+                "id": str(user.get("id", "") or "").strip(),
+                "avatar_url": avatar_url,
+                "profile_url": f"https://www.iwara.tv/profile/{username}",
+            }
+
+        if resolved_author_name:
+            try:
+                profile, _profile_error = self._api_call("get_user_profile", resolved_author_name)
+            except Exception:
+                profile = None
+            target = _profile_target(profile)
+            if target:
+                result["iwara_author"] = target
+                return result
+
+        for detail in detail_records:
+            external_url = str(getattr(detail, "external_video_url", "") or "")
+            match = re.search(r"/video/([^/?#]+)", external_url)
+            if not match:
+                continue
+            try:
+                metadata, _metadata_error = self.get_iwara_video_info(match.group(1))
+            except Exception:
+                metadata = None
+            target = _profile_target({"user": _dict_or_empty(metadata).get("user")})
+            if target:
+                result["iwara_author"] = target
+                return result
+        return result
 
     def resolve_oreno3d_video_url(self, source_id: str, oreno3d_url: str) -> str:
         """Resolve an Oreno3D card and build its canonical Iwara URL from the ID."""
@@ -901,18 +1041,29 @@ class DownloadManager(DownloadPathMixin):
         title: str = "",
         remote_id: str = "",
         avatar_url: str = "",
+        source_url: str = "",
+        source_origin: str = "",
     ) -> int:
         """Add or re-enable one local author subscription source."""
 
         username = str(username or "").strip().lstrip("@").strip("/")
         if not username:
             return 0
+        kwargs: dict[str, Any] = {
+            "avatar_url": str(avatar_url or "").strip(),
+        }
+        # Keep the call shape used by older manager fakes stable while making
+        # the durable Oreno author URL opt-in for bridge results.
+        if str(source_url or "").strip():
+            kwargs["source_url"] = str(source_url).strip()
+        if str(source_origin or "").strip():
+            kwargs["source_origin"] = str(source_origin).strip()
         return self.subscriptions.add_source(
             "author",
             username,
             str(title or username).strip() or username,
             str(remote_id or "").strip(),
-            avatar_url=str(avatar_url or "").strip(),
+            **kwargs,
         )
 
     def add_playlist_subscription(self, playlist_id: str) -> int:

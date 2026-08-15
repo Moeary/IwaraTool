@@ -56,6 +56,7 @@ class AppConfig:
         "filter_title_exclude": "",
         "search_limit_enabled": True,
         "search_limit_count": 100,
+        "search_history_limit": 20,
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -136,6 +137,7 @@ class AppConfig:
             "filter_title_exclude",
             "search_limit_enabled",
             "search_limit_count",
+            "search_history_limit",
             "aria2_rpc_enabled",
             "aria2_rpc_url",
             "aria2_rpc_token",
@@ -557,6 +559,24 @@ class AppConfig:
     @search_limit_count.setter
     def search_limit_count(self, v: int):
         self._set("search_limit_count", v)
+
+    @property
+    def search_history_limit(self) -> int:
+        """Maximum number of recent searches retained in the UI history."""
+
+        try:
+            value = int(self._get("search_history_limit"))
+        except (TypeError, ValueError):
+            value = 20
+        return max(1, min(100, value))
+
+    @search_history_limit.setter
+    def search_history_limit(self, v: int):
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            value = 20
+        self._set("search_history_limit", max(1, min(100, value)))
 
     @property
     def aria2_rpc_enabled(self) -> bool:

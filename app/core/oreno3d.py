@@ -480,6 +480,31 @@ class Oreno3DClient:
             entity_id=entity_id,
         )
 
+    def fetch_author_page(
+        self,
+        author_id_or_url: str,
+        page: int = 1,
+        *,
+        sort: str = "latest",
+    ) -> tuple[list[Oreno3DListing], int]:
+        """Fetch one Oreno3D author's video listing.
+
+        Author pages are stable even when an individual linked Iwara video is
+        later removed, so callers can use this as the durable source for an
+        author mapping and subscription entry.
+        """
+
+        value = _clean_text(author_id_or_url).strip()
+        parsed = urlparse(value if "://" in value else "")
+        path = parsed.path if parsed.path.startswith("/authors/") else ""
+        if not path:
+            author_id = value.strip("/").rsplit("/", 1)[-1]
+            path = f"/authors/{quote(author_id, safe='')}"
+        params: dict[str, object] = {"page": max(1, int(page))}
+        if sort:
+            params["sort"] = sort
+        return self._fetch_listing_path(path, params=params, page=page)
+
     def fetch_detail_url(self, source_id: str, oreno3d_url: str) -> Oreno3DDetail:
         """Fetch one detail page without creating a local Oreno3D mirror."""
 

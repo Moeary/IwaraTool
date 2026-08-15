@@ -141,6 +141,7 @@ class SettingsCardBoard(QWidget):
         "behavior",
         "proxy",
         "search_limit",
+        "search_history",
         "subscription_prompt",
         "language",
         "data_paths",
@@ -720,6 +721,39 @@ class SettingsInterface(ScrollArea):
         search_layout.addLayout(search_row)
         self._settings_board.add_card("search_limit", search_card)
 
+        history_card = self._settings_board.create_card("search_history")
+        history_layout = QVBoxLayout(history_card)
+        history_layout.setContentsMargins(20, 16, 20, 16)
+        history_layout.setSpacing(10)
+        history_layout.addWidget(
+            SubtitleLabel(tr("Search History", "搜索历史", "検索履歴"), history_card)
+        )
+        history_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Keep recent search conditions available from the search page. Older entries are removed automatically.",
+                    "在搜索页保留最近使用的搜索条件，超出数量后会自动移除较早记录。",
+                    "検索ページで最近の検索条件を保持します。上限を超えた古い履歴は自動的に削除されます。",
+                ),
+                history_card,
+            )
+        )
+        history_row = QHBoxLayout()
+        history_row.addWidget(
+            BodyLabel(tr("Remembered searches", "保留搜索数", "保存する検索数"), history_card)
+        )
+        self._search_history_limit_spin = SpinBox(history_card)
+        self._search_history_limit_spin.setRange(1, 100)
+        self._search_history_limit_spin.setFixedWidth(132)
+        self._search_history_limit_spin.valueChanged.connect(self._on_search_history_limit_changed)
+        history_row.addWidget(self._search_history_limit_spin)
+        history_row.addWidget(
+            BodyLabel(tr("items (1-100)", "条（1-100）", "件（1～100）"), history_card)
+        )
+        history_row.addStretch()
+        history_layout.addLayout(history_row)
+        self._settings_board.add_card("search_history", history_card)
+
         # ── Search bridge resolution ───────────────────────────────────────
         search_resolve_card = self._settings_board.create_card("search_bridge")
         search_resolve_layout = QVBoxLayout(search_resolve_card)
@@ -1145,6 +1179,7 @@ class SettingsInterface(ScrollArea):
         self._search_limit_switch.setChecked(app_config.search_limit_enabled)
         self._search_limit_edit.setText(str(max(1, app_config.search_limit_count)))
         self._search_limit_edit.setEnabled(app_config.search_limit_enabled)
+        self._search_history_limit_spin.setValue(app_config.search_history_limit)
         search_resolution_mode = str(
             app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
             or "eager"
@@ -1417,6 +1452,24 @@ class SettingsInterface(ScrollArea):
         self._search_limit_edit.setText(str(value))
         app_config.search_limit_count = value
 
+    def _on_search_history_limit_changed(self, value: int):
+        if self._loading_settings:
+            return
+        limit = max(1, min(100, int(value)))
+        app_config.search_history_limit = limit
+        # Apply a lower limit immediately so a later increase does not bring
+        # back entries the user already asked us to discard.
+        raw = app_config.get_ui_value("search_history_v1", "[]")
+        try:
+            history = json.loads(str(raw or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            history = []
+        if isinstance(history, list) and len(history) > limit:
+            app_config.set_ui_value(
+                "search_history_v1",
+                json.dumps(history[:limit], ensure_ascii=False, separators=(",", ":")),
+            )
+
     def _on_search_resolution_mode_changed(self, _index: int):
         if self._loading_settings:
             return
@@ -1575,6 +1628,7 @@ class SettingsInterface(ScrollArea):
         app_config.subscription_prompt_mode = ["ask", "always", "never"][self._subscription_prompt_combo.currentIndex()]
         self._on_search_limit_input_finished()
         app_config.search_limit_enabled = self._search_limit_switch.isChecked()
+        app_config.search_history_limit = self._search_history_limit_spin.value()
         self._on_search_resolution_mode_changed(
             self._search_resolution_mode_combo.currentIndex()
         )
