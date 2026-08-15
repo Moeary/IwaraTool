@@ -31,6 +31,7 @@ from .notification_dispatcher import (
     prepare_task_notifications,
 )
 from .rules_page import RulesInterface
+from .repair_page import RepairInterface
 from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
@@ -87,6 +88,7 @@ class MainWindow(FluentWindow):
         self._search_page = SearchInterface(self)
         self._subscription_page = SubscriptionInterface(self)
         self._history_page = HistoryInterface(self)
+        self._repair_page = RepairInterface(self)
         self._rules_page = RulesInterface(self)
         self._settings_page = SettingsInterface(self)
 
@@ -110,6 +112,11 @@ class MainWindow(FluentWindow):
             self._history_page,
             icon=FluentIcon.HISTORY,
             text=tr("History", "历史记录", "履歴"),
+        )
+        self.addSubInterface(
+            self._repair_page,
+            icon=FluentIcon.FOLDER,
+            text=tr("Repair", "修复", "修復"),
         )
         # Bottom quick actions (shown above settings)
 
@@ -319,6 +326,7 @@ class MainWindow(FluentWindow):
             getattr(self, "_search_page", None),
             getattr(self, "_subscription_page", None),
             getattr(self, "_history_page", None),
+            getattr(self, "_repair_page", None),
             getattr(self, "_rules_page", None),
             getattr(self, "_settings_page", None),
         ):
@@ -396,6 +404,7 @@ class MainWindow(FluentWindow):
         for page in (
             getattr(self, "_search_page", None),
             getattr(self, "_subscription_page", None),
+            getattr(self, "_repair_page", None),
             getattr(self, "_settings_page", None),
         ):
             shutdown = getattr(page, "shutdown", None)

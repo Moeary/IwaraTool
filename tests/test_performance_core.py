@@ -8,7 +8,7 @@ from unittest.mock import call, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidget
 from qfluentwidgets import Action, FluentIcon
 
@@ -18,6 +18,7 @@ from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_im
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
+from app.ui.history_page import HistoryInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
     _source_search_text,
@@ -379,6 +380,18 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertNotIn("tags_json", batched)
         self.assertIn("raw_json", full)
         self.assertIn("tags_json", full)
+
+    def test_history_remove_many_deletes_only_requested_records(self):
+        tmp_dir = tempfile.mkdtemp(prefix="iwaratool-history-")
+        TEMP_DIRS.append(tmp_dir)
+        history = DownloadHistory(os.path.join(tmp_dir, "history.db"))
+        for video_id in ("remove01", "remove02", "keep01"):
+            history.upsert_downloaded({"video_id": video_id, "title": video_id})
+
+        removed = history.remove_many(["remove01", "missing", "remove02"])
+
+        self.assertEqual(removed, 2)
+        self.assertEqual([row["video_id"] for row in history.list_records()], ["keep01"])
 
     def test_compact_raw_json_keeps_nfo_fields_without_full_payload(self):
         raw = _compact_video_raw_json(
@@ -1111,6 +1124,30 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
             self.assertEqual(page._operation_video_ids(), ["pending01"])
+        page.close()
+
+    def test_history_table_supports_extended_selection(self):
+        records = [
+            {"video_id": "history01", "title": "History 01", "file_path": ""},
+            {"video_id": "history02", "title": "History 02", "file_path": ""},
+            {"video_id": "history03", "title": "History 03", "file_path": ""},
+        ]
+        with patch("app.ui.history_page.download_manager") as manager:
+            manager.get_history_records.return_value = records
+            page = HistoryInterface()
+            self.assertEqual(
+                page._table.selectionMode(),
+                QAbstractItemView.SelectionMode.ExtendedSelection,
+            )
+
+            page._table.selectRow(0)
+            page._table.selectionModel().select(
+                page._table.model().index(1, 0),
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+
+            self.assertEqual(page._selected_video_ids(), ["history01", "history02"])
             page.close()
 
     def test_title_rule_filters_download_metadata(self):
