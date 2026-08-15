@@ -1914,7 +1914,10 @@ class DownloadManager(DownloadPathMixin):
         return items
 
     def remove_subscription_source(self, source_id: int):
-        self.subscriptions.remove_source(source_id)
+        self.remove_subscription_sources([source_id])
+
+    def remove_subscription_sources(self, source_ids: list[int]) -> int:
+        return self.subscriptions.remove_sources(source_ids)
 
     def cache_subscription_thumbnail(
         self,

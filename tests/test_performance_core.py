@@ -19,6 +19,7 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.history_page import HistoryInterface
+from app.ui.search_page import SearchInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
     _source_search_text,
@@ -750,6 +751,30 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertEqual(mgr.subscriptions.list_sources(), [])
         self.assertEqual(mgr.subscriptions.list_items(), [])
 
+    def test_subscription_store_remove_sources_supports_batch_deletion(self):
+        mgr = make_manager()
+        source_ids = [
+            mgr.subscriptions.add_source("feed", f"batch-feed-{index}", f"Feed {index}")
+            for index in range(3)
+        ]
+        for index, source_id in enumerate(source_ids):
+            mgr.subscriptions.upsert_items(
+                source_id,
+                [{"video_id": f"batch-video-{index}", "title": "Cached video"}],
+            )
+
+        removed = mgr.remove_subscription_sources(source_ids[:2])
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(
+            [source["id"] for source in mgr.subscriptions.list_sources()],
+            [source_ids[2]],
+        )
+        self.assertEqual(
+            [item["video_id"] for item in mgr.subscriptions.list_items()],
+            ["batch-video-2"],
+        )
+
     def test_subscription_store_migrates_legacy_db_into_history_db(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-migrate-")
         TEMP_DIRS.append(tmp_dir)
@@ -1124,7 +1149,60 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
             self.assertEqual(page._operation_video_ids(), ["pending01"])
+            with patch.object(page, "_apply_selected_rule_for_download") as apply_rule:
+                with patch.object(page, "_enqueue_ids") as enqueue_ids:
+                    # QAction.triggered emits a bool; the context-menu path
+                    # passes an explicit ID list and must not be overridden by
+                    # the staged pending selection.
+                    page._download_selected_with_rule(False)
+                    page._download_selected_with_rule(["other01"])
+                    self.assertEqual(
+                        enqueue_ids.call_args_list,
+                        [call(["pending01"]), call(["other01"])],
+                    )
+                    self.assertEqual(apply_rule.call_count, 2)
         page.close()
+
+    def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):
+        mgr = make_manager()
+        source_ids = [
+            mgr.subscriptions.add_source("feed", f"select-feed-{index}", f"Feed {index}")
+            for index in range(3)
+        ]
+
+        with patch("app.ui.subscription_page.download_manager", mgr):
+            page = SubscriptionInterface()
+            page.resize(800, 900)
+            page.show()
+            self.app.processEvents()
+            try:
+                self.assertEqual(
+                    page._source_table.selectionMode(),
+                    QAbstractItemView.SelectionMode.ExtendedSelection,
+                )
+                self.assertTrue(page._splitter_is_vertical)
+
+                page._source_table.selectRow(0)
+                page._source_table.selectionModel().select(
+                    page._source_table.model().index(1, 0),
+                    QItemSelectionModel.SelectionFlag.Select
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                expected_ids = [
+                    int(page._sources[row]["id"])
+                    for row in (0, 1)
+                ]
+                selected = page._selected_source_ids()
+                self.assertEqual(selected, expected_ids)
+
+                with patch.object(page, "_start_refresh") as start_refresh:
+                    page._refresh_selected_sources()
+                    start_refresh.assert_called_once_with(
+                        expected_ids,
+                        ignore_disabled=True,
+                    )
+            finally:
+                page.close()
 
     def test_history_table_supports_extended_selection(self):
         records = [
@@ -1149,6 +1227,44 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual(page._selected_video_ids(), ["history01", "history02"])
             page.close()
+
+    def test_search_page_controls_and_history_popup_survive_navigation(self):
+        old_auto_search = app_config.search_auto_search_enabled
+        old_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        page = None
+        try:
+            app_config.search_auto_search_enabled = True
+            page = SearchInterface()
+            self.assertFalse(hasattr(page, "_update_tags_btn"))
+            page._set_search_controls_collapsed(False, persist=False)
+
+            with patch.object(page, "_start_search") as start_search:
+                page._schedule_auto_search()
+                self.assertTrue(page._auto_search_timer.isActive())
+                page._auto_start_search()
+                start_search.assert_called_once_with()
+
+            page._set_search_controls_collapsed(True, persist=False)
+            self.assertTrue(page._query_card.isHidden())
+            self.assertTrue(page._rule_card.isHidden())
+            page._set_search_controls_collapsed(False, persist=False)
+            self.assertFalse(page._query_card.isHidden())
+            self.assertFalse(page._rule_card.isHidden())
+
+            page.show()
+            self.app.processEvents()
+            page._search_history_popup.show()
+            page.hide()
+            self.app.processEvents()
+            self.assertTrue(page._search_history_popup.isHidden())
+            page.show()
+            self.app.processEvents()
+            self.assertTrue(page._search_history_popup.isHidden())
+        finally:
+            if page is not None:
+                page.close()
+            app_config.search_auto_search_enabled = old_auto_search
+            app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
 
     def test_title_rule_filters_download_metadata(self):
         old_include = app_config.filter_title_include

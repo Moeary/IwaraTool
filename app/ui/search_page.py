@@ -78,6 +78,7 @@ from .ui_state import (
     open_table_column_dialog,
     restore_table_columns,
     restore_table_widths,
+    show_fluent_text_input,
 )
 from .worker_lifecycle import stop_qthreads
 
@@ -850,18 +851,6 @@ class SearchImageWorker(QThread):
                     close_client(client)
 
 
-class SearchTagDictionaryWorker(QThread):
-    """Refresh LoveIwara's localized tag mapping on demand."""
-
-    result_ready = Signal(object)
-
-    def run(self):
-        try:
-            self.result_ready.emit(download_manager.update_search_tag_dictionary())
-        except Exception as exc:
-            self.result_ready.emit((0, str(exc)))
-
-
 class SearchQueueResolveWorker(QThread):
     """Resolve only the selected Oreno3D cards before queueing them."""
 
@@ -1152,6 +1141,13 @@ class SearchInterface(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SearchInterface")
+        self._auto_search_ready = False
+        self._search_controls_collapsed = False
+        self._loading = False
+        self._auto_search_timer = QTimer(self)
+        self._auto_search_timer.setSingleShot(True)
+        self._auto_search_timer.setInterval(120)
+        self._auto_search_timer.timeout.connect(self._auto_start_search)
         self._generation = 0
         self._current_page = 0
         self._last_page: int | None = None
@@ -1168,7 +1164,6 @@ class SearchInterface(QWidget):
         self._oreno_link_workers: list[SearchOrenoLinkWorker] = []
         self._iwara_author_workers: list[SearchIwaraAuthorWorker] = []
         self._oreno_author_workers: list[SearchOrenoAuthorWorker] = []
-        self._tag_dictionary_worker: SearchTagDictionaryWorker | None = None
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
@@ -1176,6 +1171,7 @@ class SearchInterface(QWidget):
         self._pending_open_author_video_ids: set[str] = set()
         self._pending_author_subscription_video_ids: set[str] = set()
         self._build_ui()
+        self._auto_search_ready = True
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1187,11 +1183,9 @@ class SearchInterface(QWidget):
         title_row.addStretch()
         self._source_status_label = BodyLabel("", self)
         title_row.addWidget(self._source_status_label)
-        self._update_tags_btn = PushButton(
-            tr("Update tags", "更新标签", "タグを更新"), self
-        )
-        self._update_tags_btn.clicked.connect(self._update_tag_dictionary)
-        title_row.addWidget(self._update_tags_btn)
+        self._toggle_search_controls_btn = PushButton(self)
+        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
+        title_row.addWidget(self._toggle_search_controls_btn)
         root.addLayout(title_row)
 
         query_card = CardWidget(self)
@@ -1241,6 +1235,7 @@ class SearchInterface(QWidget):
             query_card,
         )
         self._sort_combo.setMinimumWidth(132)
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         query_row.addWidget(self._sort_combo)
 
         self._keyword_edit = SearchKeywordEdit(query_card)
@@ -1268,6 +1263,7 @@ class SearchInterface(QWidget):
         self._scope_hint = BodyLabel("", query_card)
         self._scope_hint.setWordWrap(True)
         query_layout.addWidget(self._scope_hint)
+        self._query_card = query_card
         root.addWidget(query_card)
 
         rule_card = CardWidget(self)
@@ -1287,6 +1283,7 @@ class SearchInterface(QWidget):
                 rule_card,
             )
         )
+        self._rule_card = rule_card
         root.addWidget(rule_card)
 
         self._tag_popup = TagSuggestionPopup(self)
@@ -1320,6 +1317,12 @@ class SearchInterface(QWidget):
         self._page_label.setMinimumWidth(112)
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pagination.addWidget(self._page_label)
+        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), self)
+        self._jump_page_btn.setToolTip(
+            tr("Jump to a page", "输入页码并跳转", "ページ番号を入力して移動")
+        )
+        self._jump_page_btn.clicked.connect(self._jump_to_page)
+        pagination.addWidget(self._jump_page_btn)
         self._next_page_btn = ToolButton(self)
         self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
         self._next_page_btn.setFixedSize(44, 36)
@@ -1478,11 +1481,51 @@ class SearchInterface(QWidget):
         self._update_page_controls()
         self._fit_results_table_last_column()
         QTimer.singleShot(0, self._resize_grid)
+        saved_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        if isinstance(saved_collapsed, str):
+            saved_collapsed = saved_collapsed.strip().casefold() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        self._set_search_controls_collapsed(bool(saved_collapsed), persist=False)
 
     @staticmethod
     def _add_combo_item(combo: ComboBox, text: str, data: str):
         combo.addItem(text)
         combo.setItemData(combo.count() - 1, data)
+
+    def _toggle_search_controls(self):
+        self._set_search_controls_collapsed(not self._search_controls_collapsed)
+
+    def _set_search_controls_collapsed(self, collapsed: bool, *, persist: bool = True):
+        self._search_controls_collapsed = bool(collapsed)
+        self._query_card.setVisible(not self._search_controls_collapsed)
+        self._rule_card.setVisible(not self._search_controls_collapsed)
+        if self._search_controls_collapsed:
+            self._hide_search_history_popup()
+            if self._tag_popup is not None:
+                self._tag_popup.hide()
+            self._toggle_search_controls_btn.setText(
+                tr("Show search controls", "展开搜索区", "検索欄を展開")
+            )
+            self._toggle_search_controls_btn.setToolTip(
+                tr("Show search and download rule controls", "显示搜索与下载规则", "検索・保存ルール欄を表示")
+            )
+        else:
+            self._toggle_search_controls_btn.setText(
+                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
+            )
+            self._toggle_search_controls_btn.setToolTip(
+                tr("Hide search and download rule controls", "隐藏搜索与下载规则", "検索・保存ルール欄を隠す")
+            )
+        if persist:
+            app_config.set_ui_value(
+                "search_controls_collapsed_v1",
+                self._search_controls_collapsed,
+            )
+        QTimer.singleShot(0, self._resize_grid)
 
     @staticmethod
     def _make_combo(items: list[tuple[str, str]], parent: QWidget) -> ComboBox:
@@ -1576,10 +1619,12 @@ class SearchInterface(QWidget):
         if not decoded:
             return
         entry = decoded[0]
+        self._auto_search_timer.stop()
         self._set_combo_data(self._source_combo, entry["source"])
         self._set_combo_data(self._scope_combo, entry["scope"])
         self._set_combo_data(self._sort_combo, entry["sort"])
         self._keyword_edit.setText(entry["keyword"])
+        self._auto_search_timer.stop()
         QTimer.singleShot(0, self._start_search)
 
     def _clear_search_history(self):
@@ -1690,7 +1735,7 @@ class SearchInterface(QWidget):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(last_column, QHeaderView.ResizeMode.Stretch)
 
-    def _on_scope_changed(self, *_args):
+    def _on_scope_changed(self, *_args, trigger_search: bool = True):
         scope = str(self._scope_combo.currentData() or "videos")
         if scope == "authors":
             hint = tr(
@@ -1747,6 +1792,8 @@ class SearchInterface(QWidget):
         if scope != "tags" and self._tag_popup is not None:
             self._tag_popup.hide()
         self._sync_view_controls()
+        if trigger_search:
+            self._schedule_auto_search()
 
     def _scope_index(self, scope: str) -> int:
         for index in range(self._scope_combo.count()):
@@ -1775,7 +1822,7 @@ class SearchInterface(QWidget):
             self._scope_combo.setCurrentIndex(selected_index)
         self._scope_combo.blockSignals(False)
 
-    def _on_source_changed(self, *_args):
+    def _on_source_changed(self, *_args, trigger_search: bool = True):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
         if source == "oreno3d":
@@ -1794,7 +1841,24 @@ class SearchInterface(QWidget):
                     "ライブAPI・動画/作者/タグ/プレイリスト・画像は data/img/search にキャッシュ",
                 )
             )
-        self._on_scope_changed()
+        self._on_scope_changed(trigger_search=False)
+        if trigger_search:
+            self._schedule_auto_search()
+
+    def _on_sort_changed(self, *_args):
+        self._schedule_auto_search()
+
+    def _schedule_auto_search(self):
+        if not self._auto_search_ready or not app_config.search_auto_search_enabled:
+            return
+        scope = str(self._scope_combo.currentData() or "videos")
+        if scope in {"authors", "tags", "playlists"} and not self._keyword_edit.text().strip():
+            return
+        self._auto_search_timer.start()
+
+    def _auto_start_search(self):
+        if self._auto_search_ready:
+            self._start_search()
 
     def _show_tag_suggestions(self, edit: LineEdit, text: str):
         if self._tag_popup is None:
@@ -1847,6 +1911,7 @@ class SearchInterface(QWidget):
         )
 
     def _start_search(self, *_args):
+        self._auto_search_timer.stop()
         self._hide_search_history_popup()
         try:
             filters = self._build_filters()
@@ -1913,7 +1978,6 @@ class SearchInterface(QWidget):
             *self._oreno_link_workers,
             *self._iwara_author_workers,
             *self._oreno_author_workers,
-            self._tag_dictionary_worker,
             self._queue_resolve_worker,
         ]
         return stop_qthreads(workers, timeout_ms=timeout_ms)
@@ -1938,6 +2002,51 @@ class SearchInterface(QWidget):
         else:
             return
         self._navigate_to_page(page)
+
+    def _jump_to_page(self):
+        if self._last_page is None and self._total is None and not self._all_videos and not self._all_authors:
+            self._show_warning(
+                tr(
+                    "Run a search before jumping to a page.",
+                    "请先执行搜索，再跳转页码。",
+                    "ページ移動の前に検索を実行してください。",
+                )
+            )
+            return
+
+        current = max(1, self._current_page + 1)
+        page_text, accepted = show_fluent_text_input(
+            self,
+            tr("Jump to page", "跳转页码", "ページへ移動"),
+            tr("Page number:", "页码：", "ページ番号:"),
+            text=str(current),
+            accept_text=tr("Go", "跳转", "移動"),
+            cancel_text=tr("Cancel", "取消", "キャンセル"),
+        )
+        if not accepted:
+            return
+        try:
+            page_number = int(page_text.strip())
+        except (TypeError, ValueError):
+            self._show_error(
+                tr("Enter a valid page number.", "请输入有效的页码。", "有効なページ番号を入力してください。")
+            )
+            return
+        if page_number < 1:
+            self._show_error(
+                tr("Page number must be at least 1.", "页码必须大于等于 1。", "ページ番号は1以上にしてください。")
+            )
+            return
+        if self._last_page is not None and page_number > self._last_page + 1:
+            self._show_error(
+                tr(
+                    f"Page number must be between 1 and {self._last_page + 1}.",
+                    f"页码必须在 1 到 {self._last_page + 1} 之间。",
+                    f"ページ番号は1～{self._last_page + 1}の範囲で指定してください。",
+                )
+            )
+            return
+        self._navigate_to_page(page_number - 1)
 
     def _navigate_to_page(self, page: int):
         page = max(0, int(page))
@@ -1971,48 +2080,6 @@ class SearchInterface(QWidget):
         worker.finished.connect(lambda worker=worker: self._cleanup_search_worker(worker))
         self._set_loading(True)
         worker.start()
-
-    def _update_tag_dictionary(self):
-        if self._tag_dictionary_worker is not None and self._tag_dictionary_worker.isRunning():
-            return
-        worker = SearchTagDictionaryWorker()
-        self._tag_dictionary_worker = worker
-        self._update_tags_btn.setEnabled(False)
-        self._status_label.setText(
-            tr(
-                "Updating localized tag dictionary…",
-                "正在更新多语言标签词典…",
-                "多言語タグ辞書を更新中…",
-            )
-        )
-        worker.result_ready.connect(self._on_tag_dictionary_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_tag_dictionary_worker(worker))
-        worker.start()
-
-    def _on_tag_dictionary_result(self, result: object):
-        self._update_tags_btn.setEnabled(True)
-        count, error = result if isinstance(result, tuple) and len(result) == 2 else (0, "")
-        if error:
-            self._show_warning(
-                tr(
-                    f"Tag dictionary update failed: {error}",
-                    f"标签词典更新失败：{error}",
-                    f"タグ辞書の更新に失敗：{error}",
-                )
-            )
-            return
-        self._on_source_changed()
-        self._status_label.setText(
-            tr(
-                f"Loaded {count} localized tags",
-                f"已加载 {count} 个多语言标签",
-                f"多言語タグを{count}件読み込みました",
-            )
-        )
-
-    @staticmethod
-    def _cleanup_tag_dictionary_worker(worker: SearchTagDictionaryWorker):
-        worker.deleteLater()
 
     def _on_search_result(self, result: SearchPageResult):
         worker = self.sender()
@@ -2556,6 +2623,24 @@ class SearchInterface(QWidget):
         self._grid_resize_pending = False
         self._resize_grid()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # The history popup is a non-activating tool window.  Explicitly
+        # refresh and hide it on navigation restore so it cannot retain a
+        # stale hidden state or hover/focus target from the previous page.
+        self._refresh_search_history_popup()
+        self._hide_search_history_popup()
+        if self._tag_popup is not None:
+            self._tag_popup.hide()
+        QTimer.singleShot(0, self._resize_grid)
+
+    def hideEvent(self, event):
+        self._auto_search_timer.stop()
+        self._hide_search_history_popup()
+        if self._tag_popup is not None:
+            self._tag_popup.hide()
+        super().hideEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._resize_grid()
@@ -2563,6 +2648,7 @@ class SearchInterface(QWidget):
         self._fit_results_table_last_column()
 
     def _set_loading(self, loading: bool):
+        self._loading = bool(loading)
         self._search_btn.setEnabled(not loading)
         self._reset_btn.setEnabled(not loading)
         self._previous_page_btn.setEnabled(not loading and self._current_page > 0)
@@ -2586,6 +2672,15 @@ class SearchInterface(QWidget):
         else:
             text = tr(f"Page {current}", f"第 {current} 页", f"{current} ページ")
         self._page_label.setText(text)
+        if hasattr(self, "_jump_page_btn"):
+            has_page_state = bool(
+                self._last_page is not None
+                or self._next_page is not None
+                or self._total is not None
+                or self._all_videos
+                or self._all_authors
+            )
+            self._jump_page_btn.setEnabled(not self._loading and has_page_state)
 
     def _update_status(self, result: SearchPageResult | None = None):
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")

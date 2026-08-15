@@ -42,6 +42,7 @@ from ..core.download_policy import normalize_hhmm
 from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .tag_dictionary_worker import TagDictionaryUpdateWorker
 from .ui_state import show_fluent_confirmation
 from .worker_lifecycle import stop_qthreads
 
@@ -278,6 +279,7 @@ class SettingsInterface(ScrollArea):
         self.viewport().setAutoFillBackground(False)
 
         self._worker: LoginWorker | None = None
+        self._tag_dictionary_worker: TagDictionaryUpdateWorker | None = None
         self._loading_settings = False
 
         self._content = QWidget(self)
@@ -299,7 +301,10 @@ class SettingsInterface(ScrollArea):
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
         """Wait for an in-flight login request before destroying its QThread."""
-        return stop_qthreads([self._worker], timeout_ms=timeout_ms)
+        return stop_qthreads(
+            [self._worker, self._tag_dictionary_worker],
+            timeout_ms=timeout_ms,
+        )
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -752,6 +757,25 @@ class SettingsInterface(ScrollArea):
         )
         history_row.addStretch()
         history_layout.addLayout(history_row)
+
+        auto_search_row = QHBoxLayout()
+        auto_search_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Search when source, scope, or sort changes",
+                    "切换数据源、搜索类型或排序时自动搜索",
+                    "ソース・検索対象・並び順の変更時に自動検索",
+                ),
+                history_card,
+            )
+        )
+        auto_search_row.addStretch()
+        self._search_auto_search_switch = SwitchButton(history_card)
+        self._search_auto_search_switch.checkedChanged.connect(
+            self._on_search_auto_search_toggle
+        )
+        auto_search_row.addWidget(self._search_auto_search_switch)
+        history_layout.addLayout(auto_search_row)
         self._settings_board.add_card("search_history", history_card)
 
         # ── Search bridge resolution ───────────────────────────────────────
@@ -779,6 +803,29 @@ class SettingsInterface(ScrollArea):
                 search_resolve_card,
             )
         )
+
+        tag_dictionary_row = QHBoxLayout()
+        tag_dictionary_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Refresh localized search tags",
+                    "刷新多语言搜索标签",
+                    "多言語検索タグを更新",
+                ),
+                search_resolve_card,
+            )
+        )
+        tag_dictionary_row.addStretch()
+        self._tag_dictionary_status = BodyLabel("", search_resolve_card)
+        tag_dictionary_row.addWidget(self._tag_dictionary_status)
+        self._update_tags_btn = PrimaryPushButton(
+            tr("Update tags", "更新标签", "タグを更新"),
+            search_resolve_card,
+            FluentIcon.SYNC,
+        )
+        self._update_tags_btn.clicked.connect(self._update_tag_dictionary)
+        tag_dictionary_row.addWidget(self._update_tags_btn)
+        search_resolve_layout.addLayout(tag_dictionary_row)
 
         resolve_mode_row = QHBoxLayout()
         resolve_mode_row.addWidget(
@@ -1180,6 +1227,7 @@ class SettingsInterface(ScrollArea):
         self._search_limit_edit.setText(str(max(1, app_config.search_limit_count)))
         self._search_limit_edit.setEnabled(app_config.search_limit_enabled)
         self._search_history_limit_spin.setValue(app_config.search_history_limit)
+        self._search_auto_search_switch.setChecked(app_config.search_auto_search_enabled)
         search_resolution_mode = str(
             app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
             or "eager"
@@ -1470,6 +1518,85 @@ class SettingsInterface(ScrollArea):
                 json.dumps(history[:limit], ensure_ascii=False, separators=(",", ":")),
             )
 
+    def _on_search_auto_search_toggle(self, checked: bool):
+        if self._loading_settings:
+            return
+        app_config.search_auto_search_enabled = bool(checked)
+
+    def _update_tag_dictionary(self):
+        if self._tag_dictionary_worker is not None and self._tag_dictionary_worker.isRunning():
+            return
+        worker = TagDictionaryUpdateWorker(self)
+        self._tag_dictionary_worker = worker
+        self._update_tags_btn.setEnabled(False)
+        self._tag_dictionary_status.setText(
+            tr(
+                "Updating…",
+                "更新中…",
+                "更新中…",
+            )
+        )
+        worker.result_ready.connect(self._on_tag_dictionary_result)
+        worker.finished.connect(
+            lambda worker=worker: self._cleanup_tag_dictionary_worker(worker)
+        )
+        worker.start()
+
+    def _on_tag_dictionary_result(self, result: object):
+        count, error = (
+            result if isinstance(result, tuple) and len(result) == 2 else (0, "")
+        )
+        if error:
+            message = tr(
+                f"Tag dictionary update failed: {error}",
+                f"标签词典更新失败：{error}",
+                f"タグ辞書の更新に失敗：{error}",
+            )
+            self._tag_dictionary_status.setText(
+                tr("Update failed", "更新失败", "更新失敗")
+            )
+            InfoBar.warning(
+                title=tr("Tag update failed", "标签更新失败", "タグ更新失敗"),
+                content=message,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self,
+            )
+            signal_bus.log_message.emit(f"[Tags] {message}")
+            return
+
+        self._tag_dictionary_status.setText(
+            tr(
+                f"Loaded {count} tags",
+                f"已加载 {count} 个标签",
+                f"{count} 件のタグを読み込みました",
+            )
+        )
+        InfoBar.success(
+            title=tr("Tags updated", "标签已更新", "タグを更新しました"),
+            content=self._tag_dictionary_status.text(),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
+        signal_bus.log_message.emit(
+            tr(
+                f"[Tags] Loaded {count} localized tags",
+                f"[标签] 已加载 {count} 个多语言标签",
+                f"[タグ] 多言語タグを{count}件読み込みました",
+            )
+        )
+
+    def _cleanup_tag_dictionary_worker(self, worker: TagDictionaryUpdateWorker):
+        if self._tag_dictionary_worker is worker:
+            self._tag_dictionary_worker = None
+            self._update_tags_btn.setEnabled(True)
+        worker.deleteLater()
+
     def _on_search_resolution_mode_changed(self, _index: int):
         if self._loading_settings:
             return
@@ -1629,6 +1756,7 @@ class SettingsInterface(ScrollArea):
         self._on_search_limit_input_finished()
         app_config.search_limit_enabled = self._search_limit_switch.isChecked()
         app_config.search_history_limit = self._search_history_limit_spin.value()
+        app_config.search_auto_search_enabled = self._search_auto_search_switch.isChecked()
         self._on_search_resolution_mode_changed(
             self._search_resolution_mode_combo.currentIndex()
         )

@@ -57,6 +57,7 @@ class AppConfig:
         "search_limit_enabled": True,
         "search_limit_count": 100,
         "search_history_limit": 20,
+        "search_auto_search_enabled": True,
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -138,6 +139,7 @@ class AppConfig:
             "search_limit_enabled",
             "search_limit_count",
             "search_history_limit",
+            "search_auto_search_enabled",
             "aria2_rpc_enabled",
             "aria2_rpc_url",
             "aria2_rpc_token",
@@ -577,6 +579,14 @@ class AppConfig:
         except (TypeError, ValueError):
             value = 20
         self._set("search_history_limit", max(1, min(100, value)))
+
+    @property
+    def search_auto_search_enabled(self) -> bool:
+        return self._get("search_auto_search_enabled")
+
+    @search_auto_search_enabled.setter
+    def search_auto_search_enabled(self, v: bool):
+        self._set("search_auto_search_enabled", bool(v))
 
     @property
     def aria2_rpc_enabled(self) -> bool:

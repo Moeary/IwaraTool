@@ -299,11 +299,25 @@ class SubscriptionStore:
             return dict(row) if row else None
 
     def remove_source(self, source_id: int):
+        self.remove_sources([source_id])
+
+    def remove_sources(self, source_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(int(source_id) for source_id in source_ids if source_id))
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
-            conn.execute("DELETE FROM items WHERE source_id=?", (int(source_id),))
-            conn.execute("DELETE FROM sources WHERE id=?", (int(source_id),))
+            conn.execute(
+                f"DELETE FROM items WHERE source_id IN ({placeholders})",
+                ids,
+            )
+            cursor = conn.execute(
+                f"DELETE FROM sources WHERE id IN ({placeholders})",
+                ids,
+            )
             conn.commit()
             self._export_sources_backup(conn)
+            return max(0, int(cursor.rowcount or 0))
 
     def set_source_enabled(self, source_id: int, enabled: bool):
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:

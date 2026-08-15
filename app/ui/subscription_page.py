@@ -77,46 +77,70 @@ class SubscriptionRefreshWorker(QThread):
     finished = Signal(dict)
     progress = Signal(dict)
 
-    def __init__(self, source_id: int | None = None, *, ignore_disabled: bool = False):
+    def __init__(
+        self,
+        source_id: int | list[int] | None = None,
+        *,
+        ignore_disabled: bool = False,
+    ):
         super().__init__()
-        self._source_id = source_id
+        if isinstance(source_id, (list, tuple, set)):
+            self._source_ids = list(dict.fromkeys(int(value) for value in source_id if value))
+        elif source_id:
+            self._source_ids = [int(source_id)]
+        else:
+            self._source_ids = []
         self._ignore_disabled = bool(ignore_disabled)
 
     def run(self):
-        if self._source_id:
-            source = download_manager.subscriptions.get_source(self._source_id) or {}
-            title = str(source.get("title", "") or source.get("source_key", "") or "")
-            self.progress.emit(
-                {
-                    "stage": "started",
-                    "index": 1,
-                    "total": 1,
-                    "source_id": self._source_id,
-                    "title": title,
-                }
-            )
-            try:
-                result = download_manager.refresh_subscription_source(
-                    self._source_id,
-                    ignore_enabled=self._ignore_disabled,
+        if self._source_ids:
+            summaries: list[dict[str, Any]] = []
+            total = len(self._source_ids)
+            for index, source_id in enumerate(self._source_ids, start=1):
+                source = download_manager.subscriptions.get_source(source_id) or {}
+                title = str(source.get("title", "") or source.get("source_key", "") or "")
+                self.progress.emit(
+                    {
+                        "stage": "started",
+                        "index": index,
+                        "total": total,
+                        "source_id": source_id,
+                        "title": title,
+                    }
                 )
-            except TypeError as exc:
-                # Preserve compatibility with lightweight manager fakes that
-                # still expose the original one-argument refresh method.
-                if "ignore_enabled" not in str(exc):
-                    raise
-                result = download_manager.refresh_subscription_source(self._source_id)
-            summary = download_manager._subscription_refresh_summary([result])
-            self.progress.emit(
-                {
-                    "stage": "finished",
-                    "index": 1,
-                    "total": 1,
-                    "source_id": self._source_id,
-                    "title": str(result.get("title", "") or title),
-                    "summary": result,
-                }
-            )
+                result: dict[str, Any]
+                try:
+                    result = download_manager.refresh_subscription_source(
+                        source_id,
+                        ignore_enabled=self._ignore_disabled,
+                    )
+                except TypeError as exc:
+                    # Preserve compatibility with lightweight manager fakes that
+                    # still expose the original one-argument refresh method.
+                    if "ignore_enabled" not in str(exc):
+                        raise
+                    result = download_manager.refresh_subscription_source(source_id)
+                except Exception as exc:
+                    result = {
+                        "source_id": source_id,
+                        "title": title,
+                        "error": str(exc),
+                    }
+                result = dict(result or {})
+                result.setdefault("source_id", source_id)
+                result.setdefault("title", title)
+                summaries.append(result)
+                self.progress.emit(
+                    {
+                        "stage": "finished",
+                        "index": index,
+                        "total": total,
+                        "source_id": source_id,
+                        "title": str(result.get("title", "") or title),
+                        "summary": result,
+                    }
+                )
+            summary = download_manager._subscription_refresh_summary(summaries)
         else:
             summary = download_manager.refresh_all_subscriptions(self.progress.emit)
         self.finished.emit(summary)
@@ -751,7 +775,7 @@ class SubscriptionInterface(QWidget):
             ]
         )
         self._source_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._source_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._source_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._source_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._source_table.setAlternatingRowColors(True)
         self._source_table.setBorderVisible(True)
@@ -761,6 +785,10 @@ class SubscriptionInterface(QWidget):
         self._source_table.setIconSize(QSize(58, 58))
         self._source_table.currentCellChanged.connect(lambda *_args: self._load_items(self._selected_source_id()))
         self._source_table.cellClicked.connect(self._on_source_cell_clicked)
+        self._source_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._source_table.customContextMenuRequested.connect(
+            self._show_source_table_context_menu
+        )
         source_header = self._source_table.horizontalHeader()
         source_header.setHighlightSections(False)
         source_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -1153,17 +1181,64 @@ class SubscriptionInterface(QWidget):
             return
         source_hidden = not self._source_panel_visible
         items_hidden = not self._items_panel_visible
-        self._toggle_sources_btn.setIcon(FluentIcon.VIEW if source_hidden else FluentIcon.LEFT_ARROW)
-        self._toggle_items_btn.setIcon(FluentIcon.VIEW if items_hidden else FluentIcon.RIGHT_ARROW)
+        vertical = bool(self._splitter_is_vertical)
+        source_direction_icon = FluentIcon.UP if vertical else FluentIcon.LEFT_ARROW
+        items_direction_icon = FluentIcon.DOWN if vertical else FluentIcon.RIGHT_ARROW
+        self._toggle_sources_btn.setIcon(
+            FluentIcon.VIEW if source_hidden else source_direction_icon
+        )
+        self._toggle_items_btn.setIcon(
+            FluentIcon.VIEW if items_hidden else items_direction_icon
+        )
         self._toggle_sources_btn.setToolTip(
-            tr("Show subscription sources" if source_hidden else "Hide subscription sources",
-               "显示订阅源" if source_hidden else "隐藏订阅源",
-               "購読元を表示" if source_hidden else "購読元を隠す")
+            tr(
+                (
+                    "Show subscription sources"
+                    if source_hidden
+                    else "Hide the upper panel"
+                    if vertical
+                    else "Hide subscription sources"
+                ),
+                (
+                    "显示订阅源"
+                    if source_hidden
+                    else "隐藏上方区域"
+                    if vertical
+                    else "隐藏订阅源"
+                ),
+                (
+                    "購読元を表示"
+                    if source_hidden
+                    else "上側の領域を隠す"
+                    if vertical
+                    else "購読元を隠す"
+                ),
+            )
         )
         self._toggle_items_btn.setToolTip(
-            tr("Show video list" if items_hidden else "Hide video list",
-               "显示视频列表" if items_hidden else "隐藏视频列表",
-               "動画一覧を表示" if items_hidden else "動画一覧を隠す")
+            tr(
+                (
+                    "Show video list"
+                    if items_hidden
+                    else "Hide the lower panel"
+                    if vertical
+                    else "Hide video list"
+                ),
+                (
+                    "显示视频列表"
+                    if items_hidden
+                    else "隐藏下方区域"
+                    if vertical
+                    else "隐藏视频列表"
+                ),
+                (
+                    "動画一覧を表示"
+                    if items_hidden
+                    else "下側の領域を隠す"
+                    if vertical
+                    else "動画一覧を隠す"
+                ),
+            )
         )
 
     def _set_panel_visible(self, index: int, visible: bool):
@@ -1254,6 +1329,7 @@ class SubscriptionInterface(QWidget):
         self._fit_item_table_last_column()
         self._update_thumbnail_grid()
         self._schedule_thumbnail_grid_update()
+        self._update_panel_toggle_buttons()
 
     def _schedule_thumbnail_grid_update(self):
         """Run one more layout pass after Qt has committed the new viewport size."""
@@ -1414,6 +1490,8 @@ class SubscriptionInterface(QWidget):
         if self._sources:
             first_source_id = int(self._sources[0].get("id", 0) or 0)
             self._source_table.blockSignals(True)
+            self._source_table.clearSelection()
+            self._source_table.selectRow(0)
             self._source_table.setCurrentCell(0, self._SRC_STATE)
             self._source_table.blockSignals(False)
             self._load_items(first_source_id or None)
@@ -1429,6 +1507,8 @@ class SubscriptionInterface(QWidget):
         if selected_row < 0:
             return False
         self._source_table.blockSignals(True)
+        self._source_table.clearSelection()
+        self._source_table.selectRow(selected_row)
         self._source_table.setCurrentCell(selected_row, self._SRC_STATE)
         self._source_table.blockSignals(False)
         return True
@@ -2087,7 +2167,14 @@ class SubscriptionInterface(QWidget):
         id_item = self._item_table.item(row, self._ITEM_ID)
         video_id = str(id_item.data(Qt.ItemDataRole.UserRole) or id_item.text() or "").strip() if id_item else ""
         selected_ids = self._selected_video_ids()
-        return selected_ids if video_id in selected_ids else ([video_id] if video_id else [])
+        if not video_id:
+            return []
+        if video_id not in selected_ids:
+            self._item_table.clearSelection()
+            self._item_table.selectRow(row)
+            self._item_table.setCurrentCell(row, self._ITEM_STATE)
+            selected_ids = [video_id]
+        return selected_ids
 
     def _show_item_table_context_menu(self, pos):
         video_ids = self._context_video_ids_from_table(pos)
@@ -2101,7 +2188,13 @@ class SubscriptionInterface(QWidget):
             return
         video_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
         selected_ids = self._selected_video_ids()
-        video_ids = selected_ids if video_id in selected_ids else ([video_id] if video_id else [])
+        if not video_id:
+            return
+        if video_id not in selected_ids:
+            self._thumbnail_list.clearSelection()
+            item.setSelected(True)
+            selected_ids = [video_id]
+        video_ids = selected_ids
         if video_ids:
             self._show_pending_context_menu(video_ids, self._thumbnail_list.viewport().mapToGlobal(pos))
 
@@ -2126,6 +2219,39 @@ class SubscriptionInterface(QWidget):
                     triggered=lambda _checked=False: self._add_pending_video_ids(video_ids),
                 )
             )
+        menu.addSeparator()
+        menu.addAction(
+            Action(
+                FluentIcon.DOWNLOAD,
+                tr("Download Selected", "直接下载选中", "選択した動画を保存"),
+                self,
+                triggered=lambda _checked=False: self._download_selected_with_rule(video_ids),
+            )
+        )
+        menu.addAction(
+            Action(
+                FluentIcon.ACCEPT,
+                tr(
+                    "Mark Selected as Downloaded",
+                    "标记选中为已下载/已移走",
+                    "選択した動画を保存済み/移動済みにする",
+                ),
+                self,
+                triggered=lambda _checked=False: self._mark_selected_downloaded_moved(video_ids),
+            )
+        )
+        menu.addAction(
+            Action(
+                FluentIcon.RETURN,
+                tr(
+                    "Restore Selected Moved",
+                    "还原选中的已移走记录",
+                    "選択した移動済み記録を復元",
+                ),
+                self,
+                triggered=lambda _checked=False: self._restore_selected_downloaded_moved(video_ids),
+            )
+        )
         if self._pending_video_ids:
             menu.addAction(
                 Action(
@@ -2136,6 +2262,45 @@ class SubscriptionInterface(QWidget):
                 )
             )
         menu.exec(global_pos)
+
+    def _show_source_table_context_menu(self, pos):
+        source_ids = self._context_source_ids_from_table(pos)
+        if not source_ids:
+            return
+        global_pos = self._source_table.viewport().mapToGlobal(pos)
+        menu = RoundMenu(parent=self)
+        menu.addAction(
+            Action(
+                FluentIcon.SYNC,
+                tr("Refresh Selected", "刷新选中订阅", "選択した購読を更新"),
+                self,
+                triggered=lambda _checked=False, ids=list(source_ids): self._refresh_selected_sources(ids),
+            )
+        )
+        menu.addAction(
+            Action(
+                FluentIcon.DELETE,
+                tr("Delete Selected", "删除选中订阅", "選択した購読を削除"),
+                self,
+                triggered=lambda _checked=False, ids=list(source_ids): self._delete_source_ids(ids),
+            )
+        )
+        menu.exec(global_pos)
+
+    def _context_source_ids_from_table(self, pos) -> list[int]:
+        row = self._source_table.rowAt(pos.y())
+        if row < 0 or row >= len(self._sources):
+            return []
+        source_id = int(self._sources[row].get("id", 0) or 0)
+        if not source_id:
+            return []
+        selected_ids = self._selected_source_ids()
+        if source_id not in selected_ids:
+            self._source_table.clearSelection()
+            self._source_table.selectRow(row)
+            self._source_table.setCurrentCell(row, self._SRC_STATE)
+            selected_ids = [source_id]
+        return selected_ids
 
     def _set_action_item(
         self,
@@ -2158,6 +2323,26 @@ class SubscriptionInterface(QWidget):
         cell.setToolTip(tooltip)
         cell.setForeground(QColor("#0078d4" if enabled else "#999999"))
         table.setItem(row, column, cell)
+
+    def _selected_source_ids(self) -> list[int]:
+        ids: list[int] = []
+        if not hasattr(self, "_source_table"):
+            return ids
+        for index in self._source_table.selectionModel().selectedRows():
+            row = index.row()
+            if row < 0 or row >= len(self._sources):
+                continue
+            source_id = int(self._sources[row].get("id", 0) or 0)
+            if source_id and source_id not in ids:
+                ids.append(source_id)
+        return ids
+
+    def _selected_source_ids_for_operation(self) -> list[int]:
+        ids = self._selected_source_ids()
+        if ids:
+            return ids
+        source_id = self._selected_source_id()
+        return [source_id] if source_id else []
 
     def _selected_source_id(self) -> int | None:
         row = self._source_table.currentRow()
@@ -2376,6 +2561,19 @@ class SubscriptionInterface(QWidget):
             return
         self._start_refresh(source_id, ignore_disabled=True)
 
+    def _refresh_selected_sources(self, source_ids: list[int] | None = None):
+        ids = list(source_ids or self._selected_source_ids_for_operation())
+        if not ids:
+            self._show_error(
+                tr(
+                    "Select one or more subscription sources first",
+                    "请先选择一个或多个订阅源",
+                    "先に1つ以上の購読元を選択してください",
+                )
+            )
+            return
+        self._start_refresh(ids, ignore_disabled=True)
+
     def _refresh_current_covers(self):
         source_id = self._current_source_id or self._selected_source_id()
         if not source_id:
@@ -2412,7 +2610,12 @@ class SubscriptionInterface(QWidget):
         self._new_filter_combo.setCurrentIndex(0)
         self._load_items(source_id)
 
-    def _start_refresh(self, source_id: int | None, *, ignore_disabled: bool = False):
+    def _start_refresh(
+        self,
+        source_id: int | list[int] | None,
+        *,
+        ignore_disabled: bool = False,
+    ):
         if self._worker and self._worker.isRunning():
             return
         self._set_refresh_actions_enabled(False)
@@ -2510,29 +2713,66 @@ class SubscriptionInterface(QWidget):
         )
 
     def _delete_selected_source(self):
-        source_id = self._selected_source_id()
-        if not source_id:
-            self._show_error(tr("Select a subscription first", "请先选择一个订阅", "購読を選択してください"))
+        self._delete_source_ids(self._selected_source_ids_for_operation())
+
+    def _delete_source_ids(self, source_ids: list[int]):
+        ids = list(dict.fromkeys(int(source_id) for source_id in source_ids if source_id))
+        if not ids:
+            self._show_error(
+                tr(
+                    "Select one or more subscriptions first",
+                    "请先选择一个或多个订阅",
+                    "先に1つ以上の購読を選択してください",
+                )
+            )
             return
-        source = next(
-            (source for source in self._sources if int(source.get("id", 0) or 0) == source_id),
-            None,
-        )
-        if not source:
+        if self._worker and self._worker.isRunning():
+            self._show_error(
+                tr(
+                    "Wait for the current refresh to finish first",
+                    "请先等待当前刷新完成",
+                    "現在の更新が完了するまでお待ちください",
+                )
+            )
             return
-        display_name = (
-            str(source.get("title", "") or "").strip()
-            or str(source.get("source_key", "") or "").strip()
-            or f"#{source_id}"
-        )
+        source_by_id = {
+            int(source.get("id", 0) or 0): source
+            for source in self._sources
+            if int(source.get("id", 0) or 0)
+        }
+        names = [
+            (
+                str(source_by_id.get(source_id, {}).get("title", "") or "").strip()
+                or str(source_by_id.get(source_id, {}).get("source_key", "") or "").strip()
+                or f"#{source_id}"
+            )
+            for source_id in ids
+        ]
+        if len(ids) == 1:
+            question = tr(
+                f'Delete subscription "{names[0]}" and its cached video list?',
+                f'确定删除订阅“{names[0]}”及其缓存视频列表吗？',
+                f'購読「{names[0]}」と保存済み動画一覧を削除しますか？',
+            )
+            content = names[0]
+        else:
+            preview = "、".join(names[:3])
+            if len(names) > 3:
+                preview += tr(" and more", "等", "ほか")
+            question = tr(
+                f"Delete {len(ids)} selected subscriptions and their cached video lists?",
+                f"确定删除选中的 {len(ids)} 个订阅及其缓存视频列表吗？",
+                f"選択した {len(ids)} 件の購読と保存済み動画一覧を削除しますか？",
+            )
+            content = tr(
+                f"Selected: {preview}",
+                f"选中：{preview}",
+                f"選択: {preview}",
+            )
         if not show_fluent_confirmation(
             self,
             tr("Delete Subscription", "删除订阅", "購読を削除"),
-            tr(
-                f'Delete subscription "{display_name}" and its cached video list?',
-                f'确定删除订阅“{display_name}”及其缓存视频列表吗？',
-                f'購読「{display_name}」と保存済み動画一覧を削除しますか？',
-            ),
+            question,
             informative=tr(
                 "Downloaded files and history records will not be deleted.",
                 "不会删除已下载文件和历史记录。",
@@ -2542,12 +2782,18 @@ class SubscriptionInterface(QWidget):
             no_text=tr("Cancel", "取消", "キャンセル"),
         ):
             return
-        download_manager.remove_subscription_source(source_id)
-        self._current_source_id = None
+        remove_many = getattr(download_manager, "remove_subscription_sources", None)
+        if callable(remove_many):
+            remove_many(ids)
+        else:
+            for source_id in ids:
+                download_manager.remove_subscription_source(source_id)
+        if self._current_source_id in ids:
+            self._current_source_id = None
         self._load_sources()
         InfoBar.success(
             title=tr("Subscription Deleted", "订阅已删除", "購読を削除しました"),
-            content=display_name,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -2573,8 +2819,12 @@ class SubscriptionInterface(QWidget):
         download_manager.mark_subscription_items_seen(ids)
         self._refresh_sources_keep_current_items()
 
-    def _mark_selected_downloaded_moved(self):
-        ids = self._operation_video_ids()
+    def _mark_selected_downloaded_moved(self, video_ids: list[str] | None = None):
+        ids = (
+            list(video_ids)
+            if isinstance(video_ids, (list, tuple, set))
+            else self._operation_video_ids()
+        )
         if not ids:
             self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
@@ -2594,8 +2844,12 @@ class SubscriptionInterface(QWidget):
             parent=self,
         )
 
-    def _restore_selected_downloaded_moved(self):
-        ids = self._operation_video_ids()
+    def _restore_selected_downloaded_moved(self, video_ids: list[str] | None = None):
+        ids = (
+            list(video_ids)
+            if isinstance(video_ids, (list, tuple, set))
+            else self._operation_video_ids()
+        )
         if not ids:
             self._show_error(tr("Select one or more moved videos first", "请先选中一个或多个已移走的视频", "先に移動済み動画を選択してください"))
             return
@@ -2615,8 +2869,12 @@ class SubscriptionInterface(QWidget):
             parent=self,
         )
 
-    def _download_selected(self):
-        ids = self._operation_video_ids()
+    def _download_selected(self, video_ids: list[str] | None = None):
+        ids = (
+            list(video_ids)
+            if isinstance(video_ids, (list, tuple, set))
+            else self._operation_video_ids()
+        )
         if not ids:
             self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
             return
@@ -2726,8 +2984,12 @@ class SubscriptionInterface(QWidget):
         if hasattr(self, "_rule_picker"):
             self._rule_picker.apply_selected(show_notice=False)
 
-    def _download_selected_with_rule(self):
-        ids = self._operation_video_ids()
+    def _download_selected_with_rule(self, video_ids: list[str] | None = None):
+        ids = (
+            list(video_ids)
+            if isinstance(video_ids, (list, tuple, set))
+            else self._operation_video_ids()
+        )
         self._apply_selected_rule_for_download()
         self._enqueue_ids(ids)
 
