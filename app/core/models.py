@@ -71,6 +71,7 @@ class DownloadTask:
     thumbnail_path: str = ""
     priority: int = 0
     rule_id: str = ""
+    rule_payload_json: str = ""
     cancel_requested: bool = False
     delete_temp_on_cancel: bool = False
     remove_after_cancel: bool = False

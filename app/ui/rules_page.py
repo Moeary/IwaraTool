@@ -4,10 +4,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QSize, QStringListModel, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, QStringListModel, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCompleter,
+    QAbstractItemView,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -45,6 +46,9 @@ from ..core.rules import (
     rule_store,
     set_active_rule_id,
 )
+from ..core.download_paths import validate_filename_template
+from ..core.manager import download_manager
+from ..core.tag_dictionary import TagSuggestion
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .ui_state import show_fluent_confirmation
@@ -82,6 +86,8 @@ def _rule_summary(payload: dict[str, Any]) -> str:
         actions.append(tr("cover", "封面", "サムネイル"))
     if data["collect_nfo_info"]:
         actions.append("NFO")
+    if not data["record_to_history"]:
+        actions.append(tr("no history", "不写历史", "履歴なし"))
     filters: list[str] = []
     if data["filter_enabled"]:
         if data["filter_min_likes_enabled"]:
@@ -103,11 +109,66 @@ def _rule_display_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name", "") or "")
 
 
+class _RuleTagSuggestionPopup(QListWidget):
+    """Localized tag candidates used by the include/exclude rule fields."""
+
+    suggestion_chosen = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setMinimumWidth(360)
+        self.setMaximumHeight(260)
+        self.setStyleSheet(
+            f"""
+            QListWidget {{
+                background: {"#252a31" if isDarkTheme() else "#ffffff"};
+                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QListWidget::item {{ padding: 7px 9px; border-radius: 5px; }}
+            QListWidget::item:selected {{
+                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
+                color: {"#ffffff" if isDarkTheme() else "#12313a"};
+            }}
+            """
+        )
+        self.itemClicked.connect(self._choose_item)
+
+    def set_suggestions(self, suggestions: list[TagSuggestion]):
+        self.clear()
+        for suggestion in suggestions:
+            item = QListWidgetItem(suggestion.display_text)
+            item.setData(Qt.ItemDataRole.UserRole, suggestion.key)
+            item.setToolTip(
+                f"{suggestion.key}\n"
+                f"EN: {suggestion.en}\n"
+                f"中文: {suggestion.zh}\n"
+                f"日本語: {suggestion.ja}"
+            )
+            self.addItem(item)
+        if self.count():
+            self.setCurrentRow(0)
+
+    def _choose_item(self, item: QListWidgetItem):
+        value = item.data(Qt.ItemDataRole.UserRole)
+        if value:
+            self.suggestion_chosen.emit(str(value))
+
+
 class RuleFormWidget(QWidget):
     """Editor for one named rule, shared by the rules page and picker flows."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._tag_popup = _RuleTagSuggestionPopup(self)
+        self._tag_popup.suggestion_chosen.connect(self._apply_tag_suggestion)
+        self._active_tag_edit: LineEdit | None = None
+        self._loading_payload = False
         self._build_ui()
         self.load_payload(default_rule_payload())
 
@@ -133,20 +194,35 @@ class RuleFormWidget(QWidget):
         storage_layout.setContentsMargins(18, 14, 18, 14)
         storage_layout.setHorizontalSpacing(10)
         storage_layout.setVerticalSpacing(10)
-        storage_layout.addWidget(SubtitleLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 0, 0, 1, 3)
+        storage_layout.addWidget(SubtitleLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 0, 0, 1, 4)
         self.filename_template_edit = LineEdit(storage_card)
         self.filename_template_edit.setPlaceholderText("{username}/{YYYY-MM-DD}_{title}_{id}.mp4")
         storage_layout.addWidget(self.filename_template_edit, 1, 0, 1, 3)
+        self.validate_template_btn = PushButton(
+            tr("Validate", "检验规则", "検証"),
+            storage_card,
+            FluentIcon.ACCEPT,
+        )
+        self.validate_template_btn.setMinimumWidth(112)
+        self.validate_template_btn.setToolTip(
+            tr(
+                "Check whether the naming template is valid",
+                "检查命名规则是否有效",
+                "命名テンプレートの有効性を確認",
+            )
+        )
+        self.validate_template_btn.clicked.connect(self._validate_filename_template)
+        storage_layout.addWidget(self.validate_template_btn, 1, 3)
         template_help = BodyLabel(
             tr(
-                "Available: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
-                "可用占位符：{username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
-                "使用可能: {username} {author} {YYYY-MM-DD} {title} {id} {quality} {views} {likes}",
+                "Available: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "使用可能: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
             ),
             storage_card,
         )
         template_help.setWordWrap(True)
-        storage_layout.addWidget(template_help, 2, 0, 1, 3)
+        storage_layout.addWidget(template_help, 2, 0, 1, 4)
         root.addWidget(storage_card)
 
         filter_card = CardWidget(self)
@@ -192,6 +268,21 @@ class RuleFormWidget(QWidget):
         filter_layout.addWidget(BodyLabel(tr("Exclude tags", "排除标签", "除外タグ"), filter_card), 6, 0)
         filter_layout.addWidget(self.exclude_tags_enabled, 6, 1)
         filter_layout.addWidget(self.exclude_tags_edit, 6, 2, 1, 2)
+        for edit in (self.include_tags_edit, self.exclude_tags_edit):
+            edit.textChanged.connect(
+                lambda text, target=edit: self._show_tag_suggestions(target, text)
+            )
+            edit.editingFinished.connect(self._hide_tag_suggestions)
+        filter_hint = BodyLabel(
+            tr(
+                "Type a Chinese or English tag and choose a candidate; the canonical Iwara tag will be inserted.",
+                "输入中文或英文标签并选择候选项，系统会自动填入 Iwara 标准标签。",
+                "中国語または英語のタグを入力して候補を選ぶと、Iwara標準タグを自動入力します。",
+            ),
+            filter_card,
+        )
+        filter_hint.setWordWrap(True)
+        filter_layout.addWidget(filter_hint, 7, 0, 1, 4)
         root.addWidget(filter_card)
 
         title_card = CardWidget(self)
@@ -212,26 +303,129 @@ class RuleFormWidget(QWidget):
         download_layout.setContentsMargins(18, 14, 18, 14)
         download_layout.setHorizontalSpacing(10)
         download_layout.setVerticalSpacing(10)
-        download_layout.addWidget(SubtitleLabel(tr("Download behavior", "下载行为", "保存動作"), download_card), 0, 0, 1, 2)
+        download_layout.addWidget(SubtitleLabel(tr("Download behavior", "下载行为", "保存動作"), download_card), 0, 0, 1, 4)
         self.download_video = SwitchButton(download_card)
         self.mark_only = SwitchButton(download_card)
         self.download_thumb = SwitchButton(download_card)
         self.collect_nfo = SwitchButton(download_card)
+        self.record_history = SwitchButton(download_card)
         download_layout.addWidget(BodyLabel(tr("Download video", "下载视频", "動画を保存"), download_card), 1, 0)
         download_layout.addWidget(self.download_video, 1, 1)
-        download_layout.addWidget(BodyLabel(tr("Mark only", "仅标记已下载", "マークのみ"), download_card), 2, 0)
-        download_layout.addWidget(self.mark_only, 2, 1)
-        download_layout.addWidget(BodyLabel(tr("Download thumbnail", "下载封面", "サムネイルを保存"), download_card), 3, 0)
-        download_layout.addWidget(self.download_thumb, 3, 1)
-        download_layout.addWidget(BodyLabel("NFO", download_card), 4, 0)
-        download_layout.addWidget(self.collect_nfo, 4, 1)
+        download_layout.addWidget(BodyLabel(tr("Mark only", "仅标记已下载", "マークのみ"), download_card), 1, 2)
+        download_layout.addWidget(self.mark_only, 1, 3)
+        download_layout.addWidget(BodyLabel(tr("Download thumbnail", "下载封面", "サムネイルを保存"), download_card), 2, 0)
+        download_layout.addWidget(self.download_thumb, 2, 1)
+        download_layout.addWidget(BodyLabel("NFO", download_card), 2, 2)
+        download_layout.addWidget(self.collect_nfo, 2, 3)
+        download_layout.addWidget(BodyLabel(tr("Write to history", "记录到历史", "履歴へ記録"), download_card), 3, 0)
+        download_layout.addWidget(self.record_history, 3, 1)
+        self.record_history_hint = BodyLabel("", download_card)
+        self.record_history_hint.setWordWrap(True)
+        download_layout.addWidget(
+            self.record_history_hint,
+            3,
+            2,
+            1,
+            2,
+        )
+        self.record_history.checkedChanged.connect(self._update_record_history_hint)
+        self._update_record_history_hint()
         root.addWidget(download_card)
         root.addStretch(1)
+
+    def _show_tag_suggestions(self, edit: LineEdit, text: str):
+        if self._loading_payload:
+            return
+        query = str(text or "").rsplit(",", 1)[-1].strip()
+        if not query or not self.isVisible():
+            self._hide_tag_suggestions()
+            return
+        suggestions = download_manager.get_search_tag_suggestions(query, limit=12)
+        if not suggestions:
+            self._hide_tag_suggestions()
+            return
+        self._active_tag_edit = edit
+        self._tag_popup.set_suggestions(suggestions)
+        self._tag_popup.resize(
+            min(560, max(360, edit.width())),
+            min(260, max(60, self._tag_popup.sizeHint().height())),
+        )
+        self._tag_popup.move(edit.mapToGlobal(QPoint(0, edit.height())))
+        self._tag_popup.show()
+        self._tag_popup.raise_()
+
+    def _hide_tag_suggestions(self):
+        self._tag_popup.hide()
+
+    def _apply_tag_suggestion(self, key: str):
+        edit = self._active_tag_edit
+        if edit is None:
+            return
+        self._hide_tag_suggestions()
+        text = edit.text()
+        comma = text.rfind(",")
+        prefix = text[: comma + 1].rstrip() if comma >= 0 else ""
+        edit.setText(f"{prefix} {key},".strip() + " ")
+        edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        edit.setCursorPosition(len(edit.text()))
+        QTimer.singleShot(0, lambda target=edit: self._restore_tag_edit_focus(target))
+
+    def _restore_tag_edit_focus(self, edit: LineEdit):
+        if edit is not self._active_tag_edit or not edit.isVisible() or not edit.isEnabled():
+            return
+        edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        edit.setCursorPosition(len(edit.text()))
+
+    def _update_record_history_hint(self, checked: bool | None = None):
+        enabled = self.record_history.isChecked() if checked is None else bool(checked)
+        self.record_history_hint.setText(
+            tr(
+                "Downloaded content will be saved to history.",
+                "下载内容会保存到历史。",
+                "ダウンロード内容を履歴に保存します。",
+            )
+            if enabled
+            else tr(
+                "Downloaded content will no longer be saved to history.",
+                "不再将下载内容保存到历史。",
+                "ダウンロード内容を履歴に保存しません。",
+            )
+        )
+
+    def _validate_filename_template(self):
+        valid, reason = validate_filename_template(self.filename_template_edit.text())
+        if valid:
+            InfoBar.success(
+                title=tr("Valid template", "命名规则有效", "有効なテンプレート"),
+                content=tr(
+                    "The template can be used safely.",
+                    "该命名规则可以安全使用。",
+                    "この命名テンプレートは安全に使用できます。",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2200,
+                parent=self.window() or self,
+            )
+            return True
+        InfoBar.error(
+            title=tr("Invalid template", "命名规则无效", "無効なテンプレート"),
+            content=reason,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self.window() or self,
+        )
+        return False
 
     def set_builtin_mode(self, builtin: bool):
         self.name_edit.setReadOnly(builtin)
 
     def load_payload(self, payload: dict[str, Any]):
+        self._hide_tag_suggestions()
+        self._loading_payload = True
         data = normalize_rule_payload(payload)
         self.filter_enabled.setChecked(data["filter_enabled"])
         self.likes_enabled.setChecked(data["filter_min_likes_enabled"])
@@ -251,8 +445,11 @@ class RuleFormWidget(QWidget):
         self.mark_only.setChecked(data["mark_submitted_as_downloaded"])
         self.download_thumb.setChecked(data["download_thumbnail"])
         self.collect_nfo.setChecked(data["collect_nfo_info"])
+        self.record_history.setChecked(data["record_to_history"])
+        self._update_record_history_hint()
         self.filename_template_edit.setText(data["filename_template"])
         self.summary_label.setText(_rule_summary(data))
+        self._loading_payload = False
 
     def payload(self) -> dict[str, Any]:
         try:
@@ -265,6 +462,9 @@ class RuleFormWidget(QWidget):
                 datetime.strptime(end, "%Y-%m-%d")
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
+        valid, reason = validate_filename_template(self.filename_template_edit.text())
+        if not valid:
+            raise ValueError(f"命名规则无效：{reason}")
         return normalize_rule_payload(
             {
                 "filter_enabled": self.filter_enabled.isChecked(),
@@ -285,6 +485,7 @@ class RuleFormWidget(QWidget):
                 "download_thumbnail": self.download_thumb.isChecked(),
                 "collect_nfo_info": self.collect_nfo.isChecked(),
                 "mark_submitted_as_downloaded": self.mark_only.isChecked(),
+                "record_to_history": self.record_history.isChecked(),
                 "filename_template": self.filename_template_edit.text(),
             }
         )

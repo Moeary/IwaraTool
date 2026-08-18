@@ -5,6 +5,10 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 
 
+DEFAULT_FILENAME_TEMPLATE = "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+LEGACY_FILENAME_TEMPLATE = "{username}/{YYYYMMDD}_{title}_{id}.mp4"
+
+
 def _app_root_dir() -> str:
     """Directory where the app is launched (portable-friendly)."""
     return str(Path(sys.argv[0]).resolve().parent)
@@ -38,7 +42,7 @@ class AppConfig:
         "preferred_quality": "Source",  # Source / 540 / 360
         "auto_login": True,
         "skip_existing_files": True,
-        "filename_template": "{username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+        "filename_template": DEFAULT_FILENAME_TEMPLATE,
         "ui_language": "zh_CN",
         "filter_enabled": False,
         "filter_min_likes_enabled": False,
@@ -65,6 +69,7 @@ class AppConfig:
         "download_thumbnail": False,
         "collect_nfo_info": False,
         "mark_submitted_as_downloaded": False,
+        "record_to_history": True,
         "subscription_prompt_mode": "ask",  # ask / always / never
         "completed_task_click_action": "folder",
         "subscription_auto_refresh_enabled": False,
@@ -91,6 +96,7 @@ class AppConfig:
         self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
         self._migrate_split_proxy_settings()
+        self._migrate_filename_template_if_needed()
 
         # Ensure default download directory exists
         os.makedirs(self.download_dir, exist_ok=True)
@@ -147,6 +153,7 @@ class AppConfig:
             "download_thumbnail",
             "collect_nfo_info",
             "mark_submitted_as_downloaded",
+            "record_to_history",
             "subscription_prompt_mode",
             "completed_task_click_action",
             "subscription_auto_refresh_enabled",
@@ -226,6 +233,14 @@ class AppConfig:
                 legacy_url if legacy_url_present else self._DEFAULTS["download_proxy_url"],
             )
         self._qs.sync()
+
+    def _migrate_filename_template_if_needed(self):
+        """Move the untouched old default to the compact date-token default."""
+
+        current = str(self._qs.value("filename_template", "") or "").strip()
+        if current == LEGACY_FILENAME_TEMPLATE:
+            self._qs.setValue("filename_template", DEFAULT_FILENAME_TEMPLATE)
+            self._qs.sync()
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -643,6 +658,14 @@ class AppConfig:
     @mark_submitted_as_downloaded.setter
     def mark_submitted_as_downloaded(self, v: bool):
         self._set("mark_submitted_as_downloaded", v)
+
+    @property
+    def record_to_history(self) -> bool:
+        return self._get("record_to_history")
+
+    @record_to_history.setter
+    def record_to_history(self, v: bool):
+        self._set("record_to_history", bool(v))
 
     @property
     def subscription_prompt_mode(self) -> str:

@@ -19,6 +19,7 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.history_page import HistoryInterface
+from app.ui.rules_page import RuleFormWidget
 from app.ui.search_page import SearchInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
@@ -89,6 +90,31 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertEqual(len(mgr._active_task_ids), 3)
             self.assertEqual(len(mgr._queued_meta_ids), 4997)
             self.assertEqual(len(mgr._resolve_executor.submitted), 3)
+
+    def test_queued_rule_snapshot_can_skip_history_without_affecting_later_rules(self):
+        mgr = make_manager()
+        with patch("app.core.manager.active_rule_id", return_value="search-rule"):
+            with patch(
+                "app.core.manager.rule_store.find",
+                return_value={"payload": {"record_to_history": False}},
+            ):
+                summary = mgr._enqueue_video_ids_bulk(
+                    [("searchVideo01", "https://www.iwara.tv/video/searchVideo01")]
+                )
+
+        self.assertEqual(summary["queued"], 1)
+        task = mgr.get_task(next(iter(mgr._tasks)))
+        self.assertIsNotNone(task)
+        task.file_path = os.path.join(tempfile.gettempdir(), "searchVideo01.mp4")
+        with open(task.file_path, "wb") as stream:
+            stream.write(b"video")
+        try:
+            with patch.object(mgr.history, "upsert_downloaded") as upsert:
+                mgr._complete_task(task.task_id)
+                upsert.assert_not_called()
+        finally:
+            if os.path.exists(task.file_path):
+                os.remove(task.file_path)
 
     def test_duplicate_enqueue_keeps_indexes_consistent(self):
         with ConfigGuard():
@@ -905,6 +931,23 @@ class UiPerformanceTests(unittest.TestCase):
 
         self.assertLessEqual(page._log_edit.blockCount(), page._MAX_LOG_BLOCKS)
 
+    def test_rule_form_validates_template_and_exposes_history_choice(self):
+        form = RuleFormWidget()
+        form.filename_template_edit.setText("HMV/{id}_{title}_{author}.mp4")
+        form.record_history.setChecked(False)
+
+        payload = form.payload()
+
+        self.assertFalse(payload["record_to_history"])
+        self.assertEqual(payload["filename_template"], "HMV/{id}_{title}_{author}.mp4")
+        self.assertIn("不再将下载内容保存到历史", form.record_history_hint.text())
+        form.record_history.setChecked(True)
+        self.assertIn("下载内容会保存到历史", form.record_history_hint.text())
+        form.filename_template_edit.setText("{unknown}.mp4")
+        with self.assertRaises(ValueError):
+            form.payload()
+        form.close()
+
     def test_task_progress_updates_existing_row_only(self):
         with download_manager._lock:
             download_manager._tasks.clear()
@@ -1236,6 +1279,10 @@ class UiPerformanceTests(unittest.TestCase):
             app_config.search_auto_search_enabled = True
             page = SearchInterface()
             self.assertFalse(hasattr(page, "_update_tags_btn"))
+            self.assertEqual(
+                [page._sort_combo.itemData(index) for index in range(page._sort_combo.count())],
+                ["date", "trending", "popularity", "views", "likes"],
+            )
             page._set_search_controls_collapsed(False, persist=False)
 
             with patch.object(page, "_start_search") as start_search:

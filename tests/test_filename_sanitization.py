@@ -3,7 +3,9 @@ import tempfile
 import unittest
 
 from app.config import app_config
+from app.core.download_paths import validate_filename_template
 from app.core.manager import DownloadManager
+from app.core.rules import normalize_rule_payload
 
 
 class FilenameSanitizationTests(unittest.TestCase):
@@ -45,3 +47,39 @@ class FilenameSanitizationTests(unittest.TestCase):
         self.assertLessEqual(DownloadManager._windows_path_length(output_path), 240)
         self.assertTrue(os.path.basename(relative_path).endswith(f"{video_id}.mp4"))
 
+    def test_standard_author_id_and_date_tokens_are_expanded(self):
+        manager = object.__new__(DownloadManager)
+        relative_path = manager._build_output_relative_path(
+            title="Dance",
+            video_id="iwara01",
+            author="alice",
+            published_at="2024-12-25T00:00:00.000Z",
+            quality="Source",
+            likes=0,
+            views=0,
+            comments=0,
+            duration=0,
+            slug="",
+            rating="",
+            filename_template="HMV/{id}_{title}_{author}_{YYYY-MM-DD}_{YYYY}{MM}{DD}.mp4",
+        )
+
+        self.assertEqual(
+            relative_path,
+            os.path.join("HMV", "iwara01_Dance_alice_2024-12-25_20241225.mp4"),
+        )
+
+    def test_filename_template_validation_rejects_unknown_or_escaping_values(self):
+        self.assertEqual(validate_filename_template("HMV/{id}_{title}_{author}.mp4"), (True, ""))
+        valid, reason = validate_filename_template("{unknown}_{title}.mp4")
+        self.assertFalse(valid)
+        self.assertIn("Unknown placeholder", reason)
+        valid, reason = validate_filename_template("../{title}.mp4")
+        self.assertFalse(valid)
+        self.assertIn("path segments", reason)
+
+    def test_rule_defaults_include_history_recording_and_can_disable_it(self):
+        normalized = normalize_rule_payload({"record_to_history": False})
+
+        self.assertFalse(normalized["record_to_history"])
+        self.assertTrue(normalize_rule_payload({})["record_to_history"])

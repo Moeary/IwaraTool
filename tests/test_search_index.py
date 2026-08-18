@@ -9,13 +9,14 @@ from app.core.oreno3d import (
     parse_detail_page,
     parse_listing_page,
 )
-from app.core.search import SearchAuthor, SearchVideo, normalize_oreno3d_listing
+from app.core.search import SearchAuthor, SearchFilters, SearchVideo, normalize_oreno3d_listing
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search_page import (
     SearchInterface,
     SearchIwaraAuthorWorker,
     SearchOrenoAuthorWorker,
     SearchOrenoLinkWorker,
+    SearchWorker,
     _author_source_info,
     _author_subscription_target,
     _decode_search_history,
@@ -45,6 +46,38 @@ class _FakeSession:
 
 
 class SearchOnlineTests(unittest.TestCase):
+    def test_iwara_tag_search_keeps_remote_or_results_visible(self):
+        class _FakeManager:
+            def get_search_video_page(self, query_params, *, page, limit):
+                self.call = (query_params, page, limit)
+                return (
+                    [
+                        {"id": "loli-video", "title": "Loli result", "tags": [{"id": "loli"}]},
+                        {"id": "hmv-video", "title": "HMV result", "tags": [{"id": "hmv"}]},
+                    ],
+                    97,
+                    True,
+                    "",
+                )
+
+        fake_manager = _FakeManager()
+        results = []
+        with patch("app.ui.search_page.download_manager", fake_manager):
+            worker = SearchWorker(
+                SearchFilters(keyword="loli,hmv", sort="date"),
+                "tags",
+                page=2,
+                generation=1,
+                replace_results=True,
+                source="iwara",
+            )
+            worker.result_ready.connect(results.append)
+            worker.run()
+
+        self.assertEqual(fake_manager.call[0]["tags"], "loli,hmv")
+        self.assertEqual([video.video_id for video in results[0].videos], ["loli-video", "hmv-video"])
+        self.assertEqual(results[0].total, 97)
+
     def test_search_history_is_mru_deduplicated_and_limited(self):
         history = _upsert_search_history(
             [

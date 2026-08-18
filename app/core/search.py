@@ -220,7 +220,10 @@ def _tags(value: Any) -> tuple[str, ...]:
     seen: set[str] = set()
     for item in value:
         if isinstance(item, Mapping):
-            name = _first_text(item, "name", "title", "tag")
+            # Iwara's /videos endpoint returns canonical tags as
+            # ``{"id": "hmv", "type": "category"}`` without a name.
+            # Keep the ID so server-side tag results survive local filtering.
+            name = _first_text(item, "name", "title", "tag", "id", "slug")
         else:
             name = _text(item)
         if name and name.casefold() not in seen:

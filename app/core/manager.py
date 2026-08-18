@@ -54,7 +54,7 @@ from .repair import (
     guess_filename_video_id,
     scan_video_files,
 )
-from .rules import current_rule_payload, rule_store
+from .rules import active_rule_id, current_rule_payload, normalize_rule_payload, rule_store
 from .subscription_automation import matches_rule_metadata
 from .subscriptions import SubscriptionStore
 from .tag_dictionary import TagDictionary
@@ -287,13 +287,13 @@ class DownloadManager(DownloadPathMixin):
         with self._lock:
             return self._tasks.get(task_id)
 
-    def add_url(self, url: str):
+    def add_url(self, url: str, *, rule_id: str = ""):
         """Parse URL and enqueue tasks (runs in background thread)."""
-        self._parse_executor.submit(self._parse_and_enqueue, url)
+        self._parse_executor.submit(self._parse_and_enqueue, url, str(rule_id or ""))
 
-    def add_url_mark_downloaded(self, url: str):
+    def add_url_mark_downloaded(self, url: str, *, rule_id: str = ""):
         """Parse URL and mark resolved videos as already downloaded in history."""
-        self._parse_executor.submit(self._parse_and_mark_downloaded, url)
+        self._parse_executor.submit(self._parse_and_mark_downloaded, url, str(rule_id or ""))
 
     def scan_repair_folder(
         self,
@@ -2121,13 +2121,22 @@ class DownloadManager(DownloadPathMixin):
     def mark_subscription_source_seen(self, source_id: int):
         self.subscriptions.mark_source_seen(source_id)
 
-    def enqueue_subscription_items(self, video_ids: list[str]) -> int:
+    def enqueue_subscription_items(self, video_ids: list[str], *, rule_id: str = "") -> int:
         ids, _skipped = self._filter_downloadable_subscription_ids(video_ids)
-        queued = self.enqueue_video_ids(ids, source_label=tr("Subscriptions", "订阅页", "購読"))
+        queued = self.enqueue_video_ids(
+            ids,
+            source_label=tr("Subscriptions", "订阅页", "購読"),
+            rule_id=rule_id,
+        )
         self.mark_subscription_items_seen(ids)
         return queued
 
-    def submit_subscription_items(self, video_ids: list[str]) -> dict[str, int | str]:
+    def submit_subscription_items(
+        self,
+        video_ids: list[str],
+        *,
+        rule_id: str = "",
+    ) -> dict[str, int | str]:
         ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
         ids, skipped_unavailable = self._filter_downloadable_subscription_ids(ids)
         if not ids:
@@ -2140,8 +2149,9 @@ class DownloadManager(DownloadPathMixin):
                 "failed": 0,
                 "skipped_unavailable": skipped_unavailable,
             }
-        if app_config.download_video_file and not app_config.mark_submitted_as_downloaded:
-            queued = self.enqueue_subscription_items(ids)
+        rule_payload = self._rule_payload_for_id(rule_id)
+        if rule_payload["download_video_file"] and not rule_payload["mark_submitted_as_downloaded"]:
+            queued = self.enqueue_subscription_items(ids, rule_id=rule_id)
             return {
                 "mode": "download",
                 "queued": queued,
@@ -2151,7 +2161,7 @@ class DownloadManager(DownloadPathMixin):
                 "failed": 0,
                 "skipped_unavailable": skipped_unavailable,
             }
-        result = self._process_subscription_items_metadata_only(ids)
+        result = self._process_subscription_items_metadata_only(ids, rule_id=rule_id)
         result["skipped_unavailable"] = skipped_unavailable
         return result
 
@@ -2166,7 +2176,12 @@ class DownloadManager(DownloadPathMixin):
                 blocked.add(video_id)
         return [video_id for video_id in ids if video_id not in blocked], len(blocked)
 
-    def _process_subscription_items_metadata_only(self, video_ids: list[str]) -> dict[str, int | str]:
+    def _process_subscription_items_metadata_only(
+        self,
+        video_ids: list[str],
+        *,
+        rule_id: str = "",
+    ) -> dict[str, int | str]:
         items = self.subscriptions.get_items_by_video_ids(video_ids)
         fallback_by_id = {
             str(item.get("video_id", "") or ""): item
@@ -2181,6 +2196,7 @@ class DownloadManager(DownloadPathMixin):
             "nfo": 0,
             "failed": 0,
         }
+        rule_payload = self._rule_payload_for_id(rule_id)
         for video_id in video_ids:
             source_url = str(fallback_by_id.get(video_id, {}).get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
             video_info, err = self._api_call("get_video_info", video_id)
@@ -2241,10 +2257,15 @@ class DownloadManager(DownloadPathMixin):
                 )
                 continue
 
-            task = self._metadata_task_from_video_info(video_id, video_info, source_url)
-            if app_config.download_thumbnail and self._download_thumbnail(task, require_video_file=False):
+            task = self._metadata_task_from_video_info(
+                video_id,
+                video_info,
+                source_url,
+                rule_id=rule_id,
+            )
+            if rule_payload["download_thumbnail"] and self._download_thumbnail(task, require_video_file=False):
                 result["thumbnail"] = int(result["thumbnail"]) + 1
-            if app_config.collect_nfo_info and self._write_nfo(task, require_video_file=False):
+            if rule_payload["collect_nfo_info"] and self._write_nfo(task, require_video_file=False):
                 result["nfo"] = int(result["nfo"]) + 1
 
             existing = self.history.get_record(task.video_id, include_raw=True)
@@ -2253,8 +2274,9 @@ class DownloadManager(DownloadPathMixin):
             history_item["source_url"] = source_url
             meta = self._history_meta_from_item(history_item, existing)
             meta["thumbnail_path"] = task.thumbnail_path or meta.get("thumbnail_path", "")
-            self.history.upsert_downloaded(meta)
-            result["marked"] = int(result["marked"]) + 1
+            if rule_payload["record_to_history"]:
+                self.history.upsert_downloaded(meta)
+                result["marked"] = int(result["marked"]) + 1
 
         if int(result["marked"]):
             self.subscriptions.mark_items_seen(video_ids)
@@ -2756,7 +2778,12 @@ class DownloadManager(DownloadPathMixin):
         }
 
     def _metadata_task_from_video_info(
-        self, video_id: str, video_info: dict[str, Any], source_url: str
+        self,
+        video_id: str,
+        video_info: dict[str, Any],
+        source_url: str,
+        *,
+        rule_id: str = "",
     ) -> DownloadTask:
         user = _dict_or_empty(video_info.get("user"))
         file_info = _dict_or_empty(video_info.get("file"))
@@ -2777,8 +2804,20 @@ class DownloadManager(DownloadPathMixin):
         file_id = str(file_info.get("id", "") or "")
         thumbnail_index = int(video_info.get("thumbnail", 0) or 0)
         quality = str(app_config.preferred_quality or "metadata")
+        rule_payload = self._rule_payload_for_id(rule_id)
 
-        task = DownloadTask(str(uuid.uuid4()), source_url, task_video_id)
+        task = DownloadTask(
+            str(uuid.uuid4()),
+            source_url,
+            task_video_id,
+            rule_id=self._normalize_rule_id(rule_id),
+            rule_payload_json=json.dumps(
+                rule_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
         self._apply_task_metadata(
             task,
             title=title,
@@ -2809,6 +2848,7 @@ class DownloadManager(DownloadPathMixin):
             duration=duration,
             slug=slug,
             rating=rating,
+            filename_template=rule_payload["filename_template"],
         )
         task.file_path = os.path.join(app_config.download_dir, output_rel_path)
         task.filename = os.path.basename(task.file_path)
@@ -3012,7 +3052,7 @@ class DownloadManager(DownloadPathMixin):
 
     # ── URL parsing ───────────────────────────────────────────────────────────
 
-    def _parse_and_enqueue(self, raw: str):
+    def _parse_and_enqueue(self, raw: str, rule_id: str = ""):
         url = raw.strip()
         if not url:
             return
@@ -3056,16 +3096,16 @@ class DownloadManager(DownloadPathMixin):
                     )
                 )
             if kind == "video":
-                self._enqueue_video_id(value, url)
+                self._enqueue_video_id(value, url, rule_id=rule_id)
                 return
             if kind == "user":
-                self._enqueue_user(value)
+                self._enqueue_user(value, rule_id=rule_id)
                 return
             if kind == "playlist":
-                self._enqueue_playlist(value)
+                self._enqueue_playlist(value, rule_id=rule_id)
                 return
             if kind == "search":
-                self._enqueue_search_query(value)
+                self._enqueue_search_query(value, rule_id=rule_id)
                 return
 
         # Treat as raw video ID
@@ -3076,9 +3116,9 @@ class DownloadManager(DownloadPathMixin):
                 f"[検出] 生の動画IDとして処理 -> {url}",
             )
         )
-        self._enqueue_video_id(url, url)
+        self._enqueue_video_id(url, url, rule_id=rule_id)
 
-    def _parse_and_mark_downloaded(self, raw: str):
+    def _parse_and_mark_downloaded(self, raw: str, rule_id: str = ""):
         url = raw.strip()
         if not url:
             return
@@ -3222,8 +3262,8 @@ class DownloadManager(DownloadPathMixin):
 
         return None
 
-    def _enqueue_video_id(self, video_id: str, original_url: str):
-        self._enqueue_video_ids_bulk([(video_id, original_url)])
+    def _enqueue_video_id(self, video_id: str, original_url: str, *, rule_id: str = ""):
+        self._enqueue_video_ids_bulk([(video_id, original_url)], rule_id=rule_id)
 
     def _enqueue_video_ids_bulk(
         self,
@@ -3233,6 +3273,13 @@ class DownloadManager(DownloadPathMixin):
         priority: int = 0,
         rule_id: str = "",
     ) -> dict[str, int]:
+        rule_id = self._normalize_rule_id(rule_id)
+        rule_payload_json = json.dumps(
+            self._rule_payload_for_id(rule_id),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
         seen_input: set[str] = set()
         normalized: list[tuple[str, str]] = []
         skipped_empty = 0
@@ -3285,6 +3332,7 @@ class DownloadManager(DownloadPathMixin):
                     video_id=video_id,
                     priority=max(-100, min(100, int(priority))),
                     rule_id=str(rule_id or ""),
+                    rule_payload_json=rule_payload_json,
                 )
                 self._tasks[task_id] = task
                 self._task_id_by_video_id[key] = task_id
@@ -3327,7 +3375,7 @@ class DownloadManager(DownloadPathMixin):
             "empty": skipped_empty,
         }
 
-    def _enqueue_user(self, username: str):
+    def _enqueue_user(self, username: str, *, rule_id: str = ""):
         signal_bus.log_message.emit(
             tr(
                 f"Fetching videos for user [{username}] ...",
@@ -3360,9 +3408,10 @@ class DownloadManager(DownloadPathMixin):
                 if str(video.get("id", "") or "").strip()
             ],
             source_label=username,
+            rule_id=rule_id,
         )
 
-    def _enqueue_playlist(self, playlist_id: str):
+    def _enqueue_playlist(self, playlist_id: str, *, rule_id: str = ""):
         signal_bus.log_message.emit(
             tr(
                 f"Fetching videos from playlist [{playlist_id}] ...",
@@ -3385,9 +3434,10 @@ class DownloadManager(DownloadPathMixin):
                 if str(video.get("id", "") or "").strip()
             ],
             source_label=tr("Playlist", "播放列表", "プレイリスト"),
+            rule_id=rule_id,
         )
 
-    def _enqueue_search_query(self, query_params: dict[str, str]):
+    def _enqueue_search_query(self, query_params: dict[str, str], *, rule_id: str = ""):
         if not query_params:
             signal_bus.log_message.emit(
                 tr(
@@ -3458,6 +3508,7 @@ class DownloadManager(DownloadPathMixin):
                 if str(video.get("id", "") or "").strip()
             ],
             source_label=tr("Search", "搜索", "検索"),
+            rule_id=rule_id,
         )
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
@@ -3557,6 +3608,7 @@ class DownloadManager(DownloadPathMixin):
         task = self._tasks.get(task_id)
         if not task:
             return
+        rule_payload = self._task_rule_payload(task)
         if self._is_cancel_requested(task_id):
             self._cancel_task_terminal(
                 task_id,
@@ -3668,7 +3720,7 @@ class DownloadManager(DownloadPathMixin):
             views=views,
             published_at=published_at,
             tags=raw_tags if isinstance(raw_tags, list) else [],
-            payload=(rule_store.find(task.rule_id) or {}).get("payload") if task.rule_id else None,
+            payload=rule_payload,
         )
         if not passed_filter:
             self._skip_task(
@@ -3763,6 +3815,7 @@ class DownloadManager(DownloadPathMixin):
             duration=duration,
             slug=slug,
             rating=rating,
+            filename_template=rule_payload["filename_template"],
         )
         file_path = os.path.join(app_config.download_dir, output_rel_path)
         filename = os.path.basename(file_path)
@@ -3910,6 +3963,7 @@ class DownloadManager(DownloadPathMixin):
                 duration=task.duration,
                 slug=task.slug,
                 rating=task.rating,
+                filename_template=self._task_rule_payload(task)["filename_template"],
             )
             final_path = os.path.join(app_config.download_dir, fallback_rel)
         save_dir = os.path.dirname(final_path)
@@ -4774,6 +4828,29 @@ class DownloadManager(DownloadPathMixin):
         task.file_id = file_id
         task.thumbnail_index = thumbnail_index
 
+    @staticmethod
+    def _normalize_rule_id(rule_id: str | None) -> str:
+        return str(rule_id or active_rule_id()).strip() or active_rule_id()
+
+    def _rule_payload_for_id(self, rule_id: str | None = "") -> dict[str, Any]:
+        selected_id = str(rule_id or "").strip()
+        if selected_id:
+            rule = rule_store.find(selected_id)
+            if rule:
+                return normalize_rule_payload(rule.get("payload"))
+        return normalize_rule_payload(current_rule_payload())
+
+    def _task_rule_payload(self, task: DownloadTask) -> dict[str, Any]:
+        raw_snapshot = str(getattr(task, "rule_payload_json", "") or "").strip()
+        if raw_snapshot:
+            try:
+                snapshot = json.loads(raw_snapshot)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                snapshot = None
+            if isinstance(snapshot, dict):
+                return normalize_rule_payload(snapshot)
+        return self._rule_payload_for_id(task.rule_id)
+
     def _passes_filters(
         self,
         title: str,
@@ -5272,37 +5349,47 @@ class DownloadManager(DownloadPathMixin):
             return
         with self._lock:
             task.status = TaskStatus.COMPLETED
-        if app_config.download_thumbnail:
+        rule_payload = self._task_rule_payload(task)
+        if rule_payload["download_thumbnail"]:
             self._download_thumbnail(task)
-        if app_config.collect_nfo_info:
+        if rule_payload["collect_nfo_info"]:
             self._write_nfo(task)
-        try:
-            self.history.upsert_downloaded(
-                {
-                    "video_id": task.video_id,
-                    "title": task.title,
-                    "author": task.author,
-                    "published_at": task.published_at,
-                    "likes": task.likes,
-                    "views": task.views,
-                    "slug": task.slug,
-                    "rating": task.rating,
-                    "duration": task.duration,
-                    "comments": task.comments,
-                    "tags_json": task.tags_json,
-                    "raw_json": task.raw_json,
-                    "source_url": task.url,
-                    "file_path": task.file_path,
-                    "thumbnail_path": task.thumbnail_path,
-                    "quality": task.quality,
-                }
-            )
-        except Exception as exc:
+        if rule_payload["record_to_history"]:
+            try:
+                self.history.upsert_downloaded(
+                    {
+                        "video_id": task.video_id,
+                        "title": task.title,
+                        "author": task.author,
+                        "published_at": task.published_at,
+                        "likes": task.likes,
+                        "views": task.views,
+                        "slug": task.slug,
+                        "rating": task.rating,
+                        "duration": task.duration,
+                        "comments": task.comments,
+                        "tags_json": task.tags_json,
+                        "raw_json": task.raw_json,
+                        "source_url": task.url,
+                        "file_path": task.file_path,
+                        "thumbnail_path": task.thumbnail_path,
+                        "quality": task.quality,
+                    }
+                )
+            except Exception as exc:
+                signal_bus.log_message.emit(
+                    tr(
+                        f"[Warning] Failed to write history DB (download file is safe): {exc}",
+                        f"[警告] 写入历史库失败（不影响文件下载）: {exc}",
+                        f"[警告] 履歴DB書き込み失敗（ダウンロードファイルには影響なし）: {exc}",
+                    )
+                )
+        else:
             signal_bus.log_message.emit(
                 tr(
-                    f"[Warning] Failed to write history DB (download file is safe): {exc}",
-                    f"[警告] 写入历史库失败（不影响文件下载）: {exc}",
-                    f"[警告] 履歴DB書き込み失敗（ダウンロードファイルには影響なし）: {exc}",
+                    f"[History] skipped for \"{task.title}\" by rule choice",
+                    f"[历史] 按规则选择跳过《{task.title}》的历史记录",
+                    f"[履歴] ルール設定により「{task.title}」を履歴へ記録しません",
                 )
             )
         with self._lock:

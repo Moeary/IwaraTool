@@ -156,12 +156,18 @@ class SubscriptionImportAuthorsWorker(QThread):
 class SubscriptionEnqueueWorker(QThread):
     finished = Signal(dict)
 
-    def __init__(self, video_ids: list[str]):
+    def __init__(self, video_ids: list[str], *, rule_id: str = ""):
         super().__init__()
         self._video_ids = list(video_ids)
+        self._rule_id = str(rule_id or "")
 
     def run(self):
-        self.finished.emit(download_manager.submit_subscription_items(self._video_ids))
+        self.finished.emit(
+            download_manager.submit_subscription_items(
+                self._video_ids,
+                rule_id=self._rule_id,
+            )
+        )
 
 
 class SubscriptionAvatarWorker(QThread):
@@ -3027,7 +3033,7 @@ class SubscriptionInterface(QWidget):
         ]
         self._enqueue_ids(ids)
 
-    def _enqueue_ids(self, ids: list[str]):
+    def _enqueue_ids(self, ids: list[str], *, rule_id: str = ""):
         ids = [video_id for video_id in ids if video_id]
         if not ids:
             self._show_error(tr("No downloadable videos in current selection", "当前选择没有可下载视频", "保存可能な動画がありません"))
@@ -3035,7 +3041,11 @@ class SubscriptionInterface(QWidget):
         if self._enqueue_worker and self._enqueue_worker.isRunning():
             self._show_error(tr("Queue operation is still running", "队列操作仍在进行中", "キュー操作が実行中です"))
             return
-        self._enqueue_worker = SubscriptionEnqueueWorker(ids)
+        selected_rule_id = str(
+            rule_id
+            or (self._rule_picker.selected_rule_id() if hasattr(self, "_rule_picker") else "")
+        )
+        self._enqueue_worker = SubscriptionEnqueueWorker(ids, rule_id=selected_rule_id)
         self._enqueue_worker.finished.connect(self._on_enqueue_finished)
         self._enqueue_worker.start()
 

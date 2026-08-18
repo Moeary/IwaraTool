@@ -8,7 +8,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from ..config import app_config
+from ..config import DEFAULT_FILENAME_TEMPLATE, app_config
 
 
 BUILTIN_DEFAULT_RULE_ID = "__builtin_default__"
@@ -34,9 +34,10 @@ RULE_DOWNLOAD_KEYS = (
     "download_thumbnail",
     "collect_nfo_info",
     "mark_submitted_as_downloaded",
+    "record_to_history",
 )
-# Only the filename template belongs to a reusable rule. Download location,
-# de-duplication, and completed-task behavior remain global Settings.
+# Download location and de-duplication remain global Settings. The rest of a
+# rule is captured on each queued task so different sources can coexist.
 RULE_STORAGE_KEYS = ("filename_template",)
 RULE_KEYS = RULE_FILTER_KEYS + RULE_TITLE_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS
 
@@ -62,7 +63,8 @@ def default_rule_payload() -> dict[str, Any]:
         "download_thumbnail": False,
         "collect_nfo_info": False,
         "mark_submitted_as_downloaded": False,
-        # Naming is rule-specific; download location and task behavior are global.
+        "record_to_history": True,
+        # Naming and per-task behavior are rule-specific; output root remains global.
         "filename_template": app_config.filename_template,
     }
 
@@ -106,6 +108,7 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "download_thumbnail",
         "collect_nfo_info",
         "mark_submitted_as_downloaded",
+        "record_to_history",
     ):
         result[key] = bool(result[key])
     for key in ("filter_min_likes", "filter_min_views"):
@@ -124,7 +127,7 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     if not result["filter_start_date"]:
         result["filter_start_date"] = "1970-01-01"
     if not result["filename_template"]:
-        result["filename_template"] = "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+        result["filename_template"] = DEFAULT_FILENAME_TEMPLATE
     if result["download_video_file"] and result["mark_submitted_as_downloaded"]:
         result["mark_submitted_as_downloaded"] = False
     if not result["download_video_file"] and not result["mark_submitted_as_downloaded"]:

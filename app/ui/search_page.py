@@ -759,7 +759,15 @@ class SearchWorker(QThread):
         )
         videos = [normalize_video(raw) for raw in raw_page]
         videos = [video for video in videos if video is not None]
-        videos = sort_videos(filter_videos(videos, query_filters), query_filters.sort)
+        if self.scope == "tags":
+            # The API has already applied the tag query. Its comma-separated
+            # ``tag`` parameter is an OR-style remote filter, while the
+            # generic local filter treats include_tags as an AND constraint.
+            # Applying that generic filter here would turn a valid page into
+            # an empty result set (the UI then shows e.g. 0 / 97).
+            videos = sort_videos(videos, query_filters.sort)
+        else:
+            videos = sort_videos(filter_videos(videos, query_filters), query_filters.sort)
         self.result_ready.emit(
             SearchPageResult(
                 scope=self.scope,
@@ -1165,6 +1173,7 @@ class SearchInterface(QWidget):
         self._iwara_author_workers: list[SearchIwaraAuthorWorker] = []
         self._oreno_author_workers: list[SearchOrenoAuthorWorker] = []
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
+        self._queue_resolve_rule_id = ""
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
@@ -1230,6 +1239,7 @@ class SearchInterface(QWidget):
                 (tr("Newest", "最新", "新着"), "date"),
                 (tr("Trending", "趋势", "トレンド"), "trending"),
                 (tr("Popularity", "热度", "人気"), "popularity"),
+                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
                 (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
             ],
             query_card,
@@ -2738,6 +2748,9 @@ class SearchInterface(QWidget):
             self._show_warning(tr("Select at least one video", "请至少选择一个视频", "動画を1件以上選択してください"))
             return
 
+        rule_id = self._rule_picker.selected_rule_id()
+        self._rule_picker.apply_selected(show_notice=False)
+
         if any(video.source_kind == "oreno3d" for video in videos):
             if self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning():
                 return
@@ -2746,6 +2759,7 @@ class SearchInterface(QWidget):
                 concurrency=self._search_resolution_concurrency(),
             )
             self._queue_resolve_worker = worker
+            self._queue_resolve_rule_id = rule_id
             self._queue_selected_btn.setEnabled(False)
             self._status_label.setText(
                 tr(
@@ -2760,10 +2774,18 @@ class SearchInterface(QWidget):
             return
 
         self._enqueue_video_ids(
-            [video.download_video_id or video.video_id for video in videos]
+            [video.download_video_id or video.video_id for video in videos],
+            rule_id=rule_id,
         )
 
-    def _enqueue_video_ids(self, ids: list[str], *, skipped: int = 0, errors: list[str] | None = None):
+    def _enqueue_video_ids(
+        self,
+        ids: list[str],
+        *,
+        skipped: int = 0,
+        errors: list[str] | None = None,
+        rule_id: str = "",
+    ):
         ids = [str(video_id or "").strip() for video_id in ids if str(video_id or "").strip()]
         errors = errors or []
         if not ids:
@@ -2777,7 +2799,12 @@ class SearchInterface(QWidget):
             self._show_warning(message)
             self._sync_selection_buttons()
             return
-        accepted = download_manager.enqueue_video_ids(ids, source_label=tr("Search", "搜索", "検索"))
+        selected_rule_id = str(rule_id or self._rule_picker.selected_rule_id())
+        accepted = download_manager.enqueue_video_ids(
+            ids,
+            source_label=tr("Search", "搜索", "検索"),
+            rule_id=selected_rule_id,
+        )
         suffix = tr(
             f"; skipped {skipped} item(s)" if skipped else "",
             f"；已跳过 {skipped} 个无下载链接的项目" if skipped else "",
@@ -2807,12 +2834,14 @@ class SearchInterface(QWidget):
             list(result.get("ids") or []),
             skipped=int(result.get("skipped") or 0),
             errors=[str(error) for error in result.get("errors") or []],
+            rule_id=self._queue_resolve_rule_id,
         )
         self._sync_selection_buttons()
 
     def _cleanup_queue_resolve_worker(self, worker: SearchQueueResolveWorker):
         if self._queue_resolve_worker is worker:
             self._queue_resolve_worker = None
+            self._queue_resolve_rule_id = ""
         worker.deleteLater()
         self._sync_selection_buttons()
 

@@ -490,6 +490,12 @@ class IwaraAPI:
             for key, value in (query_params or {}).items()
             if str(value).strip()
         }
+        # The website route exposes ``tags=...`` in its URL, but the current
+        # JSON endpoint only applies this filter when it receives ``tag=...``.
+        # Keep accepting the web URL shape at the boundary and translate it
+        # before the request is sent.
+        if params.get("tags") and "tag" not in params:
+            params["tag"] = params.pop("tags")
         params["page"] = str(page_number)
         params["limit"] = str(requested_limit)
         try:
@@ -555,6 +561,8 @@ class IwaraAPI:
             (videos, error_message). Partial results can be returned with error.
         """
         base_params = {str(k): str(v) for k, v in query_params.items() if str(v).strip()}
+        if base_params.get("tags") and "tag" not in base_params:
+            base_params["tag"] = base_params.pop("tags")
         start_page_raw = base_params.pop("page", "0")
         try:
             start_page = max(0, int(start_page_raw))

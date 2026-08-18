@@ -642,11 +642,13 @@ class DownloadInterface(QWidget):
             )
             return
         self._maybe_add_download_source_to_subscription(url)
+        rule_id = self._rule_picker.selected_rule_id()
+        self._rule_picker.apply_selected(show_notice=False)
         mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
         if mark_only:
-            download_manager.add_url_mark_downloaded(url)
+            download_manager.add_url_mark_downloaded(url, rule_id=rule_id)
         else:
-            download_manager.add_url(url)
+            download_manager.add_url(url, rule_id=rule_id)
         self._url_edit.clear()
         InfoBar.success(
             title=tr("Submitted", "已提交", "送信しました"),

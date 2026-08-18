@@ -22,6 +22,52 @@ WINDOWS_RESERVED_FILENAMES = frozenset(
         *(f"LPT{number}" for number in range(1, 10)),
     }
 )
+FILENAME_TEMPLATE_TOKENS = frozenset(
+    {
+        "YYYY-MM-DD",
+        "YYYY",
+        "MM",
+        "DD",
+        "date",
+        "title",
+        "id",
+        "username",
+        "author",
+        "quality",
+        "views",
+        "likes",
+        "comments",
+        "duration",
+        "slug",
+        "rating",
+    }
+)
+_TEMPLATE_TOKEN_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def validate_filename_template(template: str) -> tuple[bool, str]:
+    """Validate a portable relative output template before it is saved."""
+
+    raw = str(template or "").strip().replace("\\", "/")
+    if not raw:
+        return False, "Template cannot be empty"
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
+        return False, "Template must be a relative path"
+    if any(segment.strip() in {".", ".."} for segment in raw.split("/")):
+        return False, "Template cannot contain . or .. path segments"
+
+    tokens = _TEMPLATE_TOKEN_RE.findall(raw)
+    unknown = sorted({token for token in tokens if token not in FILENAME_TEMPLATE_TOKENS})
+    if unknown:
+        return False, f"Unknown placeholder: {{{unknown[0]}}}"
+    without_tokens = _TEMPLATE_TOKEN_RE.sub("", raw)
+    if "{" in without_tokens or "}" in without_tokens:
+        return False, "Template contains an unmatched brace"
+    if any(char in without_tokens for char in '\x00\r\n<>:"|?*'):
+        return False, "Template contains invalid Windows filename characters"
+    if not raw.rstrip("/").split("/")[-1].strip():
+        return False, "Template must include a filename"
+    return True, ""
 
 
 class DownloadPathMixin:
@@ -41,10 +87,12 @@ class DownloadPathMixin:
         duration: int,
         slug: str,
         rating: str,
+        filename_template: str | None = None,
     ) -> str:
         raw_template = (
-            app_config.filename_template or ""
-        ).strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+            app_config.filename_template if filename_template is None else filename_template
+        ) or ""
+        raw_template = raw_template.strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
         template = raw_template.replace("\\", "/")
 
         date_text = extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
