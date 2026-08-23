@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
-    QPlainTextEdit,
     QSizePolicy,
     QSplitter,
     QTableWidgetItem,
@@ -28,12 +27,12 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    PlainTextEdit,
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
-    isDarkTheme,
 )
 
 from ..config import app_config
@@ -43,34 +42,6 @@ from ..core.rules import active_rule_id, normalize_rule_payload, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .worker_lifecycle import stop_qthreads
-
-
-def _native_editor_style() -> str:
-    if isDarkTheme():
-        return """
-        QPlainTextEdit {
-            background: #202225;
-            color: #edf1f5;
-            border: 1px solid #454b52;
-            border-radius: 6px;
-            selection-background-color: #087f89;
-            selection-color: white;
-            padding: 8px;
-        }
-        QPlainTextEdit:focus { border: 1px solid #18a8b2; }
-        """
-    return """
-    QPlainTextEdit {
-        background: #ffffff;
-        color: #24292f;
-        border: 1px solid #c9d1d9;
-        border-radius: 6px;
-        selection-background-color: #b8e7ea;
-        selection-color: #172126;
-        padding: 8px;
-    }
-    QPlainTextEdit:focus { border: 1px solid #009faa; }
-    """
 
 
 class FolderDropLineEdit(LineEdit):
@@ -405,11 +376,10 @@ class RepairInterface(QWidget):
         clear_btn.clicked.connect(self._clear_log)
         log_header.addWidget(clear_btn)
         log_layout.addLayout(log_header)
-        self._log_edit = QPlainTextEdit(log_card)
+        self._log_edit = PlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         self._log_edit.setPlaceholderText(tr("Repair logs will appear here…", "修复日志将显示在此…", "修復ログはここに表示されます…"))
-        self._log_edit.setStyleSheet(_native_editor_style())
         mono = QFont("Consolas", 9)
         if not mono.exactMatch():
             mono = QFont("Courier New", 9)
@@ -906,9 +876,6 @@ class RepairInterface(QWidget):
             duration=3500,
             parent=self,
         )
-
-    def refresh_theme_styles(self):
-        self._log_edit.setStyleSheet(_native_editor_style())
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
         worker = self._worker

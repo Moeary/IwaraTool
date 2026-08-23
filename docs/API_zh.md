@@ -57,7 +57,10 @@
 - `https://www.iwara.tv/videos?...`
 - 示例：
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
-  - `https://www.iwara.tv/videos?tags=2d&sort=date`
+- `https://www.iwara.tv/videos?tags=2d&sort=date`
+
+网页路由使用 `tags`，当前 JSON 接口实际通过单数参数 `tag` 执行筛选；IwaraTool
+会同时接受两种形式，并在 API 边界统一转换。
 
 ### 行为
 - 解析 URL 查询参数

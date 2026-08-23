@@ -7,9 +7,7 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
-    QPlainTextEdit,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -25,6 +23,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    PlainTextEdit,
     MessageBoxBase,
     PrimaryPushButton,
     PushButton,
@@ -214,36 +213,6 @@ def option_button_style(checked: bool) -> str:
     if isDarkTheme():
         return _OPTION_ON_DARK_STYLE if checked else _OPTION_OFF_DARK_STYLE
     return _OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE
-
-
-def native_editor_style() -> str:
-    """Theme native Qt text editors that are not covered by Fluent QSS."""
-    if isDarkTheme():
-        return """
-        QPlainTextEdit {
-            background: #202225;
-            color: #edf1f5;
-            border: 1px solid #454b52;
-            border-radius: 6px;
-            selection-background-color: #087f89;
-            selection-color: white;
-            padding: 8px;
-        }
-        QPlainTextEdit:focus { border: 1px solid #18a8b2; }
-        """
-    return """
-    QPlainTextEdit {
-        background: #ffffff;
-        color: #24292f;
-        border: 1px solid #c9d1d9;
-        border-radius: 6px;
-        selection-background-color: #b8e7ea;
-        selection-color: #172126;
-        padding: 8px;
-    }
-    QPlainTextEdit:focus { border: 1px solid #009faa; }
-    """
-
 
 
 class FilterDialog(QDialog):
@@ -594,10 +563,9 @@ class DownloadInterface(QWidget):
         log_header.addWidget(clear_log_btn)
         log_layout.addLayout(log_header)
 
-        self._log_edit = QPlainTextEdit(log_card)
+        self._log_edit = PlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
-        self._log_edit.setStyleSheet(native_editor_style())
         self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
         self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
         from PySide6.QtGui import QFont
@@ -720,7 +688,6 @@ class DownloadInterface(QWidget):
         if hasattr(self, "_download_video_btn"):
             self._sync_option_controls()
         if hasattr(self, "_log_edit"):
-            self._log_edit.setStyleSheet(native_editor_style())
             self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
             self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
 

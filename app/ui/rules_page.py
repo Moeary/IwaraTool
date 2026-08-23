@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
-    QListWidget,
     QListWidgetItem,
     QScrollArea,
     QSplitter,
@@ -28,6 +27,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    ListWidget,
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
@@ -109,7 +109,7 @@ def _rule_display_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name", "") or "")
 
 
-class _RuleTagSuggestionPopup(QListWidget):
+class _RuleTagSuggestionPopup(ListWidget):
     """Localized tag candidates used by the include/exclude rule fields."""
 
     suggestion_chosen = Signal(str)
@@ -640,7 +640,7 @@ class RulesInterface(QWidget):
         hint = BodyLabel(tr("The teal dot marks the current default.", "青绿色圆点表示当前默认规则。", "青緑の点は現在の既定ルールです。"), left)
         hint.setWordWrap(True)
         left_layout.addWidget(hint)
-        self._list = QListWidget(left)
+        self._list = ListWidget(left)
         self._list.setSpacing(5)
         self._list.setWordWrap(True)
         self._list.setStyleSheet(self._list_style())

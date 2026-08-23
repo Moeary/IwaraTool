@@ -154,6 +154,27 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(captured["params"], {"sort": "views", "page": "1", "limit": "32"})
 
+    def test_api_page_hides_growing_count_sentinel_from_ui(self):
+        api = object.__new__(IwaraAPI)
+
+        def fake_get_json(_url, **_kwargs):
+            return {
+                "results": [{"id": f"video-{index}"} for index in range(32)],
+                "count": 97,
+            }
+
+        api._get_json = fake_get_json
+        results, total, has_more, error = api.get_videos_page(
+            {"tags": "loli,hmv", "sort": "date"},
+            page=2,
+            limit=32,
+        )
+
+        self.assertEqual(len(results), 32)
+        self.assertIsNone(total)
+        self.assertTrue(has_more)
+        self.assertEqual(error, "")
+
     def test_api_page_translates_web_tags_query_to_singular_api_tag(self):
         api = object.__new__(IwaraAPI)
         captured = {}

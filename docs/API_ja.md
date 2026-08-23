@@ -57,7 +57,10 @@
 - `https://www.iwara.tv/videos?...`
 - 例：
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
-  - `https://www.iwara.tv/videos?tags=2d&sort=date`
+- `https://www.iwara.tv/videos?tags=2d&sort=date`
+
+Web ルートは `tags` を使用しますが、現在の JSON API は単数形の `tag`
+でフィルターを適用します。IwaraTool は両方を受け付け、API 境界で正規化します。
 
 ### 挙動
 - URL クエリを解析

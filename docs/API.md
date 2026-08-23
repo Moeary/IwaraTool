@@ -57,7 +57,11 @@ The app now supports API search URLs directly from the download input box.
 - `https://www.iwara.tv/videos?...`
 - Example:
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
-  - `https://www.iwara.tv/videos?tags=2d&sort=date`
+- `https://www.iwara.tv/videos?tags=2d&sort=date`
+
+The web route uses `tags`, while the current JSON endpoint applies the filter
+through the singular `tag` parameter. IwaraTool accepts either shape and
+normalizes it at the API boundary.
 
 ### Behavior
 - Parses query parameters from the URL

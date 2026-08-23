@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidget
-from qfluentwidgets import Action, FluentIcon
+from qfluentwidgets import Action, FluentIcon, ListWidget, PlainTextEdit
 
 from app.config import app_config
 from app.core.history import DownloadHistory
@@ -19,7 +19,8 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
 from app.ui.history_page import HistoryInterface
-from app.ui.rules_page import RuleFormWidget
+from app.ui.repair_page import RepairInterface
+from app.ui.rules_page import RuleFormWidget, RulesInterface
 from app.ui.search_page import SearchInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
@@ -924,12 +925,26 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_log_widget_keeps_max_blocks_and_flushes_in_batches(self):
         page = DownloadInterface()
+        self.assertIsInstance(page._log_edit, PlainTextEdit)
         for i in range(page._MAX_LOG_BLOCKS + 250):
             page._append_log(f"log {i}")
         while page._pending_logs:
             page._flush_logs()
 
         self.assertLessEqual(page._log_edit.blockCount(), page._MAX_LOG_BLOCKS)
+
+    def test_visible_lists_and_repair_log_use_fluent_widgets(self):
+        search = SearchInterface()
+        rules = RulesInterface()
+        repair = RepairInterface()
+        try:
+            self.assertIsInstance(search._results, ListWidget)
+            self.assertIsInstance(rules._list, ListWidget)
+            self.assertIsInstance(repair._log_edit, PlainTextEdit)
+        finally:
+            search.close()
+            rules.close()
+            repair.close()
 
     def test_rule_form_validates_template_and_exposes_history_choice(self):
         form = RuleFormWidget()
@@ -1223,6 +1238,7 @@ class UiPerformanceTests(unittest.TestCase):
                     page._source_table.selectionMode(),
                     QAbstractItemView.SelectionMode.ExtendedSelection,
                 )
+                self.assertIsInstance(page._thumbnail_list, ListWidget)
                 self.assertTrue(page._splitter_is_vertical)
 
                 page._source_table.selectRow(0)
@@ -1290,6 +1306,12 @@ class UiPerformanceTests(unittest.TestCase):
                 self.assertTrue(page._auto_search_timer.isActive())
                 page._auto_start_search()
                 start_search.assert_called_once_with()
+
+            page._auto_search_timer.start()
+            page._set_combo_data(page._scope_combo, "tags")
+            page._keyword_edit.clear()
+            page._schedule_auto_search()
+            self.assertFalse(page._auto_search_timer.isActive())
 
             page._set_search_controls_collapsed(True, persist=False)
             self.assertTrue(page._query_card.isHidden())

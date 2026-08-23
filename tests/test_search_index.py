@@ -78,6 +78,36 @@ class SearchOnlineTests(unittest.TestCase):
         self.assertEqual([video.video_id for video in results[0].videos], ["loli-video", "hmv-video"])
         self.assertEqual(results[0].total, 97)
 
+    def test_iwara_open_ended_page_keeps_next_navigation_available(self):
+        class _FakeManager:
+            def get_search_video_page(self, _query_params, *, page, limit):
+                self.call = (page, limit)
+                return (
+                    [{"id": f"video-{index}", "title": str(index)} for index in range(limit)],
+                    None,
+                    True,
+                    "",
+                )
+
+        fake_manager = _FakeManager()
+        results = []
+        with patch("app.ui.search_page.download_manager", fake_manager):
+            worker = SearchWorker(
+                SearchFilters(keyword="loli,hmv", sort="date"),
+                "tags",
+                page=2,
+                generation=1,
+                replace_results=True,
+                source="iwara",
+            )
+            worker.result_ready.connect(results.append)
+            worker.run()
+
+        self.assertEqual(len(results[0].videos), 32)
+        self.assertIsNone(results[0].total)
+        self.assertIsNone(results[0].last_page)
+        self.assertEqual(results[0].next_page, 3)
+
     def test_search_history_is_mru_deduplicated_and_limited(self):
         history = _upsert_search_history(
             [

@@ -133,26 +133,18 @@ class Oreno3DIwaraMapping:
             except (TypeError, ValueError):
                 self._ambiguous_count = 0
 
-        entry_fragments: list[Mapping[str, Any]] = []
         raw_entries = payload.get("entries")
         if isinstance(raw_entries, Mapping):
-            entry_fragments.append(raw_entries)
-        entry_fragments.extend(self._read_fragments(payload.get("entry_files"), "entries"))
-        for fragment in entry_fragments:
-            for raw_key, raw_value in fragment.items():
+            for raw_key, raw_value in raw_entries.items():
                 key = str(raw_key or "").strip()
                 entity = _parse_entity(raw_value)
                 if not key or entity is None:
                     continue
                 self._entries[key] = Oreno3DResolvedEntity(*entity, canonical_key=key)
 
-        alias_fragments: list[Mapping[str, Any]] = []
         raw_aliases = payload.get("aliases")
         if isinstance(raw_aliases, Mapping):
-            alias_fragments.append(raw_aliases)
-        alias_fragments.extend(self._read_fragments(payload.get("alias_files"), "aliases"))
-        for fragment in alias_fragments:
-            for raw_alias, raw_value in fragment.items():
+            for raw_alias, raw_value in raw_aliases.items():
                 alias = normalize_mapping_key(raw_alias)
                 entity = _parse_entity(raw_value)
                 if not alias or entity is None:
@@ -167,31 +159,6 @@ class Oreno3DIwaraMapping:
         # safe to add because entries were generated as unique terms.
         for key, entity in self._entries.items():
             self._aliases.setdefault(normalize_mapping_key(key), entity)
-
-    def _read_fragments(
-        self,
-        names: Any,
-        key: str,
-    ) -> list[Mapping[str, Any]]:
-        """Read optional split resource files declared by the main manifest."""
-
-        if not isinstance(names, (list, tuple)) or not self.path:
-            return []
-        directory = os.path.dirname(self.path)
-        fragments: list[Mapping[str, Any]] = []
-        for raw_name in names:
-            name = str(raw_name or "").strip()
-            if not name:
-                continue
-            try:
-                with open(os.path.join(directory, name), "r", encoding="utf-8") as stream:
-                    fragment = json.load(stream)
-            except (OSError, TypeError, ValueError):
-                continue
-            values = fragment.get(key) if isinstance(fragment, Mapping) else None
-            if isinstance(values, Mapping):
-                fragments.append(values)
-        return fragments
 
     def _canonical_for(self, entity: tuple[str, str]) -> str:
         for key, value in self._entries.items():

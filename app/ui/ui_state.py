@@ -12,16 +12,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLayout,
     QLayoutItem,
-    QListWidget,
     QListWidgetItem,
     QSplitter,
     QTableWidget,
-    QVBoxLayout,
 )
 
 from qfluentwidgets import (
     BodyLabel,
     LineEdit,
+    ListWidget,
     MessageBox,
     MessageBoxBase,
     PushButton,
@@ -436,7 +435,7 @@ class _TableColumnDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.title_label)
         self.viewLayout.addWidget(self.hint_label)
 
-        self._list = QListWidget(self)
+        self._list = ListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setAlternatingRowColors(True)
         self.viewLayout.addWidget(self._list, stretch=1)
