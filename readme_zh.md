@@ -60,8 +60,7 @@ Oreno3D 标签桥接支持单标签直达 `/tags/{id}`，多个标签会在客�
 | --- | --- |
 | `data/config.ini` | 登录 token、界面、并发和下载行为配置 |
 | `data/tasks.json` | 可恢复的排队、运行中、失败和已中断任务状态 |
-| `data/history.db` | 下载历史与已下载状态 |
-| `data/subscriptions.db` | 订阅源、订阅视频和刷新状态 |
+| `data/history.db` | 下载历史、订阅源、订阅视频和刷新状态 |
 | `data/rules.json` | 命名、筛选、封面和 NFO 等下载规则 |
 | `data/iwara_tags.json` | 项目生成的离线标签索引与三语字段 |
 | `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | 随程序打包的 LoveIwara MIT 标签翻译源文件 |

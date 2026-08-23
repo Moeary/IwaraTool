@@ -131,4 +131,5 @@ Web ルートは `tags` を使用しますが、現在の JSON API は単数形�
 - 検索ページは LoveIwara キャッシュを優先し、無い場合は `data/iwara_tags.json` にフォールバックします。
 - 「タグを更新」で必要な時だけ取得し、起動時にネットワークを必須としません。
 - 同梱ソースは `app/data/tag_translations/loveiwara_iwara_tags_localized.json` で、Nuitka と GitHub Actions のビルドに明示的に含めます。
+- Oreno3D/Iwara タグ対応表 `app/data/oreno3d_iwara_map.json` も Nuitka と GitHub Actions のビルドに明示的に含めます。
 - 初回起動時、実行ファイル隣の `data/tag_translations/` にキャッシュが無ければ内蔵辞書を自動展開します。既存のユーザーキャッシュは置き換えません。

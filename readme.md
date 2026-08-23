@@ -60,8 +60,7 @@ Runtime data is stored under `data/` and is separated by purpose:
 | --- | --- |
 | `data/config.ini` | Token, UI, concurrency, and download behavior settings |
 | `data/tasks.json` | Recoverable queued, running, failed, and cancelled task state |
-| `data/history.db` | Download history and local file state |
-| `data/subscriptions.db` | Subscription sources, videos, and refresh state |
+| `data/history.db` | Download history, subscription sources, videos, and refresh state |
 | `data/rules.json` | Named download rules |
 | `data/iwara_tags.json` | Generated offline tag index with localized fields |
 | `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | Bundled MIT-licensed LoveIwara translation source |

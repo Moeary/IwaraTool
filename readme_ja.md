@@ -60,8 +60,7 @@ Oreno3D のタグブリッジでは、タグスコープの単一ラベルを `/
 | --- | --- |
 | `data/config.ini` | Token、UI、並列数、ダウンロード動作の設定 |
 | `data/tasks.json` | 復元可能な待機中、実行中、失敗、中断タスクの状態 |
-| `data/history.db` | ダウンロード履歴とローカルファイル状態 |
-| `data/subscriptions.db` | 購読元、購読動画、更新状態 |
+| `data/history.db` | ダウンロード履歴、購読元、購読動画、更新状態 |
 | `data/rules.json` | 名前付きダウンロードルール |
 | `data/iwara_tags.json` | 三言語フィールドを含む生成済みオフラインタグ索引 |
 | `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | アプリに同梱する LoveIwara MIT 翻訳ソース |

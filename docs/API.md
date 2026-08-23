@@ -149,4 +149,5 @@ Global filter switch applies during resolve stage.
 - The search page loads the cached LoveIwara dictionary first and falls back to `data/iwara_tags.json`.
 - “Update Tags” downloads the dictionary on demand; startup does not require a network request.
 - The bundled source is `app/data/tag_translations/loveiwara_iwara_tags_localized.json`; Nuitka and GitHub Actions include it explicitly.
+- The bundled Oreno3D/Iwara label map is `app/data/oreno3d_iwara_map.json`; Nuitka and GitHub Actions include it explicitly.
 - On first run, the bundled source is expanded to `data/tag_translations/` beside the executable only when the runtime cache is missing. Existing user caches are not replaced.
