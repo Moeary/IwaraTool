@@ -126,22 +126,12 @@ class _SubscriptionPromptDialog(MessageBoxBase):
             self,
         )
         self.content_label.setWordWrap(True)
-        self.note_label = BodyLabel(
-            tr(
-                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
-                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
-                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
-            ),
-            self,
-        )
-        self.note_label.setWordWrap(True)
         self.no_remind = CheckBox(
             tr("Do not ask again", "下次不再提醒", "次回から確認しない"), self
         )
 
         self.viewLayout.addWidget(self.title_label)
         self.viewLayout.addWidget(self.content_label)
-        self.viewLayout.addWidget(self.note_label)
         self.viewLayout.addWidget(self.no_remind)
         self.yesButton.setText(tr("Add This Time", "本次加入", "今回追加"))
         self.cancelButton.setText(tr("No", "不加入", "追加しない"))

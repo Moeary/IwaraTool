@@ -77,3 +77,6 @@ class DownloadTask:
     remove_after_cancel: bool = False
     cancel_origin: str = ""
     aria2_gid: str = ""
+    # Stable profile handle is stored in ``author``; this is the mutable
+    # display name used by the {username} filename token.
+    username: str = ""

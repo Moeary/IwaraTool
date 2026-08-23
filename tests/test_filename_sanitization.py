@@ -2,10 +2,11 @@ import os
 import tempfile
 import unittest
 
-from app.config import app_config
+from app.config import DEFAULT_FILENAME_TEMPLATE, app_config
 from app.core.download_paths import validate_filename_template
 from app.core.manager import DownloadManager
 from app.core.rules import normalize_rule_payload
+from app.core.task_metadata import author_fields_from_user
 
 
 class FilenameSanitizationTests(unittest.TestCase):
@@ -69,6 +70,37 @@ class FilenameSanitizationTests(unittest.TestCase):
             os.path.join("HMV", "iwara01_Dance_alice_2024-12-25_20241225.mp4"),
         )
 
+    def test_author_and_username_tokens_keep_stable_and_display_values_separate(self):
+        manager = object.__new__(DownloadManager)
+        relative_path = manager._build_output_relative_path(
+            title="Dance",
+            video_id="iwara01",
+            author="user154126",
+            username="这位赤身肉",
+            published_at="2024-12-25T00:00:00.000Z",
+            quality="Source",
+            likes=0,
+            views=0,
+            comments=0,
+            duration=0,
+            slug="",
+            rating="",
+            filename_template="{author}/{username}_{id}.mp4",
+        )
+
+        self.assertEqual(
+            relative_path,
+            os.path.join("user154126", "这位赤身肉_iwara01.mp4"),
+        )
+
+    def test_user_profile_fields_use_stable_handle_and_display_name(self):
+        self.assertEqual(
+            author_fields_from_user(
+                {"id": "profile-id", "username": "user154126", "name": "这位赤身肉"}
+            ),
+            ("user154126", "这位赤身肉"),
+        )
+
     def test_filename_template_validation_rejects_unknown_or_escaping_values(self):
         self.assertEqual(validate_filename_template("HMV/{id}_{title}_{author}.mp4"), (True, ""))
         valid, reason = validate_filename_template("{unknown}_{title}.mp4")
@@ -83,3 +115,4 @@ class FilenameSanitizationTests(unittest.TestCase):
 
         self.assertFalse(normalized["record_to_history"])
         self.assertTrue(normalize_rule_payload({})["record_to_history"])
+        self.assertEqual(normalize_rule_payload({})["filename_template"], DEFAULT_FILENAME_TEMPLATE)

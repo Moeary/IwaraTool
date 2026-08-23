@@ -14,6 +14,7 @@ from .api import IwaraAPI
 from .models import DownloadTask
 from .task_metadata import (
     SUBSCRIPTION_UNAVAILABLE_STATE as _SUBSCRIPTION_UNAVAILABLE_STATE,
+    _author_fields_from_user,
     _compact_video_raw_json,
     _dict_or_empty,
     _iwara_image_url,
@@ -867,15 +868,29 @@ class SubscriptionManagerMixin:
                 and str(item.get("video_id", "") or "").strip().casefold() not in known_casefold
             )
         )
-        if incremental:
-            validation_items = [
-                item
-                for item in normalized_items
-                if str(item.get("video_id", "") or "").strip().casefold() not in known_casefold
-            ]
-        else:
-            validation_items = normalized_items
         new_count, total_count = self.subscriptions.upsert_items(source_id, normalized_items)
+
+        # Incremental account refreshes intentionally stop fetching as soon as
+        # they reach a known video.  That is useful for discovering new items,
+        # but it also means a previously private video will not be present in
+        # ``normalized_items`` after the owner grants access.  Always append
+        # cached unavailable rows so their permission state can be rechecked.
+        validation_items = list(normalized_items)
+        validation_ids = {
+            str(item.get("video_id", "") or "").strip().casefold()
+            for item in validation_items
+            if str(item.get("video_id", "") or "").strip()
+        }
+        for item in self.subscriptions.list_items(source_id):
+            video_id = str(item.get("video_id", "") or "").strip()
+            if (
+                video_id
+                and str(item.get("download_state", "") or "")
+                == _SUBSCRIPTION_UNAVAILABLE_STATE
+                and video_id.casefold() not in validation_ids
+            ):
+                validation_items.append(item)
+                validation_ids.add(video_id.casefold())
         unavailable_checked = self._validate_subscription_unavailable_items(
             validation_items,
             api_client=api_client,
@@ -946,9 +961,12 @@ class SubscriptionManagerMixin:
                 self.subscriptions.update_item_download_state(video_id, download_state, download_reason)
                 checked += 1
                 continue
-            if str(video_info.get("fileUrl", "") or ""):
-                self.subscriptions.update_item_download_state(video_id, "", "")
-                checked += 1
+            # A successful detail response that is no longer classified as
+            # private/external proves that the old cached permission block is
+            # stale.  Do not require fileUrl here: the API can return a valid
+            # detail record while a file is still being prepared.
+            self.subscriptions.update_item_download_state(video_id, "", "")
+            checked += 1
         return checked
 
     def _known_subscription_video_ids(self, source_id: int) -> set[str]:
@@ -1065,9 +1083,9 @@ class SubscriptionManagerMixin:
                         return raw
             return default
 
-        author = str(value("author", default="") or "")
-        if not author:
-            author = str(user.get("username") or user.get("name") or "")
+        user_author, user_display_name = _author_fields_from_user(user)
+        author = str(value("author", default="") or user_author or "")
+        username = str(value("username", default="") or user_display_name or author or "")
 
         raw_tags = item.get("tags", [])
         tags_json = json.dumps(raw_tags, ensure_ascii=False) if isinstance(raw_tags, list) else ""
@@ -1079,6 +1097,7 @@ class SubscriptionManagerMixin:
             "video_id": video_id,
             "title": str(value("title", default=video_id) or video_id),
             "author": author,
+            "username": username,
             "published_at": str(value("published_at", "createdAt", "updatedAt", default="") or ""),
             "likes": int(value("likes", "numLikes", default=0) or 0),
             "views": int(value("views", "numViews", default=0) or 0),
@@ -1106,7 +1125,7 @@ class SubscriptionManagerMixin:
         file_info = _dict_or_empty(video_info.get("file"))
         task_video_id = str(video_info.get("id", "") or video_info.get("video_id", "") or video_id)
         title = str(video_info.get("title", "") or task_video_id)
-        author = str(user.get("username", "") or user.get("name", "") or "")
+        author, username = _author_fields_from_user(user)
         published_at = str(video_info.get("createdAt", "") or "")
         likes = int(video_info.get("numLikes", 0) or 0)
         views = int(video_info.get("numViews", 0) or 0)
@@ -1139,6 +1158,7 @@ class SubscriptionManagerMixin:
             task,
             title=title,
             author=author,
+            username=username,
             published_at=published_at,
             likes=likes,
             views=views,
@@ -1157,6 +1177,7 @@ class SubscriptionManagerMixin:
             title=title,
             video_id=task_video_id,
             author=author,
+            username=username,
             published_at=published_at,
             quality=quality,
             likes=likes,

@@ -5,8 +5,14 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 
 
-DEFAULT_FILENAME_TEMPLATE = "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
 LEGACY_FILENAME_TEMPLATE = "{username}/{YYYYMMDD}_{title}_{id}.mp4"
+LEGACY_FILENAME_TEMPLATES = frozenset(
+    {
+        LEGACY_FILENAME_TEMPLATE,
+        "{username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+    }
+)
 
 
 def _app_root_dir() -> str:
@@ -235,10 +241,10 @@ class AppConfig:
         self._qs.sync()
 
     def _migrate_filename_template_if_needed(self):
-        """Move the untouched old default to the compact date-token default."""
+        """Move untouched legacy defaults to the stable-author template."""
 
         current = str(self._qs.value("filename_template", "") or "").strip()
-        if current == LEGACY_FILENAME_TEMPLATE:
+        if current in LEGACY_FILENAME_TEMPLATES:
             self._qs.setValue("filename_template", DEFAULT_FILENAME_TEMPLATE)
             self._qs.sync()
 

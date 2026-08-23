@@ -21,7 +21,7 @@ from .repair import (
     guess_filename_video_id,
     scan_video_files,
 )
-from .task_metadata import _dict_or_empty
+from .task_metadata import _author_fields_from_user, _dict_or_empty
 
 
 class RepairManagerMixin:
@@ -642,10 +642,12 @@ class RepairManagerMixin:
             task = DownloadTask(str(uuid.uuid4()), source_url, video_id)
             source = cached_meta
             file_info = _dict_or_empty(source.get("file"))
+            source_author, source_username = _author_fields_from_user(source.get("user"))
             self._apply_task_metadata(
                 task,
                 title=str(source.get("title", "") or video_id),
-                author=str(source.get("author", "") or source.get("username", "") or ""),
+                author=str(source.get("author", "") or source_author or source.get("username", "") or ""),
+                username=str(source.get("username", "") or source_username or source.get("author", "") or ""),
                 published_at=str(source.get("published_at", "") or source.get("createdAt", "") or ""),
                 likes=int(source.get("likes", source.get("numLikes", 0)) or 0),
                 views=int(source.get("views", source.get("numViews", 0)) or 0),

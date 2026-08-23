@@ -575,6 +575,63 @@ class ManagerPerformanceTests(unittest.TestCase):
             )
         )
 
+    def test_incremental_refresh_rechecks_cached_private_items_after_access_changes(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source(
+            "author",
+            "author01",
+            "Author 01",
+            "user01",
+            avatar_url="https://i.iwara.tv/image/thumbnail/avatar01/avatar01.jpg",
+            source_origin="account",
+        )
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "privateAccess01",
+                    "title": "Private Access",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/privateAccess01",
+                    "download_state": "unavailable",
+                    "download_reason": "当前账号没有权限查看或下载该作品。",
+                    "download_state_known": True,
+                }
+            ],
+        )
+        calls: list[tuple[str, object]] = []
+
+        def fake_api_call(method_name, *args, **kwargs):
+            calls.append((method_name, kwargs.get("known_video_ids")))
+            if method_name == "get_user_videos":
+                return []
+            if method_name == "get_video_info":
+                return (
+                    {
+                        "id": args[0],
+                        "title": "Private Access",
+                        "createdAt": "2026-06-12T00:00:00Z",
+                        "user": {"username": "author01", "name": "作者显示名"},
+                        "file": {"id": "file01", "duration": 120},
+                        "fileUrl": "https://files.example.test/video.mp4",
+                    },
+                    "",
+                )
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        mgr._api_call = fake_api_call
+
+        summary = mgr.refresh_subscription_source(source_id)
+        item = mgr.get_subscription_items(source_id)[0]
+
+        self.assertEqual(summary["unavailable_checked"], 1)
+        self.assertEqual(summary["unavailable"], 0)
+        self.assertEqual(item["download_state"], "")
+        self.assertTrue(item["downloadable"])
+        known_ids = next(value for method, value in calls if method == "get_user_videos")
+        self.assertIn("privateAccess01", known_ids)
+
     def test_manual_author_refresh_updates_display_name_from_profile(self):
         mgr = make_manager()
         source_id = mgr.subscriptions.add_source("author", "author01", "author01")
@@ -1093,6 +1150,34 @@ class UiPerformanceTests(unittest.TestCase):
         )
         action.trigger()
         self.assertEqual(captured, [selected_ids])
+
+    def test_completed_task_actions_open_video_page_folder_and_file(self):
+        page = TaskCenterInterface()
+        page._tasks_by_id = {
+            "completed": DownloadTask(
+                task_id="completed",
+                url="",
+                video_id="completed-video",
+                status=TaskStatus.COMPLETED,
+                file_path="C:\\downloads\\completed-video.mp4",
+            )
+        }
+
+        with patch("app.ui.task_page.webbrowser.open") as open_url, patch(
+            "app.ui.task_page.download_manager"
+        ) as manager:
+            manager.open_task_output.return_value = (True, "")
+            page._open_task_video_pages(("completed",))
+            page._open_task_output("completed", open_file=False)
+            page._open_task_output("completed", open_file=True)
+
+        open_url.assert_called_once_with("https://www.iwara.tv/video/completed-video")
+        manager.open_task_output.assert_has_calls(
+            [
+                call("completed", open_file=False),
+                call("completed", open_file=True),
+            ]
+        )
 
     def test_table_width_saver_records_resize_immediately(self):
         key = f"test_table_widths_{id(self)}"

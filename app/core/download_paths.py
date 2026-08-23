@@ -6,7 +6,7 @@ import os
 import re
 from datetime import datetime
 
-from ..config import app_config
+from ..config import DEFAULT_FILENAME_TEMPLATE, app_config
 from .task_metadata import extract_date_text
 
 
@@ -88,16 +88,18 @@ class DownloadPathMixin:
         slug: str,
         rating: str,
         filename_template: str | None = None,
+        username: str = "",
     ) -> str:
         raw_template = (
             app_config.filename_template if filename_template is None else filename_template
         ) or ""
-        raw_template = raw_template.strip() or "{username}/{YYYY-MM-DD}_{title}_{id}.mp4"
+        raw_template = raw_template.strip() or DEFAULT_FILENAME_TEMPLATE
         template = raw_template.replace("\\", "/")
 
         date_text = extract_date_text(published_at) or datetime.now().strftime("%Y-%m-%d")
         year, month, day = date_text.split("-")
-        username = (author or "unknown").strip() or "unknown"
+        author_value = (author or username or "unknown").strip() or "unknown"
+        username_value = (username or author_value or "unknown").strip() or "unknown"
 
         def safe(value) -> str:
             return str(value).replace("/", "-").replace("\\", "-")
@@ -110,8 +112,8 @@ class DownloadPathMixin:
             "{date}": safe(date_text),
             "{title}": safe(title),
             "{id}": safe(video_id),
-            "{username}": safe(username),
-            "{author}": safe(username),
+            "{username}": safe(username_value),
+            "{author}": safe(author_value),
             "{quality}": safe(quality or "unknown"),
             "{likes}": safe(str(likes)),
             "{views}": safe(str(views)),

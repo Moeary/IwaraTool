@@ -638,7 +638,9 @@ class DownloadManager(DownloadRuntimeMixin, SubscriptionManagerMixin, SearchMana
         )
         return True, new_path
 
-    def open_task_output(self, task_id: str) -> tuple[bool, str]:
+    def open_task_output(
+        self, task_id: str, *, open_file: bool | None = None
+    ) -> tuple[bool, str]:
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -656,8 +658,11 @@ class DownloadManager(DownloadRuntimeMixin, SubscriptionManagerMixin, SearchMana
         if not file_path or not os.path.exists(file_path):
             return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
 
-        action = str(app_config.completed_task_click_action or "folder").lower()
-        target = file_path if action == "player" else os.path.dirname(file_path)
+        action = ""
+        if open_file is None:
+            action = str(app_config.completed_task_click_action or "folder").lower()
+            open_file = action == "player"
+        target = file_path if open_file else os.path.dirname(file_path)
         if not target:
             return False, tr("No openable path", "无可打开路径", "開けるパスがありません")
 
@@ -677,7 +682,10 @@ class DownloadManager(DownloadRuntimeMixin, SubscriptionManagerMixin, SearchMana
         except Exception as exc:
             return False, str(exc)
 
-        action_text = tr("Player", "播放器", "プレイヤー") if action == "player" else tr("Folder", "文件夹", "フォルダー")
+        if action == "player":
+            action_text = tr("Player", "播放器", "プレイヤー")
+        else:
+            action_text = tr("File", "文件", "ファイル") if open_file else tr("Folder", "文件夹", "フォルダー")
         signal_bus.log_message.emit(
             tr(
                 f"[Open] \"{title}\" -> {action_text}",

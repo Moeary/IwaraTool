@@ -196,7 +196,7 @@ class RuleFormWidget(QWidget):
         storage_layout.setVerticalSpacing(10)
         storage_layout.addWidget(SubtitleLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 0, 0, 1, 4)
         self.filename_template_edit = LineEdit(storage_card)
-        self.filename_template_edit.setPlaceholderText("{username}/{YYYY-MM-DD}_{title}_{id}.mp4")
+        self.filename_template_edit.setPlaceholderText("{author}/{YYYY-MM-DD}_{title}_{id}.mp4")
         storage_layout.addWidget(self.filename_template_edit, 1, 0, 1, 3)
         self.validate_template_btn = PushButton(
             tr("Validate", "检验规则", "検証"),
@@ -215,9 +215,9 @@ class RuleFormWidget(QWidget):
         storage_layout.addWidget(self.validate_template_btn, 1, 3)
         template_help = BodyLabel(
             tr(
-                "Available: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
-                "可用占位符：{username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
-                "使用可能: {username} {author} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "Available: {author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "可用占位符：{author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "使用可能: {author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
             ),
             storage_card,
         )

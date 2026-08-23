@@ -18,6 +18,30 @@ def dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def author_fields_from_user(user: Any) -> tuple[str, str]:
+    """Return the stable author key and the current display name.
+
+    Iwara exposes both values on a profile. ``author`` is the durable
+    username/handle (for example ``user154126``); ``username`` is the mutable
+    display name (for example ``这位赤身肉``).
+    """
+
+    user = dict_or_empty(user)
+    author = str(
+        user.get("username") or user.get("id") or user.get("slug") or ""
+    ).strip()
+    username = str(
+        user.get("name")
+        or user.get("displayName")
+        or user.get("display_name")
+        or author
+        or ""
+    ).strip()
+    author = author or username
+    username = username or author
+    return author, username
+
+
 def iwara_image_url(image: dict[str, Any], *, variant: str = "thumbnail") -> str:
     image_id = str(image.get("id", "") or "").strip()
     name = str(image.get("name", "") or "").strip()
@@ -93,14 +117,13 @@ def compact_video_raw_json(video_info: dict[str, Any]) -> str:
 def subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
     video_id = str(video.get("id", "") or video.get("videoId", "") or "").strip()
     user = video.get("user")
-    author = ""
-    if isinstance(user, dict):
-        author = str(user.get("username") or user.get("name") or "").strip()
+    author, username = author_fields_from_user(user)
     download_state, download_reason = subscription_download_block_from_video_info(video)
     return {
         "video_id": video_id,
         "title": str(video.get("title", "") or video_id),
         "author": author,
+        "username": username,
         "published_at": str(video.get("createdAt", "") or video.get("updatedAt", "") or ""),
         "source_url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
         "thumbnail_url": subscription_thumbnail_url(video),
@@ -214,6 +237,7 @@ def normalize_video_tags(tags: list[Any]) -> set[str]:
 
 # Compatibility aliases used by the existing manager and third-party imports.
 _dict_or_empty = dict_or_empty
+_author_fields_from_user = author_fields_from_user
 _iwara_image_url = iwara_image_url
 _compact_video_raw_json = compact_video_raw_json
 _subscription_item_from_video = subscription_item_from_video

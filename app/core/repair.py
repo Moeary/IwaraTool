@@ -189,7 +189,20 @@ def format_repair_filename(
     except ValueError:
         year, month, day = date_text, "", ""
 
-    author = str(metadata.get("author", "") or metadata.get("username", "") or "unknown").strip() or "unknown"
+    user = metadata.get("user") if isinstance(metadata.get("user"), dict) else {}
+    author = str(
+        metadata.get("author")
+        or user.get("username")
+        or user.get("id")
+        or metadata.get("username")
+        or "unknown"
+    ).strip() or "unknown"
+    username = str(
+        metadata.get("username")
+        or user.get("name")
+        or user.get("displayName")
+        or author
+    ).strip() or author
     values = {
         "{YYYY-MM-DD}": date_text,
         "{YYYY}": year,
@@ -198,7 +211,7 @@ def format_repair_filename(
         "{date}": date_text,
         "{title}": str(metadata.get("title", "") or metadata.get("video_id", "") or "video"),
         "{id}": str(metadata.get("video_id", "") or metadata.get("id", "")),
-        "{username}": author,
+        "{username}": username,
         "{author}": author,
         "{quality}": str(metadata.get("quality", "") or "unknown"),
         "{likes}": str(metadata.get("likes", 0) or 0),

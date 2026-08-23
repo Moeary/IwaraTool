@@ -827,6 +827,7 @@ class TaskCenterInterface(QWidget):
         if not task_ids:
             return
         grouped = self._selected_tasks_by_status(task_ids)
+        completed_ids = grouped.get(TaskStatus.COMPLETED, [])
         failed_ids = grouped.get(TaskStatus.FAILED, [])
         cancelled_ids = grouped.get(TaskStatus.CANCELLED, [])
         cancelling_ids = grouped.get(TaskStatus.CANCELLING, [])
@@ -838,6 +839,56 @@ class TaskCenterInterface(QWidget):
         ]
 
         menu = RoundMenu(parent=self)
+        if completed_ids:
+            if len(completed_ids) == 1:
+                completed_id = completed_ids[0]
+                completed_task = self._tasks_by_id.get(completed_id)
+                video_id = completed_task.video_id if completed_task else ""
+                menu.addAction(
+                    Action(
+                        FluentIcon.HISTORY,
+                        tr("Open video page", "打开视频页面", "動画ページを開く"),
+                        self,
+                        triggered=lambda _checked=False, url=_video_url(video_id): self._open_url(url),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.FOLDER,
+                        tr("Open folder", "打开文件夹", "フォルダーを開く"),
+                        self,
+                        triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
+                            selected_id, open_file=False
+                        ),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.DOCUMENT,
+                        tr("Open file", "打开文件", "ファイルを開く"),
+                        self,
+                        triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
+                            selected_id, open_file=True
+                        ),
+                    )
+                )
+            else:
+                menu.addAction(
+                    Action(
+                        FluentIcon.HISTORY,
+                        tr(
+                            f"Open selected video pages ({len(completed_ids)})",
+                            f"打开所选视频页面（{len(completed_ids)}）",
+                            f"選択した動画ページを開く（{len(completed_ids)}）",
+                        ),
+                        self,
+                        triggered=lambda _checked=False, ids=tuple(completed_ids): self._open_task_video_pages(ids),
+                    )
+                )
+        if completed_ids and (
+            failed_ids or cancelled_ids or interruptible_ids or cancelling_ids
+        ):
+            menu.addSeparator()
         if failed_ids:
             menu.addAction(
                 Action(
@@ -1035,15 +1086,29 @@ class TaskCenterInterface(QWidget):
     def _open_task(self, task_id: str):
         ok, message = download_manager.open_task_output(task_id)
         if not ok:
-            InfoBar.warning(
-                title=tr("Cannot open", "无法打开", "開けません"),
-                content=message,
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2500,
-                parent=self,
-            )
+            self._show_open_error(message)
+
+    def _open_task_output(self, task_id: str, *, open_file: bool):
+        ok, message = download_manager.open_task_output(task_id, open_file=open_file)
+        if not ok:
+            self._show_open_error(message)
+
+    def _show_open_error(self, message: str):
+        InfoBar.warning(
+            title=tr("Cannot open", "无法打开", "開けません"),
+            content=message,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
+
+    def _open_task_video_pages(self, task_ids: tuple[str, ...] | list[str]):
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task:
+                self._open_url(_video_url(task.video_id))
 
     def _open_url(self, url: str):
         if url:
@@ -1257,6 +1322,7 @@ class TaskCenterInterface(QWidget):
                 status_label(task.status),
                 task.title,
                 task.author,
+                task.username,
                 task.video_id,
                 _video_url(task.video_id),
                 task.quality,

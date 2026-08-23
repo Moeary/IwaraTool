@@ -294,7 +294,7 @@ class SettingsInterface(ScrollArea):
 
         # Startup auth: prefer cached token for faster boot; fallback to credential login.
         if download_manager.restore_cached_login():
-            self._set_logged_in_ui(True, tr("✓ Signed in (cached token)", "✓ 已登录（已加载本地 Token）", "✓ ログイン済み（ローカルトークン使用）"))
+            self._set_logged_in_ui(True, tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
             signal_bus.login_state_changed.emit(True)
         elif app_config.auth_enabled and app_config.username and app_config.password:
             self._do_login(silent=True)
@@ -351,7 +351,7 @@ class SettingsInterface(ScrollArea):
         data_layout = QVBoxLayout(data_card)
         data_layout.setContentsMargins(20, 16, 20, 16)
         data_layout.setSpacing(8)
-        data_layout.addWidget(SubtitleLabel(tr("Local Data Paths (Portable)", "本地数据位置（绿色模式）", "ローカルデータパス（ポータブル）"), data_card))
+        data_layout.addWidget(SubtitleLabel(tr("Local Data Paths", "本地数据位置", "ローカルデータパス"), data_card))
         data_layout.addWidget(BodyLabel(f"{tr('Data dir', '数据目录', 'データディレクトリ')}: {app_config.app_data_dir}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('Config file', '配置文件', '設定ファイル')}: {app_config.config_path}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('History DB', '下载历史库', '履歴DB')}: {app_config.history_db_path}", data_card))
@@ -374,9 +374,9 @@ class SettingsInterface(ScrollArea):
         login_layout.addWidget(
             BodyLabel(
                 tr(
-                    "Private videos require login. Username/password and token are saved locally; startup prefers cached token for faster sign-in. Username + password is recommended.",
-                    "登录后可下载私有视频；账号密码和 token 在本地持久化保存，启动时会优先使用 token 加速登录。建议使用用户名+密码登录，邮箱登录可能偶发失败。",
-                    "非公開動画の取得にはログインが必要です。ユーザー名/パスワードと token はローカル保存され、起動時は token 優先で高速ログインします。ユーザー名+パスワード推奨です。",
+                    "Private videos require login.",
+                    "私有视频需要登录账号。",
+                    "非公開動画にはログインが必要です。",
                 ),
                 login_card,
             )
@@ -456,9 +456,9 @@ class SettingsInterface(ScrollArea):
         dir_layout.addWidget(
             BodyLabel(
                 tr(
-                    "Video files are saved here (auto subfolder by author)",
-                    "视频文件保存位置（自动按作者名建立子文件夹）",
-                    "動画保存先（作者名で自動サブフォルダー作成）",
+                    "Video files are saved here and grouped by author",
+                    "视频文件保存位置，按作者名建立子文件夹",
+                    "動画保存先。作者名ごとにサブフォルダーを作成します",
                 ),
                 dir_card,
             )
@@ -633,17 +633,6 @@ class SettingsInterface(ScrollArea):
                 cover_card,
             )
         )
-        cover_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Controls image downloads for search/subscriptions and incremental account-feed refresh.",
-                    "控制搜索/订阅封面并发，并让账户订阅刷新只检查已知视频之前的新内容。",
-                    "検索・購読カバーの同時数と、既知の動画までを確認する増分更新を設定します。",
-                ),
-                cover_card,
-            )
-        )
-
         cover_workers_row = QHBoxLayout()
         cover_workers_row.addWidget(
             BodyLabel(tr("Cover download concurrency", "封面获取并发数", "カバー取得の同時数"), cover_card)
@@ -702,17 +691,6 @@ class SettingsInterface(ScrollArea):
         search_header.addWidget(self._search_limit_switch)
         search_layout.addLayout(search_header)
 
-        search_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Applies to API search URLs like api.iwara.tv/videos?...",
-                    "作用于 API 搜索链接（如 api.iwara.tv/videos?...）",
-                    "API 検索URL（api.iwara.tv/videos?...）に適用されます",
-                ),
-                search_card,
-            )
-        )
-
         search_row = QHBoxLayout()
         search_row.addWidget(BodyLabel(tr("Max videos", "最大视频数", "最大動画数"), search_card))
         self._search_limit_edit = LineEdit(search_card)
@@ -753,7 +731,7 @@ class SettingsInterface(ScrollArea):
         self._search_history_limit_spin.valueChanged.connect(self._on_search_history_limit_changed)
         history_row.addWidget(self._search_history_limit_spin)
         history_row.addWidget(
-            BodyLabel(tr("items (1-100)", "条（1-100）", "件（1～100）"), history_card)
+            BodyLabel(tr("items 1-100", "条数 1-100", "件数 1～100"), history_card)
         )
         history_row.addStretch()
         history_layout.addLayout(history_row)
@@ -793,17 +771,6 @@ class SettingsInterface(ScrollArea):
                 search_resolve_card,
             )
         )
-        search_resolve_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Oreno3D supplies the thumbnail and Iwara ID bridge. Metadata is always read from Iwara; choose when the bridge should be resolved.",
-                    "Oreno3D 只提供缩略图和 Iwara ID 跳板；标题、作者、标签、评论等元数据始终从 Iwara 读取，可选择解析时机。",
-                    "Oreno3D はサムネイルと Iwara ID への橋渡しだけを行い、メタデータは常に Iwara から取得します。解決タイミングを選べます。",
-                ),
-                search_resolve_card,
-            )
-        )
-
         tag_dictionary_row = QHBoxLayout()
         tag_dictionary_row.addWidget(
             BodyLabel(
@@ -865,16 +832,6 @@ class SettingsInterface(ScrollArea):
             self._on_search_resolution_workers_changed
         )
         resolve_workers_row.addWidget(self._search_resolution_workers_spin)
-        resolve_workers_row.addWidget(
-            BodyLabel(
-                tr(
-                    "Independent Oreno3D detail requests; Iwara metadata remains rate-limited by its API session.",
-                    "使用独立 Oreno3D 详情请求；Iwara 元数据仍由 API 会话统一限速。",
-                    "Oreno3D 詳細リクエストは独立実行し、Iwara メタデータは API セッション側で制御します。",
-                ),
-                search_resolve_card,
-            )
-        )
         resolve_workers_row.addStretch()
         search_resolve_layout.addLayout(resolve_workers_row)
         self._settings_board.add_card("search_bridge", search_resolve_card)
@@ -1020,7 +977,7 @@ class SettingsInterface(ScrollArea):
         aria2_inner.addWidget(self._aria2_url_edit)
 
         self._aria2_token_edit = PasswordLineEdit(self._aria2_widget)
-        self._aria2_token_edit.setPlaceholderText(tr("RPC token (optional)", "RPC token（可留空）", "RPC token（任意）"))
+        self._aria2_token_edit.setPlaceholderText(tr("RPC token, optional", "RPC token，可留空", "RPC token、任意"))
         aria2_inner.addWidget(self._aria2_token_edit)
 
         aria2_layout.addWidget(self._aria2_widget)
@@ -1154,16 +1111,6 @@ class SettingsInterface(ScrollArea):
         self._update_check_switch = SwitchButton(update_card)
         update_header.addWidget(self._update_check_switch)
         update_layout.addLayout(update_header)
-        update_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Check Moeary/IwaraTool Releases at startup and open the release page on confirmation.",
-                    "启动后检查 Moeary/IwaraTool Releases，确认后打开 Release 页面。",
-                    "起動後に Moeary/IwaraTool Releases を確認し、承認後にページを開きます。",
-                ),
-                update_card,
-            )
-        )
         check_update_btn = PrimaryPushButton(
             tr("Check Now", "立即检查", "今すぐ確認"),
             update_card,

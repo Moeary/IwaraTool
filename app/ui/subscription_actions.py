@@ -479,7 +479,6 @@ class SubscriptionActionsMixin:
     def _on_import_followed_finished(self, result: dict):
         self._load_sources()
         imported = int(result.get("imported", 0) or 0)
-        method = str(result.get("method", "") or "")
         error = str(result.get("error", "") or "")
         if error:
             InfoBar.warning(
@@ -497,12 +496,6 @@ class SubscriptionActionsMixin:
             f"已同步 {imported} 个作者",
             f"{imported} 人の作者を同期しました",
         )
-        if method == "feed":
-            content += tr(
-                " (derived from subscribed videos)",
-                "（从订阅视频流反推）",
-                "（購読フィードから抽出）",
-            )
         InfoBar.success(
             title=tr("Followed Authors Imported", "关注作者已导入", "フォロー作者を取込"),
             content=content,

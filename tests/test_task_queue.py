@@ -20,6 +20,8 @@ class TaskQueueStoreTests(unittest.TestCase):
                         "https://www.iwara.tv/video/queued-video",
                         "queued-video",
                         title="排队任务",
+                        author="user154126",
+                        username="这位赤身肉",
                     ),
                     DownloadTask(
                         "active",
@@ -56,6 +58,8 @@ class TaskQueueStoreTests(unittest.TestCase):
             loaded = {task.task_id: task for task in store.load()}
             self.assertEqual(set(loaded), {"queued", "active", "failed"})
             self.assertEqual(loaded["queued"].title, "排队任务")
+            self.assertEqual(loaded["queued"].author, "user154126")
+            self.assertEqual(loaded["queued"].username, "这位赤身肉")
             self.assertEqual(loaded["active"].status, TaskStatus.QUEUED_META)
             self.assertEqual(loaded["active"].download_url, "")
             self.assertFalse(loaded["active"].cancel_requested)

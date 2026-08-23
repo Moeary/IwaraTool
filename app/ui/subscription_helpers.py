@@ -95,14 +95,14 @@ def _parse_ui_bool(value: object) -> bool:
 
 def _source_sort_label(field: str) -> str:
     labels = {
-        "title": tr("Display Name", "名称（作者名）", "表示名"),
+        "title": tr("Display Name", "作者名", "表示名"),
         "created_at": tr("Import Time", "导入时间", "取込日時"),
         "last_checked_at": tr("Last Check", "上次刷新", "最終確認"),
         "new_count": tr("New", "新增", "新規"),
         "undownloaded_count": tr("Missing", "未下载", "未保存"),
         "item_count": tr("Items", "项目", "項目"),
         "source_origin": tr("Subscription Source", "订阅来源", "購読元"),
-        "source_key": tr("Username", "名称（username）", "ユーザー名"),
+        "source_key": tr("Username", "用户名", "ユーザー名"),
     }
     return labels.get(str(field or "").strip().casefold(), str(field or ""))
 

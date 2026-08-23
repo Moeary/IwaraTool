@@ -39,6 +39,7 @@ from .rules import (
 )
 from .subscription_automation import matches_rule_metadata
 from .task_metadata import (
+    _author_fields_from_user,
     _compact_video_raw_json,
     _dict_or_empty,
     _subscription_download_block_from_error,
@@ -214,7 +215,7 @@ class DownloadRuntimeMixin:
         user_info = _dict_or_empty(video_info.get("user"))
         file_info = _dict_or_empty(video_info.get("file"))
         title: str = video_info.get("title", task.video_id) or task.video_id
-        author: str = user_info.get("username", "") or ""
+        author, username = _author_fields_from_user(user_info)
         published_at = str(video_info.get("createdAt", "") or "")
         likes = int(video_info.get("numLikes", 0) or 0)
         views = int(video_info.get("numViews", 0) or 0)
@@ -234,6 +235,7 @@ class DownloadRuntimeMixin:
                 task,
                 title=title,
                 author=author,
+                username=username,
                 published_at=published_at,
                 likes=likes,
                 views=views,
@@ -349,6 +351,7 @@ class DownloadRuntimeMixin:
             title=title,
             video_id=task.video_id,
             author=author,
+            username=username,
             published_at=published_at,
             quality=quality or "",
             likes=likes,
@@ -497,6 +500,7 @@ class DownloadRuntimeMixin:
                 title=task.title or task.video_id,
                 video_id=task.video_id,
                 author=task.author,
+                username=task.username,
                 published_at=task.published_at,
                 quality=task.quality,
                 likes=task.likes,
@@ -1354,9 +1358,11 @@ class DownloadRuntimeMixin:
         file_url: str,
         file_id: str,
         thumbnail_index: int,
+        username: str = "",
     ):
         task.title = title
         task.author = author
+        task.username = username or author
         task.published_at = published_at
         task.likes = likes
         task.views = views

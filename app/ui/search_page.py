@@ -810,22 +810,7 @@ class SearchInterface(SearchActionsMixin, QWidget):
     def _on_source_changed(self, *_args, trigger_search: bool = True):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
-        if source == "oreno3d":
-            self._source_status_label.setText(
-                tr(
-                    "Oreno3D bridge → Iwara · videos/tags · images cached in data/img/search",
-                    "Oreno3D 桥接 → Iwara · 支持视频/标签 · 图片缓存于 data/img/search",
-                    "Oreno3Dブリッジ → Iwara・動画/タグ・画像は data/img/search にキャッシュ",
-                )
-            )
-        else:
-            self._source_status_label.setText(
-                tr(
-                    "Live API · videos/authors/tags/playlists · images cached in data/img/search",
-                    "实时 API · 支持视频/作者/标签/播放列表 · 图片缓存于 data/img/search",
-                    "ライブAPI・動画/作者/タグ/プレイリスト・画像は data/img/search にキャッシュ",
-                )
-            )
+        self._source_status_label.clear()
         self._on_scope_changed(trigger_search=False)
         if trigger_search:
             self._schedule_auto_search()
