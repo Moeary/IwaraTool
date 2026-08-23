@@ -12,6 +12,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - Valid `X-Version` signature calculation for API requests.
 - Quality fallback: `Source -> 540 -> 360`.
 - Stateful scheduler to avoid early URL expiration.
+- Recoverable task queue with safe-exit persistence and automatic restart recovery.
 - Local dedup + SQLite history center.
 - Batch enqueue from user profile, playlist, and search URLs.
 - Fluent search page with online Oreno3D video/tag search, live Iwara video/author/playlist search, bilingual/trilingual tag suggestions, pagination, grid/list views, and configurable columns.
@@ -58,8 +59,8 @@ Runtime data is stored under `data/` and is separated by purpose:
 | Path | Purpose |
 | --- | --- |
 | `data/config.ini` | Token, UI, concurrency, and download behavior settings |
-| `data/history.db` | Download history and local file state |
-| `data/subscriptions.db` | Subscription sources, videos, and refresh state |
+| `data/tasks.json` | Recoverable queued, running, failed, and cancelled task state |
+| `data/history.db` | Download history, subscription sources, videos, and refresh state |
 | `data/rules.json` | Named download rules |
 | `data/iwara_tags.json` | Generated offline tag index with localized fields |
 | `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | Bundled MIT-licensed LoveIwara translation source |
@@ -72,7 +73,7 @@ Packaged builds embed the LoveIwara dictionary under `app/data/` and expand it t
 
 When NFO generation is enabled in a download rule, the NFO is written beside the video with the same base name. New files include standard movie metadata fields for media-center import and retain Iwara-specific aliases; existing NFO files are not rewritten automatically.
 
-The search page keeps Oreno3D results online and only caches the current result images. Oreno3D supports video/tag search in this bridge; switch to the Iwara live API for author or playlist results.
+The search page keeps Oreno3D results online and only caches the current result images. Oreno3D supports video/tag search in this bridge; switch to the Iwara live API for author or playlist results. In tag scope, a single label uses the direct `/tags/{id}` index, while multiple labels are intersected client-side; `tag:<id>`, `origin:<id>`, `character:<id>`, and Oreno3D entity URLs are also accepted. Results are resolved to the canonical Iwara video before opening or queueing.
 
 ## Screenshots
 

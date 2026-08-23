@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-import re
-import threading
+import json
 import webbrowser
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
-from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QThread, Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPixmap
+from PySide6.QtCore import QPoint, QThread, Qt, QSize, QTimer
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHeaderView,
     QHBoxLayout,
-    QListWidget,
     QListWidgetItem,
-    QMenu,
     QSizePolicy,
     QStackedWidget,
     QTableWidgetItem,
@@ -34,6 +29,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    ListWidget,
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
@@ -45,679 +41,68 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
+from ..core.oreno3d_search import (
+    apply_tag_suggestion,
+    tag_suggestion_query,
+)
 from ..core.search import (
     SearchAuthor,
     SearchFilters,
     SearchPageResult,
-    SearchScope,
     SearchVideo,
-    build_video_query_params,
-    filter_videos,
-    normalize_author,
-    normalize_oreno3d_listing,
     normalize_video,
-    sort_videos,
-    split_search_terms,
 )
-from ..core.tag_dictionary import TagSuggestion
 from ..i18n import tr
+from ..signal_bus import signal_bus
 from .rules_page import RulePicker
+from .search_actions import SearchActionsMixin
+from .search_widgets import (
+    SearchHistoryPopup,
+    SearchKeywordEdit,
+    TagSuggestionPopup,
+    _author_source_info,
+    _author_subscription_target,
+    _decode_search_history,
+    _format_count,
+    _format_duration,
+    _grid_text_height,
+    _normalize_search_history_entry,
+    _oreno3d_video_url,
+    _search_grid_style,
+    _short_text,
+    _upsert_search_history,
+)
+from .search_workers import (
+    DEFAULT_COVER_DOWNLOAD_CONCURRENCY as _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+    DEFAULT_SEARCH_RESOLUTION_CONCURRENCY as _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
+    MAX_COVER_DOWNLOAD_CONCURRENCY as _MAX_COVER_DOWNLOAD_CONCURRENCY,
+    MAX_SEARCH_RESOLUTION_CONCURRENCY as _MAX_SEARCH_RESOLUTION_CONCURRENCY,
+    SearchImageWorker,
+    SearchIwaraAuthorWorker,
+    SearchOrenoAuthorWorker,
+    SearchOrenoLinkWorker,
+    SearchQueueResolveWorker,
+    SearchWorker,
+)
 from .ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
     restore_table_columns,
     restore_table_widths,
+    show_fluent_text_input,
 )
+from .worker_lifecycle import stop_qthreads
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)
 _DEFAULT_GRID_HEIGHT = 238
 _DEFAULT_GRID_COLUMNS = 4
 _MAX_GRID_COLUMNS = 8
-_DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
-_MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
-_DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
-_MAX_COVER_DOWNLOAD_CONCURRENCY = 16
+_SEARCH_HISTORY_KEY = "search_history_v1"
 
 
-def _format_duration(seconds: float) -> str:
-    total = max(0, int(seconds or 0))
-    minutes, remainder = divmod(total, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}:{minutes:02d}:{remainder:02d}"
-    return f"{minutes}:{remainder:02d}"
-
-
-def _format_count(value: int) -> str:
-    value = int(value or 0)
-    if value >= 1_000_000:
-        return f"{value / 1_000_000:.1f}M"
-    if value >= 1_000:
-        return f"{value / 1_000:.1f}K"
-    return str(value)
-
-
-def _short_text(value: str, length: int) -> str:
-    text = " ".join(str(value or "").split())
-    return text if len(text) <= length else f"{text[: max(1, length - 1)]}…"
-
-
-def _grid_text_height(list_widget: QListWidget, width: int, fallback_lines: int) -> int:
-    """Measure the tallest card caption after Qt word-wrapping it."""
-
-    text_width = max(1, int(width))
-    height = QFontMetrics(list_widget.font()).lineSpacing() * max(1, fallback_lines)
-    for index in range(list_widget.count()):
-        item = list_widget.item(index)
-        if item is None:
-            continue
-        metrics = QFontMetrics(item.font())
-        height = max(
-            height,
-            metrics.boundingRect(
-                QRect(0, 0, text_width, 10000),
-                Qt.TextFlag.TextWordWrap,
-                item.text(),
-            ).height(),
-        )
-    return height
-
-
-def _extract_playlist_id(value: str) -> str:
-    text = str(value or "").strip()
-    match = re.search(r"/playlist/([A-Za-z0-9_-]+)", text)
-    return match.group(1) if match else text
-
-
-def _extract_iwara_video_id(value: str) -> str:
-    match = re.search(r"/video/([^/?#]+)", str(value or ""))
-    return match.group(1) if match else ""
-
-
-def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str:
-    """Resolve one Oreno card while remaining compatible with test fakes."""
-
-    video_id = video.download_video_id or _extract_iwara_video_id(video.iwara_url)
-    if video_id:
-        return video_id
-    source_id = video.video_id.removeprefix("oreno3d:")
-    try:
-        return str(
-            download_manager.resolve_oreno3d_video_id(
-                source_id,
-                video.source_url,
-                parallel=parallel,
-            )
-            or ""
-        ).strip()
-    except TypeError as exc:
-        # Older lightweight fakes (and third-party integrations) may still
-        # expose the original two-argument method signature.
-        if "parallel" not in str(exc):
-            raise
-        return str(
-            download_manager.resolve_oreno3d_video_id(source_id, video.source_url)
-            or ""
-        ).strip()
-
-
-def _search_grid_style() -> str:
-    if isDarkTheme():
-        card = "#252a31"
-        border = "#3b424c"
-        hover = "#313945"
-        selected = "#294b58"
-        text = "#f7fbff"
-    else:
-        card = "#ffffff"
-        border = "#d9e2e8"
-        hover = "#f1f8fa"
-        selected = "#c9f0f3"
-        text = "#17343b"
-    return f"""
-        QListWidget {{
-            background: transparent;
-            border: none;
-        }}
-        QListWidget::item {{
-            background: {card};
-            border: 1px solid {border};
-            border-radius: 8px;
-            padding: 6px;
-            color: {text};
-        }}
-        QListWidget::item:hover {{
-            background: {hover};
-            border: 1px solid #00a6b2;
-        }}
-        QListWidget::item:selected,
-        QListWidget::item:selected:active,
-        QListWidget::item:selected:!active {{
-            background: {selected};
-            border: 2px solid #00a6b2;
-            color: {text};
-        }}
-        QListWidget QScrollBar:vertical {{
-            background: {"rgba(255, 255, 255, 0.06)" if isDarkTheme() else "rgba(0, 0, 0, 0.045)"};
-            width: 10px;
-            margin: 4px 0 4px 2px;
-            border-radius: 5px;
-        }}
-        QListWidget QScrollBar::handle:vertical {{
-            background: {"rgba(255, 255, 255, 0.30)" if isDarkTheme() else "rgba(0, 145, 158, 0.54)"};
-            min-height: 36px;
-            border-radius: 5px;
-        }}
-        QListWidget QScrollBar::handle:vertical:hover {{
-            background: {"rgba(255, 255, 255, 0.46)" if isDarkTheme() else "rgba(0, 128, 140, 0.70)"};
-        }}
-        QListWidget QScrollBar::add-line:vertical,
-        QListWidget QScrollBar::sub-line:vertical,
-        QListWidget QScrollBar::add-page:vertical,
-        QListWidget QScrollBar::sub-page:vertical {{
-            background: transparent;
-            height: 0px;
-        }}
-        QListWidget QScrollBar:horizontal {{
-            height: 0px;
-            background: transparent;
-        }}
-    """
-
-
-class TagSuggestionPopup(QListWidget):
-    """Small Fluent-compatible popup for localized tag candidates."""
-
-    suggestion_chosen = Signal(str)
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setWindowFlag(Qt.WindowType.Popup)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.setMinimumWidth(360)
-        self.setMaximumHeight(260)
-        self.setStyleSheet(
-            f"""
-            QListWidget {{
-                background: {"#252a31" if isDarkTheme() else "#ffffff"};
-                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QListWidget::item {{
-                padding: 7px 9px;
-                border-radius: 5px;
-            }}
-            QListWidget::item:selected {{
-                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
-                color: {"#ffffff" if isDarkTheme() else "#12313a"};
-            }}
-            """
-        )
-        self.itemClicked.connect(self._choose_item)
-
-    def set_suggestions(self, suggestions: list[TagSuggestion]):
-        self.clear()
-        for suggestion in suggestions:
-            item = QListWidgetItem(suggestion.display_text)
-            item.setData(Qt.ItemDataRole.UserRole, suggestion.key)
-            item.setToolTip(
-                f"{suggestion.key}\n"
-                f"EN: {suggestion.en}\n"
-                f"中文: {suggestion.zh}\n"
-                f"日本語: {suggestion.ja}"
-            )
-            self.addItem(item)
-        if self.count():
-            self.setCurrentRow(0)
-
-    def _choose_item(self, item: QListWidgetItem):
-        value = item.data(Qt.ItemDataRole.UserRole)
-        if value:
-            self.suggestion_chosen.emit(str(value))
-
-
-class SearchWorker(QThread):
-    """Fetch and locally filter one result page off the GUI thread."""
-
-    result_ready = Signal(object)
-
-    def __init__(
-        self,
-        filters: SearchFilters,
-        scope: SearchScope,
-        page: int,
-        generation: int,
-        *,
-        replace_results: bool,
-        source: str,
-    ):
-        super().__init__()
-        self.filters = filters
-        self.scope = scope
-        self.page = max(0, int(page))
-        self.generation = generation
-        self.replace_results = replace_results
-        self.source = source
-
-    def run(self):
-        try:
-            if self.source == "oreno3d" and self.scope in {"videos", "tags"}:
-                self._run_oreno3d_search()
-            elif self.scope == "authors":
-                self._run_author_search()
-            elif self.scope == "playlists":
-                self._run_playlist_search()
-            else:
-                self._run_video_search()
-        except Exception as exc:
-            self.result_ready.emit(
-                SearchPageResult(
-                    scope=self.scope,
-                    error=str(exc),
-                    next_page=None,
-                    current_page=self.page,
-                )
-            )
-
-    def _run_oreno3d_search(self):
-        """Forward one page to Oreno3D's online search endpoint."""
-
-        sort = {
-            "date": "latest",
-            "trending": "hot",
-            "popularity": "popularity",
-            "views": "views",
-            "likes": "favorites",
-        }.get(self.filters.sort, "latest")
-        online_page = self.page + 1
-        listings, last_page = download_manager.get_oreno3d_search_page(
-            self.filters.keyword,
-            page=online_page,
-            sort=sort,
-        )
-        videos = [normalize_oreno3d_listing(item) for item in listings]
-        videos = [video for video in videos if video is not None]
-        has_more = online_page < last_page
-        self.result_ready.emit(
-            SearchPageResult(
-                scope=self.scope,
-                videos=videos,
-                total=None,
-                has_more=has_more,
-                next_page=self.page + 1 if has_more else None,
-                scanned_pages=1,
-                current_page=self.page,
-                last_page=max(0, last_page - 1),
-            )
-        )
-
-    def _run_author_search(self):
-        username = (self.filters.keyword or self.filters.author).strip()
-        if not username:
-            self.result_ready.emit(
-                SearchPageResult(
-                    scope="authors",
-                    error=tr(
-                        "Enter an author username first",
-                        "请先输入作者用户名",
-                        "作者ユーザー名を入力してください",
-                    ),
-                )
-            )
-            return
-        profile, error = download_manager.get_search_user_profile(username)
-        author = normalize_author(profile) if profile else None
-        self.result_ready.emit(
-            SearchPageResult(
-                scope="authors",
-                authors=[author] if author else [],
-                error=error if not author else "",
-                scanned_pages=1,
-            )
-        )
-
-    def _run_playlist_search(self):
-        playlist_id = _extract_playlist_id(self.filters.keyword)
-        if not playlist_id:
-            self.result_ready.emit(
-                SearchPageResult(
-                    scope="playlists",
-                    error=tr(
-                        "Enter a playlist ID or playlist URL first",
-                        "请先输入播放列表 ID 或链接",
-                        "プレイリストIDまたはURLを入力してください",
-                    ),
-                )
-            )
-            return
-        raw_videos = download_manager.get_search_playlist_videos(playlist_id)
-        videos = [normalize_video(raw) for raw in raw_videos]
-        normalized = [video for video in videos if video is not None]
-        playlist_filters = replace(self.filters, keyword="")
-        filtered = sort_videos(filter_videos(normalized, playlist_filters), playlist_filters.sort)
-        self.result_ready.emit(
-            SearchPageResult(
-                scope="playlists",
-                videos=filtered,
-                total=len(filtered),
-                has_more=False,
-                scanned_pages=1,
-            )
-        )
-
-    def _run_video_search(self):
-        query_filters = self.filters
-        if self.scope == "tags":
-            tag_terms = split_search_terms(self.filters.keyword)
-            query_filters = replace(
-                self.filters,
-                keyword="",
-                include_tags=tuple(dict.fromkeys((*self.filters.include_tags, *tag_terms))),
-            )
-        raw_page, total, has_more, error = download_manager.get_search_video_page(
-            build_video_query_params(query_filters, self.page),
-            page=self.page,
-            limit=query_filters.page_size,
-        )
-        videos = [normalize_video(raw) for raw in raw_page]
-        videos = [video for video in videos if video is not None]
-        videos = sort_videos(filter_videos(videos, query_filters), query_filters.sort)
-        self.result_ready.emit(
-            SearchPageResult(
-                scope=self.scope,
-                videos=videos,
-                total=total,
-                has_more=has_more,
-                next_page=self.page + 1 if has_more else None,
-                scanned_pages=1,
-                error=error,
-                current_page=self.page,
-                last_page=(
-                    max(0, (total - 1) // query_filters.page_size)
-                    if total is not None and total > 0
-                    else self.page
-                ),
-            )
-        )
-
-
-class SearchImageWorker(QThread):
-    """Download visible card images through the manager's configured session."""
-
-    image_ready = Signal(int, str, str, str)
-
-    def __init__(
-        self,
-        generation: int,
-        jobs: list[tuple[str, str, str]],
-        *,
-        concurrency: int = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-    ):
-        super().__init__()
-        self.generation = generation
-        self.jobs = jobs
-        self.concurrency = max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, int(concurrency)))
-
-    def run(self):
-        thread_state = threading.local()
-        clients: list[Any] = []
-        clients_lock = threading.Lock()
-
-        def fetch(job: tuple[str, str, str]):
-            kind, item_key, image_url = job
-            if self.isInterruptionRequested():
-                return kind, item_key, ""
-            client = getattr(thread_state, "api_client", None)
-            if client is None:
-                create_client = getattr(download_manager, "create_worker_api_client", None)
-                if callable(create_client):
-                    client = create_client()
-                    thread_state.api_client = client
-                    with clients_lock:
-                        clients.append(client)
-            try:
-                path = download_manager.cache_search_image(
-                    kind,
-                    item_key,
-                    image_url,
-                    api_client=client,
-                )
-            except TypeError as exc:
-                # Preserve compatibility with small manager fakes and older
-                # extensions that still expose the three-argument cache method.
-                if "api_client" not in str(exc):
-                    raise
-                path = download_manager.cache_search_image(kind, item_key, image_url)
-            return kind, item_key, path
-
-        executor = ThreadPoolExecutor(
-            max_workers=min(self.concurrency, len(self.jobs)),
-            thread_name_prefix="search-image",
-        )
-        try:
-            futures = [executor.submit(fetch, job) for job in self.jobs]
-            for future in as_completed(futures):
-                if self.isInterruptionRequested():
-                    break
-                try:
-                    kind, item_key, path = future.result()
-                except Exception:
-                    continue
-                if path:
-                    self.image_ready.emit(self.generation, kind, item_key, path)
-        finally:
-            executor.shutdown(wait=True, cancel_futures=True)
-            close_client = getattr(download_manager, "close_worker_api_client", None)
-            if callable(close_client):
-                for client in clients:
-                    close_client(client)
-
-
-class SearchTagDictionaryWorker(QThread):
-    """Refresh LoveIwara's localized tag mapping on demand."""
-
-    result_ready = Signal(object)
-
-    def run(self):
-        try:
-            self.result_ready.emit(download_manager.update_search_tag_dictionary())
-        except Exception as exc:
-            self.result_ready.emit((0, str(exc)))
-
-
-class SearchQueueResolveWorker(QThread):
-    """Resolve only the selected Oreno3D cards before queueing them."""
-
-    result_ready = Signal(object)
-
-    def __init__(
-        self,
-        videos: list[SearchVideo],
-        *,
-        concurrency: int = _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-    ):
-        super().__init__()
-        self.videos = videos
-        self.concurrency = max(1, min(_MAX_SEARCH_RESOLUTION_CONCURRENCY, int(concurrency)))
-
-    def run(self):
-        ids: list[str] = []
-        skipped = 0
-        errors: list[str] = []
-        pending: list[SearchVideo] = []
-        for video in self.videos:
-            if video.source_kind == "iwara":
-                video_id = video.download_video_id or video.video_id
-                if video_id:
-                    ids.append(video_id)
-                else:
-                    skipped += 1
-            elif video.source_kind == "oreno3d":
-                pending.append(video)
-            else:
-                skipped += 1
-
-        if pending:
-            executor = ThreadPoolExecutor(
-                max_workers=min(self.concurrency, len(pending)),
-                thread_name_prefix="oreno-queue-resolve",
-            )
-            try:
-                futures = {
-                    executor.submit(_resolve_oreno_video_id, video): video
-                    for video in pending
-                }
-                for future in as_completed(futures):
-                    video = futures[future]
-                    if self.isInterruptionRequested():
-                        break
-                    try:
-                        video_id = future.result()
-                    except Exception as exc:
-                        video_id = ""
-                        errors.append(f"{video.title}: {exc}")
-                    if video_id:
-                        ids.append(video_id)
-                    else:
-                        skipped += 1
-            finally:
-                executor.shutdown(
-                    wait=not self.isInterruptionRequested(),
-                    cancel_futures=True,
-                )
-        self.result_ready.emit({"ids": ids, "skipped": skipped, "errors": errors})
-
-
-class SearchOrenoLinkWorker(QThread):
-    """Resolve Oreno IDs, then hydrate each result from the Iwara API."""
-
-    item_ready = Signal(object)
-    result_ready = Signal(object)
-    progress = Signal(int, int)
-
-    def __init__(
-        self,
-        generation: int,
-        videos: list[SearchVideo],
-        *,
-        concurrency: int = _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-        hydrate_metadata: bool = True,
-    ):
-        super().__init__()
-        self.generation = generation
-        self.videos = videos
-        self.concurrency = max(1, min(_MAX_SEARCH_RESOLUTION_CONCURRENCY, int(concurrency)))
-        self.hydrate_metadata = bool(hydrate_metadata)
-
-    def run(self):
-        links: dict[str, dict[str, Any]] = {}
-        errors: list[str] = []
-        total = len(self.videos)
-        self.progress.emit(0, total)
-        if not self.videos:
-            self.result_ready.emit(
-                {"generation": self.generation, "links": links, "errors": errors}
-            )
-            return
-
-        id_futures: dict[Any, SearchVideo] = {}
-        metadata_futures: dict[Any, SearchVideo] = {}
-        executor = ThreadPoolExecutor(
-            max_workers=min(self.concurrency, len(self.videos)),
-            thread_name_prefix="oreno-search-resolve",
-        )
-        completed = 0
-        try:
-            for video in self.videos:
-                if video.source_kind != "oreno3d":
-                    continue
-                id_futures[executor.submit(_resolve_oreno_video_id, video)] = video
-
-            while id_futures or metadata_futures:
-                if self.isInterruptionRequested():
-                    break
-                done, _ = wait(
-                    tuple(id_futures) + tuple(metadata_futures),
-                    return_when=FIRST_COMPLETED,
-                )
-                for future in done:
-                    video = id_futures.pop(future, None)
-                    if video is not None:
-                        completed += 1
-                        try:
-                            video_id = str(future.result() or "").strip()
-                        except Exception as exc:
-                            video_id = ""
-                            errors.append(f"{video.title}: {exc}")
-                        self.progress.emit(completed, total)
-                        if not video_id:
-                            errors.append(
-                                f"{video.title}: Oreno3D detail did not expose an Iwara video ID"
-                            )
-                            continue
-
-                        link = {
-                            "id": video_id,
-                            "url": f"https://www.iwara.tv/video/{video_id}",
-                            "metadata": {},
-                        }
-                        links[video.video_id] = link
-                        self.item_ready.emit(
-                            {
-                                "generation": self.generation,
-                                "stage": "id",
-                                "link": dict(link),
-                                "video_id": video.video_id,
-                            }
-                        )
-                        if self.hydrate_metadata:
-                            metadata_futures[
-                                executor.submit(
-                                    download_manager.get_iwara_video_info,
-                                    video_id,
-                                )
-                            ] = video
-                        continue
-
-                    video = metadata_futures.pop(future, None)
-                    if video is None:
-                        continue
-                    link = links.get(video.video_id)
-                    if link is None:
-                        continue
-                    try:
-                        metadata, metadata_error = future.result()
-                    except Exception as exc:
-                        metadata, metadata_error = {}, str(exc)
-                    if metadata_error:
-                        errors.append(f"{video.title}: {metadata_error}")
-                    link["metadata"] = metadata if isinstance(metadata, dict) else {}
-                    self.item_ready.emit(
-                        {
-                            "generation": self.generation,
-                            "stage": "metadata",
-                            "link": {
-                                **link,
-                                "metadata": dict(link["metadata"]),
-                            },
-                            "video_id": video.video_id,
-                        }
-                    )
-        finally:
-            executor.shutdown(
-                wait=not self.isInterruptionRequested(),
-                cancel_futures=True,
-            )
-        self.result_ready.emit(
-            {"generation": self.generation, "links": links, "errors": errors}
-        )
-
-
-class SearchInterface(QWidget):
+class SearchInterface(SearchActionsMixin, QWidget):
     """Search page with Fluent controls, cached covers, and a configurable list."""
 
     _DATA_ROLE = Qt.ItemDataRole.UserRole
@@ -739,6 +124,13 @@ class SearchInterface(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SearchInterface")
+        self._auto_search_ready = False
+        self._search_controls_collapsed = False
+        self._loading = False
+        self._auto_search_timer = QTimer(self)
+        self._auto_search_timer.setSingleShot(True)
+        self._auto_search_timer.setInterval(120)
+        self._auto_search_timer.timeout.connect(self._auto_start_search)
         self._generation = 0
         self._current_page = 0
         self._last_page: int | None = None
@@ -753,12 +145,17 @@ class SearchInterface(QWidget):
         self._image_pending_keys: set[str] = set()
         self._grid_resize_pending = False
         self._oreno_link_workers: list[SearchOrenoLinkWorker] = []
-        self._tag_dictionary_worker: SearchTagDictionaryWorker | None = None
+        self._iwara_author_workers: list[SearchIwaraAuthorWorker] = []
+        self._oreno_author_workers: list[SearchOrenoAuthorWorker] = []
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
+        self._queue_resolve_rule_id = ""
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
+        self._pending_open_author_video_ids: set[str] = set()
+        self._pending_author_subscription_video_ids: set[str] = set()
         self._build_ui()
+        self._auto_search_ready = True
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -770,11 +167,9 @@ class SearchInterface(QWidget):
         title_row.addStretch()
         self._source_status_label = BodyLabel("", self)
         title_row.addWidget(self._source_status_label)
-        self._update_tags_btn = PushButton(
-            tr("Update tags", "更新标签", "タグを更新"), self
-        )
-        self._update_tags_btn.clicked.connect(self._update_tag_dictionary)
-        title_row.addWidget(self._update_tags_btn)
+        self._toggle_search_controls_btn = PushButton(self)
+        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
+        title_row.addWidget(self._toggle_search_controls_btn)
         root.addLayout(title_row)
 
         query_card = CardWidget(self)
@@ -801,10 +196,14 @@ class SearchInterface(QWidget):
         query_row.addWidget(self._source_combo)
         query_row.addWidget(BodyLabel(tr("Scope", "搜索类型", "検索対象"), query_card))
         self._scope_combo = ComboBox(query_card)
-        self._add_combo_item(self._scope_combo, tr("Videos", "视频", "動画"), "videos")
-        self._add_combo_item(self._scope_combo, tr("Authors", "作者", "作者"), "authors")
-        self._add_combo_item(self._scope_combo, tr("Tags", "标签", "タグ"), "tags")
-        self._add_combo_item(self._scope_combo, tr("Playlists", "播放列表", "プレイリスト"), "playlists")
+        self._scope_items = [
+            (tr("Videos", "视频", "動画"), "videos"),
+            (tr("Authors", "作者", "作者"), "authors"),
+            (tr("Tags", "标签", "タグ"), "tags"),
+            (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
+        ]
+        for text, data in self._scope_items:
+            self._add_combo_item(self._scope_combo, text, data)
         self._scope_combo.setMinimumWidth(132)
         self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
         query_row.addWidget(self._scope_combo)
@@ -815,14 +214,16 @@ class SearchInterface(QWidget):
                 (tr("Newest", "最新", "新着"), "date"),
                 (tr("Trending", "趋势", "トレンド"), "trending"),
                 (tr("Popularity", "热度", "人気"), "popularity"),
+                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
                 (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
             ],
             query_card,
         )
         self._sort_combo.setMinimumWidth(132)
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         query_row.addWidget(self._sort_combo)
 
-        self._keyword_edit = LineEdit(query_card)
+        self._keyword_edit = SearchKeywordEdit(query_card)
         self._keyword_edit.setClearButtonEnabled(True)
         self._keyword_edit.setPlaceholderText(
             tr(
@@ -847,6 +248,7 @@ class SearchInterface(QWidget):
         self._scope_hint = BodyLabel("", query_card)
         self._scope_hint.setWordWrap(True)
         query_layout.addWidget(self._scope_hint)
+        self._query_card = query_card
         root.addWidget(query_card)
 
         rule_card = CardWidget(self)
@@ -866,13 +268,21 @@ class SearchInterface(QWidget):
                 rule_card,
             )
         )
+        self._rule_card = rule_card
         root.addWidget(rule_card)
 
         self._tag_popup = TagSuggestionPopup(self)
         self._tag_popup.suggestion_chosen.connect(self._apply_tag_suggestion)
+        self._keyword_edit.editingFinished.connect(self._tag_popup.hide)
         self._keyword_edit.textChanged.connect(
             lambda text: self._show_tag_suggestions(self._keyword_edit, text)
         )
+        self._search_history_popup = SearchHistoryPopup(self)
+        self._search_history_popup.history_chosen.connect(self._apply_search_history)
+        self._search_history_popup.clear_requested.connect(self._clear_search_history)
+        self._keyword_edit.activated.connect(self._show_search_history_popup)
+        self._keyword_edit.deactivated.connect(self._hide_search_history_popup)
+        self._refresh_search_history_popup()
 
         result_header = QHBoxLayout()
         # Keep paging beside the result controls so it remains readable and is
@@ -892,6 +302,12 @@ class SearchInterface(QWidget):
         self._page_label.setMinimumWidth(112)
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pagination.addWidget(self._page_label)
+        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), self)
+        self._jump_page_btn.setToolTip(
+            tr("Jump to a page", "输入页码并跳转", "ページ番号を入力して移動")
+        )
+        self._jump_page_btn.clicked.connect(self._jump_to_page)
+        pagination.addWidget(self._jump_page_btn)
         self._next_page_btn = ToolButton(self)
         self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
         self._next_page_btn.setFixedSize(44, 36)
@@ -952,7 +368,7 @@ class SearchInterface(QWidget):
         result_card = CardWidget(self)
         result_layout = QVBoxLayout(result_card)
         result_layout.setContentsMargins(0, 0, 0, 0)
-        self._results = QListWidget(result_card)
+        self._results = ListWidget(result_card)
         self._results.setFrameShape(QFrame.Shape.NoFrame)
         self._results.setStyleSheet(_search_grid_style())
         self._results.setContentsMargins(0, 0, 0, 0)
@@ -960,9 +376,9 @@ class SearchInterface(QWidget):
         self._results.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._results.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._results.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self._results.setViewMode(QListWidget.ViewMode.IconMode)
-        self._results.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self._results.setMovement(QListWidget.Movement.Static)
+        self._results.setViewMode(ListWidget.ViewMode.IconMode)
+        self._results.setResizeMode(ListWidget.ResizeMode.Adjust)
+        self._results.setMovement(ListWidget.Movement.Static)
         self._results.setWrapping(True)
         self._results.setWordWrap(True)
         self._results.setUniformItemSizes(True)
@@ -1050,11 +466,51 @@ class SearchInterface(QWidget):
         self._update_page_controls()
         self._fit_results_table_last_column()
         QTimer.singleShot(0, self._resize_grid)
+        saved_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        if isinstance(saved_collapsed, str):
+            saved_collapsed = saved_collapsed.strip().casefold() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        self._set_search_controls_collapsed(bool(saved_collapsed), persist=False)
 
     @staticmethod
     def _add_combo_item(combo: ComboBox, text: str, data: str):
         combo.addItem(text)
         combo.setItemData(combo.count() - 1, data)
+
+    def _toggle_search_controls(self):
+        self._set_search_controls_collapsed(not self._search_controls_collapsed)
+
+    def _set_search_controls_collapsed(self, collapsed: bool, *, persist: bool = True):
+        self._search_controls_collapsed = bool(collapsed)
+        self._query_card.setVisible(not self._search_controls_collapsed)
+        self._rule_card.setVisible(not self._search_controls_collapsed)
+        if self._search_controls_collapsed:
+            self._hide_search_history_popup()
+            if self._tag_popup is not None:
+                self._tag_popup.hide()
+            self._toggle_search_controls_btn.setText(
+                tr("Show search controls", "展开搜索区", "検索欄を展開")
+            )
+            self._toggle_search_controls_btn.setToolTip(
+                tr("Show search and download rule controls", "显示搜索与下载规则", "検索・保存ルール欄を表示")
+            )
+        else:
+            self._toggle_search_controls_btn.setText(
+                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
+            )
+            self._toggle_search_controls_btn.setToolTip(
+                tr("Hide search and download rule controls", "隐藏搜索与下载规则", "検索・保存ルール欄を隠す")
+            )
+        if persist:
+            app_config.set_ui_value(
+                "search_controls_collapsed_v1",
+                self._search_controls_collapsed,
+            )
+        QTimer.singleShot(0, self._resize_grid)
 
     @staticmethod
     def _make_combo(items: list[tuple[str, str]], parent: QWidget) -> ComboBox:
@@ -1063,6 +519,102 @@ class SearchInterface(QWidget):
             SearchInterface._add_combo_item(combo, text, data)
         combo.setCurrentIndex(0)
         return combo
+
+    @staticmethod
+    def _set_combo_data(combo: ComboBox, value: str) -> bool:
+        target = str(value or "").strip()
+        for index in range(combo.count()):
+            if str(combo.itemData(index) or "") == target:
+                combo.setCurrentIndex(index)
+                return True
+        return False
+
+    @staticmethod
+    def _search_history_label(entry: dict[str, str]) -> str:
+        keyword = entry.get("keyword", "") or tr(
+            "Latest videos", "最新视频", "最新動画"
+        )
+        scope_labels = {
+            "videos": tr("Videos", "视频", "動画"),
+            "authors": tr("Authors", "作者", "作者"),
+            "tags": tr("Tags", "标签", "タグ"),
+            "playlists": tr("Playlists", "播放列表", "プレイリスト"),
+        }
+        source_labels = {
+            "oreno3d": tr("Oreno3D", "Oreno3D", "Oreno3D"),
+            "iwara": tr("Iwara", "Iwara", "Iwara"),
+        }
+        scope = scope_labels.get(entry.get("scope", "videos"), entry.get("scope", "videos"))
+        source = source_labels.get(entry.get("source", "oreno3d"), entry.get("source", "oreno3d"))
+        return f"{keyword} · {scope} · {source}"
+
+    def _read_search_history(self) -> list[dict[str, str]]:
+        history = _decode_search_history(app_config.get_ui_value(_SEARCH_HISTORY_KEY, "[]"))
+        return history[: app_config.search_history_limit]
+
+    def _refresh_search_history_popup(self):
+        if not hasattr(self, "_search_history_popup"):
+            return
+        self._search_history_popup.set_history(
+            self._read_search_history(),
+            self._search_history_label,
+        )
+
+    def _show_search_history_popup(self):
+        if not hasattr(self, "_search_history_popup"):
+            return
+        history = self._read_search_history()
+        if not history:
+            self._search_history_popup.hide()
+            return
+        self._search_history_popup.resize(
+            min(620, max(360, self._keyword_edit.width())),
+            min(280, max(60, self._search_history_popup.sizeHint().height())),
+        )
+        self._search_history_popup.move(
+            self._keyword_edit.mapToGlobal(QPoint(0, self._keyword_edit.height()))
+        )
+        self._search_history_popup.show()
+        self._search_history_popup.raise_()
+
+    def _hide_search_history_popup(self):
+        if hasattr(self, "_search_history_popup"):
+            self._search_history_popup.hide()
+
+    def _record_current_search(self):
+        entry = {
+            "keyword": self._keyword_edit.text().strip(),
+            "source": str(self._source_combo.currentData() or "oreno3d"),
+            "scope": str(self._scope_combo.currentData() or "videos"),
+            "sort": str(self._sort_combo.currentData() or "date"),
+        }
+        history = _upsert_search_history(
+            _decode_search_history(app_config.get_ui_value(_SEARCH_HISTORY_KEY, "[]")),
+            entry,
+            app_config.search_history_limit,
+        )
+        app_config.set_ui_value(
+            _SEARCH_HISTORY_KEY,
+            json.dumps(history, ensure_ascii=False, separators=(",", ":")),
+        )
+        self._refresh_search_history_popup()
+
+    def _apply_search_history(self, payload: str):
+        decoded = _decode_search_history(payload)
+        if not decoded:
+            return
+        entry = decoded[0]
+        self._auto_search_timer.stop()
+        self._set_combo_data(self._source_combo, entry["source"])
+        self._set_combo_data(self._scope_combo, entry["scope"])
+        self._set_combo_data(self._sort_combo, entry["sort"])
+        self._keyword_edit.setText(entry["keyword"])
+        self._auto_search_timer.stop()
+        QTimer.singleShot(0, self._start_search)
+
+    def _clear_search_history(self):
+        app_config.set_ui_value(_SEARCH_HISTORY_KEY, "[]")
+        self._refresh_search_history_popup()
 
     @staticmethod
     def _search_resolution_mode() -> str:
@@ -1168,7 +720,7 @@ class SearchInterface(QWidget):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(last_column, QHeaderView.ResizeMode.Stretch)
 
-    def _on_scope_changed(self, *_args):
+    def _on_scope_changed(self, *_args, trigger_search: bool = True):
         scope = str(self._scope_combo.currentData() or "videos")
         if scope == "authors":
             hint = tr(
@@ -1182,9 +734,9 @@ class SearchInterface(QWidget):
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
                 hint = tr(
-                    "Type tags as Oreno3D keywords. Select a candidate, then keep typing after the comma.",
-                    "标签会按 Oreno3D 关键词搜索；选择候选后会保留逗号，可继续输入下一个标签。",
-                    "タグはOreno3Dのキーワードとして検索します。候補選択後もカンマの後から続けて入力できます。",
+                    "Mapped Iwara labels use typed numeric Oreno3D routes; unknown names fall back to keyword search. Multiple tags are matched by intersection. tag:<id>, origin:<id>, and character:<id> are also supported.",
+                    "已匹配的 Iwara 标签会自动转为对应的 Oreno3D 数字路由；未知名称回退到关键词搜索。多个标签会取交集；也支持 tag:<id>、origin:<id>、character:<id>。",
+                    "対応するIwaraラベルはOreno3Dの型付き数値ルートに変換し、未知名はキーワード検索に戻します。複数タグは共通結果を求めます。tag:<id>・origin:<id>・character:<id>にも対応します。",
                 )
             else:
                 hint = tr(
@@ -1225,6 +777,8 @@ class SearchInterface(QWidget):
         if scope != "tags" and self._tag_popup is not None:
             self._tag_popup.hide()
         self._sync_view_controls()
+        if trigger_search:
+            self._schedule_auto_search()
 
     def _scope_index(self, scope: str) -> int:
         for index in range(self._scope_combo.count()):
@@ -1241,46 +795,54 @@ class SearchInterface(QWidget):
             "tags",
             "playlists",
         }
-        for index in range(self._scope_combo.count()):
-            value = str(self._scope_combo.itemData(index) or "")
-            enabled = value in supported
-            self._scope_combo.setItemEnabled(index, enabled)
-
         current_scope = str(self._scope_combo.currentData() or "videos")
-        if current_scope not in supported:
-            video_index = self._scope_index("videos")
-            if video_index >= 0:
-                self._scope_combo.setCurrentIndex(video_index)
+        self._scope_combo.blockSignals(True)
+        self._scope_combo.clear()
+        for text, data in self._scope_items:
+            if data in supported:
+                self._add_combo_item(self._scope_combo, text, data)
+        selected_scope = current_scope if current_scope in supported else "videos"
+        selected_index = self._scope_index(selected_scope)
+        if selected_index >= 0:
+            self._scope_combo.setCurrentIndex(selected_index)
+        self._scope_combo.blockSignals(False)
 
-    def _on_source_changed(self, *_args):
+    def _on_source_changed(self, *_args, trigger_search: bool = True):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
-        if source == "oreno3d":
-            self._source_status_label.setText(
-                tr(
-                    "Oreno3D bridge → Iwara · videos/tags · images cached in data/img/search",
-                    "Oreno3D 桥接 → Iwara · 支持视频/标签 · 图片缓存于 data/img/search",
-                    "Oreno3Dブリッジ → Iwara・動画/タグ・画像は data/img/search にキャッシュ",
-                )
-            )
-        else:
-            self._source_status_label.setText(
-                tr(
-                    "Live API · videos/authors/tags/playlists · images cached in data/img/search",
-                    "实时 API · 支持视频/作者/标签/播放列表 · 图片缓存于 data/img/search",
-                    "ライブAPI・動画/作者/タグ/プレイリスト・画像は data/img/search にキャッシュ",
-                )
-            )
-        self._on_scope_changed()
+        self._source_status_label.clear()
+        self._on_scope_changed(trigger_search=False)
+        if trigger_search:
+            self._schedule_auto_search()
+
+    def _on_sort_changed(self, *_args):
+        self._schedule_auto_search()
+
+    def _schedule_auto_search(self):
+        # Drop a timer scheduled under the previous source/scope state.  A
+        # stale timer can otherwise start a new generation during paging and
+        # make the requested page result get discarded as obsolete.
+        self._auto_search_timer.stop()
+        if not self._auto_search_ready or not app_config.search_auto_search_enabled:
+            return
+        scope = str(self._scope_combo.currentData() or "videos")
+        if scope in {"authors", "tags", "playlists"} and not self._keyword_edit.text().strip():
+            return
+        self._auto_search_timer.start()
+
+    def _auto_start_search(self):
+        if self._auto_search_ready:
+            self._start_search()
 
     def _show_tag_suggestions(self, edit: LineEdit, text: str):
         if self._tag_popup is None:
             return
+        if str(text or "").strip():
+            self._hide_search_history_popup()
         if str(self._scope_combo.currentData() or "videos") != "tags":
             self._tag_popup.hide()
             return
-        match = re.search(r"([^,，;；|\s]*)$", str(text or ""))
-        query = match.group(1).strip() if match else ""
+        query = tag_suggestion_query(text)
         if not query:
             self._tag_popup.hide()
             return
@@ -1302,16 +864,9 @@ class SearchInterface(QWidget):
         edit = self._active_tag_edit
         if edit is None:
             return
-        text = edit.text()
-        match = re.search(r"([^,，;；|\s]*)$", text)
         if self._tag_popup is not None:
             self._tag_popup.hide()
-        if match:
-            prefix = text[: match.start()].rstrip(" ,，;；|")
-            value = f"{prefix}, {key}" if prefix else key
-        else:
-            value = key
-        edit.setText(f"{value}, ")
+        edit.setText(apply_tag_suggestion(edit.text(), key))
         edit.setFocus(Qt.FocusReason.OtherFocusReason)
         edit.setCursorPosition(len(edit.text()))
         QTimer.singleShot(0, lambda edit=edit: self._restore_tag_edit_focus(edit))
@@ -1330,6 +885,8 @@ class SearchInterface(QWidget):
         )
 
     def _start_search(self, *_args):
+        self._auto_search_timer.stop()
+        self._hide_search_history_popup()
         try:
             filters = self._build_filters()
         except ValueError as exc:
@@ -1356,10 +913,12 @@ class SearchInterface(QWidget):
             self._show_error(tr("Enter a playlist ID or URL", "请输入播放列表 ID 或链接", "プレイリストIDまたはURLを入力してください"))
             return
 
+        self._record_current_search()
         self._interrupt_search_workers()
         self._current_page = 0
         self._last_page = None
         self._pending_open_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         self._next_page = 0
         self._total = None
         self._all_videos.clear()
@@ -1371,12 +930,31 @@ class SearchInterface(QWidget):
 
     def _interrupt_search_workers(self):
         self._generation += 1
+        self._pending_author_subscription_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         for worker in self._search_workers:
             worker.requestInterruption()
         for worker in self._image_workers:
             worker.requestInterruption()
         for worker in self._oreno_link_workers:
             worker.requestInterruption()
+        for worker in self._iwara_author_workers:
+            worker.requestInterruption()
+        for worker in self._oreno_author_workers:
+            worker.requestInterruption()
+
+    def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
+        """Stop all page-owned search and image workers before window teardown."""
+        self._interrupt_search_workers()
+        workers: list[QThread | None] = [
+            *self._search_workers,
+            *self._image_workers,
+            *self._oreno_link_workers,
+            *self._iwara_author_workers,
+            *self._oreno_author_workers,
+            self._queue_resolve_worker,
+        ]
+        return stop_qthreads(workers, timeout_ms=timeout_ms)
 
     def _load_more(self):
         """Compatibility alias for callers that used the old load-more action."""
@@ -1399,7 +977,53 @@ class SearchInterface(QWidget):
             return
         self._navigate_to_page(page)
 
+    def _jump_to_page(self):
+        if self._last_page is None and self._total is None and not self._all_videos and not self._all_authors:
+            self._show_warning(
+                tr(
+                    "Run a search before jumping to a page.",
+                    "请先执行搜索，再跳转页码。",
+                    "ページ移動の前に検索を実行してください。",
+                )
+            )
+            return
+
+        current = max(1, self._current_page + 1)
+        page_text, accepted = show_fluent_text_input(
+            self,
+            tr("Jump to page", "跳转页码", "ページへ移動"),
+            tr("Page number:", "页码：", "ページ番号:"),
+            text=str(current),
+            accept_text=tr("Go", "跳转", "移動"),
+            cancel_text=tr("Cancel", "取消", "キャンセル"),
+        )
+        if not accepted:
+            return
+        try:
+            page_number = int(page_text.strip())
+        except (TypeError, ValueError):
+            self._show_error(
+                tr("Enter a valid page number.", "请输入有效的页码。", "有効なページ番号を入力してください。")
+            )
+            return
+        if page_number < 1:
+            self._show_error(
+                tr("Page number must be at least 1.", "页码必须大于等于 1。", "ページ番号は1以上にしてください。")
+            )
+            return
+        if self._last_page is not None and page_number > self._last_page + 1:
+            self._show_error(
+                tr(
+                    f"Page number must be between 1 and {self._last_page + 1}.",
+                    f"页码必须在 1 到 {self._last_page + 1} 之间。",
+                    f"ページ番号は1～{self._last_page + 1}の範囲で指定してください。",
+                )
+            )
+            return
+        self._navigate_to_page(page_number - 1)
+
     def _navigate_to_page(self, page: int):
+        self._auto_search_timer.stop()
         page = max(0, int(page))
         if self._last_page is not None:
             page = min(page, self._last_page)
@@ -1412,6 +1036,7 @@ class SearchInterface(QWidget):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
+        self._pending_open_author_video_ids.clear()
         self._current_page = page
         self._next_page = None
         self._run_search(filters, scope, source=source, page=page, replace_results=True)
@@ -1430,48 +1055,6 @@ class SearchInterface(QWidget):
         worker.finished.connect(lambda worker=worker: self._cleanup_search_worker(worker))
         self._set_loading(True)
         worker.start()
-
-    def _update_tag_dictionary(self):
-        if self._tag_dictionary_worker is not None and self._tag_dictionary_worker.isRunning():
-            return
-        worker = SearchTagDictionaryWorker()
-        self._tag_dictionary_worker = worker
-        self._update_tags_btn.setEnabled(False)
-        self._status_label.setText(
-            tr(
-                "Updating localized tag dictionary…",
-                "正在更新多语言标签词典…",
-                "多言語タグ辞書を更新中…",
-            )
-        )
-        worker.result_ready.connect(self._on_tag_dictionary_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_tag_dictionary_worker(worker))
-        worker.start()
-
-    def _on_tag_dictionary_result(self, result: object):
-        self._update_tags_btn.setEnabled(True)
-        count, error = result if isinstance(result, tuple) and len(result) == 2 else (0, "")
-        if error:
-            self._show_warning(
-                tr(
-                    f"Tag dictionary update failed: {error}",
-                    f"标签词典更新失败：{error}",
-                    f"タグ辞書の更新に失敗：{error}",
-                )
-            )
-            return
-        self._on_source_changed()
-        self._status_label.setText(
-            tr(
-                f"Loaded {count} localized tags",
-                f"已加载 {count} 个多语言标签",
-                f"多言語タグを{count}件読み込みました",
-            )
-        )
-
-    @staticmethod
-    def _cleanup_tag_dictionary_worker(worker: SearchTagDictionaryWorker):
-        worker.deleteLater()
 
     def _on_search_result(self, result: SearchPageResult):
         worker = self.sender()
@@ -1636,6 +1219,7 @@ class SearchInterface(QWidget):
             webbrowser.open(video.iwara_url)
         self._update_video_presentation(video)
         self._start_image_loading()
+        self._maybe_subscribe_pending_author(video)
         if isinstance(focused, LineEdit) and focused.isVisible():
             QTimer.singleShot(0, lambda focused=focused: self._restore_tag_edit_focus(focused))
         self._update_status()
@@ -1645,9 +1229,39 @@ class SearchInterface(QWidget):
             return
         links = result.get("links") or {}
         errors = [str(error) for error in result.get("errors") or []]
+        pending_ids = list(self._pending_author_subscription_video_ids)
+        for video_key in pending_ids:
+            video = next(
+                (candidate for candidate in self._all_videos if candidate.video_id == video_key),
+                None,
+            )
+            if video is None:
+                self._pending_author_subscription_video_ids.discard(video_key)
+                continue
+            self._maybe_subscribe_pending_author(video)
+            if video_key in self._pending_author_subscription_video_ids and (
+                video_key not in links or errors
+            ):
+                self._pending_author_subscription_video_ids.discard(video_key)
+                self._show_warning(
+                    tr(
+                        "Could not resolve the Iwara author for this Oreno3D result",
+                        "无法解析该 Oreno3D 结果对应的 Iwara 作者",
+                        "この Oreno3D 結果に対応する Iwara 作者を解析できません",
+                    )
+                )
         self._update_status()
         if errors and not links:
             self._show_warning(errors[0])
+
+    def _maybe_subscribe_pending_author(self, video: SearchVideo):
+        if video.video_id not in self._pending_author_subscription_video_ids:
+            return
+        target = _author_subscription_target(video)
+        if not target:
+            return
+        self._pending_author_subscription_video_ids.discard(video.video_id)
+        self._subscribe_to_author(target)
 
     def _cleanup_oreno_link_worker(self, worker: SearchOrenoLinkWorker):
         if worker in self._oreno_link_workers:
@@ -1984,6 +1598,24 @@ class SearchInterface(QWidget):
         self._grid_resize_pending = False
         self._resize_grid()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # The history popup is a non-activating tool window.  Explicitly
+        # refresh and hide it on navigation restore so it cannot retain a
+        # stale hidden state or hover/focus target from the previous page.
+        self._refresh_search_history_popup()
+        self._hide_search_history_popup()
+        if self._tag_popup is not None:
+            self._tag_popup.hide()
+        QTimer.singleShot(0, self._resize_grid)
+
+    def hideEvent(self, event):
+        self._auto_search_timer.stop()
+        self._hide_search_history_popup()
+        if self._tag_popup is not None:
+            self._tag_popup.hide()
+        super().hideEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._resize_grid()
@@ -1991,6 +1623,7 @@ class SearchInterface(QWidget):
         self._fit_results_table_last_column()
 
     def _set_loading(self, loading: bool):
+        self._loading = bool(loading)
         self._search_btn.setEnabled(not loading)
         self._reset_btn.setEnabled(not loading)
         self._previous_page_btn.setEnabled(not loading and self._current_page > 0)
@@ -2014,6 +1647,15 @@ class SearchInterface(QWidget):
         else:
             text = tr(f"Page {current}", f"第 {current} 页", f"{current} ページ")
         self._page_label.setText(text)
+        if hasattr(self, "_jump_page_btn"):
+            has_page_state = bool(
+                self._last_page is not None
+                or self._next_page is not None
+                or self._total is not None
+                or self._all_videos
+                or self._all_authors
+            )
+            self._jump_page_btn.setEnabled(not self._loading and has_page_state)
 
     def _update_status(self, result: SearchPageResult | None = None):
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")
@@ -2028,248 +1670,6 @@ class SearchInterface(QWidget):
             self._status_label.setText(
                 tr(f"Found {count} video(s){total}", f"找到 {count} 个视频{total}", f"動画 {count} 件{total}")
             )
-
-    def _sync_selection_buttons(self):
-        selected_values = self._selected_data()
-        selected = bool(selected_values)
-        queueable = any(
-            isinstance(value.get("data"), SearchVideo)
-            and (
-                value["data"].source_kind == "iwara"
-                or value["data"].source_kind == "oreno3d"
-                or bool(value["data"].download_video_id)
-            )
-            for value in selected_values
-        )
-        resolving = self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning()
-        self._queue_selected_btn.setEnabled(selected and queueable and not resolving)
-        self._open_selected_btn.setEnabled(selected)
-
-    def _selected_data(self) -> list[dict[str, Any]]:
-        data: list[dict[str, Any]] = []
-        if self._is_list_view():
-            for index in self._results_table.selectionModel().selectedRows():
-                item = self._results_table.item(index.row(), 0)
-                value = item.data(self._DATA_ROLE) if item else None
-                if isinstance(value, dict):
-                    data.append(value)
-        else:
-            for item in self._results.selectedItems():
-                value = item.data(self._DATA_ROLE)
-                if isinstance(value, dict):
-                    data.append(value)
-        return data
-
-    def _queue_selected(self):
-        videos: list[SearchVideo] = []
-        for value in self._selected_data():
-            video = value.get("data")
-            if value.get("kind") != "video" or not isinstance(video, SearchVideo):
-                continue
-            videos.append(video)
-        if not videos:
-            self._show_warning(tr("Select at least one video", "请至少选择一个视频", "動画を1件以上選択してください"))
-            return
-
-        if any(video.source_kind == "oreno3d" for video in videos):
-            if self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning():
-                return
-            worker = SearchQueueResolveWorker(
-                videos,
-                concurrency=self._search_resolution_concurrency(),
-            )
-            self._queue_resolve_worker = worker
-            self._queue_selected_btn.setEnabled(False)
-            self._status_label.setText(
-                tr(
-                    "Resolving selected Oreno3D links…",
-                    "正在解析选中的 Oreno3D 下载链接…",
-                    "選択したOreno3Dリンクを解決中…",
-                )
-            )
-            worker.result_ready.connect(self._on_queue_resolved)
-            worker.finished.connect(lambda worker=worker: self._cleanup_queue_resolve_worker(worker))
-            worker.start()
-            return
-
-        self._enqueue_video_ids(
-            [video.download_video_id or video.video_id for video in videos]
-        )
-
-    def _enqueue_video_ids(self, ids: list[str], *, skipped: int = 0, errors: list[str] | None = None):
-        ids = [str(video_id or "").strip() for video_id in ids if str(video_id or "").strip()]
-        errors = errors or []
-        if not ids:
-            message = tr(
-                "No selected item has an Iwara download link.",
-                "选中的项目没有可用的 Iwara 下载链接。",
-                "選択した項目にIwaraダウンロードリンクがありません。",
-            )
-            if errors:
-                message += f" {errors[0]}"
-            self._show_warning(message)
-            self._sync_selection_buttons()
-            return
-        accepted = download_manager.enqueue_video_ids(ids, source_label=tr("Search", "搜索", "検索"))
-        suffix = tr(
-            f"; skipped {skipped} item(s)" if skipped else "",
-            f"；已跳过 {skipped} 个无下载链接的项目" if skipped else "",
-            f"；{skipped}件をスキップ" if skipped else "",
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(
-                f"Accepted {accepted} video(s){suffix}",
-                f"已接受 {accepted} 个视频{suffix}",
-                f"{accepted} 件を追加しました{suffix}",
-            ),
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.TOP,
-            duration=3000,
-            parent=self,
-        )
-        if errors:
-            self._show_warning(errors[0])
-
-    def _on_queue_resolved(self, result: object):
-        if not isinstance(result, dict):
-            self._show_warning(tr("Could not resolve selected links", "无法解析选中的链接", "選択したリンクを解決できません"))
-            return
-        self._enqueue_video_ids(
-            list(result.get("ids") or []),
-            skipped=int(result.get("skipped") or 0),
-            errors=[str(error) for error in result.get("errors") or []],
-        )
-        self._sync_selection_buttons()
-
-    def _cleanup_queue_resolve_worker(self, worker: SearchQueueResolveWorker):
-        if self._queue_resolve_worker is worker:
-            self._queue_resolve_worker = None
-        worker.deleteLater()
-        self._sync_selection_buttons()
-
-    def _open_selected(self):
-        for value in self._selected_data():
-            data = value.get("data")
-            if isinstance(data, SearchVideo):
-                self._open_video(data)
-            elif isinstance(data, SearchAuthor):
-                url = str(data.source_url or "").strip()
-                if url:
-                    webbrowser.open(url)
-
-    def _open_video(self, video: SearchVideo):
-        """Open the final Iwara page; Oreno3D is never used as a fallback URL."""
-
-        if video.source_kind == "oreno3d":
-            iwara_url = str(video.iwara_url or "").strip()
-            if _extract_iwara_video_id(iwara_url):
-                webbrowser.open(iwara_url)
-                return
-            self._pending_open_video_ids.add(video.video_id)
-            # A click is a priority request.  It gets a dedicated one-item
-            # worker and only resolves the ID, so the browser opens before the
-            # rest of the page's metadata can finish loading.
-            self._start_oreno_link_resolution(
-                [video],
-                priority=True,
-                hydrate_metadata=False,
-            )
-            self._status_label.setText(
-                tr(
-                    "Resolving the Iwara ID…",
-                    "正在解析 Iwara ID…",
-                    "Iwara IDを取得中…",
-                )
-            )
-            return
-        url = str(video.iwara_url or video.source_url or "").strip()
-        if url:
-            webbrowser.open(url)
-
-    def _open_item(self, item: QListWidgetItem):
-        value = item.data(self._DATA_ROLE)
-        if isinstance(value, dict):
-            data = value.get("data")
-            if isinstance(data, SearchVideo):
-                self._open_video(data)
-
-    def _open_table_item(self, item: QTableWidgetItem):
-        value = item.data(self._DATA_ROLE)
-        if isinstance(value, dict):
-            data = value.get("data")
-            if isinstance(data, SearchVideo):
-                self._open_video(data)
-
-    def _show_context_menu(self, position):
-        if self._is_list_view():
-            target = self._results_table
-            item = target.itemAt(position)
-            if item is not None:
-                target.clearSelection()
-                target.selectRow(item.row())
-        else:
-            target = self._results
-            item = target.itemAt(position)
-            if item is not None and not item.isSelected():
-                target.clearSelection()
-                item.setSelected(True)
-        values = self._selected_data()
-        if not values:
-            return
-        menu = QMenu(self)
-        video_values = [value for value in values if value.get("kind") == "video"]
-        author_values = [value for value in values if value.get("kind") == "author"]
-        if video_values:
-            queue_action = menu.addAction(tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"))
-            queue_action.triggered.connect(self._queue_selected)
-        open_action = menu.addAction(tr("Open page", "打开页面", "ページを開く"))
-        open_action.triggered.connect(self._open_selected)
-        if author_values and len(author_values) == 1:
-            search_action = menu.addAction(tr("Search this author's videos", "搜索该作者的视频", "この作者の動画を検索"))
-            search_action.triggered.connect(self._search_selected_author)
-        menu.exec(target.viewport().mapToGlobal(position))
-
-    def _search_selected_author(self):
-        values = self._selected_data()
-        if len(values) != 1 or values[0].get("kind") != "author":
-            return
-        author = values[0].get("data")
-        if not isinstance(author, SearchAuthor):
-            return
-        self._scope_combo.setCurrentIndex(0)
-        self._source_combo.setCurrentIndex(1)
-        self._keyword_edit.setText(author.username)
-        self._start_search()
-
-    def _reset_filters(self):
-        self._keyword_edit.clear()
-        self._source_combo.setCurrentIndex(0)
-        self._scope_combo.setCurrentIndex(0)
-        self._sort_combo.setCurrentIndex(0)
-        self._results.clearSelection()
-        self._results_table.clearSelection()
-        for worker in self._oreno_link_workers:
-            worker.requestInterruption()
-        self._pending_open_video_ids.clear()
-        self._current_page = 0
-        self._last_page = None
-        self._next_page = None
-        self._total = None
-        self._all_videos.clear()
-        self._all_authors.clear()
-        self._image_path_by_key.clear()
-        self._image_pending_keys.clear()
-        self._render_results()
-        self._set_loading(False)
-        self._status_label.setText(
-            tr(
-                "Enter a query or search the latest videos",
-                "输入条件后开始搜索，也可以直接查看最新视频",
-                "条件を入力して検索してください",
-            )
-        )
 
     def refresh_theme_styles(self):
         self._resize_grid()

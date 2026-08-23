@@ -57,7 +57,11 @@ The app now supports API search URLs directly from the download input box.
 - `https://www.iwara.tv/videos?...`
 - Example:
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
-  - `https://www.iwara.tv/videos?tags=2d&sort=date`
+- `https://www.iwara.tv/videos?tags=2d&sort=date`
+
+The web route uses `tags`, while the current JSON endpoint applies the filter
+through the singular `tag` parameter. IwaraTool accepts either shape and
+normalizes it at the API boundary.
 
 ### Behavior
 - Parses query parameters from the URL
@@ -145,4 +149,5 @@ Global filter switch applies during resolve stage.
 - The search page loads the cached LoveIwara dictionary first and falls back to `data/iwara_tags.json`.
 - “Update Tags” downloads the dictionary on demand; startup does not require a network request.
 - The bundled source is `app/data/tag_translations/loveiwara_iwara_tags_localized.json`; Nuitka and GitHub Actions include it explicitly.
+- The bundled Oreno3D/Iwara label map is `app/data/oreno3d_iwara_map.json`; Nuitka and GitHub Actions include it explicitly.
 - On first run, the bundled source is expanded to `data/tag_translations/` beside the executable only when the runtime cache is missing. Existing user caches are not replaced.

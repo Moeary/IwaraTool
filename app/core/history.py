@@ -220,23 +220,43 @@ class DownloadHistory:
                     conn.commit()
 
     def remove(self, video_id: str):
+        self.remove_many([video_id])
+
+    def remove_many(self, video_ids: list[str]) -> int:
+        """Remove several history records in one SQLite transaction."""
+        ids = list(
+            dict.fromkeys(
+                str(video_id or "").strip()
+                for video_id in video_ids
+                if str(video_id or "").strip()
+            )
+        )
+        if not ids:
+            return 0
+
+        def delete_rows() -> int:
+            removed = 0
+            with closing(sqlite3.connect(self._db_path)) as conn:
+                for start in range(0, len(ids), 500):
+                    chunk = ids[start:start + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor = conn.execute(
+                        f"DELETE FROM downloaded WHERE video_id IN ({placeholders})",
+                        chunk,
+                    )
+                    removed += max(0, int(cursor.rowcount or 0))
+                conn.commit()
+            return removed
+
         with self._lock:
             self._ensure_db_ready()
             try:
-                with closing(sqlite3.connect(self._db_path)) as conn:
-                    conn.execute(
-                        "DELETE FROM downloaded WHERE video_id=?", (video_id,)
-                    )
-                    conn.commit()
+                return delete_rows()
             except sqlite3.OperationalError as exc:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                with closing(sqlite3.connect(self._db_path)) as conn:
-                    conn.execute(
-                        "DELETE FROM downloaded WHERE video_id=?", (video_id,)
-                    )
-                    conn.commit()
+                return delete_rows()
 
     @classmethod
     def _select_columns(cls, *, include_raw: bool = False) -> tuple[str, ...]:

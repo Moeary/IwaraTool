@@ -1,9 +1,11 @@
 import os
+import json
 import shutil
 import tempfile
 import unittest
 
 from app.core.subscriptions import SubscriptionStore
+from app.core.manager import DownloadManager
 
 
 class SubscriptionSourceOriginTests(unittest.TestCase):
@@ -61,6 +63,101 @@ class SubscriptionSourceOriginTests(unittest.TestCase):
         self.store.update_item_thumbnail_url("cover01", url)
 
         self.assertEqual(self.store.list_items(source_id)[0]["thumbnail_url"], url)
+
+    def test_manager_author_subscription_preserves_result_metadata(self):
+        class _FakeSubscriptions:
+            def __init__(self):
+                self.call = None
+
+            def add_source(self, *args, **kwargs):
+                self.call = (args, kwargs)
+                return 17
+
+        subscriptions = _FakeSubscriptions()
+        manager = DownloadManager.__new__(DownloadManager)
+        manager.subscriptions = subscriptions
+
+        source_id = manager.add_author_subscription(
+            "@creator/",
+            title="Creator Display",
+            remote_id="user-1",
+            avatar_url="https://img/avatar.jpg",
+        )
+
+        self.assertEqual(source_id, 17)
+        self.assertEqual(
+            subscriptions.call,
+            (
+                ("author", "creator", "Creator Display", "user-1"),
+                {"avatar_url": "https://img/avatar.jpg"},
+            ),
+        )
+
+    def test_oreno_author_url_is_persisted_and_exported(self):
+        source_id = self.store.add_source(
+            "author",
+            "flim13",
+            "Flim13",
+            "iwara-user",
+            source_origin="oreno3d",
+            source_url="https://oreno3d.com/authors/1411",
+        )
+        source = self.store.get_source(source_id)
+        self.assertEqual(source["source_origin"], "oreno3d")
+        self.assertEqual(source["source_url"], "https://oreno3d.com/authors/1411")
+        with open(self.store.backup_path, "r", encoding="utf-8") as handle:
+            backup = json.load(handle)
+        self.assertEqual(backup["sources"][0]["source_url"], "https://oreno3d.com/authors/1411")
+
+    def test_manager_author_subscription_forwards_durable_source_only_when_present(self):
+        class _FakeSubscriptions:
+            def __init__(self):
+                self.call = None
+
+            def add_source(self, *args, **kwargs):
+                self.call = (args, kwargs)
+                return 18
+
+        subscriptions = _FakeSubscriptions()
+        manager = DownloadManager.__new__(DownloadManager)
+        manager.subscriptions = subscriptions
+        source_id = manager.add_author_subscription(
+            "flim13",
+            title="Flim13",
+            remote_id="iwara-user",
+            source_url="https://oreno3d.com/authors/1411",
+            source_origin="oreno3d",
+        )
+        self.assertEqual(source_id, 18)
+        self.assertEqual(
+            subscriptions.call,
+            (
+                ("author", "flim13", "Flim13", "iwara-user"),
+                {
+                    "avatar_url": "",
+                    "source_url": "https://oreno3d.com/authors/1411",
+                    "source_origin": "oreno3d",
+                },
+            ),
+        )
+
+    def test_source_import_time_is_persisted_and_restored_from_backup(self):
+        db_path = os.path.join(self.temp_dir, "history.db")
+        source_id = self.store.add_source("author", "time-author", "Time Author")
+        source = self.store.get_source(source_id)
+        self.assertTrue(source["created_at"])
+
+        with open(self.store.backup_path, "r", encoding="utf-8") as handle:
+            backup = json.load(handle)
+        self.assertEqual(backup["version"], 3)
+        self.assertEqual(backup["sources"][0]["created_at"], source["created_at"])
+
+        # Simulate restoring the local source snapshot after the DB file was
+        # replaced or lost.  The original import timestamp must survive.
+        os.remove(db_path)
+        restored_store = SubscriptionStore(db_path)
+        restored = restored_store.list_sources()[0]
+        self.assertEqual(restored["created_at"], source["created_at"])
 
 
 if __name__ == "__main__":

@@ -12,19 +12,18 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLayout,
     QLayoutItem,
-    QListWidget,
     QListWidgetItem,
-    QPushButton,
     QSplitter,
     QTableWidget,
-    QVBoxLayout,
 )
 
 from qfluentwidgets import (
     BodyLabel,
     LineEdit,
+    ListWidget,
     MessageBox,
     MessageBoxBase,
+    PushButton,
     SubtitleLabel,
 )
 
@@ -407,7 +406,7 @@ class _TableColumnSaver(QObject):
         QTimer.singleShot(500, flush)
 
 
-class _TableColumnDialog(QDialog):
+class _TableColumnDialog(MessageBoxBase):
     def __init__(
         self,
         table: QTableWidget,
@@ -423,22 +422,28 @@ class _TableColumnDialog(QDialog):
         self._key = key
         self._default_order = default_order or _all_columns(table)
         self._default_visible = default_visible or _all_columns(table)
-        self.setWindowTitle(title)
-        self.resize(520, 600)
+        self.title_label = SubtitleLabel(title, self)
+        self.hint_label = BodyLabel(
+            tr(
+                "Check fields to show, then move them to change their order.",
+                "勾选要显示的字段，并用上下按钮调整顺序。",
+                "表示する列を選び、上下ボタンで順序を変更してください。",
+            ),
+            self,
+        )
+        self.hint_label.setWordWrap(True)
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.hint_label)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
-
-        self._list = QListWidget(self)
+        self._list = ListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setAlternatingRowColors(True)
-        root.addWidget(self._list, stretch=1)
+        self.viewLayout.addWidget(self._list, stretch=1)
 
         move_row = QHBoxLayout()
-        up_btn = QPushButton(tr("Move Up", "上移", "上へ"), self)
-        down_btn = QPushButton(tr("Move Down", "下移", "下へ"), self)
-        reset_btn = QPushButton(tr("Recommended", "恢复推荐", "推奨に戻す"), self)
+        up_btn = PushButton(tr("Move Up", "上移", "上へ"), self)
+        down_btn = PushButton(tr("Move Down", "下移", "下へ"), self)
+        reset_btn = PushButton(tr("Recommended", "恢复推荐", "推奨に戻す"), self)
         up_btn.clicked.connect(lambda: self._move_current(-1))
         down_btn.clicked.connect(lambda: self._move_current(1))
         reset_btn.clicked.connect(self._load_defaults)
@@ -446,17 +451,11 @@ class _TableColumnDialog(QDialog):
         move_row.addWidget(down_btn)
         move_row.addStretch()
         move_row.addWidget(reset_btn)
-        root.addLayout(move_row)
+        self.viewLayout.addLayout(move_row)
 
-        action_row = QHBoxLayout()
-        action_row.addStretch()
-        cancel_btn = QPushButton(tr("Cancel", "取消", "キャンセル"), self)
-        save_btn = QPushButton(tr("Save", "保存", "保存"), self)
-        cancel_btn.clicked.connect(self.reject)
-        save_btn.clicked.connect(self._save_and_accept)
-        action_row.addWidget(cancel_btn)
-        action_row.addWidget(save_btn)
-        root.addLayout(action_row)
+        self.cancelButton.setText(tr("Cancel", "取消", "キャンセル"))
+        self.yesButton.setText(tr("Save", "保存", "保存"))
+        self.widget.setMinimumSize(640, 560)
 
         self._load_current()
 
@@ -496,7 +495,9 @@ class _TableColumnDialog(QDialog):
         self._list.insertItem(target, item)
         self._list.setCurrentRow(target)
 
-    def _save_and_accept(self):
+    def validate(self) -> bool:
+        """Persist the selected layout before MessageBoxBase accepts."""
+
         order: list[int] = []
         visible: list[int] = []
         for row in range(self._list.count()):
@@ -513,9 +514,9 @@ class _TableColumnDialog(QDialog):
                 yes_text=tr("OK", "知道了", "OK"),
                 no_text=tr("Close", "关闭", "閉じる"),
             )
-            return
+            return False
         apply_table_column_layout(self._table, self._key, order=order, visible=visible, sync=True)
-        self.accept()
+        return True
 
 
 def _save_table_column_layout(table: QTableWidget, key: str, *, sync: bool):

@@ -4,12 +4,13 @@ import json
 import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableWidget
+from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidget
+from qfluentwidgets import Action, FluentIcon, ListWidget, PlainTextEdit
 
 from app.config import app_config
 from app.core.history import DownloadHistory
@@ -17,6 +18,10 @@ from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_im
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.download_page import DownloadInterface
+from app.ui.history_page import HistoryInterface
+from app.ui.repair_page import RepairInterface
+from app.ui.rules_page import RuleFormWidget, RulesInterface
+from app.ui.search_page import SearchInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
     _source_search_text,
@@ -32,7 +37,6 @@ from app.ui.ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
-
 TEMP_DIRS: list[str] = []
 
 
@@ -87,6 +91,31 @@ class ManagerPerformanceTests(unittest.TestCase):
             self.assertEqual(len(mgr._active_task_ids), 3)
             self.assertEqual(len(mgr._queued_meta_ids), 4997)
             self.assertEqual(len(mgr._resolve_executor.submitted), 3)
+
+    def test_queued_rule_snapshot_can_skip_history_without_affecting_later_rules(self):
+        mgr = make_manager()
+        with patch("app.core.manager.active_rule_id", return_value="search-rule"):
+            with patch(
+                "app.core.manager.rule_store.find",
+                return_value={"payload": {"record_to_history": False}},
+            ):
+                summary = mgr._enqueue_video_ids_bulk(
+                    [("searchVideo01", "https://www.iwara.tv/video/searchVideo01")]
+                )
+
+        self.assertEqual(summary["queued"], 1)
+        task = mgr.get_task(next(iter(mgr._tasks)))
+        self.assertIsNotNone(task)
+        task.file_path = os.path.join(tempfile.gettempdir(), "searchVideo01.mp4")
+        with open(task.file_path, "wb") as stream:
+            stream.write(b"video")
+        try:
+            with patch.object(mgr.history, "upsert_downloaded") as upsert:
+                mgr._complete_task(task.task_id)
+                upsert.assert_not_called()
+        finally:
+            if os.path.exists(task.file_path):
+                os.remove(task.file_path)
 
     def test_duplicate_enqueue_keeps_indexes_consistent(self):
         with ConfigGuard():
@@ -380,6 +409,18 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertIn("raw_json", full)
         self.assertIn("tags_json", full)
 
+    def test_history_remove_many_deletes_only_requested_records(self):
+        tmp_dir = tempfile.mkdtemp(prefix="iwaratool-history-")
+        TEMP_DIRS.append(tmp_dir)
+        history = DownloadHistory(os.path.join(tmp_dir, "history.db"))
+        for video_id in ("remove01", "remove02", "keep01"):
+            history.upsert_downloaded({"video_id": video_id, "title": video_id})
+
+        removed = history.remove_many(["remove01", "missing", "remove02"])
+
+        self.assertEqual(removed, 2)
+        self.assertEqual([row["video_id"] for row in history.list_records()], ["keep01"])
+
     def test_compact_raw_json_keeps_nfo_fields_without_full_payload(self):
         raw = _compact_video_raw_json(
             {
@@ -533,6 +574,63 @@ class ManagerPerformanceTests(unittest.TestCase):
                 for marker in ("Private", "私有", "非公開")
             )
         )
+
+    def test_incremental_refresh_rechecks_cached_private_items_after_access_changes(self):
+        mgr = make_manager()
+        source_id = mgr.subscriptions.add_source(
+            "author",
+            "author01",
+            "Author 01",
+            "user01",
+            avatar_url="https://i.iwara.tv/image/thumbnail/avatar01/avatar01.jpg",
+            source_origin="account",
+        )
+        mgr.subscriptions.upsert_items(
+            source_id,
+            [
+                {
+                    "video_id": "privateAccess01",
+                    "title": "Private Access",
+                    "author": "author01",
+                    "published_at": "2026-06-12T00:00:00Z",
+                    "source_url": "https://www.iwara.tv/video/privateAccess01",
+                    "download_state": "unavailable",
+                    "download_reason": "当前账号没有权限查看或下载该作品。",
+                    "download_state_known": True,
+                }
+            ],
+        )
+        calls: list[tuple[str, object]] = []
+
+        def fake_api_call(method_name, *args, **kwargs):
+            calls.append((method_name, kwargs.get("known_video_ids")))
+            if method_name == "get_user_videos":
+                return []
+            if method_name == "get_video_info":
+                return (
+                    {
+                        "id": args[0],
+                        "title": "Private Access",
+                        "createdAt": "2026-06-12T00:00:00Z",
+                        "user": {"username": "author01", "name": "作者显示名"},
+                        "file": {"id": "file01", "duration": 120},
+                        "fileUrl": "https://files.example.test/video.mp4",
+                    },
+                    "",
+                )
+            raise AssertionError(f"unexpected api call: {method_name}")
+
+        mgr._api_call = fake_api_call
+
+        summary = mgr.refresh_subscription_source(source_id)
+        item = mgr.get_subscription_items(source_id)[0]
+
+        self.assertEqual(summary["unavailable_checked"], 1)
+        self.assertEqual(summary["unavailable"], 0)
+        self.assertEqual(item["download_state"], "")
+        self.assertTrue(item["downloadable"])
+        known_ids = next(value for method, value in calls if method == "get_user_videos")
+        self.assertIn("privateAccess01", known_ids)
 
     def test_manual_author_refresh_updates_display_name_from_profile(self):
         mgr = make_manager()
@@ -737,6 +835,30 @@ class ManagerPerformanceTests(unittest.TestCase):
         self.assertEqual(mgr.subscriptions.list_sources(), [])
         self.assertEqual(mgr.subscriptions.list_items(), [])
 
+    def test_subscription_store_remove_sources_supports_batch_deletion(self):
+        mgr = make_manager()
+        source_ids = [
+            mgr.subscriptions.add_source("feed", f"batch-feed-{index}", f"Feed {index}")
+            for index in range(3)
+        ]
+        for index, source_id in enumerate(source_ids):
+            mgr.subscriptions.upsert_items(
+                source_id,
+                [{"video_id": f"batch-video-{index}", "title": "Cached video"}],
+            )
+
+        removed = mgr.remove_subscription_sources(source_ids[:2])
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(
+            [source["id"] for source in mgr.subscriptions.list_sources()],
+            [source_ids[2]],
+        )
+        self.assertEqual(
+            [item["video_id"] for item in mgr.subscriptions.list_items()],
+            ["batch-video-2"],
+        )
+
     def test_subscription_store_migrates_legacy_db_into_history_db(self):
         tmp_dir = tempfile.mkdtemp(prefix="iwaratool-subscription-migrate-")
         TEMP_DIRS.append(tmp_dir)
@@ -860,12 +982,43 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_log_widget_keeps_max_blocks_and_flushes_in_batches(self):
         page = DownloadInterface()
+        self.assertIsInstance(page._log_edit, PlainTextEdit)
         for i in range(page._MAX_LOG_BLOCKS + 250):
             page._append_log(f"log {i}")
         while page._pending_logs:
             page._flush_logs()
 
         self.assertLessEqual(page._log_edit.blockCount(), page._MAX_LOG_BLOCKS)
+
+    def test_visible_lists_and_repair_log_use_fluent_widgets(self):
+        search = SearchInterface()
+        rules = RulesInterface()
+        repair = RepairInterface()
+        try:
+            self.assertIsInstance(search._results, ListWidget)
+            self.assertIsInstance(rules._list, ListWidget)
+            self.assertIsInstance(repair._log_edit, PlainTextEdit)
+        finally:
+            search.close()
+            rules.close()
+            repair.close()
+
+    def test_rule_form_validates_template_and_exposes_history_choice(self):
+        form = RuleFormWidget()
+        form.filename_template_edit.setText("HMV/{id}_{title}_{author}.mp4")
+        form.record_history.setChecked(False)
+
+        payload = form.payload()
+
+        self.assertFalse(payload["record_to_history"])
+        self.assertEqual(payload["filename_template"], "HMV/{id}_{title}_{author}.mp4")
+        self.assertIn("不再将下载内容保存到历史", form.record_history_hint.text())
+        form.record_history.setChecked(True)
+        self.assertIn("下载内容会保存到历史", form.record_history_hint.text())
+        form.filename_template_edit.setText("{unknown}.mp4")
+        with self.assertRaises(ValueError):
+            form.payload()
+        form.close()
 
     def test_task_progress_updates_existing_row_only(self):
         with download_manager._lock:
@@ -928,6 +1081,103 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertEqual(page._table.rowCount(), 50)
         self.assertFalse(page._refresh_pending)
         self.assertEqual(len(page._row_by_task_id), 50)
+
+    def test_task_table_supports_extended_selection_and_bulk_status_actions(self):
+        page = TaskCenterInterface()
+        self.assertEqual(
+            page._table.selectionMode(),
+            QAbstractItemView.SelectionMode.ExtendedSelection,
+        )
+
+        tasks = {
+            "failed": DownloadTask(
+                task_id="failed",
+                url="",
+                video_id="failed-video",
+                title="Failed",
+                status=TaskStatus.FAILED,
+            ),
+            "cancelled": DownloadTask(
+                task_id="cancelled",
+                url="",
+                video_id="cancelled-video",
+                title="Cancelled",
+                status=TaskStatus.CANCELLED,
+            ),
+            "active": DownloadTask(
+                task_id="active",
+                url="",
+                video_id="active-video",
+                title="Active",
+                status=TaskStatus.DOWNLOADING,
+            ),
+        }
+        page._tasks_by_id = tasks
+        page._visible_task_ids = list(tasks)
+        page._schedule_refresh = lambda *_args: None
+
+        with patch("app.ui.task_page.download_manager") as manager, patch(
+            "app.ui.task_page.InfoBar.info"
+        ):
+            manager.retry_task.return_value = True
+            manager.restore_cancelled_task.return_value = True
+            manager.cancel_task.return_value = True
+
+            page._retry_task_ids(("failed", "active"))
+            page._restore_task_ids(("cancelled", "failed"))
+            page._cancel_task_ids(("active", "cancelled"))
+            page._remove_task_ids(tuple(tasks))
+
+        manager.retry_task.assert_called_once_with("failed")
+        manager.restore_cancelled_task.assert_called_once_with("cancelled")
+        manager.cancel_task.assert_called_once_with("active")
+        manager.remove_task.assert_has_calls(
+            [
+                call("failed"),
+                call("cancelled"),
+                call("active"),
+            ]
+        )
+        self.assertEqual(manager.remove_task.call_count, 3)
+
+    def test_task_menu_callback_keeps_selected_ids_when_qaction_emits_checked(self):
+        selected_ids = ("failed", "active")
+        captured = []
+        action = Action(
+            FluentIcon.DELETE,
+            "Remove selected tasks",
+            triggered=lambda _checked=False, ids=selected_ids: captured.append(ids),
+        )
+        action.trigger()
+        self.assertEqual(captured, [selected_ids])
+
+    def test_completed_task_actions_open_video_page_folder_and_file(self):
+        page = TaskCenterInterface()
+        page._tasks_by_id = {
+            "completed": DownloadTask(
+                task_id="completed",
+                url="",
+                video_id="completed-video",
+                status=TaskStatus.COMPLETED,
+                file_path="C:\\downloads\\completed-video.mp4",
+            )
+        }
+
+        with patch("app.ui.task_page.webbrowser.open") as open_url, patch(
+            "app.ui.task_page.download_manager"
+        ) as manager:
+            manager.open_task_output.return_value = (True, "")
+            page._open_task_video_pages(("completed",))
+            page._open_task_output("completed", open_file=False)
+            page._open_task_output("completed", open_file=True)
+
+        open_url.assert_called_once_with("https://www.iwara.tv/video/completed-video")
+        manager.open_task_output.assert_has_calls(
+            [
+                call("completed", open_file=False),
+                call("completed", open_file=True),
+            ]
+        )
 
     def test_table_width_saver_records_resize_immediately(self):
         key = f"test_table_widths_{id(self)}"
@@ -1042,7 +1292,133 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
             self.assertEqual(page._operation_video_ids(), ["pending01"])
+            with patch.object(page, "_apply_selected_rule_for_download") as apply_rule:
+                with patch.object(page, "_enqueue_ids") as enqueue_ids:
+                    # QAction.triggered emits a bool; the context-menu path
+                    # passes an explicit ID list and must not be overridden by
+                    # the staged pending selection.
+                    page._download_selected_with_rule(False)
+                    page._download_selected_with_rule(["other01"])
+                    self.assertEqual(
+                        enqueue_ids.call_args_list,
+                        [call(["pending01"]), call(["other01"])],
+                    )
+                    self.assertEqual(apply_rule.call_count, 2)
+        page.close()
+
+    def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):
+        mgr = make_manager()
+        source_ids = [
+            mgr.subscriptions.add_source("feed", f"select-feed-{index}", f"Feed {index}")
+            for index in range(3)
+        ]
+
+        with patch("app.ui.subscription_page.download_manager", mgr):
+            page = SubscriptionInterface()
+            page.resize(800, 900)
+            page.show()
+            self.app.processEvents()
+            try:
+                self.assertEqual(
+                    page._source_table.selectionMode(),
+                    QAbstractItemView.SelectionMode.ExtendedSelection,
+                )
+                self.assertIsInstance(page._thumbnail_list, ListWidget)
+                self.assertTrue(page._splitter_is_vertical)
+
+                page._source_table.selectRow(0)
+                page._source_table.selectionModel().select(
+                    page._source_table.model().index(1, 0),
+                    QItemSelectionModel.SelectionFlag.Select
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                expected_ids = [
+                    int(page._sources[row]["id"])
+                    for row in (0, 1)
+                ]
+                selected = page._selected_source_ids()
+                self.assertEqual(selected, expected_ids)
+
+                with patch.object(page, "_start_refresh") as start_refresh:
+                    page._refresh_selected_sources()
+                    start_refresh.assert_called_once_with(
+                        expected_ids,
+                        ignore_disabled=True,
+                    )
+            finally:
+                page.close()
+
+    def test_history_table_supports_extended_selection(self):
+        records = [
+            {"video_id": "history01", "title": "History 01", "file_path": ""},
+            {"video_id": "history02", "title": "History 02", "file_path": ""},
+            {"video_id": "history03", "title": "History 03", "file_path": ""},
+        ]
+        with patch("app.ui.history_page.download_manager") as manager:
+            manager.get_history_records.return_value = records
+            page = HistoryInterface()
+            self.assertEqual(
+                page._table.selectionMode(),
+                QAbstractItemView.SelectionMode.ExtendedSelection,
+            )
+
+            page._table.selectRow(0)
+            page._table.selectionModel().select(
+                page._table.model().index(1, 0),
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+
+            self.assertEqual(page._selected_video_ids(), ["history01", "history02"])
             page.close()
+
+    def test_search_page_controls_and_history_popup_survive_navigation(self):
+        old_auto_search = app_config.search_auto_search_enabled
+        old_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        page = None
+        try:
+            app_config.search_auto_search_enabled = True
+            page = SearchInterface()
+            self.assertFalse(hasattr(page, "_update_tags_btn"))
+            self.assertEqual(
+                [page._sort_combo.itemData(index) for index in range(page._sort_combo.count())],
+                ["date", "trending", "popularity", "views", "likes"],
+            )
+            page._set_search_controls_collapsed(False, persist=False)
+
+            with patch.object(page, "_start_search") as start_search:
+                page._schedule_auto_search()
+                self.assertTrue(page._auto_search_timer.isActive())
+                page._auto_start_search()
+                start_search.assert_called_once_with()
+
+            page._auto_search_timer.start()
+            page._set_combo_data(page._scope_combo, "tags")
+            page._keyword_edit.clear()
+            page._schedule_auto_search()
+            self.assertFalse(page._auto_search_timer.isActive())
+
+            page._set_search_controls_collapsed(True, persist=False)
+            self.assertTrue(page._query_card.isHidden())
+            self.assertTrue(page._rule_card.isHidden())
+            page._set_search_controls_collapsed(False, persist=False)
+            self.assertFalse(page._query_card.isHidden())
+            self.assertFalse(page._rule_card.isHidden())
+
+            page.show()
+            self.app.processEvents()
+            page._search_history_popup.show()
+            page.hide()
+            self.app.processEvents()
+            self.assertTrue(page._search_history_popup.isHidden())
+            page.show()
+            self.app.processEvents()
+            self.assertTrue(page._search_history_popup.isHidden())
+        finally:
+            if page is not None:
+                page.close()
+            app_config.search_auto_search_enabled = old_auto_search
+            app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
 
     def test_title_rule_filters_download_metadata(self):
         old_include = app_config.filter_title_include
@@ -1095,6 +1471,30 @@ class UiPerformanceTests(unittest.TestCase):
         self.assertEqual([source["source_key"] for source in ordered], ["alice", "plist01", "zeta"])
         self.assertIn("alice", _source_search_text(sources[1]))
         self.assertIn("iwara.tv/profile/alice", _source_search_text(sources[1]))
+
+    def test_subscription_source_sort_supports_import_time_and_numeric_fields(self):
+        sources = [
+            {
+                "source_type": "author",
+                "source_key": "old",
+                "title": "Same",
+                "created_at": "2025-01-01 00:00:00",
+                "new_count": 2,
+            },
+            {
+                "source_type": "author",
+                "source_key": "new",
+                "title": "Same",
+                "created_at": "2025-02-01 00:00:00",
+                "new_count": 8,
+            },
+        ]
+
+        by_import_time = sorted(sources, key=lambda source: _source_sort_key(source, "created_at"))
+        by_new_count = sorted(sources, key=lambda source: _source_sort_key(source, "new_count"), reverse=True)
+
+        self.assertEqual([source["source_key"] for source in by_import_time], ["old", "new"])
+        self.assertEqual([source["source_key"] for source in by_new_count], ["new", "old"])
 
 
 def tearDownModule():

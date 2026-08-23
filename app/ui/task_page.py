@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     ComboBox,
     FluentIcon,
@@ -23,6 +24,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
+    RoundMenu,
     SwitchButton,
     TableWidget,
     TitleLabel,
@@ -97,10 +99,11 @@ class TaskCenterInterface(QWidget):
     _COL_SIZE = 4
     _COL_SPEED = 5
     _COL_QUALITY = 6
-    _COL_URL = 7
-    _COL_ID = 8
-    _COL_ACTION = 9
-    _COL_REMOVE = 10
+    _COL_PRIORITY = 7
+    _COL_URL = 8
+    _COL_ID = 9
+    _COL_ACTION = 10
+    _COL_REMOVE = 11
 
     _SORT_DEFAULT = -1
     _SORT_ADDED = -2
@@ -209,6 +212,7 @@ class TaskCenterInterface(QWidget):
                 tr("Progress", "进度", "進捗"),
                 tr("Size", "大小", "サイズ"),
                 tr("Added", "加入顺序", "追加順"),
+                tr("Priority", "优先级", "優先度"),
                 tr("Quality", "画质", "画質"),
                 "ID",
             ]
@@ -222,6 +226,26 @@ class TaskCenterInterface(QWidget):
         self._sort_dir_btn.clicked.connect(self._toggle_sort_direction)
         filter_row.addWidget(self._sort_dir_btn)
 
+        self._priority_combo = ComboBox(self)
+        self._priority_combo.addItems(
+            [
+                tr("High Priority", "高优先级", "高優先度"),
+                tr("Normal Priority", "普通优先级", "通常優先度"),
+                tr("Low Priority", "低优先级", "低優先度"),
+            ]
+        )
+        self._priority_combo.setItemData(0, 10)
+        self._priority_combo.setItemData(1, 0)
+        self._priority_combo.setItemData(2, -10)
+        self._priority_combo.setCurrentIndex(1)
+        self._priority_combo.setFixedWidth(130)
+        filter_row.addWidget(self._priority_combo)
+        priority_btn = PrimaryPushButton(
+            tr("Set Priority", "设置优先级", "優先度を設定"), self
+        )
+        priority_btn.clicked.connect(self._set_selected_priority)
+        filter_row.addWidget(priority_btn)
+
         root.addLayout(filter_row)
 
         self._summary_label = BodyLabel("", self)
@@ -234,7 +258,7 @@ class TaskCenterInterface(QWidget):
         self._table.setMinimumWidth(0)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
-        self._table.setColumnCount(11)
+        self._table.setColumnCount(12)
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
@@ -244,6 +268,7 @@ class TaskCenterInterface(QWidget):
                 tr("Size", "大小", "サイズ"),
                 tr("Speed", "速度", "速度"),
                 tr("Quality", "画质", "画質"),
+                tr("Priority", "优先级", "優先度"),
                 "URL",
                 "ID",
                 tr("Action", "操作", "操作"),
@@ -251,7 +276,9 @@ class TaskCenterInterface(QWidget):
             ]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # ExtendedSelection gives the table native Ctrl-click toggles and
+        # Shift-click range selection without a second selection model.
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setBorderVisible(True)
@@ -262,6 +289,8 @@ class TaskCenterInterface(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(34)
         self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._table.cellClicked.connect(self._on_cell_clicked)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -279,6 +308,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE: 142,
             self._COL_SPEED: 96,
             self._COL_QUALITY: 72,
+            self._COL_PRIORITY: 82,
             self._COL_URL: 68,
             self._COL_ID: 126,
             self._COL_ACTION: 66,
@@ -317,6 +347,7 @@ class TaskCenterInterface(QWidget):
         signal_bus.task_error.connect(self._on_task_error)
         signal_bus.tasks_removed.connect(self._on_tasks_removed)
         signal_bus.task_removed.connect(self._on_task_removed)
+        signal_bus.task_priority_changed.connect(self._on_task_priority_changed)
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -362,6 +393,7 @@ class TaskCenterInterface(QWidget):
             self._size_text(task),
             task.speed_str,
             task.quality,
+            self._priority_text(task.priority),
             _video_url(task.video_id),
             task.video_id,
         ]
@@ -379,6 +411,8 @@ class TaskCenterInterface(QWidget):
                 item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
             elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            elif col_idx == self._COL_PRIORITY:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             else:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
@@ -476,6 +510,7 @@ class TaskCenterInterface(QWidget):
             title=str(info.get("title", "") or video_id),
             author=str(info.get("author", "") or ""),
             status=status,
+            priority=int(info.get("priority", 0) or 0),
         )
 
     def _fetch_task(self, task_id: str, info: dict | None = None) -> DownloadTask | None:
@@ -573,7 +608,7 @@ class TaskCenterInterface(QWidget):
             order = self._task_order.get(task.task_id, 0)
             progress = self._progress_ratio(task)
             if self._sort_column == self._SORT_DEFAULT:
-                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)
             if self._sort_column == self._SORT_ADDED:
                 return order
             if self._sort_column == self._COL_STATE:
@@ -590,11 +625,13 @@ class TaskCenterInterface(QWidget):
                 return (text(task.speed_str), order)
             if self._sort_column == self._COL_QUALITY:
                 return (text(task.quality), order)
+            if self._sort_column == self._COL_PRIORITY:
+                return (task.priority, order)
             if self._sort_column == self._COL_URL:
                 return (text(_video_url(task.video_id)), order)
             if self._sort_column == self._COL_ID:
                 return (text(task.video_id), order)
-            return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), order)
+            return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)
 
         return sorted(tasks, key=key, reverse=self._sort_reverse)
 
@@ -607,11 +644,12 @@ class TaskCenterInterface(QWidget):
             4: self._COL_PROGRESS,
             5: self._COL_SIZE,
             6: self._SORT_ADDED,
-            7: self._COL_QUALITY,
-            8: self._COL_ID,
+            7: self._COL_PRIORITY,
+            8: self._COL_QUALITY,
+            9: self._COL_ID,
         }
         self._sort_column = mapping.get(index, self._SORT_DEFAULT)
-        if index in (4, 5):
+        if index in (4, 5, 7):
             self._sort_reverse = True
         elif index == 0:
             self._sort_reverse = False
@@ -628,7 +666,11 @@ class TaskCenterInterface(QWidget):
             self._sort_reverse = not self._sort_reverse
         else:
             self._sort_column = column
-            self._sort_reverse = column in (self._COL_PROGRESS, self._COL_SIZE)
+            self._sort_reverse = column in (
+                self._COL_PROGRESS,
+                self._COL_SIZE,
+                self._COL_PRIORITY,
+            )
         self._sync_sort_combo()
         self._update_sort_button()
         self._restore_sort_indicator()
@@ -649,6 +691,7 @@ class TaskCenterInterface(QWidget):
             self._COL_SIZE,
             self._COL_SPEED,
             self._COL_QUALITY,
+            self._COL_PRIORITY,
             self._COL_URL,
             self._COL_ID,
         }
@@ -668,8 +711,9 @@ class TaskCenterInterface(QWidget):
             self._COL_PROGRESS: 4,
             self._COL_SIZE: 5,
             self._SORT_ADDED: 6,
-            self._COL_QUALITY: 7,
-            self._COL_ID: 8,
+            self._COL_PRIORITY: 7,
+            self._COL_QUALITY: 8,
+            self._COL_ID: 9,
         }
         self._sort_combo.blockSignals(True)
         self._sort_combo.setCurrentIndex(mapping.get(self._sort_column, 0))
@@ -746,6 +790,193 @@ class TaskCenterInterface(QWidget):
         elif action == "remove":
             self._remove_task(task_id)
 
+    def _selected_task_ids(self) -> list[str]:
+        if not hasattr(self, "_table"):
+            return []
+        rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
+        task_ids = [
+            self._visible_task_ids[row]
+            for row in rows
+            if 0 <= row < len(self._visible_task_ids)
+        ]
+        if task_ids:
+            return task_ids
+        row = self._table.currentRow()
+        if 0 <= row < len(self._visible_task_ids):
+            return [self._visible_task_ids[row]]
+        return []
+
+    def _selected_tasks_by_status(self, task_ids: list[str]) -> dict[TaskStatus, list[str]]:
+        grouped: dict[TaskStatus, list[str]] = {}
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None:
+                continue
+            grouped.setdefault(task.status, []).append(task_id)
+        return grouped
+
+    def _show_context_menu(self, position):
+        item = self._table.itemAt(position)
+        if item is not None:
+            selected_rows = {index.row() for index in self._table.selectionModel().selectedRows()}
+            if item.row() not in selected_rows:
+                self._table.clearSelection()
+                self._table.selectRow(item.row())
+
+        task_ids = self._selected_task_ids()
+        if not task_ids:
+            return
+        grouped = self._selected_tasks_by_status(task_ids)
+        completed_ids = grouped.get(TaskStatus.COMPLETED, [])
+        failed_ids = grouped.get(TaskStatus.FAILED, [])
+        cancelled_ids = grouped.get(TaskStatus.CANCELLED, [])
+        cancelling_ids = grouped.get(TaskStatus.CANCELLING, [])
+        interruptible_ids = [
+            task_id
+            for status, ids in grouped.items()
+            if status in _ACTIVE_STATUSES and status != TaskStatus.CANCELLING
+            for task_id in ids
+        ]
+
+        menu = RoundMenu(parent=self)
+        if completed_ids:
+            if len(completed_ids) == 1:
+                completed_id = completed_ids[0]
+                completed_task = self._tasks_by_id.get(completed_id)
+                video_id = completed_task.video_id if completed_task else ""
+                menu.addAction(
+                    Action(
+                        FluentIcon.HISTORY,
+                        tr("Open video page", "打开视频页面", "動画ページを開く"),
+                        self,
+                        triggered=lambda _checked=False, url=_video_url(video_id): self._open_url(url),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.FOLDER,
+                        tr("Open folder", "打开文件夹", "フォルダーを開く"),
+                        self,
+                        triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
+                            selected_id, open_file=False
+                        ),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.DOCUMENT,
+                        tr("Open file", "打开文件", "ファイルを開く"),
+                        self,
+                        triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
+                            selected_id, open_file=True
+                        ),
+                    )
+                )
+            else:
+                menu.addAction(
+                    Action(
+                        FluentIcon.HISTORY,
+                        tr(
+                            f"Open selected video pages ({len(completed_ids)})",
+                            f"打开所选视频页面（{len(completed_ids)}）",
+                            f"選択した動画ページを開く（{len(completed_ids)}）",
+                        ),
+                        self,
+                        triggered=lambda _checked=False, ids=tuple(completed_ids): self._open_task_video_pages(ids),
+                    )
+                )
+        if completed_ids and (
+            failed_ids or cancelled_ids or interruptible_ids or cancelling_ids
+        ):
+            menu.addSeparator()
+        if failed_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.SYNC,
+                    tr(
+                        f"Retry selected failed ({len(failed_ids)})",
+                        f"重试所选失败任务（{len(failed_ids)}）",
+                        f"選択した失敗タスクを再試行（{len(failed_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(failed_ids): self._retry_task_ids(ids),
+                )
+            )
+        if cancelled_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.RETURN,
+                    tr(
+                        f"Restore selected cancelled ({len(cancelled_ids)})",
+                        f"恢复所选中断任务（{len(cancelled_ids)}）",
+                        f"選択した中断タスクを復元（{len(cancelled_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(cancelled_ids): self._restore_task_ids(ids),
+                )
+            )
+        if interruptible_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.CANCEL,
+                    tr(
+                        f"Interrupt selected active ({len(interruptible_ids)})",
+                        f"中断所选进行中任务（{len(interruptible_ids)}）",
+                        f"選択した実行中タスクを中断（{len(interruptible_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(interruptible_ids): self._cancel_task_ids(ids),
+                )
+            )
+        if cancelling_ids and not interruptible_ids:
+            # Keep the menu honest for rows that are already waiting for a
+            # cancellation callback; requesting it again has no effect.
+            menu.addAction(
+                Action(
+                    FluentIcon.INFO,
+                    tr(
+                        f"Cancellation already requested ({len(cancelling_ids)})",
+                        f"已请求中断（{len(cancelling_ids)}）",
+                        f"中断要求済み（{len(cancelling_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False: None,
+                )
+            )
+        if menu.actions():
+            menu.addSeparator()
+        menu.addAction(
+            Action(
+                FluentIcon.DELETE,
+                tr(
+                    f"Remove selected tasks ({len(task_ids)})",
+                    f"移除所选任务（{len(task_ids)}）",
+                    f"選択したタスクを削除（{len(task_ids)}）",
+                ),
+                self,
+                triggered=lambda _checked=False, ids=tuple(task_ids): self._remove_task_ids(ids),
+            )
+        )
+        menu.exec(self._table.viewport().mapToGlobal(position))
+
+    def _set_selected_priority(self):
+        task_ids = self._selected_task_ids()
+        if not task_ids:
+            InfoBar.warning(
+                title=tr("Select a task", "请选择任务", "タスクを選択してください"),
+                content="",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1800,
+                parent=self,
+            )
+            return
+        priority = int(self._priority_combo.currentData() or 0)
+        for task_id in task_ids:
+            download_manager.set_task_priority(task_id, priority)
+        self._schedule_refresh(0)
+
     def _retry_task(self, task_id: str):
         download_manager.retry_task(task_id)
 
@@ -772,18 +1003,112 @@ class TaskCenterInterface(QWidget):
     def _remove_task(self, task_id: str):
         download_manager.remove_task(task_id)
 
+    def _retry_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        ids = [
+            task_id
+            for task_id in task_ids
+            if self._tasks_by_id.get(task_id)
+            and self._tasks_by_id[task_id].status == TaskStatus.FAILED
+        ]
+        for task_id in ids:
+            download_manager.retry_task(task_id)
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Retry requested", "已请求重试", "再試行を要求しました"),
+            tr(
+                f"Retried {len(ids)} failed tasks",
+                f"已重试 {len(ids)} 个失败任务",
+                f"失敗タスク {len(ids)} 件を再試行しました",
+            ),
+        )
+
+    def _restore_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        restored = 0
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None or task.status != TaskStatus.CANCELLED:
+                continue
+            if download_manager.restore_cancelled_task(task_id):
+                restored += 1
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Restore requested", "已请求恢复", "復元を要求しました"),
+            tr(
+                f"Restored {restored} cancelled tasks",
+                f"已恢复 {restored} 个中断任务",
+                f"中断タスク {restored} 件を復元しました",
+            ),
+        )
+
+    def _cancel_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        cancelled = 0
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task is None or task.status not in _ACTIVE_STATUSES or task.status == TaskStatus.CANCELLING:
+                continue
+            if download_manager.cancel_task(task_id):
+                cancelled += 1
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Interrupt requested", "已请求中断", "中断を要求しました"),
+            tr(
+                f"Requested interruption for {cancelled} active tasks",
+                f"已请求中断 {cancelled} 个进行中任务",
+                f"実行中タスク {cancelled} 件に中断を要求しました",
+            ),
+        )
+
+    def _remove_task_ids(self, task_ids: tuple[str, ...] | list[str]):
+        ids = [task_id for task_id in task_ids if task_id in self._tasks_by_id]
+        for task_id in ids:
+            download_manager.remove_task(task_id)
+        self._schedule_refresh(0)
+        self._show_bulk_feedback(
+            tr("Tasks removed", "任务已移除", "タスクを削除しました"),
+            tr(
+                f"Removed {len(ids)} selected tasks",
+                f"已移除 {len(ids)} 个所选任务",
+                f"選択したタスク {len(ids)} 件を削除しました",
+            ),
+        )
+
+    def _show_bulk_feedback(self, title: str, content: str):
+        InfoBar.info(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
+
     def _open_task(self, task_id: str):
         ok, message = download_manager.open_task_output(task_id)
         if not ok:
-            InfoBar.warning(
-                title=tr("Cannot open", "无法打开", "開けません"),
-                content=message,
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2500,
-                parent=self,
-            )
+            self._show_open_error(message)
+
+    def _open_task_output(self, task_id: str, *, open_file: bool):
+        ok, message = download_manager.open_task_output(task_id, open_file=open_file)
+        if not ok:
+            self._show_open_error(message)
+
+    def _show_open_error(self, message: str):
+        InfoBar.warning(
+            title=tr("Cannot open", "无法打开", "開けません"),
+            content=message,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self,
+        )
+
+    def _open_task_video_pages(self, task_ids: tuple[str, ...] | list[str]):
+        for task_id in task_ids:
+            task = self._tasks_by_id.get(task_id)
+            if task:
+                self._open_url(_video_url(task.video_id))
 
     def _open_url(self, url: str):
         if url:
@@ -907,6 +1232,15 @@ class TaskCenterInterface(QWidget):
         if self._sort_column in (self._SORT_DEFAULT, self._COL_STATE):
             self._schedule_refresh(300)
 
+    def _on_task_priority_changed(self, task_id: str, _priority: int):
+        task = self._fetch_task(task_id)
+        if not task:
+            return
+        self._tasks_by_id[task_id] = task
+        self._upsert_task_row(task)
+        if self._sort_column in (self._SORT_DEFAULT, self._COL_PRIORITY):
+            self._schedule_refresh(0)
+
     def _on_task_progress(self, task_id: str, _downloaded: int, _total: int, _speed: str):
         self._ensure_order(task_id)
         task = self._tasks_by_id.get(task_id)
@@ -988,6 +1322,7 @@ class TaskCenterInterface(QWidget):
                 status_label(task.status),
                 task.title,
                 task.author,
+                task.username,
                 task.video_id,
                 _video_url(task.video_id),
                 task.quality,
@@ -1002,6 +1337,14 @@ class TaskCenterInterface(QWidget):
         if column == self._COL_PROGRESS and task.error_msg:
             return task.error_msg
         return value
+
+    @staticmethod
+    def _priority_text(priority: int) -> str:
+        if priority > 0:
+            return tr("High", "高", "高")
+        if priority < 0:
+            return tr("Low", "低", "低")
+        return tr("Normal", "普通", "通常")
 
     def _progress_ratio(self, task: DownloadTask) -> float:
         if task.status == TaskStatus.COMPLETED:

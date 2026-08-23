@@ -61,6 +61,7 @@ jobs:
             --windows-icon-from-ico=app/icon.ico \
             --include-data-file=app/icon.ico=app/icon.ico \
             --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
+            --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json \
             --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe" \
             --output-dir=dist \
             --remove-output \
@@ -81,6 +82,7 @@ jobs:
             --include-package-data=cloudscraper \
             --include-data-file=app/icon.ico=app/icon.ico \
             --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
+            --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json \
             --output-filename="IwaraTool-Linux-AMD64-${VERSION}" \
             --output-dir=dist \
             --remove-output \

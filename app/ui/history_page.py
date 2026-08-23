@@ -6,7 +6,7 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     ComboBox,
     FluentIcon,
@@ -24,6 +25,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
+    RoundMenu,
     TableWidget,
     TitleLabel,
 )
@@ -73,6 +75,11 @@ class HistoryInterface(QWidget):
         self._records_by_id: dict[str, dict[str, Any]] = {}
         self._sort_column = self._COL_DOWNLOADED
         self._sort_reverse = True
+        self._history_dirty = False
+        self._history_refresh_timer = QTimer(self)
+        self._history_refresh_timer.setSingleShot(True)
+        self._history_refresh_timer.setInterval(120)
+        self._history_refresh_timer.timeout.connect(self._load_history)
 
         self._build_ui()
         self._load_history()
@@ -120,9 +127,9 @@ class HistoryInterface(QWidget):
         self._delete_selected_btn.setEnabled(False)
         self._delete_selected_btn.setToolTip(
             tr(
-                "Remove only the selected history record; the local file is untouched",
-                "只删除选中的历史记录，不会删除本地文件",
-                "選択した履歴だけを削除します。ローカルファイルは削除しません",
+                "Remove selected history records; local files are untouched",
+                "删除选中的历史记录，不会删除本地文件",
+                "選択した履歴を削除します。ローカルファイルは削除しません",
             )
         )
         self._delete_selected_btn.clicked.connect(self._remove_selected_record)
@@ -215,7 +222,9 @@ class HistoryInterface(QWidget):
             ]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Keep the native Qt selection behavior so Ctrl-click toggles rows and
+        # Shift-click selects a contiguous range.
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setBorderVisible(True)
@@ -227,6 +236,8 @@ class HistoryInterface(QWidget):
         self._table.cellClicked.connect(self._on_cell_clicked)
         self._table.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._table.itemSelectionChanged.connect(self._update_action_state)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -276,13 +287,28 @@ class HistoryInterface(QWidget):
             fit_table_last_column(self._table)
 
     def _load_history(self):
+        self._history_refresh_timer.stop()
         self._all_records = download_manager.get_history_records()
         self._records_by_id = {
             str(row.get("video_id", "") or ""): row
             for row in self._all_records
             if str(row.get("video_id", "") or "")
         }
+        self._history_dirty = False
         self._apply_filters()
+
+    def _schedule_history_refresh(self):
+        self._history_dirty = True
+        # HistoryInterface is constructed with the main window even when its
+        # navigation page is hidden.  Avoid reading SQLite and rebuilding a
+        # large table for every completion while the user is downloading.
+        if self.isVisible() and not self._history_refresh_timer.isActive():
+            self._history_refresh_timer.start()
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        if self._history_dirty and not self._history_refresh_timer.isActive():
+            self._history_refresh_timer.start()
 
     def _apply_filters(self, *_args):
         query = self._search_edit.text().strip().lower() if hasattr(self, "_search_edit") else ""
@@ -407,12 +433,129 @@ class HistoryInterface(QWidget):
 
     def _update_action_state(self):
         if hasattr(self, "_delete_selected_btn"):
-            self._delete_selected_btn.setEnabled(bool(self._selected_video_id()))
+            self._delete_selected_btn.setEnabled(bool(self._selected_video_ids()))
+
+    def _selected_video_ids(self) -> list[str]:
+        if not hasattr(self, "_table"):
+            return []
+
+        rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
+        video_ids: list[str] = []
+        for row in rows:
+            item = self._table.item(row, self._COL_ID) or self._table.item(row, self._COL_STATE)
+            if not item:
+                continue
+            video_id = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
+            if video_id and video_id not in video_ids:
+                video_ids.append(video_id)
+
+        if video_ids:
+            return video_ids
+
+        row = self._table.currentRow()
+        if row < 0:
+            return []
+        item = self._table.item(row, self._COL_ID) or self._table.item(row, self._COL_STATE)
+        if not item:
+            return []
+        video_id = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
+        return [video_id] if video_id else []
+
+    def _show_context_menu(self, position):
+        item = self._table.itemAt(position)
+        if item is not None:
+            selected_rows = {index.row() for index in self._table.selectionModel().selectedRows()}
+            if item.row() not in selected_rows:
+                self._table.clearSelection()
+                self._table.selectRow(item.row())
+                self._table.setCurrentCell(item.row(), self._COL_ID)
+
+        video_ids = self._selected_video_ids()
+        if not video_ids:
+            return
+
+        records = [self._records_by_id.get(video_id, {}) for video_id in video_ids]
+        moved_ids = [
+            video_id
+            for video_id, record in zip(video_ids, records)
+            if record and self._record_state(record)[1] == "moved"
+        ]
+        menu = RoundMenu(parent=self)
+
+        if len(video_ids) == 1:
+            video_id = video_ids[0]
+            record = records[0]
+            file_path = str(record.get("file_path", "") or "")
+            file_exists = bool(file_path and os.path.isfile(file_path))
+            menu.addAction(
+                Action(
+                    FluentIcon.HISTORY,
+                    tr("Open video page", "打开视频页面", "動画ページを開く"),
+                    self,
+                    triggered=lambda _checked=False, item_id=video_id: self._open_video_url(item_id),
+                )
+            )
+            if file_exists:
+                menu.addAction(
+                    Action(
+                        FluentIcon.FOLDER,
+                        tr("Open folder", "打开文件夹", "フォルダーを開く"),
+                        self,
+                        triggered=lambda _checked=False, item_id=video_id: self._open_record(
+                            item_id, open_file=False
+                        ),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.DOCUMENT,
+                        tr("Open file", "打开文件", "ファイルを開く"),
+                        self,
+                        triggered=lambda _checked=False, item_id=video_id: self._open_record(
+                            item_id, open_file=True
+                        ),
+                    )
+                )
+                menu.addAction(
+                    Action(
+                        FluentIcon.SETTING,
+                        tr("Rename file", "重命名文件", "ファイル名を変更"),
+                        self,
+                        triggered=lambda _checked=False, item_id=video_id: self._rename_record(item_id),
+                    )
+                )
+
+        if menu.actions():
+            menu.addSeparator()
+        if moved_ids:
+            menu.addAction(
+                Action(
+                    FluentIcon.BROOM,
+                    tr(
+                        f"Clean selected moved records ({len(moved_ids)})",
+                        f"清理选中的失效记录（{len(moved_ids)}）",
+                        f"選択した移動済み履歴を削除（{len(moved_ids)}）",
+                    ),
+                    self,
+                    triggered=lambda _checked=False, ids=tuple(moved_ids): self._clean_selected_records(ids),
+                )
+            )
+        menu.addAction(
+            Action(
+                FluentIcon.DELETE,
+                tr(
+                    f"Delete selected records ({len(video_ids)})",
+                    f"删除选中的历史记录（{len(video_ids)}）",
+                    f"選択した履歴を削除（{len(video_ids)}）",
+                ),
+                self,
+                triggered=lambda _checked=False, ids=tuple(video_ids): self._remove_records(ids),
+            )
+        )
+        menu.exec(self._table.viewport().mapToGlobal(position))
 
     def _remove_selected_record(self):
-        video_id = self._selected_video_id()
-        if video_id:
-            self._remove_record(video_id)
+        self._remove_records(self._selected_video_ids())
 
     def _on_cell_clicked(self, row: int, column: int):
         if column not in {
@@ -615,13 +758,8 @@ class HistoryInterface(QWidget):
         return " ".join(str(v or "") for v in values).lower()
 
     def _selected_video_id(self) -> str:
-        row = self._table.currentRow()
-        if row < 0:
-            return ""
-        item = self._table.item(row, self._COL_ID) or self._table.item(row, self._COL_STATE)
-        if not item:
-            return ""
-        return str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+        selected = self._selected_video_ids()
+        return selected[0] if selected else ""
 
     def _open_selected(self, *, open_file: bool):
         video_id = self._selected_video_id()
@@ -679,20 +817,43 @@ class HistoryInterface(QWidget):
         )
 
     def _remove_record(self, video_id: str):
-        record = self._records_by_id.get(video_id)
-        if not record:
+        self._remove_records([video_id])
+
+    def _remove_records(self, video_ids: list[str]):
+        ids = list(
+            dict.fromkeys(
+                str(video_id or "").strip()
+                for video_id in video_ids
+                if str(video_id or "").strip() in self._records_by_id
+            )
+        )
+        if not ids:
             self._show_error(tr("History record does not exist", "历史记录不存在", "履歴が存在しません"))
             return
 
-        title = str(record.get("title", "") or video_id)
+        titles = [
+            str(self._records_by_id[video_id].get("title", "") or video_id)
+            for video_id in ids
+        ]
+        if len(ids) == 1:
+            prompt = tr(
+                f"Remove this DB record?\n{titles[0]}",
+                f"删除这条数据库记录？\n{titles[0]}",
+                f"このDB履歴を削除しますか？\n{titles[0]}",
+            )
+        else:
+            preview = "\n".join(f"• {title}" for title in titles[:5])
+            if len(titles) > 5:
+                preview += tr("\n…", "\n…", "\n…")
+            prompt = tr(
+                f"Remove {len(ids)} selected DB records?\n{preview}",
+                f"删除选中的 {len(ids)} 条数据库记录？\n{preview}",
+                f"選択したDB履歴 {len(ids)} 件を削除しますか？\n{preview}",
+            )
         confirmed = show_fluent_confirmation(
             self,
             tr("Remove Record", "删除记录", "履歴を削除"),
-            tr(
-                f"Remove this DB record?\n{title}",
-                f"删除这条数据库记录？\n{title}",
-                f"このDB履歴を削除しますか？\n{title}",
-            ),
+            prompt,
             informative=tr(
                 "The local file will not be deleted. Removing this record lets the video be queued again.",
                 "不会删除本地文件；删除记录后，该视频之后可以再次入队下载。",
@@ -704,15 +865,64 @@ class HistoryInterface(QWidget):
         if not confirmed:
             return
 
-        download_manager.remove_history_record(video_id)
+        removed = download_manager.remove_history_records(ids)
         self._load_history()
         InfoBar.success(
-            title=tr("History record removed", "历史记录已删除", "履歴を削除しました"),
-            content=tr("The local file was left untouched.", "本地文件未被删除。", "ローカルファイルは削除していません。"),
+            title=tr("History records removed", "历史记录已删除", "履歴を削除しました"),
+            content=tr(
+                f"Removed {removed} DB record(s); local files were left untouched.",
+                f"已删除 {removed} 条数据库记录；本地文件未被删除。",
+                f"DB履歴を {removed} 件削除しました。ローカルファイルは削除していません。",
+            ),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=2200,
+            parent=self,
+        )
+
+    def _clean_selected_records(self, video_ids: list[str]):
+        moved_ids = [
+            video_id
+            for video_id in video_ids
+            if video_id in self._records_by_id
+            and self._record_state(self._records_by_id[video_id])[1] == "moved"
+        ]
+        if not moved_ids:
+            return
+
+        confirmed = show_fluent_confirmation(
+            self,
+            tr("Clean Selected Records", "清理选中记录", "選択した履歴を整理"),
+            tr(
+                f"Remove {len(moved_ids)} selected records whose files are missing or outside the download folder?",
+                f"删除选中 {len(moved_ids)} 条文件缺失或已移出下载目录的记录？",
+                f"ファイル不明または保存先外の選択履歴 {len(moved_ids)} 件を削除しますか？",
+            ),
+            informative=tr(
+                "Local files will not be deleted.",
+                "不会删除本地文件。",
+                "ローカルファイルは削除されません。",
+            ),
+            yes_text=tr("Clean records", "清理记录", "履歴を整理"),
+            no_text=tr("Cancel", "取消", "キャンセル"),
+        )
+        if not confirmed:
+            return
+
+        removed = download_manager.remove_history_records(moved_ids)
+        self._load_history()
+        InfoBar.success(
+            title=tr("Cleanup Finished", "清理完成", "整理完了"),
+            content=tr(
+                f"Removed {removed} selected moved record(s).",
+                f"已清理 {removed} 条选中的失效记录。",
+                f"選択した移動済み履歴を {removed} 件整理しました。",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
             parent=self,
         )
 
@@ -782,7 +992,7 @@ class HistoryInterface(QWidget):
 
     def _on_task_status_changed(self, _task_id: str, status_str: str):
         if status_str == TaskStatus.COMPLETED.value:
-            self._load_history()
+            self._schedule_history_refresh()
 
 
 def _date_only(value: str) -> str:

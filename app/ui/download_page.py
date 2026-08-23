@@ -7,9 +7,7 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
-    QPlainTextEdit,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -25,6 +23,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    PlainTextEdit,
     MessageBoxBase,
     PrimaryPushButton,
     PushButton,
@@ -127,22 +126,12 @@ class _SubscriptionPromptDialog(MessageBoxBase):
             self,
         )
         self.content_label.setWordWrap(True)
-        self.note_label = BodyLabel(
-            tr(
-                "Official Iwara follow API is not wired here; this only manages local subscriptions.",
-                "当前仅加入本软件的本地订阅列表；Iwara 官方关注接口暂未接入。",
-                "ここではローカル購読のみ管理します。Iwara 公式フォローAPIは未接続です。",
-            ),
-            self,
-        )
-        self.note_label.setWordWrap(True)
         self.no_remind = CheckBox(
             tr("Do not ask again", "下次不再提醒", "次回から確認しない"), self
         )
 
         self.viewLayout.addWidget(self.title_label)
         self.viewLayout.addWidget(self.content_label)
-        self.viewLayout.addWidget(self.note_label)
         self.viewLayout.addWidget(self.no_remind)
         self.yesButton.setText(tr("Add This Time", "本次加入", "今回追加"))
         self.cancelButton.setText(tr("No", "不加入", "追加しない"))
@@ -214,36 +203,6 @@ def option_button_style(checked: bool) -> str:
     if isDarkTheme():
         return _OPTION_ON_DARK_STYLE if checked else _OPTION_OFF_DARK_STYLE
     return _OPTION_ON_STYLE if checked else _OPTION_OFF_STYLE
-
-
-def native_editor_style() -> str:
-    """Theme native Qt text editors that are not covered by Fluent QSS."""
-    if isDarkTheme():
-        return """
-        QPlainTextEdit {
-            background: #202225;
-            color: #edf1f5;
-            border: 1px solid #454b52;
-            border-radius: 6px;
-            selection-background-color: #087f89;
-            selection-color: white;
-            padding: 8px;
-        }
-        QPlainTextEdit:focus { border: 1px solid #18a8b2; }
-        """
-    return """
-    QPlainTextEdit {
-        background: #ffffff;
-        color: #24292f;
-        border: 1px solid #c9d1d9;
-        border-radius: 6px;
-        selection-background-color: #b8e7ea;
-        selection-color: #172126;
-        padding: 8px;
-    }
-    QPlainTextEdit:focus { border: 1px solid #009faa; }
-    """
-
 
 
 class FilterDialog(QDialog):
@@ -594,10 +553,9 @@ class DownloadInterface(QWidget):
         log_header.addWidget(clear_log_btn)
         log_layout.addLayout(log_header)
 
-        self._log_edit = QPlainTextEdit(log_card)
+        self._log_edit = PlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
-        self._log_edit.setStyleSheet(native_editor_style())
         self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
         self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
         from PySide6.QtGui import QFont
@@ -642,11 +600,13 @@ class DownloadInterface(QWidget):
             )
             return
         self._maybe_add_download_source_to_subscription(url)
+        rule_id = self._rule_picker.selected_rule_id()
+        self._rule_picker.apply_selected(show_notice=False)
         mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
         if mark_only:
-            download_manager.add_url_mark_downloaded(url)
+            download_manager.add_url_mark_downloaded(url, rule_id=rule_id)
         else:
-            download_manager.add_url(url)
+            download_manager.add_url(url, rule_id=rule_id)
         self._url_edit.clear()
         InfoBar.success(
             title=tr("Submitted", "已提交", "送信しました"),
@@ -718,7 +678,6 @@ class DownloadInterface(QWidget):
         if hasattr(self, "_download_video_btn"):
             self._sync_option_controls()
         if hasattr(self, "_log_edit"):
-            self._log_edit.setStyleSheet(native_editor_style())
             self._log_edit.verticalScrollBar().setStyleSheet(fluent_scrollbar_style())
             self._log_edit.horizontalScrollBar().setStyleSheet(fluent_scrollbar_style())
 

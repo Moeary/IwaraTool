@@ -57,7 +57,10 @@
 - `https://www.iwara.tv/videos?...`
 - 示例：
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
-  - `https://www.iwara.tv/videos?tags=2d&sort=date`
+- `https://www.iwara.tv/videos?tags=2d&sort=date`
+
+网页路由使用 `tags`，当前 JSON 接口实际通过单数参数 `tag` 执行筛选；IwaraTool
+会同时接受两种形式，并在 API 边界统一转换。
 
 ### 行为
 - 解析 URL 查询参数
@@ -133,6 +136,7 @@
 - 标签词典默认使用项目已有的 `data/iwara_tags.json` 离线回退；点击“更新标签”后，会将 LoveIwara 的 MIT 授权词典缓存到 `data/tag_translations/`，启动时不会强制联网。
 - 完整缓存文件为 `data/tag_translations/loveiwara_iwara_tags_localized.json`；项目生成的备用索引为 `data/iwara_tags.json`。
 - 随包源文件为 `app/data/tag_translations/loveiwara_iwara_tags_localized.json`，Nuitka 与 GitHub Actions 会显式将其加入编译产物。
+- 随包的 Oreno3D/Iwara 标签映射为 `app/data/oreno3d_iwara_map.json`，Nuitka 与 GitHub Actions 会显式将其加入编译产物。
 - 首次运行且可执行文件旁的 `data/tag_translations/` 缺少缓存时，程序会自动展开内置词典；已有用户缓存不会被覆盖。开发机 `data/` 中的其他运行时文件仍需自行保留。
 - 第三方来源及许可证见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 

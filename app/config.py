@@ -5,6 +5,16 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 
 
+DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
+LEGACY_FILENAME_TEMPLATE = "{username}/{YYYYMMDD}_{title}_{id}.mp4"
+LEGACY_FILENAME_TEMPLATES = frozenset(
+    {
+        LEGACY_FILENAME_TEMPLATE,
+        "{username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+    }
+)
+
+
 def _app_root_dir() -> str:
     """Directory where the app is launched (portable-friendly)."""
     return str(Path(sys.argv[0]).resolve().parent)
@@ -38,7 +48,7 @@ class AppConfig:
         "preferred_quality": "Source",  # Source / 540 / 360
         "auto_login": True,
         "skip_existing_files": True,
-        "filename_template": "{username}/{YYYY-MM-DD}_{title}_{id}.mp4",
+        "filename_template": DEFAULT_FILENAME_TEMPLATE,
         "ui_language": "zh_CN",
         "filter_enabled": False,
         "filter_min_likes_enabled": False,
@@ -56,6 +66,8 @@ class AppConfig:
         "filter_title_exclude": "",
         "search_limit_enabled": True,
         "search_limit_count": 100,
+        "search_history_limit": 20,
+        "search_auto_search_enabled": True,
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -63,8 +75,21 @@ class AppConfig:
         "download_thumbnail": False,
         "collect_nfo_info": False,
         "mark_submitted_as_downloaded": False,
+        "record_to_history": True,
         "subscription_prompt_mode": "ask",  # ask / always / never
         "completed_task_click_action": "folder",
+        "subscription_auto_refresh_enabled": False,
+        "subscription_refresh_interval_minutes": 30,
+        "desktop_notifications_enabled": True,
+        "subscription_auto_enqueue_enabled": False,
+        "subscription_auto_enqueue_rule_id": "__builtin_default__",
+        "global_speed_limit_enabled": False,
+        "global_speed_limit_kib": 0,
+        "download_schedule_enabled": False,
+        "download_schedule_start": "00:00",
+        "download_schedule_end": "00:00",
+        "update_check_enabled": True,
+        "update_last_prompted_version": "",
     }
 
     def __init__(self):
@@ -77,6 +102,7 @@ class AppConfig:
         self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
         self._migrate_split_proxy_settings()
+        self._migrate_filename_template_if_needed()
 
         # Ensure default download directory exists
         os.makedirs(self.download_dir, exist_ok=True)
@@ -124,6 +150,8 @@ class AppConfig:
             "filter_title_exclude",
             "search_limit_enabled",
             "search_limit_count",
+            "search_history_limit",
+            "search_auto_search_enabled",
             "aria2_rpc_enabled",
             "aria2_rpc_url",
             "aria2_rpc_token",
@@ -131,8 +159,21 @@ class AppConfig:
             "download_thumbnail",
             "collect_nfo_info",
             "mark_submitted_as_downloaded",
+            "record_to_history",
             "subscription_prompt_mode",
             "completed_task_click_action",
+            "subscription_auto_refresh_enabled",
+            "subscription_refresh_interval_minutes",
+            "desktop_notifications_enabled",
+            "subscription_auto_enqueue_enabled",
+            "subscription_auto_enqueue_rule_id",
+            "global_speed_limit_enabled",
+            "global_speed_limit_kib",
+            "download_schedule_enabled",
+            "download_schedule_start",
+            "download_schedule_end",
+            "update_check_enabled",
+            "update_last_prompted_version",
         }
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
@@ -198,6 +239,14 @@ class AppConfig:
                 legacy_url if legacy_url_present else self._DEFAULTS["download_proxy_url"],
             )
         self._qs.sync()
+
+    def _migrate_filename_template_if_needed(self):
+        """Move untouched legacy defaults to the stable-author template."""
+
+        current = str(self._qs.value("filename_template", "") or "").strip()
+        if current in LEGACY_FILENAME_TEMPLATES:
+            self._qs.setValue("filename_template", DEFAULT_FILENAME_TEMPLATE)
+            self._qs.sync()
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -535,6 +584,32 @@ class AppConfig:
         self._set("search_limit_count", v)
 
     @property
+    def search_history_limit(self) -> int:
+        """Maximum number of recent searches retained in the UI history."""
+
+        try:
+            value = int(self._get("search_history_limit"))
+        except (TypeError, ValueError):
+            value = 20
+        return max(1, min(100, value))
+
+    @search_history_limit.setter
+    def search_history_limit(self, v: int):
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            value = 20
+        self._set("search_history_limit", max(1, min(100, value)))
+
+    @property
+    def search_auto_search_enabled(self) -> bool:
+        return self._get("search_auto_search_enabled")
+
+    @search_auto_search_enabled.setter
+    def search_auto_search_enabled(self, v: bool):
+        self._set("search_auto_search_enabled", bool(v))
+
+    @property
     def aria2_rpc_enabled(self) -> bool:
         return self._get("aria2_rpc_enabled")
 
@@ -591,6 +666,14 @@ class AppConfig:
         self._set("mark_submitted_as_downloaded", v)
 
     @property
+    def record_to_history(self) -> bool:
+        return self._get("record_to_history")
+
+    @record_to_history.setter
+    def record_to_history(self, v: bool):
+        self._set("record_to_history", bool(v))
+
+    @property
     def subscription_prompt_mode(self) -> str:
         mode = str(self._get("subscription_prompt_mode") or "ask").lower()
         return mode if mode in ("ask", "always", "never") else "ask"
@@ -607,6 +690,102 @@ class AppConfig:
     @completed_task_click_action.setter
     def completed_task_click_action(self, v: str):
         self._set("completed_task_click_action", v)
+
+    @property
+    def subscription_auto_refresh_enabled(self) -> bool:
+        return self._get("subscription_auto_refresh_enabled")
+
+    @subscription_auto_refresh_enabled.setter
+    def subscription_auto_refresh_enabled(self, v: bool):
+        self._set("subscription_auto_refresh_enabled", bool(v))
+
+    @property
+    def subscription_refresh_interval_minutes(self) -> int:
+        return max(1, min(24 * 60, self._get("subscription_refresh_interval_minutes")))
+
+    @subscription_refresh_interval_minutes.setter
+    def subscription_refresh_interval_minutes(self, v: int):
+        self._set("subscription_refresh_interval_minutes", max(1, min(24 * 60, int(v))))
+
+    @property
+    def desktop_notifications_enabled(self) -> bool:
+        return self._get("desktop_notifications_enabled")
+
+    @desktop_notifications_enabled.setter
+    def desktop_notifications_enabled(self, v: bool):
+        self._set("desktop_notifications_enabled", bool(v))
+
+    @property
+    def subscription_auto_enqueue_enabled(self) -> bool:
+        return self._get("subscription_auto_enqueue_enabled")
+
+    @subscription_auto_enqueue_enabled.setter
+    def subscription_auto_enqueue_enabled(self, v: bool):
+        self._set("subscription_auto_enqueue_enabled", bool(v))
+
+    @property
+    def subscription_auto_enqueue_rule_id(self) -> str:
+        return str(self._get("subscription_auto_enqueue_rule_id") or "__builtin_default__")
+
+    @subscription_auto_enqueue_rule_id.setter
+    def subscription_auto_enqueue_rule_id(self, v: str):
+        self._set("subscription_auto_enqueue_rule_id", str(v or "__builtin_default__"))
+
+    @property
+    def global_speed_limit_enabled(self) -> bool:
+        return self._get("global_speed_limit_enabled")
+
+    @global_speed_limit_enabled.setter
+    def global_speed_limit_enabled(self, v: bool):
+        self._set("global_speed_limit_enabled", bool(v))
+
+    @property
+    def global_speed_limit_kib(self) -> int:
+        return max(0, min(10 * 1024 * 1024, self._get("global_speed_limit_kib")))
+
+    @global_speed_limit_kib.setter
+    def global_speed_limit_kib(self, v: int):
+        self._set("global_speed_limit_kib", max(0, min(10 * 1024 * 1024, int(v))))
+
+    @property
+    def download_schedule_enabled(self) -> bool:
+        return self._get("download_schedule_enabled")
+
+    @download_schedule_enabled.setter
+    def download_schedule_enabled(self, v: bool):
+        self._set("download_schedule_enabled", bool(v))
+
+    @property
+    def download_schedule_start(self) -> str:
+        return str(self._get("download_schedule_start") or "00:00")
+
+    @download_schedule_start.setter
+    def download_schedule_start(self, v: str):
+        self._set("download_schedule_start", str(v or "00:00"))
+
+    @property
+    def download_schedule_end(self) -> str:
+        return str(self._get("download_schedule_end") or "00:00")
+
+    @download_schedule_end.setter
+    def download_schedule_end(self, v: str):
+        self._set("download_schedule_end", str(v or "00:00"))
+
+    @property
+    def update_check_enabled(self) -> bool:
+        return self._get("update_check_enabled")
+
+    @update_check_enabled.setter
+    def update_check_enabled(self, v: bool):
+        self._set("update_check_enabled", bool(v))
+
+    @property
+    def update_last_prompted_version(self) -> str:
+        return str(self._get("update_last_prompted_version") or "")
+
+    @update_last_prompted_version.setter
+    def update_last_prompted_version(self, v: str):
+        self._set("update_last_prompted_version", str(v or ""))
 
 
 # Module-level singleton

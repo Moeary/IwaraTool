@@ -53,6 +53,7 @@ class SubscriptionStore:
                 "source_key TEXT NOT NULL, "
                 "title TEXT DEFAULT '', "
                 "remote_id TEXT DEFAULT '', "
+                "source_url TEXT DEFAULT '', "
                 "avatar_url TEXT DEFAULT '', "
                 "avatar_path TEXT DEFAULT '', "
                 "enabled INTEGER DEFAULT 1, "
@@ -112,8 +113,8 @@ class SubscriptionStore:
                     if not source_type or not source_key:
                         continue
                     target.execute(
-                        "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, enabled, last_checked_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                        "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, source_url, enabled, created_at, last_checked_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?) "
                         "ON CONFLICT(source_type, source_key) DO UPDATE SET "
                         "source_origin=CASE WHEN excluded.source_origin != '' THEN excluded.source_origin ELSE source_origin END, "
                         "title=CASE WHEN excluded.title != '' THEN excluded.title ELSE title END, "
@@ -127,7 +128,9 @@ class SubscriptionStore:
                             source_key,
                             str(source.get("title", "") or source_key),
                             str(source.get("remote_id", "") or ""),
+                            str(source.get("source_url", "") or ""),
                             1 if int(source.get("enabled", 1) or 0) else 0,
+                            str(source.get("created_at", "") or ""),
                             str(source.get("last_checked_at", "") or ""),
                         ),
                     )
@@ -197,10 +200,12 @@ class SubscriptionStore:
         avatar_url: str = "",
         avatar_path: str = "",
         source_origin: str | None = None,
+        source_url: str = "",
     ) -> int:
         source_type = source_type.strip().lower()
         source_key = source_key.strip()
         title = title.strip() or source_key
+        source_url = str(source_url or "").strip()
         if not source_type or not source_key:
             return 0
         requested_origin = (
@@ -229,6 +234,7 @@ class SubscriptionStore:
                     "avatar_url=CASE WHEN ? != '' THEN ? ELSE avatar_url END, "
                     "avatar_path=CASE WHEN ? != '' THEN ? ELSE avatar_path END, "
                     "source_origin=CASE WHEN ? != '' THEN ? ELSE source_origin END, "
+                    "source_url=CASE WHEN ? != '' THEN ? ELSE source_url END, "
                     "enabled=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                     (
                         title,
@@ -240,23 +246,26 @@ class SubscriptionStore:
                         avatar_path,
                         requested_origin,
                         requested_origin,
+                        source_url,
+                        source_url,
                         source_id,
                     ),
                 )
                 row = (source_id,)
             else:
                 conn.execute(
-                    "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 1) "
+                    "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) "
                     "ON CONFLICT(source_type, source_key) DO UPDATE SET "
                     "title=excluded.title, "
                     "remote_id=CASE WHEN excluded.remote_id != '' THEN excluded.remote_id ELSE remote_id END, "
                     "avatar_url=CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END, "
                     "avatar_path=CASE WHEN excluded.avatar_path != '' THEN excluded.avatar_path ELSE avatar_path END, "
                     "source_origin=CASE WHEN excluded.source_origin != '' THEN excluded.source_origin ELSE source_origin END, "
+                    "source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE source_url END, "
                     "enabled=1, "
                     "updated_at=CURRENT_TIMESTAMP",
-                    (source_type, insert_origin, source_key, title, remote_id, avatar_url, avatar_path),
+                    (source_type, insert_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path),
                 )
                 row = conn.execute(
                     "SELECT id FROM sources WHERE source_type=? AND source_key=?",
@@ -290,11 +299,25 @@ class SubscriptionStore:
             return dict(row) if row else None
 
     def remove_source(self, source_id: int):
+        self.remove_sources([source_id])
+
+    def remove_sources(self, source_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(int(source_id) for source_id in source_ids if source_id))
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
-            conn.execute("DELETE FROM items WHERE source_id=?", (int(source_id),))
-            conn.execute("DELETE FROM sources WHERE id=?", (int(source_id),))
+            conn.execute(
+                f"DELETE FROM items WHERE source_id IN ({placeholders})",
+                ids,
+            )
+            cursor = conn.execute(
+                f"DELETE FROM sources WHERE id IN ({placeholders})",
+                ids,
+            )
             conn.commit()
             self._export_sources_backup(conn)
+            return max(0, int(cursor.rowcount or 0))
 
     def set_source_enabled(self, source_id: int, enabled: bool):
         with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
@@ -544,8 +567,8 @@ class SubscriptionStore:
                     continue
                 conn.execute(
                     "INSERT OR IGNORE INTO sources "
-                    "(source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?)",
                     (
                         source_type,
                         _normalize_source_origin(source.get("source_origin", ""))
@@ -553,9 +576,11 @@ class SubscriptionStore:
                         source_key,
                         str(source.get("title", "") or source_key),
                         str(source.get("remote_id", "") or ""),
+                        str(source.get("source_url", "") or ""),
                         str(source.get("avatar_url", "") or ""),
                         str(source.get("avatar_path", "") or ""),
                         1 if int(source.get("enabled", 1) or 0) else 0,
+                        str(source.get("created_at", "") or ""),
                         str(source.get("last_checked_at", "") or ""),
                     ),
                 )
@@ -564,11 +589,14 @@ class SubscriptionStore:
     def _export_sources_backup(self, conn: sqlite3.Connection):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT source_type, source_origin, source_key, title, remote_id, avatar_url, avatar_path, enabled, last_checked_at "
+            "SELECT source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at "
             "FROM sources ORDER BY source_type ASC, title COLLATE NOCASE ASC"
         ).fetchall()
         payload = {
-            "version": 2,
+            # Adding an optional source URL is backward-compatible with the
+            # existing JSON snapshot shape, so keep the established backup
+            # version understood by older builds.
+            "version": 3,
             "sources": [dict(row) for row in rows],
         }
         tmp_path = f"{self._backup_path}.tmp"
@@ -584,6 +612,12 @@ class SubscriptionStore:
             "source_origin": "TEXT NOT NULL DEFAULT 'local'",
             "avatar_url": "TEXT DEFAULT ''",
             "avatar_path": "TEXT DEFAULT ''",
+            "source_url": "TEXT DEFAULT ''",
+            # ``created_at`` is present in new databases, but older installs
+            # need a migration so the import-time column remains available.
+            # SQLite does not allow CURRENT_TIMESTAMP in ALTER TABLE defaults;
+            # blank legacy values are filled immediately below.
+            "created_at": "TEXT DEFAULT ''",
         }
         origin_was_added = "source_origin" not in existing
         for col, ddl in required.items():
@@ -597,6 +631,10 @@ class SubscriptionStore:
             "WHEN 'playlist' THEN 'playlist' "
             "ELSE 'local' END "
             + ("" if origin_was_added else "WHERE source_origin IS NULL OR source_origin=''")
+        )
+        conn.execute(
+            "UPDATE sources SET created_at=CURRENT_TIMESTAMP "
+            "WHERE created_at IS NULL OR created_at=''"
         )
         # Feed/list rows cannot be local author subscriptions. This also
         # repairs databases initialized by the first version of this migration
@@ -639,9 +677,11 @@ def _normalize_source_origin(value: Any) -> str:
         "manual": "local",
         "author": "local",
         "list": "playlist",
+        "oreno": "oreno3d",
+        "oreno3d_author": "oreno3d",
     }
     normalized = aliases.get(value, value)
-    return normalized if normalized in {"account", "local", "playlist"} else ""
+    return normalized if normalized in {"account", "local", "playlist", "oreno3d"} else ""
 
 
 def _default_source_origin(source_type: str) -> str:

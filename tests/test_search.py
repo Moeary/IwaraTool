@@ -44,6 +44,23 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(video.tags, ("3D", "dance"))
         self.assertIn("thumbnail-02.jpg", video.thumbnail_url)
 
+    def test_normalize_video_keeps_canonical_tag_ids_from_iwara_api(self):
+        video = normalize_video(
+            {
+                "id": "tag-video",
+                "title": "HMV result",
+                "tags": [{"id": "hmv", "type": "category"}],
+            }
+        )
+
+        self.assertIsNotNone(video)
+        assert video is not None
+        self.assertEqual(video.tags, ("hmv",))
+        self.assertEqual(
+            [item for item in filter_videos([video], SearchFilters(include_tags=("hmv",)))],
+            [video],
+        )
+
     def test_filter_videos_applies_keyword_tags_ranges_and_dates(self):
         first = normalize_video(
             {
@@ -137,6 +154,47 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(captured["params"], {"sort": "views", "page": "1", "limit": "32"})
 
+    def test_api_page_hides_growing_count_sentinel_from_ui(self):
+        api = object.__new__(IwaraAPI)
+
+        def fake_get_json(_url, **_kwargs):
+            return {
+                "results": [{"id": f"video-{index}"} for index in range(32)],
+                "count": 97,
+            }
+
+        api._get_json = fake_get_json
+        results, total, has_more, error = api.get_videos_page(
+            {"tags": "loli,hmv", "sort": "date"},
+            page=2,
+            limit=32,
+        )
+
+        self.assertEqual(len(results), 32)
+        self.assertIsNone(total)
+        self.assertTrue(has_more)
+        self.assertEqual(error, "")
+
+    def test_api_page_translates_web_tags_query_to_singular_api_tag(self):
+        api = object.__new__(IwaraAPI)
+        captured = {}
+
+        def fake_get_json(url, **kwargs):
+            captured["url"] = url
+            captured["params"] = kwargs["params"]
+            return {"results": [], "count": 0}
+
+        api._get_json = fake_get_json
+        api.get_videos_page(
+            {"tags": "loli,hmv", "sort": "date"},
+            page=0,
+            limit=32,
+        )
+
+        self.assertTrue(captured["url"].endswith("/videos"))
+        self.assertEqual(captured["params"]["tag"], "loli,hmv")
+        self.assertNotIn("tags", captured["params"])
+
     def test_api_query_incremental_refresh_stops_at_known_video(self):
         api = object.__new__(IwaraAPI)
         pages: list[int] = []
@@ -160,6 +218,24 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual([item["id"] for item in videos], ["new-video", "known-video"])
         self.assertEqual(pages, [0])
+
+    def test_api_bulk_query_translates_web_tags_parameter(self):
+        api = object.__new__(IwaraAPI)
+        captured = []
+
+        def fake_get_json(_url, **kwargs):
+            captured.append(kwargs["params"])
+            return {"results": []}
+
+        api._get_json = fake_get_json
+        videos, error = api.get_videos_by_query(
+            {"tags": "loli,hmv", "sort": "date"},
+            max_pages=1,
+        )
+
+        self.assertEqual(videos, [])
+        self.assertEqual(error, "")
+        self.assertEqual(captured, [{"tag": "loli,hmv", "sort": "date", "page": "0"}])
 
 
 class SearchImageCacheTests(unittest.TestCase):

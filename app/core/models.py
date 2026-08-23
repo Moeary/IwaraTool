@@ -69,8 +69,14 @@ class DownloadTask:
     file_id: str = ""
     thumbnail_index: int = 0
     thumbnail_path: str = ""
+    priority: int = 0
+    rule_id: str = ""
+    rule_payload_json: str = ""
     cancel_requested: bool = False
     delete_temp_on_cancel: bool = False
     remove_after_cancel: bool = False
     cancel_origin: str = ""
     aria2_gid: str = ""
+    # Stable profile handle is stored in ``author``; this is the mutable
+    # display name used by the {username} filename token.
+    username: str = ""

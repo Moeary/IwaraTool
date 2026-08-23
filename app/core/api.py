@@ -490,6 +490,12 @@ class IwaraAPI:
             for key, value in (query_params or {}).items()
             if str(value).strip()
         }
+        # The website route exposes ``tags=...`` in its URL, but the current
+        # JSON endpoint only applies this filter when it receives ``tag=...``.
+        # Keep accepting the web URL shape at the boundary and translate it
+        # before the request is sent.
+        if params.get("tags") and "tag" not in params:
+            params["tag"] = params.pop("tags")
         params["page"] = str(page_number)
         params["limit"] = str(requested_limit)
         try:
@@ -519,17 +525,32 @@ class IwaraAPI:
                 ),
                 None,
             )
+            # Current Iwara responses commonly expose ``count`` as a paging
+            # lower-bound rather than a stable total: a full page 0 reports
+            # 33, page 1 reports 65, page 2 reports 97, and so on.  Treat the
+            # exact ``offset + page size + 1`` shape as a next-page sentinel;
+            # publishing it as a total makes the UI invent a growing page
+            # count on every navigation.
+            count_is_page_sentinel = bool(
+                total is not None
+                and len(results) >= requested_limit
+                and total == (page_number + 1) * requested_limit + 1
+            )
             if explicit_more is not None:
                 if isinstance(explicit_more, str):
                     has_more = explicit_more.strip().casefold() in {"1", "true", "yes", "y"}
                 else:
                     has_more = bool(explicit_more)
+            elif count_is_page_sentinel:
+                has_more = True
             elif total is not None:
                 has_more = (page_number + 1) * requested_limit < total
             else:
                 has_more = len(results) >= requested_limit
             if not results:
                 has_more = False
+            if count_is_page_sentinel:
+                total = None
             return results, total, has_more, ""
         except Exception as exc:
             return [], None, False, _friendly_request_error(str(exc))
@@ -555,6 +576,8 @@ class IwaraAPI:
             (videos, error_message). Partial results can be returned with error.
         """
         base_params = {str(k): str(v) for k, v in query_params.items() if str(v).strip()}
+        if base_params.get("tags") and "tag" not in base_params:
+            base_params["tag"] = base_params.pop("tags")
         start_page_raw = base_params.pop("page", "0")
         try:
             start_page = max(0, int(start_page_raw))

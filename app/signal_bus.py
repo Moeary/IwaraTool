@@ -21,6 +21,9 @@ class TaskSignalBus(QObject):
     # task_id
     task_removed = Signal(str)
 
+    # task_id, priority
+    task_priority_changed = Signal(str, int)
+
     # list[str]
     tasks_removed = Signal(list)
 
@@ -44,6 +47,15 @@ class TaskSignalBus(QObject):
 
     # rule_id; keeps rule pickers synchronized across pages.
     active_rule_changed = Signal(str)
+
+    # title, message
+    desktop_notification_requested = Signal(str, str)
+
+    # GitHub Release payload
+    release_update_available = Signal(dict)
+
+    # Runtime automation/download policy settings were changed.
+    background_settings_changed = Signal()
 
 
 # Module-level singleton — import this everywhere
