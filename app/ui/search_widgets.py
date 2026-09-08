@@ -78,6 +78,8 @@ def _decode_search_history(value: object) -> list[dict[str, str]]:
             value = json.loads(value)
         except (TypeError, ValueError, json.JSONDecodeError):
             return []
+    if isinstance(value, dict):
+        value = [value]
     if not isinstance(value, list):
         return []
     decoded: list[dict[str, str]] = []
@@ -435,7 +437,7 @@ class SearchHistoryPopup(ListWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

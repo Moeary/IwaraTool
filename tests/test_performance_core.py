@@ -796,6 +796,19 @@ class ManagerPerformanceTests(unittest.TestCase):
             "https://cdn.example.test/image/original/file-cover-01/thumbnail-03.jpg",
         )
 
+    def test_subscription_local_cover_needs_no_network_or_url(self):
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "cover.jpg")
+            with open(path, "wb") as stream:
+                stream.write(b"local cover")
+            with patch.object(mgr.history, "get_record", return_value={"thumbnail_path": path}), patch.object(
+                mgr, "_api_call"
+            ) as api, patch.object(mgr.subscription_image_cache, "get_or_fetch") as fetch:
+                self.assertEqual(mgr.cache_subscription_thumbnail("local-cover", ""), path)
+                api.assert_not_called()
+                fetch.assert_not_called()
+
     def test_cache_subscription_thumbnail_resolves_missing_url_from_details(self):
         mgr = make_manager()
         source_id = mgr.subscriptions.add_source("author", "cover-author", "Cover Author")
@@ -1371,6 +1384,61 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual(page._selected_video_ids(), ["history01", "history02"])
             page.close()
+
+    def test_search_history_click_restores_fields_and_runs_search(self):
+        page = SearchInterface()
+        entry = {"keyword": "test history", "source": "iwara", "scope": "authors", "sort": "views"}
+        try:
+            page._search_history_popup.set_history([entry], page._search_history_label)
+            with patch.object(page, "_start_search") as start:
+                page._search_history_popup._choose_item(page._search_history_popup.item(0))
+                self.app.processEvents()
+                start.assert_called_once_with()
+            self.assertEqual(page._keyword_edit.text(), entry["keyword"])
+            self.assertEqual(page._source_combo.currentData(), entry["source"])
+            self.assertEqual(page._scope_combo.currentData(), entry["scope"])
+            self.assertEqual(page._sort_combo.currentData(), entry["sort"])
+            self.assertFalse(page._auto_search_timer.isActive())
+        finally:
+            page.close()
+
+    def test_subscription_covers_schedule_missing_urls(self):
+        from types import SimpleNamespace
+        page = SimpleNamespace(
+            _shutting_down=False, _thumbnail_worker=None,
+            _visible_items=[{"video_id": "no-url"}, {"video_id": "failed-before"}],
+            _thumbnail_requested_video_ids={"failed-before"},
+            _thumbnail_force_refresh_ids=set(),
+            _cover_download_concurrency=lambda: 2,
+            _on_thumbnail_ready=lambda *args: None,
+            _on_thumbnail_worker_finished=lambda: None,
+        )
+        with patch("app.ui.subscription_page.SubscriptionThumbnailWorker") as worker:
+            self.assertTrue(SubscriptionInterface._start_thumbnail_worker_for_visible_items(page))
+            self.assertEqual(worker.call_args.args[0], [("no-url", "")])
+
+    def test_source_cover_cache_uses_full_source_and_can_retry(self):
+        from types import SimpleNamespace
+        from app.ui.subscription_actions import SubscriptionActionsMixin
+        page = SimpleNamespace(
+            _current_source_id=12, _shutting_down=False, _cover_cache_worker=None,
+            _cover_download_concurrency=lambda: 2,
+            _on_thumbnail_ready=lambda *args: None,
+            _on_source_cover_cache_finished=lambda: None,
+        )
+        with patch("app.ui.subscription_page.download_manager") as manager, patch(
+            "app.ui.subscription_actions.SubscriptionThumbnailWorker"
+        ) as worker, patch("app.ui.subscription_page.InfoBar"):
+            manager.get_subscription_items.return_value = [
+                {"video_id": f"video-{i}", "thumbnail_url": ""} for i in range(100)
+            ]
+            SubscriptionActionsMixin._cache_current_source_covers(page)
+            manager.get_subscription_items.assert_called_once_with(12)
+            self.assertEqual(len(worker.call_args.args[0]), 100)
+            self.assertNotIn("force", worker.call_args.kwargs)
+            page._cover_cache_worker = None
+            SubscriptionActionsMixin._cache_current_source_covers(page)
+            self.assertEqual(worker.call_count, 2)
 
     def test_search_page_controls_and_history_popup_survive_navigation(self):
         old_auto_search = app_config.search_auto_search_enabled

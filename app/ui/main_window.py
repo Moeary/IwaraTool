@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import sys
 
 from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
@@ -36,6 +37,7 @@ from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 from .ui_state import show_fluent_confirmation
+from .window_drag import WindowsTitleBarDragFilter
 
 
 class _NotificationBridge(QObject):
@@ -51,6 +53,8 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
+        if sys.platform == "win32":
+            self._title_bar_drag_filter = WindowsTitleBarDragFilter(self.titleBar)
         self._reloading_language = False
         self._task_notification_batch = TaskNotificationBatch()
         self._task_notification_timer = QTimer(self)

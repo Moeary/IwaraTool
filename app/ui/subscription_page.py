@@ -149,6 +149,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
         self._avatar_worker: SubscriptionAvatarWorker | None = None
         self._thumbnail_worker: SubscriptionThumbnailWorker | None = None
+        self._cover_cache_worker: SubscriptionThumbnailWorker | None = None
         self._shutting_down = False
         self._avatar_requested_source_ids: set[int] = set()
         self._thumbnail_requested_video_ids: set[str] = set()
@@ -510,6 +511,14 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 tr("Refresh Covers", "刷新封面", "カバーを更新"),
                 self,
                 triggered=self._refresh_current_covers,
+            )
+        )
+        refresh_menu.addAction(
+            Action(
+                FluentIcon.DOWNLOAD,
+                tr("Cache All Source Covers", "缓存当前订阅源全部封面", "購読元の全カバーをキャッシュ"),
+                self,
+                triggered=self._cache_current_source_covers,
             )
         )
         self._refresh_current_btn = PrimaryDropDownPushButton(
@@ -1564,7 +1573,6 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 or (not force and thumbnail_path and os.path.isfile(thumbnail_path))
                 or (not force and video_id in self._thumbnail_requested_video_ids)
                 or (force and video_id in self._thumbnail_force_refresh_ids)
-                or (not force and not thumbnail_url)
             ):
                 continue
             requests.append((video_id, thumbnail_url))
@@ -1583,7 +1591,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             concurrency=self._cover_download_concurrency(),
         )
         self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
-        self._thumbnail_worker.done.connect(self._on_thumbnail_worker_finished)
+        self._thumbnail_worker.finished.connect(self._on_thumbnail_worker_finished)
         self._thumbnail_worker.start()
         return True
 
@@ -1739,6 +1747,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             self._enqueue_worker,
             self._avatar_worker,
             self._thumbnail_worker,
+            self._cover_cache_worker,
         ]
         return stop_qthreads(workers, timeout_ms=timeout_ms)
 

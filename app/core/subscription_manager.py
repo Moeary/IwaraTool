@@ -247,6 +247,15 @@ class SubscriptionManagerMixin:
         if not video_id:
             return ""
 
+        history = self.history.get_record(video_id)
+        history_path = str(history.get("thumbnail_path", "") or "") if history else ""
+        if not force:
+            reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
+            if reused:
+                return reused
+            if history_path and os.path.isfile(history_path) and os.path.getsize(history_path) > 0:
+                return history_path
+
         # Author/feed list endpoints frequently return only a video stub.  In
         # that case there is no file ID yet, so derive the Iwara image URL from
         # the canonical video detail API instead of silently skipping the
@@ -267,8 +276,6 @@ class SubscriptionManagerMixin:
             return ""
         if not force and os.path.isfile(path) and os.path.getsize(path) > 0:
             return path
-        history = self.history.get_record(str(video_id or ""))
-        history_path = str(history.get("thumbnail_path", "") or "") if history else ""
         if not force:
             reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
             if reused:

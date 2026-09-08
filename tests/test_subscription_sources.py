@@ -52,6 +52,18 @@ class SubscriptionSourceOriginTests(unittest.TestCase):
             "playlist": "playlist",
         })
 
+    def test_refresh_without_cover_preserves_resolved_url(self):
+        source_id = self.store.add_source("author", "cover-author", "Cover Author")
+        url = "https://files.iwara.tv/image/original/file/thumbnail-00.jpg"
+        self.store.upsert_items(source_id, [{"video_id": "cover", "thumbnail_url": url}])
+        for state in ({}, {"download_state_known": True, "download_state": "private"}):
+            with self.subTest(state=state):
+                self.store.upsert_items(source_id, [{"video_id": "cover", **state}])
+                self.assertEqual(self.store.list_items(source_id)[0]["thumbnail_url"], url)
+        replacement = url.replace("00.jpg", "01.jpg")
+        self.store.upsert_items(source_id, [{"video_id": "cover", "thumbnail_url": replacement}])
+        self.assertEqual(self.store.list_items(source_id)[0]["thumbnail_url"], replacement)
+
     def test_update_item_thumbnail_url_persists_resolved_detail_url(self):
         source_id = self.store.add_source("author", "author01", "Author")
         self.store.upsert_items(

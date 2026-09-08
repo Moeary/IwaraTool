@@ -29,6 +29,7 @@ from .subscription_components import (
     SubscriptionEnqueueWorker,
     SubscriptionImportAuthorsWorker,
     SubscriptionRefreshWorker,
+    SubscriptionThumbnailWorker,
     _CONTROL_HEIGHT,
 )
 from .subscription_helpers import _detect_source_input, _open_url, _source_url, _video_url
@@ -525,6 +526,57 @@ class SubscriptionActionsMixin:
             )
             return
         self._start_refresh(ids, ignore_disabled=True)
+
+    def _cache_current_source_covers(self):
+        source_id = self._current_source_id or self._selected_source_id()
+        if not source_id:
+            self._show_error(tr("Select a subscription source first", "请先选择一个订阅源", "購読元を選択してください"))
+            return
+        if self._shutting_down or self._cover_cache_worker is not None:
+            return
+        # Snapshot the full source, independently of filters and later navigation.
+        items = download_manager.get_subscription_items(source_id)
+        requests = list({
+            str(item["video_id"]): str(item.get("thumbnail_url") or "")
+            for item in items if item.get("video_id")
+        }.items())
+        if not requests:
+            self._show_error(tr("Refresh the source list first", "请先刷新订阅源的视频列表", "先に購読元の一覧を更新してください"))
+            return
+        self._cover_cache_worker = SubscriptionThumbnailWorker(
+            requests, concurrency=self._cover_download_concurrency(),
+        )
+        self._cover_cache_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._cover_cache_worker.finished.connect(self._on_source_cover_cache_finished)
+        self._cover_cache_worker.start()
+        InfoBar.info(
+            title=tr("Caching Covers", "正在缓存封面", "カバーをキャッシュ中"),
+            content=tr(
+                "Caching all known videos in this source; existing covers are reused.",
+                "正在缓存此订阅源已收录的全部视频封面，已有缓存会直接复用；无需下载视频。",
+                "この購読元の登録済み動画のカバーを保存します。既存のキャッシュは再利用します。",
+            ),
+            duration=4000, parent=self,
+        )
+
+    def _on_source_cover_cache_finished(self):
+        worker = self._cover_cache_worker
+        self._cover_cache_worker = None
+        if worker is None:
+            return
+        succeeded, failed = worker.succeeded, worker.failed
+        worker.deleteLater()
+        if self._shutting_down:
+            return
+        InfoBar.info(
+            title=tr("Cover Cache Complete", "封面缓存完成", "カバーのキャッシュ完了"),
+            content=tr(
+                f"Available: {succeeded}; failed: {failed}. Run again to retry missing covers.",
+                f"本地可用 {succeeded} 张，失败 {failed} 张。可再次执行以重试缺失封面。",
+                f"利用可能: {succeeded}、失敗: {failed}。再実行で未取得分を再試行できます。",
+            ),
+            duration=5000, parent=self,
+        )
 
     def _refresh_current_covers(self):
         source_id = self._current_source_id or self._selected_source_id()

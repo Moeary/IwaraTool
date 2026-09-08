@@ -413,7 +413,7 @@ class SubscriptionStore:
                 if row:
                     if state_known:
                         conn.execute(
-                            "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, "
+                            "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=COALESCE(NULLIF(?, ''), thumbnail_url), "
                             "download_state=?, download_reason=?, download_checked_at=?, updated_at=CURRENT_TIMESTAMP "
                             "WHERE source_id=? AND video_id=?",
                             (
@@ -431,7 +431,7 @@ class SubscriptionStore:
                         )
                         continue
                     conn.execute(
-                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=?, updated_at=CURRENT_TIMESTAMP "
+                        "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=COALESCE(NULLIF(?, ''), thumbnail_url), updated_at=CURRENT_TIMESTAMP "
                         "WHERE source_id=? AND video_id=?",
                         (params[2], params[3], params[4], params[5], params[6], params[0], params[1]),
                     )
