@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTableWidgetItem,
@@ -217,8 +218,21 @@ class RepairInterface(QWidget):
         self._splitter = splitter
         root.addWidget(splitter, stretch=1)
 
-        left_panel = QWidget(splitter)
-        left_panel.setMinimumWidth(360)
+        # The stacked window takes the largest minimum size of *all* pages,
+        # including hidden ones. A tall repair form used to force the entire
+        # window above the screen height at 175% DPI. Windows then clamps the
+        # size during dragging while Qt grows it again, causing snap-back.
+        self._controls_scroll = QScrollArea(splitter)
+        self._controls_scroll.setObjectName("RepairControlsScroll")
+        self._controls_scroll.setWidgetResizable(True)
+        self._controls_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._controls_scroll.setMinimumWidth(360)
+        self._controls_scroll.setStyleSheet(
+            "QScrollArea#RepairControlsScroll { background: transparent; border: none; }"
+            "QScrollArea#RepairControlsScroll > QWidget > QWidget { background: transparent; }"
+        )
+        left_panel = QWidget()
+        self._controls_scroll.setWidget(left_panel)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(12)
@@ -439,7 +453,7 @@ class RepairInterface(QWidget):
         list_layout.addWidget(self._table, stretch=1)
         right_layout.addWidget(list_card, stretch=1)
 
-        splitter.addWidget(left_panel)
+        splitter.addWidget(self._controls_scroll)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
