@@ -43,6 +43,8 @@ To rename existing videos, select a folder and naming rule in Repair Center, the
 
 Search status reflects local history and file availability: a recorded file that still exists is downloaded locally, while a missing path is marked as moved. Oreno3D results are checked after their Iwara ID is resolved. Viewing an author's works does not add a subscription; adding and navigating selects that author's subscription source.
 
+Iwara keyword and tag searches keep separate input and sort settings. Keyword search supports newest, relevance, views, and likes; use double quotes for exact phrases or leave the input blank to browse videos. Tag search accepts suggestions or exact translated names in English, Chinese, and Japanese; separate multiple tags with commas to find videos containing all of them. Sorting and pagination use the server results, and failures remain visible.
+
 ## Supported URL Types
 ```text
 https://www.iwara.tv/profile/username

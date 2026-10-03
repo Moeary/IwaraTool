@@ -81,16 +81,30 @@
 
 ### 搜索类型
 
-- 视频：Oreno3D 模式直接请求 `GET https://oreno3d.com/search?keyword=...&sort=latest&page=1`；Iwara 模式调用 `GET https://api.iwara.tv/videos`。Oreno3D 只负责提供在线搜索候选，打开结果时最终进入 Iwara 页面。
+- 关键词搜索：Iwara 非空关键词调用 `GET https://api.iwara.tv/search?type=videos&query=...&sort=...&page=0`，原样保留引号短语及其他输入；留空则调用 `/videos` 浏览列表。Oreno3D 模式请求 `GET https://oreno3d.com/search?keyword=...&sort=latest&page=1`，打开结果时解析为 Iwara 页面。
 - 作者：切换到 Iwara 实时 API 后按用户名请求作者主页，展示作者简介和视频数量。
-- 标签：Oreno3D 模式把输入作为原站 `keyword` 直接提交，不转换成 Iwara 的 `tags=` 参数；候选词典只负责辅助输入。候选选中后会保留分隔符，可继续输入多个标签。
+- 标签搜索：Iwara 使用 `/videos?tags=...`，多个标签用逗号连接，要求同时命中。完整中日英译名会通过词典精确映射为标签 ID；同一译名对应多个 ID 时要求选择具体候选，不按词典顺序盲选；未识别的原始 ID 保留，不作模糊替换。Oreno3D 使用其独立的标签映射与实体路由，未知名称回退到其关键词入口。
+- 每个数据源和搜索类型各自保留输入与排序草稿；切换模式不会把标题关键词当作标签提交。搜索历史仍记录原始输入及其类型。
 - 播放列表：输入播放列表 ID 或 `/playlist/{id}` 链接，展示其中的视频。
 
 ### 排序与下载规则
 
-- 排序：最新、趋势、热度、喜欢数；这些选项对应 Oreno3D 原生搜索页的排序参数。
+- Iwara 关键词排序支持 `date`、`relevance`、`views`、`likes`；视频列表及标签支持 `date`、`trending`、`popularity`、`views`、`likes`。界面随模式更新选项。
+- Iwara 结果保留服务端顺序，不对单页重新按日期或热度排序，也不使用本地关键词子串匹配删去简介命中等有效结果。下一页沿用相同查询与排序；尚未提交的新条件在翻页时从第一页开始。
+- `/videos` 的 `count` 可能是“页偏移 + 页容量 + 1”的下页标记；`/search` 的真实总数独立处理。服务器采用不同页容量时，仅保留可确认的下一页导航。HTTP 错误或无效结果结构显示失败原因，不伪装成零结果。
 - 搜索页不再复制下载工作台的高级筛选字段；页面内的“下载规则”选择器直接复用现有规则。
 - 选中规则后会立即应用项目已有的元数据筛选、命名模板、封面/NFO 和下载行为，并同步为默认规则。
+
+### Iwara 搜索核验（2026-10-03）
+
+使用项目 `IwaraAPI` 的公开、未登录会话进行只读请求，未下载媒体：
+
+- `/videos?q=zz_iwaratool_no_such_query_13` 与无关键词列表返回相同的 4 个 ID；`/search?type=videos&query=zz_iwaratool_no_such_query_13` 返回 0 条。旧关键词接口实为未筛选列表。
+- `animation` 在 `/search` 的前两页各返回 8 条、总数均为 5796，页间 ID 无重复；`date`、`views`、`likes` 按相应字段降序，`relevance` 与日期顺序不同。总数仅代表核验当时的快照。
+- 单标签 `tags=genshin_impact` 的 8 条结果全部带此标签，改成 `tag` 仅 1 条带此标签；`tags=genshin_impact,hatsune_miku` 的 16 条全部包含两者。当前接口使用复数 `tags`，旧的单数转换已移除；批量查询入口同步修复。
+- 不存在的 `tags` 值可能返回 HTTP 500，不能将服务器错误当作零匹配；优先选择标签候选中的有效 ID。
+- 本地词典的“原神”对应多个 ID，原先优先得到 `ganshin`，与 `hatsune_miku` 组合会返回 0 条；明确使用 `genshin_impact,hatsune_miku` 能返回结果。提交时已增加歧义检查，避免把不同标签混为一谈。
+- 交叉参考：[LoveIwara 搜索请求实现](https://github.com/FoxSensei001/LoveIwara/blob/master/lib/app/services/search_service.dart)、[排序定义](https://github.com/FoxSensei001/LoveIwara/blob/master/lib/app/ui/pages/search/widgets/filter_config.dart)、[gallery-dl Iwara 接口实现](https://github.com/mikf/gallery-dl/blob/master/gallery_dl/extractor/iwara.py)。
 
 ### 图片缓存
 

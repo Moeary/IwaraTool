@@ -52,6 +52,7 @@ from ..core.search import (
     SearchVideo,
     normalize_video,
 )
+from ..core.tag_dictionary import complete_tag_query, tag_query_fragment
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .rules_page import RulePicker
@@ -138,6 +139,10 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._last_page: int | None = None
         self._next_page: int | None = None
         self._total: int | None = None
+        self._query_context: tuple[str, str] | None = None
+        self._query_drafts: dict[tuple[str, str], tuple[str, str]] = {}
+        self._active_search_request = None
+        self._search_error = ""
         self._all_videos: list[SearchVideo] = []
         self._all_authors: list[SearchAuthor] = []
         self._author_video_target = None
@@ -203,9 +208,9 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         query_row.addWidget(BodyLabel(tr("Scope", "搜索类型", "検索対象"), query_card))
         self._scope_combo = ComboBox(query_card)
         self._scope_items = [
-            (tr("Videos", "视频", "動画"), "videos"),
+            (tr("Keywords", "关键词搜索", "キーワード検索"), "videos"),
             (tr("Authors", "作者", "作者"), "authors"),
-            (tr("Tags", "标签", "タグ"), "tags"),
+            (tr("Tags", "标签搜索", "タグ検索"), "tags"),
             (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
         ]
         for text, data in self._scope_items:
@@ -240,6 +245,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._keyword_edit.returnPressed.connect(self._start_search)
         self._keyword_edit.textEdited.connect(self._clear_author_navigation)
+        self._keyword_edit.textChanged.connect(self._sync_sort_options)
         query_row.addWidget(self._keyword_edit, 1)
 
         self._search_btn = PrimaryPushButton(tr("Search", "搜索", "検索"), query_card, FluentIcon.SEARCH)
@@ -554,9 +560,9 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             "Latest videos", "最新视频", "最新動画"
         )
         scope_labels = {
-            "videos": tr("Videos", "视频", "動画"),
+            "videos": tr("Keywords", "关键词搜索", "キーワード検索"),
             "authors": tr("Authors", "作者", "作者"),
-            "tags": tr("Tags", "标签", "タグ"),
+            "tags": tr("Tags", "标签搜索", "タグ検索"),
             "playlists": tr("Playlists", "播放列表", "プレイリスト"),
         }
         source_labels = {
@@ -629,8 +635,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._auto_search_timer.stop()
         self._set_combo_data(self._source_combo, entry["source"])
         self._set_combo_data(self._scope_combo, entry["scope"])
-        self._set_combo_data(self._sort_combo, entry["sort"])
         self._keyword_edit.setText(entry["keyword"])
+        self._set_combo_data(self._sort_combo, entry["sort"])
         self._auto_search_timer.stop()
         QTimer.singleShot(0, self._start_search)
 
@@ -745,6 +751,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _on_scope_changed(self, *_args, trigger_search: bool = True):
         self._clear_author_navigation()
+        self._switch_query_context()
         scope = str(self._scope_combo.currentData() or "videos")
         if scope == "authors":
             hint = tr(
@@ -764,9 +771,9 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                 )
             else:
                 hint = tr(
-                    "Type English, Chinese, or Japanese tags for the Iwara API.",
-                    "输入英文、中文或日文标签，并提交给 Iwara API。",
-                    "英語・中国語・日本語のタグをIwara APIに送信します。",
+                    "Search for all specified tags. Select suggestions or enter exact translated names separated by commas; names are converted to Iwara tag IDs.",
+                    "查找同时包含所选标签的视频。可选择候选或输入完整译名，用逗号分隔；提交时会转换为 Iwara 标签 ID。",
+                    "指定したすべてのタグを含む動画を検索します。候補または正確な翻訳名をカンマで区切って入力すると、IwaraタグIDに変換します。",
                 )
             self._keyword_edit.setPlaceholderText(
                 tr(
@@ -786,6 +793,10 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             )
         else:
             hint = tr(
+                'Search text across Iwara. Keywords and tags are separate; use double quotes for an exact phrase. Leave blank to browse videos.',
+                '在 Iwara 中搜索关键词，与标签搜索分开；精确短语可加双引号。留空则浏览视频列表。',
+                'Iwara内のキーワード検索です。タグ検索とは別です。完全一致の語句は二重引用符で囲み、空欄なら動画一覧を表示します。',
+            ) if str(self._source_combo.currentData() or "oreno3d") == "iwara" else tr(
                 "Oreno3D is only a search bridge. Opening a result resolves and shows the final Iwara page.",
                 "Oreno3D 仅作为搜索桥接；打开结果时会解析并展示最终的 Iwara 页面。",
                 "Oreno3Dは検索ブリッジのみです。結果を開くとIwaraのページを表示します。",
@@ -803,6 +814,72 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._sync_view_controls()
         if trigger_search:
             self._schedule_auto_search()
+
+    def _switch_query_context(self):
+        """Keep independent text/sort drafts for each source and search mode."""
+
+        context = (
+            str(self._source_combo.currentData() or "oreno3d"),
+            str(self._scope_combo.currentData() or "videos"),
+        )
+        if context != self._query_context:
+            if self._query_context is not None:
+                self._query_drafts[self._query_context] = (
+                    self._keyword_edit.text(), str(self._sort_combo.currentData() or "date"),
+                )
+            self._query_context = context
+            text, sort = self._query_drafts.get(context, ("", "date"))
+            self._keyword_edit.setText(text)
+            self._sync_sort_options()
+            self._sort_combo.blockSignals(True)
+            self._set_combo_data(self._sort_combo, sort)
+            self._sort_combo.blockSignals(False)
+            self._hide_search_history_popup()
+            if self._tag_popup is not None:
+                self._tag_popup.hide()
+            if self._auto_search_ready:
+                self._interrupt_search_workers()
+                self._active_search_request = None
+                self._search_error = ""
+                self._current_page = 0
+                self._last_page = self._next_page = self._total = None
+                self._all_videos.clear()
+                self._all_authors.clear()
+                self._render_results()
+                self._set_loading(False)
+                self._status_label.setText(tr("Enter search terms", "请输入搜索条件", "検索条件を入力してください"))
+        self._sync_sort_options()
+
+    def _sync_sort_options(self, *_args):
+        """Only advertise sorts supported by the selected remote endpoint."""
+
+        keyword_search = (
+            str(self._source_combo.currentData() or "oreno3d") == "iwara"
+            and str(self._scope_combo.currentData() or "videos") == "videos"
+            and bool(self._keyword_edit.text().strip())
+        )
+        items = [
+            (tr("Newest", "最新", "新着"), "date"),
+            (tr("Relevance", "相关度", "関連度"), "relevance"),
+            (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
+            (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
+        ] if keyword_search else [
+            (tr("Newest", "最新", "新着"), "date"),
+            (tr("Trending", "趋势", "トレンド"), "trending"),
+            (tr("Popularity", "热度", "人気"), "popularity"),
+            (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
+            (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
+        ]
+        if [self._sort_combo.itemData(i) for i in range(self._sort_combo.count())] == [key for _, key in items]:
+            return
+        previous = str(self._sort_combo.currentData() or "date")
+        self._sort_combo.blockSignals(True)
+        self._sort_combo.clear()
+        for label, key in items:
+            self._add_combo_item(self._sort_combo, label, key)
+        if not self._set_combo_data(self._sort_combo, previous):
+            self._sort_combo.setCurrentIndex(0)
+        self._sort_combo.blockSignals(False)
 
     def _scope_index(self, scope: str) -> int:
         for index in range(self._scope_combo.count()):
@@ -867,7 +944,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if str(self._scope_combo.currentData() or "videos") != "tags":
             self._tag_popup.hide()
             return
-        query = tag_suggestion_query(text)
+        query = (
+            tag_query_fragment(text)
+            if str(self._source_combo.currentData() or "oreno3d") == "iwara"
+            else tag_suggestion_query(text)
+        )
         if not query:
             self._tag_popup.hide()
             return
@@ -887,14 +968,19 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _apply_tag_suggestion(self, key: str):
         edit = self._active_tag_edit
-        if edit is None:
+        if edit is None or str(self._scope_combo.currentData() or "videos") != "tags":
             return
         if self._tag_popup is not None:
             self._tag_popup.hide()
-        edit.setText(apply_tag_suggestion(edit.text(), key))
+        complete = (
+            complete_tag_query
+            if str(self._source_combo.currentData() or "oreno3d") == "iwara"
+            else apply_tag_suggestion
+        )
+        edit.setText(complete(edit.text(), key))
         edit.setFocus(Qt.FocusReason.OtherFocusReason)
         edit.setCursorPosition(len(edit.text()))
-        QTimer.singleShot(0, lambda edit=edit: self._restore_tag_edit_focus(edit))
+        QTimer.singleShot(0, self, lambda edit=edit: self._restore_tag_edit_focus(edit))
 
     def _restore_tag_edit_focus(self, edit: LineEdit):
         if edit is not self._active_tag_edit or not edit.isVisible() or not edit.isEnabled():
@@ -948,6 +1034,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
 
         self._record_current_search()
+        self._active_search_request = (filters, scope, source)
+        self._search_error = ""
         self._interrupt_search_workers()
         self._current_page = 0
         self._last_page = None
@@ -1075,6 +1163,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
         scope = str(self._scope_combo.currentData() or "videos")
         source = str(self._source_combo.currentData() or "oreno3d")
+        if self._active_search_request != (filters, scope, source):
+            # Editing a query/sort must not jump into the middle of a different
+            # result set when automatic searches are disabled.
+            self._start_search()
+            return
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
         self._pending_open_author_video_ids.clear()
@@ -1114,8 +1207,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             if author.author_id not in existing_author_ids:
                 self._all_authors.append(author)
                 existing_author_ids.add(author.author_id)
-        if result.total is not None:
-            self._total = result.total
+        self._total = result.total
         self._current_page = max(0, int(result.current_page or 0))
         self._last_page = result.last_page
         self._next_page = result.next_page
@@ -1747,6 +1839,15 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._jump_page_btn.setEnabled(not self._loading and has_page_state)
 
     def _update_status(self, result: SearchPageResult | None = None):
+        if result is not None:
+            self._search_error = result.error
+        if self._search_error:
+            self._status_label.setText(tr(
+                f"Search failed: {self._search_error}",
+                f"搜索失败：{self._search_error}",
+                f"検索失敗: {self._search_error}",
+            ))
+            return
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")
         if scope == "authors":
             count = len(self._all_authors)

@@ -117,7 +117,8 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual(params["sort"], "views")
         self.assertEqual(params["rating"], "general")
         self.assertEqual(params["tags"], "3d,dance")
-        self.assertEqual(params["q"], "blue dancer")
+        self.assertNotIn("q", params)
+        self.assertNotIn("query", params)
 
     def test_author_normalization_accepts_profile_response(self):
         author = normalize_author(
@@ -175,7 +176,7 @@ class SearchCoreTests(unittest.TestCase):
         self.assertTrue(has_more)
         self.assertEqual(error, "")
 
-    def test_api_page_translates_web_tags_query_to_singular_api_tag(self):
+    def test_api_page_keeps_plural_tags_query(self):
         api = object.__new__(IwaraAPI)
         captured = {}
 
@@ -192,8 +193,8 @@ class SearchCoreTests(unittest.TestCase):
         )
 
         self.assertTrue(captured["url"].endswith("/videos"))
-        self.assertEqual(captured["params"]["tag"], "loli,hmv")
-        self.assertNotIn("tags", captured["params"])
+        self.assertEqual(captured["params"]["tags"], "loli,hmv")
+        self.assertNotIn("tag", captured["params"])
 
     def test_api_query_incremental_refresh_stops_at_known_video(self):
         api = object.__new__(IwaraAPI)
@@ -219,7 +220,7 @@ class SearchCoreTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in videos], ["new-video", "known-video"])
         self.assertEqual(pages, [0])
 
-    def test_api_bulk_query_translates_web_tags_parameter(self):
+    def test_api_bulk_query_keeps_plural_tags_parameter(self):
         api = object.__new__(IwaraAPI)
         captured = []
 
@@ -235,7 +236,7 @@ class SearchCoreTests(unittest.TestCase):
 
         self.assertEqual(videos, [])
         self.assertEqual(error, "")
-        self.assertEqual(captured, [{"tag": "loli,hmv", "sort": "date", "page": "0"}])
+        self.assertEqual(captured, [{"tags": "loli,hmv", "sort": "date", "page": "0"}])
 
 
 class SearchImageCacheTests(unittest.TestCase):

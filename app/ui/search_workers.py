@@ -22,13 +22,13 @@ from ..core.search import (
     SearchPageResult,
     SearchScope,
     SearchVideo,
+    build_keyword_query_params,
     build_video_query_params,
     filter_videos,
     normalize_author,
     normalize_oreno3d_listing,
     normalize_video,
     sort_videos,
-    split_search_terms,
 )
 from ..i18n import tr
 
@@ -234,29 +234,37 @@ class SearchWorker(QThread):
 
     def _run_video_search(self):
         query_filters = self.filters
+        keyword_search = self.scope == "videos" and bool(self.filters.keyword.strip())
         if self.scope == "tags":
-            tag_terms = split_search_terms(self.filters.keyword)
             query_filters = replace(
                 self.filters,
                 keyword="",
-                include_tags=tuple(dict.fromkeys((*self.filters.include_tags, *tag_terms))),
+                include_tags=(*self.filters.include_tags, self.filters.keyword),
             )
-        raw_page, total, has_more, error = download_manager.get_search_video_page(
-            build_video_query_params(query_filters, self.page),
+        fetch = (
+            download_manager.get_search_keyword_page
+            if keyword_search else download_manager.get_search_video_page
+        )
+        params = (
+            build_keyword_query_params(query_filters, self.page)
+            if keyword_search else build_video_query_params(query_filters, self.page)
+        )
+        raw_page, total, has_more, error = fetch(
+            params,
             page=self.page,
             limit=query_filters.page_size,
         )
         videos = [normalize_video(raw) for raw in raw_page]
         videos = [video for video in videos if video is not None]
-        if self.scope == "tags":
-            # The API has already applied the tag query. Its comma-separated
-            # ``tag`` parameter is an OR-style remote filter, while the
-            # generic local filter treats include_tags as an AND constraint.
-            # Applying that generic filter here would turn a valid page into
-            # an empty result set (the UI then shows e.g. 0 / 97).
-            videos = sort_videos(videos, query_filters.sort)
-        else:
-            videos = sort_videos(filter_videos(videos, query_filters), query_filters.sort)
+        # Remote keyword matches can live in descriptions or use search
+        # syntax. Substring matching would discard valid hits. Likewise tags
+        # have already been applied remotely. Preserve the server's order;
+        # sorting one page locally cannot implement a global search order.
+        local_filters = replace(
+            query_filters, keyword="",
+            include_tags=() if self.scope == "tags" else query_filters.include_tags,
+        )
+        videos = filter_videos(videos, local_filters)
         self.result_ready.emit(
             SearchPageResult(
                 scope=self.scope,

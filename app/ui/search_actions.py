@@ -997,6 +997,10 @@ class SearchActionsMixin:
 
     def _reset_filters(self):
         self._clear_author_navigation()
+        self._query_drafts.clear()
+        self._query_context = None
+        self._active_search_request = None
+        self._search_error = ""
         self._hide_search_history_popup()
         self._keyword_edit.clear()
         self._source_combo.setCurrentIndex(0)

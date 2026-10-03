@@ -469,13 +469,42 @@ class IwaraAPI:
         page: int = 0,
         limit: int = 32,
     ) -> tuple[list[dict], int | None, bool, str]:
-        """Fetch one bounded page of video stubs for the search UI.
+        """Browse videos by tags, author or sort; this is not text search."""
 
-        The existing :meth:`get_videos_by_query` method intentionally keeps its
-        historical return shape for URL parsing and subscriptions.  This
-        method exposes pagination metadata separately so the UI can implement
-        safe page navigation without changing those callers.
-        """
+        params = dict(query_params or {})
+        # Current /videos applies plural `tags`; singular `tag` is ignored.
+        # Accept old caller input, but always send the verified API parameter.
+        legacy_tag = params.pop("tag", "")
+        if legacy_tag and not params.get("tags"):
+            params["tags"] = legacy_tag
+        return self._get_video_result_page("/videos", params, page=page, limit=limit)
+
+    def search_videos_page(
+        self,
+        query_params: dict[str, Any],
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Search Iwara's text index with its own query and sort parameters."""
+
+        params = {key: query_params[key] for key in ("query", "sort") if key in query_params}
+        params["type"] = "videos"
+        if not str(params.get("query") or "").strip():
+            return [], None, False, tr(
+                "Enter a keyword first", "请先输入关键词", "キーワードを入力してください",
+            )
+        return self._get_video_result_page("/search", params, page=page, limit=limit)
+
+    def _get_video_result_page(
+        self,
+        endpoint: str,
+        query_params: dict[str, Any],
+        *,
+        page: int,
+        limit: int,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Read one remote page without hiding malformed/error responses."""
 
         try:
             page_number = max(0, int(page))
@@ -490,32 +519,39 @@ class IwaraAPI:
             for key, value in (query_params or {}).items()
             if str(value).strip()
         }
-        # The website route exposes ``tags=...`` in its URL, but the current
-        # JSON endpoint only applies this filter when it receives ``tag=...``.
-        # Keep accepting the web URL shape at the boundary and translate it
-        # before the request is sent.
-        if params.get("tags") and "tag" not in params:
-            params["tag"] = params.pop("tags")
         params["page"] = str(page_number)
         params["limit"] = str(requested_limit)
         try:
-            data = self._get_json(f"{BASE_API}/videos", params=params)
+            data = self._get_json(f"{BASE_API}{endpoint}", params=params)
             if not isinstance(data, dict):
                 return [], None, False, tr(
                     f"Unexpected video search response: {type(data).__name__}",
                     f"视频搜索返回了无法识别的数据：{type(data).__name__}",
                     f"動画検索の応答形式を認識できません: {type(data).__name__}",
                 )
-            results = data.get("results", data.get("data", []))
+            results = data.get("results", data.get("data"))
             if not isinstance(results, list) and isinstance(results, dict):
-                results = results.get("results", results.get("items", []))
-            if not isinstance(results, list):
-                results = []
+                results = results.get("results", results.get("items"))
+            if not isinstance(results, list) or any(not isinstance(item, dict) for item in results):
+                detail = _extract_api_message(data) or tr(
+                    "Missing or invalid results list", "缺少有效的结果列表", "有効な結果リストがありません",
+                )
+                raise ValueError(tr(
+                    f"Invalid search response: {detail}",
+                    f"搜索响应无效：{detail}",
+                    f"検索応答が無効です: {detail}",
+                ))
             count_value = data.get("count", data.get("total", data.get("totalCount")))
             try:
                 total = int(count_value) if count_value is not None else None
             except (TypeError, ValueError):
                 total = None
+            if total is not None and total < 0:
+                total = None
+            try:
+                effective_limit = max(1, int(data.get("limit", requested_limit)))
+            except (TypeError, ValueError):
+                effective_limit = requested_limit
 
             explicit_more = next(
                 (
@@ -532,9 +568,10 @@ class IwaraAPI:
             # publishing it as a total makes the UI invent a growing page
             # count on every navigation.
             count_is_page_sentinel = bool(
-                total is not None
-                and len(results) >= requested_limit
-                and total == (page_number + 1) * requested_limit + 1
+                endpoint == "/videos"
+                and total is not None
+                and len(results) >= effective_limit
+                and total == (page_number + 1) * effective_limit + 1
             )
             if explicit_more is not None:
                 if isinstance(explicit_more, str):
@@ -544,16 +581,22 @@ class IwaraAPI:
             elif count_is_page_sentinel:
                 has_more = True
             elif total is not None:
-                has_more = (page_number + 1) * requested_limit < total
+                has_more = (page_number + 1) * effective_limit < total
             else:
-                has_more = len(results) >= requested_limit
+                has_more = len(results) >= effective_limit
             if not results:
                 has_more = False
-            if count_is_page_sentinel:
+            if count_is_page_sentinel or effective_limit != requested_limit:
+                # Do not invent a last-page number using a page size the
+                # server ignored. Next/previous still use its actual limit.
                 total = None
             return results, total, has_more, ""
         except Exception as exc:
-            return [], None, False, _friendly_request_error(str(exc))
+            # Search failures (403/429/invalid queries) are not evidence that
+            # an individual video is private or inaccessible to the account.
+            return [], None, False, str(exc) or tr(
+                "Search request failed", "搜索请求失败", "検索リクエストに失敗しました",
+            )
 
     def get_videos_by_query(
         self,
@@ -576,8 +619,9 @@ class IwaraAPI:
             (videos, error_message). Partial results can be returned with error.
         """
         base_params = {str(k): str(v) for k, v in query_params.items() if str(v).strip()}
-        if base_params.get("tags") and "tag" not in base_params:
-            base_params["tag"] = base_params.pop("tags")
+        legacy_tag = base_params.pop("tag", "")
+        if legacy_tag and not base_params.get("tags"):
+            base_params["tags"] = legacy_tag
         start_page_raw = base_params.pop("page", "0")
         try:
             start_page = max(0, int(start_page_raw))

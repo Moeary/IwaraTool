@@ -46,7 +46,7 @@ class _FakeSession:
 
 
 class SearchOnlineTests(unittest.TestCase):
-    def test_iwara_tag_search_keeps_remote_or_results_visible(self):
+    def test_iwara_tag_search_keeps_remote_results_without_local_rematching(self):
         class _FakeManager:
             def get_search_video_page(self, query_params, *, page, limit):
                 self.call = (query_params, page, limit)

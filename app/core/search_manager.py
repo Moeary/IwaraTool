@@ -6,6 +6,7 @@ from typing import Any
 
 import cloudscraper
 
+from ..i18n import tr
 from .api import IwaraAPI
 from .oreno3d import Oreno3DClient
 from .oreno3d_search import intersect_oreno3d_listings
@@ -22,12 +23,33 @@ class SearchManagerMixin:
     ) -> tuple[list[dict], int | None, bool, str]:
         """Fetch one page for the search interface through the shared API session."""
 
+        params = dict(query_params or {})
+        if params.get("tags"):
+            tags = self.tag_dictionary.resolve_query(params["tags"])
+            if not tags:
+                raise ValueError(tr(
+                    "Enter at least one tag, not only separators.",
+                    "请至少输入一个标签，不能只有分隔符。",
+                    "区切り文字だけでなく、タグを1つ以上入力してください。",
+                ))
+            params["tags"] = ",".join(tags)
         return self._api_call(
             "get_videos_page",
-            query_params or {},
+            params,
             page=page,
             limit=limit,
         )
+
+    def get_search_keyword_page(
+        self,
+        query_params: dict[str, str],
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Search the remote text index, separately from browsing by tags."""
+
+        return self._api_call("search_videos_page", query_params, page=page, limit=limit)
 
     def get_search_user_profile(self, username: str) -> tuple[dict | None, str]:
         """Fetch one author profile for the search interface."""
