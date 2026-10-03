@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import json
 import re
-from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem, QWidget
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QListWidgetItem,
+    QStyle,
+    QStyleOptionViewItem,
+    QWidget,
+)
 
 from qfluentwidgets import LineEdit, ListWidget, isDarkTheme
 
@@ -78,6 +84,8 @@ def _decode_search_history(value: object) -> list[dict[str, str]]:
             value = json.loads(value)
         except (TypeError, ValueError, json.JSONDecodeError):
             return []
+    if isinstance(value, dict):
+        value = [value]
     if not isinstance(value, list):
         return []
     decoded: list[dict[str, str]] = []
@@ -117,25 +125,43 @@ def _short_text(value: str, length: int) -> str:
     return text if len(text) <= length else f"{text[: max(1, length - 1)]}…"
 
 
-def _grid_text_height(list_widget: ListWidget, width: int, fallback_lines: int) -> int:
-    """Measure the tallest card caption after Qt word-wrapping it."""
+def _grid_item_height(
+    list_widget: ListWidget, width: int, icon_size: QSize, fallback_lines: int
+) -> int:
+    """Measure complete cards with the font and padding used by their delegate."""
 
-    text_width = max(1, int(width))
-    height = QFontMetrics(list_widget.font()).lineSpacing() * max(1, fallback_lines)
+    delegate = list_widget.itemDelegate()
+    style = list_widget.style()
+    base_option = QStyleOptionViewItem()
+    list_widget.initViewItemOption(base_option)
+    base_option.rect = QRect(0, 0, max(1, int(width)), 10000)
+    height = (
+        icon_size.height()
+        + QFontMetrics(base_option.font).lineSpacing() * max(1, fallback_lines)
+    )
     for index in range(list_widget.count()):
         item = list_widget.item(index)
         if item is None:
             continue
-        metrics = QFontMetrics(item.font())
-        height = max(
-            height,
-            metrics.boundingRect(
-                QRect(0, 0, text_width, 10000),
-                Qt.TextFlag.TextWordWrap,
-                item.text(),
-            ).height(),
+        option = QStyleOptionViewItem(base_option)
+        delegate.initStyleOption(option, list_widget.indexFromItem(item))
+        option.decorationSize = icon_size
+        # The selected border is thicker. Reserve its space for every card so
+        # selecting a result cannot hide the final caption line.
+        option.state |= QStyle.StateFlag.State_Selected
+        text_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, option, list_widget
         )
-    return height
+        cover_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemDecoration, option, list_widget
+        )
+        # Measure the painting width rather than sizeFromContents(), whose
+        # wider natural size can omit a wrapped line in narrow columns. The
+        # card style uses the same border/padding above and below its content.
+        bottom_inset = max(0, cover_rect.top() - option.rect.top())
+        height = max(height, text_rect.bottom() - option.rect.top() + 1 + bottom_inset)
+    # Fluent's delegate shrinks the painting rectangle by its vertical margin.
+    return height + 2 * max(0, int(getattr(delegate, "margin", 0)))
 
 
 def _extract_iwara_video_id(value: str) -> str:
@@ -435,7 +461,7 @@ class SearchHistoryPopup(ListWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

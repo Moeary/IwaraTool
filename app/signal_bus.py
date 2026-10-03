@@ -42,6 +42,12 @@ class TaskSignalBus(QObject):
     # source_id
     subscription_source_added = Signal(int)
 
+    # source_id; explicitly navigate to an existing subscription source.
+    subscription_source_requested = Signal(int)
+
+    # Download history or its local file paths changed after a committed write.
+    history_changed = Signal()
+
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 

@@ -161,6 +161,8 @@ class SubscriptionThumbnailWorker(QThread):
         super().__init__()
         self._requests = list(requests)
         self._force = bool(force)
+        self.succeeded = 0
+        self.failed = 0
         self._concurrency = max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, int(concurrency)))
 
     def run(self):
@@ -170,6 +172,8 @@ class SubscriptionThumbnailWorker(QThread):
 
         def fetch(request: tuple[str, str]) -> tuple[str, str]:
             video_id, thumbnail_url = request
+            if self.isInterruptionRequested():
+                return video_id, ""
             client = getattr(thread_state, "api_client", None)
             if client is None:
                 create_client = getattr(download_manager, "create_worker_api_client", None)
@@ -216,7 +220,10 @@ class SubscriptionThumbnailWorker(QThread):
                     break
                 video_id, path = future.result()
                 if path:
+                    self.succeeded += 1
                     self.thumbnail_ready.emit(video_id, path)
+                else:
+                    self.failed += 1
         finally:
             executor.shutdown(wait=True, cancel_futures=True)
             close_client = getattr(download_manager, "close_worker_api_client", None)

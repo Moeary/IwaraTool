@@ -1,6 +1,7 @@
 """Folder repair operations mixed into the central download manager."""
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
@@ -17,8 +18,8 @@ from .repair import (
     candidate_match_score,
     extract_iwara_video_id,
     filename_search_text,
-    format_repair_filename,
     guess_filename_video_id,
+    repair_target_path,
     scan_video_files,
 )
 from .task_metadata import _author_fields_from_user, _dict_or_empty
@@ -31,7 +32,7 @@ class RepairManagerMixin:
         *,
         filename_template: str = "",
         output_root: str = "",
-        move_to_output: bool = True,
+        move_to_output: bool = False,
         max_workers: int = 6,
         progress_callback: Callable[[dict[str, Any], int, int], Any] | None = None,
         activity_callback: Callable[[int, int, int], Any] | None = None,
@@ -170,7 +171,14 @@ class RepairManagerMixin:
                     pass
 
         result.sort(key=lambda item: str(item.get("path", "") or "").casefold())
-        return result
+        return self.preview_repair_files(
+            result,
+            options={
+                "filename_template": filename_template,
+                "output_root": destination_root,
+                "move_to_output": move_to_output,
+            },
+        )
 
     def repair_folder_files(
         self,
@@ -186,16 +194,10 @@ class RepairManagerMixin:
         but a folder repair only operates on existing files by design.
         """
 
-        normalized_options = {
-            "filename_template": str((options or {}).get("filename_template", "") or ""),
-            "output_root": self._repair_normalize_path((options or {}).get("output_root", "")),
-            "move_to_output": bool((options or {}).get("move_to_output", True)),
-            "download_video": bool((options or {}).get("download_video", False)),
-            "download_thumbnail": bool((options or {}).get("download_thumbnail", False)),
-            "collect_nfo": bool((options or {}).get("collect_nfo", False)),
-            "add_to_history": bool((options or {}).get("add_to_history", True)),
-            "rename": bool((options or {}).get("rename", True)),
-        }
+        normalized_options = self._repair_options(options)
+        # Compute and validate every destination before moving the first file.
+        # Conflicting items remain untouched while unrelated items can finish.
+        planned_items = self.preview_repair_files(items, options=normalized_options)
         results: list[dict[str, Any]] = []
         counts = {
             "total": len(items),
@@ -207,8 +209,24 @@ class RepairManagerMixin:
             "skipped": 0,
             "failed": 0,
         }
-        for index, item in enumerate(items, start=1):
-            result = self._repair_one_file(item, normalized_options)
+        for index, item in enumerate(planned_items, start=1):
+            if item.get("target_conflict"):
+                result = dict(item, status="failed", message=item["target_conflict"])
+            else:
+                try:
+                    result = self._repair_one_file(item, normalized_options)
+                except Exception as exc:
+                    result = dict(item, status="failed", message=tr(
+                        f"Repair failed: {exc}",
+                        f"修复失败：{exc}",
+                        f"修復に失敗しました: {exc}",
+                    ))
+            if result.get("status") == "failed":
+                signal_bus.log_message.emit(tr(
+                    f"[Repair] failed: {item.get('path', '')} -> {item.get('target_path', '')}: {result.get('message', '')}",
+                    f"[修复] 失败：{item.get('path', '')} → {item.get('target_path', '')}：{result.get('message', '')}",
+                    f"[修復] 失敗: {item.get('path', '')} -> {item.get('target_path', '')}: {result.get('message', '')}",
+                ))
             results.append(result)
             state = str(result.get("status", "") or "")
             for key in ("renamed", "unchanged", "thumbnail", "nfo", "history"):
@@ -224,6 +242,137 @@ class RepairManagerMixin:
         counts["interrupted"] = len(results) < len(items)
         counts["items"] = results
         return counts
+
+    def preview_repair_files(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        options: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Plan video/sidecar targets without writing files or resolving metadata."""
+
+        normalized = self._repair_options(options)
+        result = [dict(item) for item in items]
+        target_claims: dict[str, list[tuple[int, str, str]]] = {}
+        source_claims: dict[str, set[int]] = {}
+        conflicts: dict[int, list[str]] = {}
+
+        def add_conflict(index: int, message: str):
+            messages = conflicts.setdefault(index, [])
+            if message not in messages:
+                messages.append(message)
+
+        for index, item in enumerate(result):
+            if item.get("status") != "ready":
+                continue
+            item["target_conflict"] = ""
+            path = str(item.get("path", "") or "")
+            try:
+                item.update(self._repair_target_fields(item, normalized))
+                target_path = str(item["target_path"])
+                cached = _dict_or_empty(item.get("cached_meta"))
+                moves = self._repair_file_moves(
+                    path, target_path, str(cached.get("thumbnail_path", "") or ""),
+                ) if normalized["rename"] else [(path, path)]
+                claims = list(moves)
+                claimed_targets = {self._repair_normalize_path(target) for _, target in claims}
+                # Two formats of the same basename can have different video
+                # destinations but still collide on a newly generated sidecar.
+                for option, extension in (("download_thumbnail", ".jpg"), ("collect_nfo", ".nfo")):
+                    if not normalized[option]:
+                        continue
+                    target = f"{os.path.splitext(target_path)[0]}{extension}"
+                    target_key = self._repair_normalize_path(target)
+                    if target_key not in claimed_targets:
+                        source = f"{os.path.splitext(path)[0]}{extension}"
+                        claims.append((source, target))
+                        claimed_targets.add(target_key)
+
+                for source, target in claims:
+                    source_key = self._repair_normalize_path(source)
+                    target_key = self._repair_normalize_path(target)
+                    target_claims.setdefault(target_key, []).append((index, source_key, target))
+                    if os.path.isfile(source):
+                        source_claims.setdefault(source_key, set()).add(index)
+                    if source_key != target_key and os.path.lexists(target):
+                        add_conflict(index, tr(
+                            f"Target already exists: {target}",
+                            f"目标已存在：{target}",
+                            f"変更先は既に存在します: {target}",
+                        ))
+            except Exception as exc:
+                add_conflict(index, tr(
+                    f"Cannot plan repair: {exc}",
+                    f"无法预览修复目标：{exc}",
+                    f"修復先を準備できません: {exc}",
+                ))
+
+        for claims in target_claims.values():
+            owners = {(index, source) for index, source, _ in claims}
+            if len(owners) <= 1:
+                continue
+            target = claims[0][2]
+            message = tr(
+                f"Several files would use the same target: {target}",
+                f"多个文件将使用同一目标：{target}",
+                f"複数のファイルが同じ変更先を使用します: {target}",
+            )
+            for index, _, _ in claims:
+                add_conflict(index, message)
+        for source, owners in source_claims.items():
+            if len(owners) <= 1:
+                continue
+            message = tr(
+                f"The same source belongs to several repair items: {source}",
+                f"同一源文件属于多个修复项目：{source}",
+                f"同じ元ファイルが複数の修復項目に含まれています: {source}",
+            )
+            for index in owners:
+                add_conflict(index, message)
+        for index, messages in conflicts.items():
+            result[index]["target_conflict"] = "\n".join(messages)
+        return result
+
+    def _repair_options(self, options: dict[str, Any] | None) -> dict[str, Any]:
+        values = options or {}
+        output_root = str(values.get("output_root", "") or "").strip()
+        return {
+            "filename_template": str(values.get("filename_template", "") or ""),
+            "output_root": os.path.abspath(os.path.expanduser(output_root)) if output_root else "",
+            "move_to_output": bool(values.get("move_to_output", False)),
+            "download_video": bool(values.get("download_video", False)),
+            "download_thumbnail": bool(values.get("download_thumbnail", False)),
+            "collect_nfo": bool(values.get("collect_nfo", False)),
+            "add_to_history": bool(values.get("add_to_history", True)),
+            "rename": bool(values.get("rename", True)),
+        }
+
+    @staticmethod
+    def _repair_target_fields(item: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+        path = str(item.get("path", "") or "")
+        moving = bool(options.get("move_to_output", False))
+        output_root = str(options.get("output_root", "") or "")
+        if moving and not output_root and item.get("move_to_output"):
+            # A scan with a blank organize output uses its selected source
+            # root, even when the videos lie several directories below it.
+            output_root = str(item.get("output_root", "") or "")
+        if options.get("rename", True):
+            cached = _dict_or_empty(item.get("cached_meta"))
+            metadata = _dict_or_empty(item.get("metadata"))
+            target_name, target_path = repair_target_path(
+                options.get("filename_template", ""), cached or metadata, path,
+                output_root=output_root,
+                move_to_output=moving,
+            )
+        else:
+            target_name, target_path = os.path.basename(path), os.path.abspath(path)
+        return {
+            "target_name": target_name,
+            "target_relative_path": target_name,
+            "target_path": target_path,
+            "output_root": output_root if moving and options.get("rename", True) and output_root else os.path.dirname(os.path.abspath(path)),
+            "move_to_output": moving,
+        }
 
     @staticmethod
     def _repair_normalize_path(path: Any) -> str:
@@ -444,11 +593,11 @@ class RepairManagerMixin:
         user = _dict_or_empty(metadata_source.get("user"))
         author = str(meta.get("author", "") or user.get("username", "") or "").strip()
         title = str(meta.get("title", "") or video_id).strip()
-        target_name = format_repair_filename(filename_template, meta, path)
-        if not move_to_output:
-            target_name = os.path.basename(target_name)
-        target_root = output_root if move_to_output else os.path.dirname(path)
-        target_path = os.path.join(target_root, target_name)
+        target_name, target_path = repair_target_path(
+            filename_template, meta, path,
+            output_root=output_root,
+            move_to_output=move_to_output,
+        )
         item.update(
             video_id=video_id,
             title=title,
@@ -533,24 +682,12 @@ class RepairManagerMixin:
             return result
 
         video_id = str(item.get("video_id", "") or "").strip()
-        source_url = str(item.get("cached_meta", {}).get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
         metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
         cached_meta = item.get("cached_meta") if isinstance(item.get("cached_meta"), dict) else {}
+        source_url = str(cached_meta.get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
         task = self._repair_task(video_id, metadata, cached_meta, source_url, path)
-        target_name = format_repair_filename(options.get("filename_template", ""), cached_meta or metadata, path)
-        move_to_output = bool(options.get("move_to_output", True))
-        if not move_to_output:
-            target_name = os.path.basename(target_name)
-        output_root = str(options.get("output_root", "") or "")
-        target_root = output_root if move_to_output and output_root else os.path.dirname(path)
-        target_path = os.path.join(target_root, target_name)
-        result.update(
-            target_name=target_name,
-            target_path=target_path,
-            target_relative_path=target_name,
-            output_root=target_root,
-            move_to_output=move_to_output,
-        )
+        # Use the batch plan, including the exact paths shown by the preview.
+        target_path = str(item.get("target_path", "") or path)
 
         if options.get("rename", True):
             thumbnail_before = str(cached_meta.get("thumbnail_path", "") or "")
@@ -562,7 +699,7 @@ class RepairManagerMixin:
             if not ok:
                 result.update(status="failed", message=rename_message)
                 return result
-            if os.path.abspath(path).casefold() != os.path.abspath(target_path).casefold():
+            if self._repair_normalize_path(path) != self._repair_normalize_path(target_path):
                 result["renamed"] = True
             else:
                 result["unchanged"] = True
@@ -573,6 +710,7 @@ class RepairManagerMixin:
         else:
             task.file_path = path
             task.filename = os.path.basename(path)
+        result["file_path"] = task.file_path
 
         # A folder repair is metadata-only for the media file itself. Existing
         # files are never sent through the download scheduler.
@@ -585,32 +723,51 @@ class RepairManagerMixin:
                 )
             )
 
-        if options.get("download_thumbnail"):
-            result["thumbnail"] = self._download_thumbnail(task, require_video_file=True)
-        if options.get("collect_nfo"):
-            result["nfo"] = self._write_nfo(task, require_video_file=True)
+        try:
+            if options.get("download_thumbnail"):
+                thumbnail_path = f"{os.path.splitext(task.file_path)[0]}.jpg"
+                if os.path.lexists(thumbnail_path):
+                    result["thumbnail"] = os.path.isfile(thumbnail_path) and os.path.getsize(thumbnail_path) > 0
+                    if result["thumbnail"]:
+                        task.thumbnail_path = thumbnail_path
+                else:
+                    result["thumbnail"] = self._download_thumbnail(task, require_video_file=True)
+            if options.get("collect_nfo"):
+                nfo_path = f"{os.path.splitext(task.file_path)[0]}.nfo"
+                # An attached NFO is retained when following a renamed video.
+                # Only missing sidecars are generated during folder repair.
+                if os.path.lexists(nfo_path):
+                    result["nfo"] = os.path.isfile(nfo_path) and os.path.getsize(nfo_path) > 0
+                else:
+                    result["nfo"] = self._write_nfo(task, require_video_file=True)
 
-        existing = self.history.get_record(video_id, include_raw=True)
-        if options.get("add_to_history"):
-            history_item = dict(metadata or cached_meta)
-            history_item["video_id"] = video_id
-            history_item["source_url"] = source_url
-            history_meta = self._history_meta_from_item(history_item, existing)
-            history_meta["file_path"] = task.file_path
-            history_meta["thumbnail_path"] = task.thumbnail_path or str(
-                history_meta.get("thumbnail_path", "") or ""
-            )
-            self.history.upsert_downloaded(history_meta)
-            result["history"] = True
-            self.subscriptions.mark_items_seen([video_id])
-        elif existing:
-            # Do not add a new history row when disabled, but keep an existing
-            # row's path synchronized after a rename.
-            self.history.update_file_paths(
-                video_id,
-                file_path=task.file_path,
-                thumbnail_path=task.thumbnail_path or str(existing.get("thumbnail_path", "") or ""),
-            )
+            existing = self.history.get_record(video_id, include_raw=True)
+            if options.get("add_to_history"):
+                history_item = dict(metadata or cached_meta)
+                history_item["video_id"] = video_id
+                history_item["source_url"] = source_url
+                history_meta = self._history_meta_from_item(history_item, existing)
+                history_meta["file_path"] = task.file_path
+                history_meta["thumbnail_path"] = task.thumbnail_path or str(
+                    history_meta.get("thumbnail_path", "") or ""
+                )
+                self.history.upsert_downloaded(history_meta)
+                result["history"] = True
+                self.subscriptions.mark_items_seen([video_id])
+            elif existing:
+                # Keep an existing history row synchronized after a rename.
+                self.history.update_file_paths(
+                    video_id,
+                    file_path=task.file_path,
+                    thumbnail_path=task.thumbnail_path or str(existing.get("thumbnail_path", "") or ""),
+                )
+        except Exception as exc:
+            result.update(status="failed", message=tr(
+                f"Metadata repair failed for {task.file_path}: {exc}",
+                f"元数据修复失败，当前文件位于 {task.file_path}：{exc}",
+                f"メタデータの修復に失敗しました（現在のファイル: {task.file_path}）: {exc}",
+            ))
+            return result
 
         result["status"] = "completed"
         result["message"] = tr(
@@ -666,15 +823,35 @@ class RepairManagerMixin:
         task.filename = os.path.basename(path)
         return task
 
+    def _repair_file_moves(
+        self,
+        old_path: str,
+        new_path: str,
+        thumbnail_path: str = "",
+    ) -> list[tuple[str, str]]:
+        moves = [(old_path, new_path)]
+        if self._repair_normalize_path(old_path) == self._repair_normalize_path(new_path):
+            return moves
+        old_stem = os.path.splitext(old_path)[0]
+        new_stem = os.path.splitext(new_path)[0]
+        seen_sources = {self._repair_normalize_path(old_path)}
+        candidates = [thumbnail_path] if thumbnail_path else []
+        candidates.extend(f"{old_stem}{extension}" for extension in (".jpg", ".jpeg", ".png", ".webp", ".nfo"))
+        for source in candidates:
+            source_key = self._repair_normalize_path(source)
+            if not source_key or source_key in seen_sources or not os.path.isfile(source):
+                continue
+            seen_sources.add(source_key)
+            moves.append((source, f"{new_stem}{os.path.splitext(source)[1] or '.jpg'}"))
+        return moves
+
     def _rename_repair_file(
         self,
         old_path: str,
         new_path: str,
         thumbnail_path: str = "",
     ) -> tuple[bool, str, str]:
-        old_abs = os.path.abspath(old_path)
-        new_abs = os.path.abspath(new_path)
-        if old_abs.casefold() == new_abs.casefold():
+        if self._repair_normalize_path(old_path) == self._repair_normalize_path(new_path):
             existing_thumb = thumbnail_path if os.path.isfile(thumbnail_path) else ""
             if not existing_thumb:
                 existing_thumb = next(
@@ -686,7 +863,7 @@ class RepairManagerMixin:
                     "",
                 )
             return True, existing_thumb, ""
-        if os.path.exists(new_path):
+        if os.path.lexists(new_path):
             return False, "", tr(
                 f"Target file already exists: {new_path}",
                 f"目标文件已存在：{new_path}",
@@ -694,26 +871,21 @@ class RepairManagerMixin:
             )
 
         old_stem = os.path.splitext(old_path)[0]
-        new_stem = os.path.splitext(new_path)[0]
-        sidecars: list[tuple[str, str]] = []
-        seen_sources: set[str] = set()
-        thumbnail_candidates = [thumbnail_path] if thumbnail_path else []
-        thumbnail_candidates.extend(
-            f"{old_stem}{extension}" for extension in (".jpg", ".jpeg", ".png", ".webp")
-        )
-        for source in thumbnail_candidates:
-            source = str(source or "")
-            source_key = self._repair_normalize_path(source)
-            if not source_key or source_key in seen_sources or not os.path.isfile(source):
-                continue
-            seen_sources.add(source_key)
-            sidecars.append((source, f"{new_stem}{os.path.splitext(source)[1] or '.jpg'}"))
-        nfo_source = f"{old_stem}.nfo"
-        if os.path.isfile(nfo_source) and self._repair_normalize_path(nfo_source) not in seen_sources:
-            sidecars.append((nfo_source, f"{new_stem}.nfo"))
+        moves = self._repair_file_moves(old_path, new_path, thumbnail_path)
+        sidecars = moves[1:]
 
-        for _source, target in sidecars:
-            if os.path.exists(target):
+        target_sources: dict[str, str] = {}
+        for source, target in moves:
+            source_key = self._repair_normalize_path(source)
+            target_key = self._repair_normalize_path(target)
+            if target_key in target_sources and target_sources[target_key] != source_key:
+                return False, "", tr(
+                    f"Several files would use the same target: {target}",
+                    f"多个文件将使用同一目标：{target}",
+                    f"複数のファイルが同じ変更先を使用します: {target}",
+                )
+            target_sources[target_key] = source_key
+            if source_key != target_key and os.path.lexists(target):
                 return False, "", tr(
                     f"Sidecar target already exists: {target}",
                     f"附属文件目标已存在：{target}",
@@ -722,19 +894,22 @@ class RepairManagerMixin:
 
         renamed: list[tuple[str, str]] = []
         try:
-            os.makedirs(os.path.dirname(new_abs), exist_ok=True)
-            shutil.move(old_path, new_path)
-            renamed.append((old_path, new_path))
-            for source, target in sidecars:
+            for source, target in moves:
+                if self._repair_normalize_path(source) == self._repair_normalize_path(target):
+                    continue
                 os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
-                shutil.move(source, target)
+                # Recheck immediately before each move; the batch plan may be
+                # stale if another program created a target in the meantime.
+                if os.path.lexists(target):
+                    raise FileExistsError(target)
+                self._move_repair_file(source, target)
                 renamed.append((source, target))
         except Exception as exc:
             for source, target in reversed(renamed):
                 try:
                     if os.path.exists(target) and not os.path.exists(source):
                         os.makedirs(os.path.dirname(os.path.abspath(source)), exist_ok=True)
-                        shutil.move(target, source)
+                        self._move_repair_file(target, source)
                 except OSError:
                     pass
             return False, "", str(exc)
@@ -751,4 +926,39 @@ class RepairManagerMixin:
                 new_thumbnail = target
                 break
         return True, new_thumbnail, ""
+
+    @staticmethod
+    def _move_repair_file(source: str, target: str):
+        """Move a repair file without shutil.move's overwrite-on-error fallback."""
+
+        try:
+            if os.name == "nt":
+                # Windows rename rejects an existing destination atomically.
+                os.rename(source, target)
+            else:
+                # A hard link provides the same no-replace guarantee on Unix.
+                os.link(source, target)
+                try:
+                    os.unlink(source)
+                except OSError:
+                    os.unlink(target)
+                    raise
+            return
+        except OSError as exc:
+            if exc.errno != errno.EXDEV and getattr(exc, "winerror", None) != 17:
+                raise
+
+        # Organizing can cross drives. Exclusively creating the destination
+        # also rejects files created by another process after the preflight.
+        created = False
+        try:
+            with open(source, "rb") as source_stream, open(target, "xb") as target_stream:
+                created = True
+                shutil.copyfileobj(source_stream, target_stream, length=1024 * 1024)
+            shutil.copystat(source, target)
+            os.unlink(source)
+        except Exception:
+            if created:
+                os.unlink(target)
+            raise
 

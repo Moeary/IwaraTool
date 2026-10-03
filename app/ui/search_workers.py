@@ -17,17 +17,18 @@ from ..core.oreno3d_search import (
     parse_oreno3d_tag_ids,
 )
 from ..core.search import (
+    SearchAuthor,
     SearchFilters,
     SearchPageResult,
     SearchScope,
     SearchVideo,
+    build_keyword_query_params,
     build_video_query_params,
     filter_videos,
     normalize_author,
     normalize_oreno3d_listing,
     normalize_video,
     sort_videos,
-    split_search_terms,
 )
 from ..i18n import tr
 
@@ -68,11 +69,12 @@ def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str
     if video_id:
         return video_id
     source_id = video.video_id.removeprefix("oreno3d:")
+    source_url = str(video.raw.get("oreno3d_url") or video.source_url or "")
     try:
         return str(
             download_manager.resolve_oreno3d_video_id(
                 source_id,
-                video.source_url,
+                source_url,
                 parallel=parallel,
             )
             or ""
@@ -81,9 +83,21 @@ def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str
         if "parallel" not in str(exc):
             raise
         return str(
-            download_manager.resolve_oreno3d_video_id(source_id, video.source_url)
+            download_manager.resolve_oreno3d_video_id(source_id, source_url)
             or ""
         ).strip()
+
+
+def _resolve_oreno_video_details(video: SearchVideo) -> dict[str, Any]:
+    """Keep source author information independently of Iwara availability."""
+
+    resolver = getattr(download_manager, "resolve_oreno3d_video_details", None)
+    if callable(resolver):
+        source_url = str(video.raw.get("oreno3d_url") or video.source_url or "")
+        result = resolver(video.video_id.removeprefix("oreno3d:"), source_url, parallel=True)
+        if isinstance(result, dict):
+            return result
+    return {"video_id": _resolve_oreno_video_id(video)}
 
 
 class SearchWorker(QThread):
@@ -233,29 +247,37 @@ class SearchWorker(QThread):
 
     def _run_video_search(self):
         query_filters = self.filters
+        keyword_search = self.scope == "videos" and bool(self.filters.keyword.strip())
         if self.scope == "tags":
-            tag_terms = split_search_terms(self.filters.keyword)
             query_filters = replace(
                 self.filters,
                 keyword="",
-                include_tags=tuple(dict.fromkeys((*self.filters.include_tags, *tag_terms))),
+                include_tags=(*self.filters.include_tags, self.filters.keyword),
             )
-        raw_page, total, has_more, error = download_manager.get_search_video_page(
-            build_video_query_params(query_filters, self.page),
+        fetch = (
+            download_manager.get_search_keyword_page
+            if keyword_search else download_manager.get_search_video_page
+        )
+        params = (
+            build_keyword_query_params(query_filters, self.page)
+            if keyword_search else build_video_query_params(query_filters, self.page)
+        )
+        raw_page, total, has_more, error = fetch(
+            params,
             page=self.page,
             limit=query_filters.page_size,
         )
         videos = [normalize_video(raw) for raw in raw_page]
         videos = [video for video in videos if video is not None]
-        if self.scope == "tags":
-            # The API has already applied the tag query. Its comma-separated
-            # ``tag`` parameter is an OR-style remote filter, while the
-            # generic local filter treats include_tags as an AND constraint.
-            # Applying that generic filter here would turn a valid page into
-            # an empty result set (the UI then shows e.g. 0 / 97).
-            videos = sort_videos(videos, query_filters.sort)
-        else:
-            videos = sort_videos(filter_videos(videos, query_filters), query_filters.sort)
+        # Remote keyword matches can live in descriptions or use search
+        # syntax. Substring matching would discard valid hits. Likewise tags
+        # have already been applied remotely. Preserve the server's order;
+        # sorting one page locally cannot implement a global search order.
+        local_filters = replace(
+            query_filters, keyword="",
+            include_tags=() if self.scope == "tags" else query_filters.include_tags,
+        )
+        videos = filter_videos(videos, local_filters)
         self.result_ready.emit(
             SearchPageResult(
                 scope=self.scope,
@@ -446,61 +468,121 @@ class SearchOrenoLinkWorker(QThread):
 
         id_futures: dict[Any, SearchVideo] = {}
         metadata_futures: dict[Any, SearchVideo] = {}
+        author_futures: dict[Any, list[SearchVideo]] = {}
+        author_jobs: dict[str, Any] = {}
+        author_results: dict[str, dict[str, Any]] = {}
         executor = ThreadPoolExecutor(
             max_workers=min(self.concurrency, len(self.videos)),
             thread_name_prefix="oreno-search-resolve",
         )
         completed = 0
+
+        def publish_author(video: SearchVideo, result: dict[str, Any]):
+            link = links[video.video_id]
+            link["iwara_author"] = result.get("iwara_author") or {}
+            link["author_error"] = str(result.get("error") or "")
+            self.item_ready.emit({
+                "generation": self.generation, "stage": "author",
+                "video_id": video.video_id, "link": dict(link),
+            })
+
+        def find_author(video: SearchVideo):
+            # Resolve a deleted/private work's author through other works.
+            # Share each author lookup within the page and use the same pool,
+            # so a page of dead videos cannot create unbounded workers.
+            if not self.hydrate_metadata or self.isInterruptionRequested():
+                return
+            link = links[video.video_id]
+            author_url = str(link.get("oreno_author_url") or "")
+            resolver = getattr(download_manager, "resolve_oreno3d_author", None)
+            if not author_url or not callable(resolver):
+                return
+            if author_url in author_results:
+                publish_author(video, author_results[author_url])
+            elif author_url in author_jobs:
+                author_futures[author_jobs[author_url]].append(video)
+            else:
+                future = executor.submit(
+                    resolver, author_url=author_url,
+                    author_name=str(link.get("oreno_author_name") or ""),
+                    max_videos=8, parallel=True,
+                )
+                author_jobs[author_url] = future
+                author_futures[future] = [video]
+
         try:
             for video in self.videos:
-                if video.source_kind != "oreno3d":
+                if video.source_kind != "oreno3d" and not video.raw.get("oreno3d_url"):
                     continue
-                id_futures[executor.submit(_resolve_oreno_video_id, video)] = video
+                id_futures[executor.submit(_resolve_oreno_video_details, video)] = video
 
-            while id_futures or metadata_futures:
+            while id_futures or metadata_futures or author_futures:
                 if self.isInterruptionRequested():
                     break
                 done, _ = wait(
-                    tuple(id_futures) + tuple(metadata_futures),
+                    tuple(id_futures) + tuple(metadata_futures) + tuple(author_futures),
                     return_when=FIRST_COMPLETED,
                 )
                 for future in done:
                     video = id_futures.pop(future, None)
                     if video is not None:
                         completed += 1
+                        error = ""
                         try:
-                            video_id = str(future.result() or "").strip()
+                            detail = future.result()
                         except Exception as exc:
-                            video_id = ""
-                            errors.append(f"{video.title}: {exc}")
+                            detail = {}
+                            error = str(exc)
+                        video_id = str(detail.get("video_id") or "").strip()
                         self.progress.emit(completed, total)
                         if not video_id:
-                            errors.append(
-                                f"{video.title}: Oreno3D detail did not expose an Iwara video ID"
+                            error = error or tr(
+                                "The Oreno3D page has no supported Iwara video link",
+                                "Oreno3D 页面未提供可识别的 Iwara 视频链接",
+                                "Oreno3Dページに対応するIwara動画リンクがありません",
                             )
-                            continue
+                            errors.append(f"{video.title}: {error}")
 
                         link = {
                             "id": video_id,
-                            "url": f"https://www.iwara.tv/video/{video_id}",
+                            "url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
                             "metadata": {},
+                            "error": error,
+                            **{key: detail.get(key, "") for key in (
+                                "oreno_author_id", "oreno_author_name", "oreno_author_url",
+                            )},
                         }
                         links[video.video_id] = link
                         self.item_ready.emit(
                             {
                                 "generation": self.generation,
-                                "stage": "id",
+                                "stage": "id" if video_id else "source",
                                 "link": dict(link),
                                 "video_id": video.video_id,
                             }
                         )
-                        if self.hydrate_metadata:
+                        if self.hydrate_metadata and video_id:
                             metadata_futures[
                                 executor.submit(
                                     download_manager.get_iwara_video_info,
                                     video_id,
                                 )
                             ] = video
+                        elif not video_id:
+                            find_author(video)
+                        continue
+
+                    author_videos = author_futures.pop(future, None)
+                    if author_videos is not None:
+                        try:
+                            result = future.result()
+                            result = result if isinstance(result, dict) else {}
+                        except Exception as exc:
+                            result = {"error": str(exc)}
+                        author_url = str(links[author_videos[0].video_id].get("oreno_author_url") or "")
+                        author_results[author_url] = result
+                        for author_video in author_videos:
+                            publish_author(author_video, result)
                         continue
 
                     video = metadata_futures.pop(future, None)
@@ -516,6 +598,7 @@ class SearchOrenoLinkWorker(QThread):
                     if metadata_error:
                         errors.append(f"{video.title}: {metadata_error}")
                     link["metadata"] = metadata if isinstance(metadata, dict) else {}
+                    link["metadata_error"] = str(metadata_error or "")
                     self.item_ready.emit(
                         {
                             "generation": self.generation,
@@ -527,6 +610,9 @@ class SearchOrenoLinkWorker(QThread):
                             "video_id": video.video_id,
                         }
                     )
+                    user = link["metadata"].get("user") or {}
+                    if not isinstance(user, dict) or not (user.get("username") or user.get("slug")):
+                        find_author(video)
         finally:
             executor.shutdown(
                 wait=not self.isInterruptionRequested(),
@@ -538,7 +624,7 @@ class SearchOrenoLinkWorker(QThread):
 
 
 class SearchIwaraAuthorWorker(QThread):
-    """Hydrate one Iwara video's metadata before author subscription."""
+    """Hydrate one Iwara video's metadata before an author action."""
 
     result_ready = Signal(object)
 
@@ -566,6 +652,52 @@ class SearchIwaraAuthorWorker(QThread):
         )
 
 
+class SearchAuthorProfileWorker(QThread):
+    """Resolve a known Iwara account to its real user ID off the UI thread."""
+
+    result_ready = Signal(object)
+
+    def __init__(
+        self,
+        generation: int,
+        action_generation: int,
+        target: tuple[str, str, str, str],
+    ):
+        super().__init__()
+        self.generation = generation
+        self.action_generation = action_generation
+        self.target = target
+
+    def run(self):
+        author: SearchAuthor | None = None
+        error = ""
+        try:
+            profile, error = download_manager.get_search_user_profile(self.target[0])
+            user = profile.get("user") if isinstance(profile, dict) else None
+            # normalize_author historically falls back to the username for
+            # card identity. That fallback cannot be sent as a /videos user ID.
+            if isinstance(user, dict) and str(user.get("id") or user.get("userId") or user.get("user_id") or "").strip():
+                author = normalize_author(profile)
+            if author is None and not error:
+                error = tr(
+                    "The Iwara profile did not contain a user ID",
+                    "Iwara 作者资料未包含用户 ID",
+                    "Iwara作者プロフィールにユーザーIDがありません",
+                )
+        except Exception as exc:
+            error = str(exc)
+        if self.isInterruptionRequested():
+            return
+        self.result_ready.emit(
+            {
+                "generation": self.generation,
+                "action_generation": self.action_generation,
+                "author": author,
+                "error": str(error or ""),
+            }
+        )
+
+
 class SearchOrenoAuthorWorker(QThread):
     """Resolve an Oreno3D author page and map it to an Iwara profile."""
 
@@ -587,22 +719,29 @@ class SearchOrenoAuthorWorker(QThread):
                 raise RuntimeError("Oreno3D author resolver is unavailable")
             raw = self.video.raw if isinstance(self.video.raw, dict) else {}
             source_id = self.video_id.removeprefix("oreno3d:")
+            source_url = str(raw.get("oreno3d_url") or self.video.source_url or "").strip()
             kwargs = {
                 "author_url": str(raw.get("oreno3d_author_url") or "").strip(),
                 "author_name": str(raw.get("oreno3d_author_name") or self.video.author_name or "").strip(),
                 "max_videos": self.max_videos,
                 "parallel": True,
             }
+            iwara_id = self.video.download_video_id or _extract_iwara_video_id(self.video.iwara_url)
+            if iwara_id:
+                kwargs["iwara_video_id"] = iwara_id
+            if isinstance(raw.get("oreno_iwara_author"), dict):
+                kwargs["iwara_author"] = dict(raw["oreno_iwara_author"])
             try:
-                value = resolver(source_id, self.video.source_url, **kwargs)
+                value = resolver(source_id, source_url, **kwargs)
             except TypeError as exc:
                 # Keep older integrations/fakes usable while the manager API
                 # rolls out the durable-author parameters.
-                if not any(name in str(exc) for name in ("author_url", "author_name", "max_videos", "parallel")):
+                if not any(name in str(exc) for name in ("author_url", "author_name", "max_videos", "parallel", "iwara_author", "iwara_video_id")):
                     raise
-                value = resolver(source_id, self.video.source_url)
+                value = resolver(source_id, source_url)
             if isinstance(value, dict):
                 result = dict(value)
+                error = str(result.get("error") or "")
             else:
                 error = "Oreno3D author resolver returned no result"
         except Exception as exc:

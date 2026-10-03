@@ -8,6 +8,7 @@ from contextlib import closing
 from typing import Any
 
 from ..config import app_config
+from ..signal_bus import signal_bus
 
 
 class DownloadHistory:
@@ -160,6 +161,8 @@ class DownloadHistory:
                     )
                     conn.commit()
 
+        signal_bus.history_changed.emit()
+
     def upsert_downloaded(self, meta: dict[str, Any]):
         """Insert or update metadata for a downloaded video."""
         video_id = str(meta.get("video_id", "")).strip()
@@ -219,6 +222,8 @@ class DownloadHistory:
                     conn.execute(sql, params)
                     conn.commit()
 
+        signal_bus.history_changed.emit()
+
     def remove(self, video_id: str):
         self.remove_many([video_id])
 
@@ -251,12 +256,15 @@ class DownloadHistory:
         with self._lock:
             self._ensure_db_ready()
             try:
-                return delete_rows()
+                removed = delete_rows()
             except sqlite3.OperationalError as exc:
                 if not self._is_missing_table_error(exc):
                     raise
                 self._ensure_db_ready()
-                return delete_rows()
+                removed = delete_rows()
+        if removed:
+            signal_bus.history_changed.emit()
+        return removed
 
     @classmethod
     def _select_columns(cls, *, include_raw: bool = False) -> tuple[str, ...]:
@@ -388,6 +396,8 @@ class DownloadHistory:
                     )
                     conn.commit()
 
+        signal_bus.history_changed.emit()
+
     def sync_with_download_folder(self, download_root: str) -> dict[str, int]:
         """Remove DB records whose files are gone or outside the download root.
 
@@ -422,9 +432,7 @@ class DownloadHistory:
 
             stats["kept"] += 1
 
-        for video_id in removed_ids:
-            self.remove(video_id)
-        stats["removed"] = len(removed_ids)
+        stats["removed"] = self.remove_many(removed_ids)
         return stats
 
     def all_ids(self) -> list[str]:

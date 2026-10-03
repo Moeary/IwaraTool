@@ -21,10 +21,9 @@ SearchScope = Literal["videos", "authors", "tags", "playlists"]
 class SearchFilters:
     """User-selected search options.
 
-    ``date_from`` and ``date_to`` are inclusive.  Keyword matching is local as
-    well as server-side: every keyword term must occur in the video's combined
-    title/author/tag text.  This makes the result useful even when the server
-    ignores an unknown ``q`` query parameter.
+    ``date_from`` and ``date_to`` are inclusive. Local filters are available
+    for collections, but Iwara keyword searches use the remote search engine
+    and keep its matching and ranking semantics.
     """
 
     keyword: str = ""
@@ -34,6 +33,7 @@ class SearchFilters:
     include_tags: tuple[str, ...] = ()
     exclude_tags: tuple[str, ...] = ()
     author: str = ""
+    author_id: str = ""
     author_any: tuple[str, ...] = ()
     author_not: tuple[str, ...] = ()
     origin_any: tuple[str, ...] = ()
@@ -412,15 +412,29 @@ def build_video_query_params(filters: SearchFilters, page: int = 0) -> dict[str,
     }
     if filters.rating:
         params["rating"] = filters.rating
-    include_tags = split_search_terms(" ".join(filters.include_tags))
+    if filters.author_id.strip():
+        params["user"] = filters.author_id.strip()
+    # Preserve translated names containing spaces until the tag dictionary
+    # resolves them; keyword text belongs to /search, never /videos?q=.
+    include_tags = tuple(tag.strip() for tag in filters.include_tags if tag.strip())
     if include_tags:
         params["tags"] = ",".join(include_tags)
-    keyword = str(filters.keyword or "").strip()
-    if keyword:
-        # ``q`` is supported by some API deployments.  Local filtering below
-        # remains authoritative when a deployment silently ignores it.
-        params["q"] = keyword
     return params
+
+
+IWARA_KEYWORD_SORTS = ("relevance", "date", "views", "likes")
+
+
+def build_keyword_query_params(filters: SearchFilters, page: int = 0) -> dict[str, str]:
+    """Build /search parameters without converting text into tags."""
+
+    return {
+        "type": "videos",
+        "query": str(filters.keyword or "").strip(),
+        "sort": filters.sort if filters.sort in IWARA_KEYWORD_SORTS else "relevance",
+        "page": str(max(0, int(page))),
+        "limit": str(max(1, min(100, int(filters.page_size or 32)))),
+    }
 
 
 def _contains_terms(video: SearchVideo, terms: tuple[str, ...], mode: str = "all") -> bool:

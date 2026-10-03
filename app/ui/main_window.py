@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import sys
 
 from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
@@ -36,6 +37,7 @@ from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 from .ui_state import show_fluent_confirmation
+from .window_drag import WindowsTitleBarDragFilter
 
 
 class _NotificationBridge(QObject):
@@ -51,6 +53,8 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
+        if sys.platform == "win32":
+            self._title_bar_drag_filter = WindowsTitleBarDragFilter(self.titleBar)
         self._reloading_language = False
         self._task_notification_batch = TaskNotificationBatch()
         self._task_notification_timer = QTimer(self)
@@ -71,6 +75,7 @@ class MainWindow(FluentWindow):
         signal_bus.desktop_notification_requested.connect(self._show_desktop_notification)
         signal_bus.release_update_available.connect(self._on_release_update_available)
         signal_bus.task_status_changed.connect(self._on_task_status_notification)
+        signal_bus.subscription_source_requested.connect(self._on_subscription_source_requested)
         qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 
@@ -165,6 +170,15 @@ class MainWindow(FluentWindow):
         # If you have a splash screen, call finish here.
         # Currently a no-op.
         pass
+
+    def _on_subscription_source_requested(self, source_id: int):
+        """Navigate after subscription_source_added has selected and refreshed."""
+
+        source_id = int(source_id or 0)
+        if not source_id:
+            return
+        self._subscription_page._select_source_id(source_id)
+        self.switchTo(self._subscription_page)
 
     def _init_desktop_notifications(self):
         self._tray_icon: QSystemTrayIcon | None = None

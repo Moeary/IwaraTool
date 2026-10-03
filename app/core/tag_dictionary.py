@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -20,6 +21,7 @@ from difflib import SequenceMatcher
 from typing import Any, Mapping
 
 from ..config import app_config
+from ..i18n import tr
 
 
 LOVEIWARA_TAGS_URL = (
@@ -81,6 +83,17 @@ def _norm(value: Any) -> str:
     return unicodedata.normalize("NFKC", _text(value)).casefold().strip()
 
 
+def tag_query_fragment(value: str) -> str:
+    """The whole final comma-delimited label, including any internal spaces."""
+
+    return re.split(r"[,，;；|\n]", str(value or ""))[-1].strip()
+
+
+def complete_tag_query(value: str, key: str) -> str:
+    parts = re.split(r"[,，;；|\n]", str(value or ""))
+    return ", ".join([part.strip() for part in parts[:-1] if part.strip()] + [key.strip()]) + ", "
+
+
 class TagDictionary:
     """Load, merge, and query localized tag dictionaries."""
 
@@ -93,6 +106,8 @@ class TagDictionary:
         )
         self._entries: dict[str, TagSuggestion] = {}
         self._aliases: dict[str, str] = {}
+        self._alias_keys: dict[str, list[str]] = {}
+        self._normalized_keys: dict[str, str] = {}
         self._lock = threading.RLock()
         self._ensure_bundled_cache()
         self.reload()
@@ -150,14 +165,20 @@ class TagDictionary:
                         ja=current.ja or suggestion.ja,
                     )
         aliases: dict[str, str] = {}
+        alias_keys: dict[str, list[str]] = {}
         for key, suggestion in entries.items():
             for value in (key, suggestion.en, suggestion.zh, suggestion.ja):
                 normalized = _norm(value)
                 if normalized:
                     aliases.setdefault(normalized, key)
+                    candidates = alias_keys.setdefault(normalized, [])
+                    if key not in candidates:
+                        candidates.append(key)
         with self._lock:
             self._entries = entries
             self._aliases = aliases
+            self._alias_keys = alias_keys
+            self._normalized_keys = {_norm(key): key for key in entries}
             return len(entries)
 
     def suggest(self, query: str, *, limit: int = 16) -> list[TagSuggestion]:
@@ -208,6 +229,44 @@ class TagDictionary:
         with self._lock:
             key = self._aliases.get(normalized)
             return self._entries.get(key) if key else None
+
+    def resolve_query(self, value: str) -> tuple[str, ...]:
+        """Resolve exact localized labels, including names containing spaces.
+
+        Commas separate labels explicitly. For space-separated input, prefer
+        the longest known label before falling back to individual raw keys.
+        Suggestions may be fuzzy; submitted tags must never use fuzzy matches.
+        """
+
+        result: list[str] = []
+        seen: set[str] = set()
+        for group in re.split(r"[,，;；|\n]+", str(value or "")):
+            words = group.strip().split()
+            while words:
+                matches: tuple[str, ...] = ()
+                size = 1
+                for end in range(len(words), 0, -1):
+                    label = " ".join(words[:end]).strip('"')
+                    normalized = _norm(label).lstrip("#")
+                    with self._lock:
+                        exact_key = self._normalized_keys.get(normalized)
+                        matches = (exact_key,) if exact_key else tuple(self._alias_keys.get(normalized, ()))
+                    if matches:
+                        size = end
+                        break
+                if len(matches) > 1:
+                    candidates = ", ".join(matches)
+                    raise ValueError(tr(
+                        f'Tag "{label}" has several IDs ({candidates}). Select a specific suggestion or enter its ID.',
+                        f'标签“{label}”对应多个 ID（{candidates}）。请从候选中选择具体标签，或输入其 ID。',
+                        f'タグ「{label}」には複数のIDがあります（{candidates}）。候補から選択するか、IDを入力してください。',
+                    ))
+                key = matches[0] if matches else self.canonical_key(words[0].strip('"'))
+                words = words[size:]
+                if key and key.casefold() not in seen:
+                    seen.add(key.casefold())
+                    result.append(key)
+        return tuple(result)
 
     def update_from_remote(self, session, *, timeout: int = 30) -> tuple[int, str]:
         """Download the MIT-licensed LoveIwara dictionary atomically."""

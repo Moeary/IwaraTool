@@ -149,6 +149,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._enqueue_worker: SubscriptionEnqueueWorker | None = None
         self._avatar_worker: SubscriptionAvatarWorker | None = None
         self._thumbnail_worker: SubscriptionThumbnailWorker | None = None
+        self._cover_cache_worker: SubscriptionThumbnailWorker | None = None
         self._shutting_down = False
         self._avatar_requested_source_ids: set[int] = set()
         self._thumbnail_requested_video_ids: set[str] = set()
@@ -510,6 +511,14 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 tr("Refresh Covers", "刷新封面", "カバーを更新"),
                 self,
                 triggered=self._refresh_current_covers,
+            )
+        )
+        refresh_menu.addAction(
+            Action(
+                FluentIcon.DOWNLOAD,
+                tr("Cache All Source Covers", "缓存当前订阅源全部封面", "購読元の全カバーをキャッシュ"),
+                self,
+                triggered=self._cache_current_source_covers,
             )
         )
         self._refresh_current_btn = PrimaryDropDownPushButton(
@@ -1140,6 +1149,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_table.selectRow(selected_row)
         self._source_table.setCurrentCell(selected_row, self._SRC_STATE)
         self._source_table.blockSignals(False)
+        item = self._source_table.item(selected_row, self._SRC_STATE)
+        if item is not None:
+            self._source_table.scrollToItem(item)
         return True
 
     def _render_sources(self):
@@ -1169,6 +1181,11 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_render_index = end
         if end >= len(self._sources):
             self._source_render_timer.stop()
+            # Selecting a newly inserted source happens before its cells are
+            # populated. Restore that selection once the batched render ends,
+            # while respecting any selection made during rendering.
+            if self._current_source_id is not None and self._selected_source_id() is None:
+                self._select_source_id(self._current_source_id)
 
     def _render_source_row(self, row: int, source: dict[str, Any]):
         source_id = int(source.get("id", 0) or 0)
@@ -1564,7 +1581,6 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 or (not force and thumbnail_path and os.path.isfile(thumbnail_path))
                 or (not force and video_id in self._thumbnail_requested_video_ids)
                 or (force and video_id in self._thumbnail_force_refresh_ids)
-                or (not force and not thumbnail_url)
             ):
                 continue
             requests.append((video_id, thumbnail_url))
@@ -1583,7 +1599,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             concurrency=self._cover_download_concurrency(),
         )
         self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
-        self._thumbnail_worker.done.connect(self._on_thumbnail_worker_finished)
+        self._thumbnail_worker.finished.connect(self._on_thumbnail_worker_finished)
         self._thumbnail_worker.start()
         return True
 
@@ -1739,6 +1755,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             self._enqueue_worker,
             self._avatar_worker,
             self._thumbnail_worker,
+            self._cover_cache_worker,
         ]
         return stop_qthreads(workers, timeout_ms=timeout_ms)
 
