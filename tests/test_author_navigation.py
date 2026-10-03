@@ -20,7 +20,7 @@ from app.core.search import (
 )
 from app.core.search_manager import SearchManagerMixin
 from app.ui.search_page import SearchInterface
-from app.ui.search_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker, SearchWorker
+from app.ui.search_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker, SearchOrenoLinkWorker, SearchWorker
 
 
 class AuthorSearchWorkerTests(unittest.TestCase):
@@ -389,6 +389,56 @@ class AuthorNavigationPageTests(unittest.TestCase):
             source_url="https://oreno3d.com/movies/source-1",
         )
         self.assertIsNone(self.page._author_navigation_target(video))
+
+    def test_deleted_bridge_video_can_open_author_view_works_and_subscribe(self):
+        video = SearchVideo(
+            "oreno3d:source-1", "Old title", source_kind="oreno3d",
+            source_url="https://oreno3d.com/movies/source-1", downloadable=False,
+            raw={"oreno3d_url": "https://oreno3d.com/movies/source-1"},
+        )
+        source_author = Oreno3DEntity("123", "Source name", "https://oreno3d.com/authors/123")
+        core = SearchManagerMixin()
+        core.api = SimpleNamespace(scraper=SimpleNamespace(proxies={}))
+        core._api_lock = threading.RLock()
+        core.get_iwara_video_info = self.manager.get_iwara_video_info
+        self.manager.get_iwara_video_info.side_effect = [
+            (None, "HTTP 404: deleted"),
+            ({"id": "alive", "user": {"id": "user-42", "username": "creator"}}, ""),
+        ]
+        self.manager.resolve_oreno3d_video_details.side_effect = core.resolve_oreno3d_video_details
+        self.manager.resolve_oreno3d_author.side_effect = core.resolve_oreno3d_author
+        client = Mock()
+        client.fetch_detail_url.return_value = Oreno3DDetail(
+            "source-1", video.source_url, "Old title", "https://www.iwara.tv/video/deleted", source_author,
+        )
+        client.fetch_author_page.return_value = (
+            [Oreno3DListing("survivor", "https://oreno3d.com/movies/survivor", "Title", "Source name", "", 0, 0)], 1,
+        )
+        client.fetch_detail.return_value = Oreno3DDetail(
+            "survivor", "https://oreno3d.com/movies/survivor", "Title", "https://www.iwara.tv/video/alive", source_author,
+        )
+        self.page._all_videos = [video]
+        with (
+            patch("app.core.search_manager.Oreno3DClient", return_value=client),
+            patch("app.core.search_manager.cloudscraper.create_scraper"),
+            patch.object(self.page, "_start_image_loading"),
+        ):
+            worker = SearchOrenoLinkWorker(self.page._generation, [video])
+            worker.item_ready.connect(self.page._on_oreno_link_item)
+            worker.run()
+        client.fetch_author_page.assert_called_once_with(source_author.url, page=1)
+        self.assertEqual(video.iwara_url, "https://www.iwara.tv/video/deleted")
+        with self.selected(video), patch("app.ui.search_page.webbrowser.open") as browser:
+            self.page._open_author_page_for_result()
+            browser.assert_called_once_with(source_author.url)
+            self.page._view_selected_author_works()
+        self.assertEqual(self.run_search.call_args.args[0].author_id, "user-42")
+        with self.selected(video), patch("app.ui.search_page.InfoBar.success"):
+            self.page._subscribe_selected_author_and_go()
+        self.assertEqual(self.manager.add_author_subscription.call_args.args[0], "creator")
+        self.assertEqual(self.manager.add_author_subscription.call_args.kwargs["source_url"], source_author.url)
+        self.bus.subscription_source_requested.emit.assert_called_once_with(42)
+        self.warning.assert_not_called()
 
     def test_subscription_navigation_is_opt_in_after_source_added_notification(self):
         with patch("app.ui.search_page.InfoBar.success"):

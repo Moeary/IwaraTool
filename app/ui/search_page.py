@@ -1279,9 +1279,23 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
 
     def _apply_oreno_link(self, video: SearchVideo, link: dict[str, Any]) -> bool:
+        for key in ("oreno_author_id", "oreno_author_name", "oreno_author_url"):
+            value = str(link.get(key) or "").strip()
+            if value:
+                video.raw[key.replace("oreno_", "oreno3d_")] = value
+        if isinstance(link.get("iwara_author"), dict) and link["iwara_author"]:
+            video.raw["oreno_iwara_author"] = dict(link["iwara_author"])
+            video.raw.pop("oreno3d_author_error", None)
+        elif link.get("author_error") and not video.raw.get("oreno_iwara_author"):
+            video.raw["oreno3d_author_error"] = str(link["author_error"])
         video_id = str(link.get("id") or "").strip()
         if not video_id:
-            return False
+            # The source author remains useful even when the video link is
+            # absent. A late failed request must not erase an earlier success.
+            if not video.download_video_id:
+                video.raw["oreno3d_resolution_error"] = str(link.get("error") or "")
+            return True
+        video.raw.pop("oreno3d_resolution_error", None)
         iwara_url = str(link.get("url") or "").strip()
         # Oreno3D's cover is already loaded asynchronously when the search
         # card appears.  Keep that bridge cover after Iwara metadata arrives;
@@ -1316,9 +1330,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                 setattr(video, field_name, getattr(normalized, field_name))
         if is_oreno_bridge:
             video.thumbnail_url = bridge_thumbnail_url
-        if isinstance(metadata, dict):
+        if normalized is not None:
             video.raw.update(metadata)
-            video.raw["_iwara_metadata_loaded"] = normalized is not None
+            video.raw["_iwara_metadata_loaded"] = True
+            video.raw.pop("iwara_metadata_error", None)
+        elif not video.raw.get("_iwara_metadata_loaded") and link.get("metadata_error"):
+            video.raw["iwara_metadata_error"] = str(link["metadata_error"])
         video.raw["oreno3d_url"] = bridge_url
         video.raw["oreno3d_id"] = video.video_id.removeprefix("oreno3d:")
         video.download_video_id = video_id
@@ -1346,10 +1363,13 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
         focused = self.focusWidget()
         if video.video_id in self._pending_open_video_ids:
-            self._pending_open_video_ids.discard(video.video_id)
-            # The ID stage is emitted before metadata hydration.  Open the
-            # canonical Iwara page now; rendering and metadata can follow.
-            webbrowser.open(video.iwara_url)
+            if video.iwara_url:
+                self._pending_open_video_ids.discard(video.video_id)
+                # Open at the ID stage, without waiting for metadata.
+                webbrowser.open(video.iwara_url)
+            elif link.get("error"):
+                self._pending_open_video_ids.discard(video.video_id)
+                self._show_warning(str(link["error"]))
         self._update_video_presentation(video)
         self._start_image_loading()
         self._maybe_subscribe_pending_author(video)
@@ -1384,7 +1404,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                     )
                 )
         self._update_status()
-        if errors and not links:
+        if errors and not any(link.get("id") for link in links.values()):
             self._show_warning(errors[0])
 
     def _maybe_subscribe_pending_author(self, video: SearchVideo):

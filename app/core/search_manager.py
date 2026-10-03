@@ -1,14 +1,13 @@
 """Online search and bridge operations mixed into DownloadManager."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import cloudscraper
 
 from ..i18n import tr
 from .api import IwaraAPI
-from .oreno3d import Oreno3DClient
+from .oreno3d import Oreno3DClient, extract_iwara_video_id
 from .oreno3d_search import intersect_oreno3d_listings
 from .task_metadata import _dict_or_empty, _iwara_image_url
 
@@ -175,10 +174,9 @@ class SearchManagerMixin:
                     oreno3d_url,
                 )
         external_url = detail.external_video_url
-        match = re.search(r"/video/([^/?#]+)", external_url)
         author = detail.author
         return {
-            "video_id": match.group(1) if match else "",
+            "video_id": extract_iwara_video_id(external_url),
             "video_url": external_url,
             "oreno_author_id": author.source_id if author else "",
             "oreno_author_name": author.name if author else "",
@@ -212,6 +210,7 @@ class SearchManagerMixin:
         author_url: str = "",
         author_name: str = "",
         iwara_author: dict[str, Any] | None = None,
+        iwara_video_id: str = "",
         max_videos: int = 8,
         parallel: bool = False,
     ) -> dict[str, Any]:
@@ -256,21 +255,33 @@ class SearchManagerMixin:
         checked_video_ids: set[str] = set()
         errors: list[str] = []
 
-        def _try_detail(detail: Any) -> bool:
-            external_url = str(getattr(detail, "external_video_url", "") or "")
-            match = re.search(r"/video/([^/?#]+)", external_url)
-            if not match or match.group(1) in checked_video_ids:
+        def _try_video(video_id: str) -> bool:
+            if not video_id or video_id in checked_video_ids:
                 return False
-            checked_video_ids.add(match.group(1))
+            checked_video_ids.add(video_id)
             try:
-                metadata, _metadata_error = self.get_iwara_video_info(match.group(1))
-            except Exception:
+                metadata, metadata_error = self.get_iwara_video_info(video_id)
+                if metadata_error:
+                    errors.append(str(metadata_error))
+            except Exception as exc:
+                errors.append(str(exc))
                 metadata = None
             target = _profile_target({"user": _dict_or_empty(metadata).get("user")})
             if target:
                 result["iwara_author"] = target
                 return True
             return False
+
+        def _try_detail(detail: Any) -> bool:
+            return _try_video(extract_iwara_video_id(
+                str(getattr(detail, "external_video_url", "") or "")
+            ))
+
+        # The selected work may still be available even when the author's
+        # newest works are deleted. Reuse its resolved ID before crawling.
+        known_video_id = str(iwara_video_id or "").strip()
+        if result["oreno_author_url"] and _try_video(known_video_id):
+            return result
 
         def _resolve(client: Oreno3DClient):
             original = None
@@ -283,7 +294,7 @@ class SearchManagerMixin:
                         result["oreno_author_id"] = original.author.source_id
                 except Exception as exc:
                     errors.append(str(exc))
-            if original is not None and _try_detail(original):
+            if _try_video(known_video_id) or (original is not None and _try_detail(original)):
                 return
             author_page = str(result["oreno_author_url"] or "").strip()
             if not author_page:

@@ -612,6 +612,9 @@ class SearchActionsMixin:
                 " 仍可使用右键菜单“打开作者页”浏览 Oreno3D 来源。",
                 " 右クリックメニューの「作者ページを開く」からOreno3Dの元ページを閲覧できます。",
             )
+        reason = str(video.raw.get("oreno3d_author_error") or "")
+        if reason:
+            message += f"\n{reason}"
         self._status_label.setText(message)
         self._show_warning(message)
 
@@ -774,8 +777,11 @@ class SearchActionsMixin:
             if value:
                 raw[key.replace("oreno_", "oreno3d_")] = value
         iwara_author = resolved.get("iwara_author")
-        if isinstance(iwara_author, dict):
+        if isinstance(iwara_author, dict) and iwara_author:
             raw["oreno_iwara_author"] = dict(iwara_author)
+            raw.pop("oreno3d_author_error", None)
+        elif result.get("error") and not raw.get("oreno_iwara_author"):
+            raw["oreno3d_author_error"] = str(result["error"])
         if raw.get("oreno3d_author_url"):
             video.raw["oreno3d_author_url"] = str(raw["oreno3d_author_url"])
         self._update_video_presentation(video)

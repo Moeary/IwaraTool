@@ -143,6 +143,15 @@
 - Oreno3D 的标签目录不是 `/search` 的 `tag_id` 参数：总目录为 `/tags`，分组页为 `/tag-groups/{group_id}`，具体标签页为 `/tags/{tag_id}?sort=latest&page=1`。因此需要精确按 Oreno3D 标签筛选时，应使用标签页的数字 ID；搜索页的标签模式则使用 Oreno3D 的 `keyword` 自由文本入口。
 - [iwara-search](https://github.com/beautifulrem/iwara-search) 选择本地 SQLite/FTS5 镜像是为了实现原站没有的复杂布尔和范围筛选；本项目当前优先保持在线结果与 Oreno3D 同步，不启用该大规模镜像。
 
+### Oreno3D 视频与作者回退（2026-10-03 验证）
+
+- 部分旧详情页的 `h1.video-h1` 存在但内容为空，视频来源和作者链接仍在。旧解析器因标题为空直接报错，导致两类链接一起丢失；现在以来源 ID 代替空标题继续解析，缺少详情页标记的响应仍视为异常。
+- 视频来源从正文 `.video-figure a` 与 `a.video-watch-btn2` 提取，校验 Iwara 域名及 `/video/{id}` 路径，不扫描作者评论或侧栏链接。可交叉参照 [LoveIwara 详情解析器](https://github.com/FoxSensei001/LoveIwara/blob/master/lib/app/services/oreno3d_html_parser.dart) 的播放入口选择器。
+- Oreno3D 作者 ID、名称与 URL 随链接解析结果传到界面，不依赖 Iwara 元数据请求成功。仅 ID 响应和失败响应不得清除已有的 `_iwara_metadata_loaded` 状态。
+- 自动补全时，原视频没有可用 Iwara 作者资料，则请求 Oreno3D 作者页，检查最多 8 条作品，用其中可访问视频的 `user` 建立账号映射；同批同作者复用一次回退查询，使用原有并发上限。手动作者操作也可走该回退，并优先尝试已知的原视频 ID。
+- 新旧列表第 1、1000、9500 页抽查的 14 条详情均能得到视频与作者链接。第 9600 页发现空标题记录；其中 [117917](https://oreno3d.com/movies/117917)、[120989](https://oreno3d.com/movies/120989)、[8350](https://oreno3d.com/movies/8350) 修复后均成功取得来源链接，并通过其他作品取得真实 Iwara 作者 ID。117917 的 Iwara 原视频实测返回 JSON `403 / errors.privateVideo`，不能把它断言为已删除；删除后的 `404` 分支以回归测试验证。
+- 若所有候选作品均不可用，保留 Oreno3D 作者页及错误原因；不以显示名称猜测账号。视频来源链接存在也不代表原视频仍可访问或下载。
+
 ### 多语言标签候选
 
 - 标签搜索输入框支持英文、简体中文和日文候选提示；输入逗号分隔的下一个词时会继续匹配候选，查询结果仍由当前数据源决定，Oreno3D 模式直接走上述原生 `keyword` 搜索。

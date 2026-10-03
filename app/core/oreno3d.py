@@ -8,11 +8,14 @@ parser for the stable Oreno3D selectors used by its listing/detail pages.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Iterable
 from urllib.parse import parse_qs, quote, urljoin, urlparse
+
+from requests.exceptions import ConnectionError, Timeout
 
 from .oreno3d_mapping import resolve_oreno3d_entity
 
@@ -184,6 +187,21 @@ def _movie_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
+def extract_iwara_video_id(url: str) -> str:
+    """Accept video links on Iwara itself, not mentions in unrelated URLs."""
+
+    try:
+        parsed = urlparse(_clean_text(url))
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+            "iwara.tv", "www.iwara.tv", "ecchi.iwara.tv",
+        }:
+            return ""
+        match = re.match(r"^/video/([A-Za-z0-9_-]+)(?:/|$)", parsed.path)
+        return match.group(1) if match else ""
+    except ValueError:
+        return ""
+
+
 def _entity_id(url: str, kind: str) -> str:
     match = re.search(rf"/{re.escape(kind)}/([^/?#]+)", urlparse(url).path)
     return match.group(1) if match else ""
@@ -281,10 +299,14 @@ def parse_listing_page(html: str, *, page: int) -> tuple[list[Oreno3DListing], i
 
 def parse_detail_page(html: str, *, source_id: str, oreno3d_url: str) -> Oreno3DDetail:
     tree = _parse_tree(html)
-    title_node = _first(tree, tag="h1", class_name="video-h1")
-    title = _clean_text(title_node.text() if title_node else "")
-    if not title:
+    # The sidebar and recommendations may contain other authors and links.
+    article = _first(tree, tag="article", class_name="g-main-video-article") or tree
+    title_node = _first(article, tag="h1", class_name="video-h1")
+    if title_node is None:
         raise ValueError(f"Could not find Oreno3D title for {source_id}")
+    # Older records can have an empty h1 while their source and author links
+    # still exist. Reject non-detail pages, not these valid partial records.
+    title = _clean_text(title_node.text()) or source_id
 
     meta_image = next(
         (
@@ -319,24 +341,27 @@ def parse_detail_page(html: str, *, source_id: str, oreno3d_url: str) -> Oreno3D
                 published_at = f"{value} {date_texts[index + 1]}"
             break
 
-    sections = [node for node in _all(tree, tag="section") if "video-section-tag" in _classes(node)]
-    entity_roots = sections or [tree]
-    author = next(
-        (
-            _entity(anchor, "authors")
-            for section in entity_roots
-            for anchor in _all(section, tag="a")
-            if "/authors/" in _attr(anchor, "href")
-        ),
-        None,
-    )
+    sections = [node for node in _all(article, tag="section") if "video-section-tag" in _classes(node)]
+    entity_roots = sections or [article]
+    authors = _entities_many(entity_roots, "authors")
+    if not authors and article is not tree:
+        authors = _entities(article, "authors")
+    author = authors[0] if authors else None
     tags = _entities_many(entity_roots, "tags")
     origins = _entities_many(entity_roots, "origins")
     characters = _entities_many(entity_roots, "characters")
     external_video_url = ""
-    for link in _all(tree, tag="a", class_name="video-watch-btn2"):
+    # Some records expose only the poster's play link. Both selectors are
+    # used by the site's detail page; never scan comment URLs as a fallback.
+    play_links = [
+        anchor
+        for figure in _all(article, class_name="video-figure")
+        for anchor in _all(figure, tag="a")
+    ]
+    play_links.extend(_all(article, tag="a", class_name="video-watch-btn2"))
+    for link in play_links:
         href = _absolute(_attr(link, "href"))
-        if "iwara" in href.casefold():
+        if extract_iwara_video_id(href):
             external_video_url = href
             break
     comment_node = _first(tree, tag="blockquote", class_name="video-information-comment")
@@ -389,6 +414,34 @@ class Oreno3DClient:
         self.timeout = max(5, int(timeout))
         self.delay = max(0.0, float(delay))
 
+    def _get(self, url: str, **kwargs):
+        """Retry one transient public-page failure, retaining terminal errors."""
+
+        for attempt in range(2):
+            try:
+                response = self.session.get(
+                    url,
+                    headers={"Accept": "text/html,application/xhtml+xml", "Referer": BASE_URL + "/"},
+                    timeout=self.timeout,
+                    **kwargs,
+                )
+            except (ConnectionError, Timeout):
+                if attempt:
+                    raise
+            else:
+                status = int(getattr(response, "status_code", 0) or 0)
+                if not attempt and status in {429, 502, 503, 504}:
+                    retry_after = str(getattr(response, "headers", {}).get("Retry-After", ""))
+                    # Do not shorten a server-requested cooldown or block a
+                    # worker for an unbounded amount of time.
+                    if retry_after and (not retry_after.isdigit() or int(retry_after) > 2):
+                        return response
+                    response.close()
+                    time.sleep(max(self.delay, float(retry_after or 0), 0.25))
+                    continue
+                return response
+            time.sleep(max(self.delay, 0.25))
+
     def fetch_listing_page(self, page: int, *, sort: str = "latest") -> tuple[list[Oreno3DListing], int]:
         params = {"sort": sort, "page": max(1, int(page))}
         return self._fetch_listing_path("/", params=params, page=page)
@@ -400,11 +453,9 @@ class Oreno3DClient:
         params: dict[str, object],
         page: int,
     ) -> tuple[list[Oreno3DListing], int]:
-        response = self.session.get(
+        response = self._get(
             f"{BASE_URL}{path}",
             params=params,
-            headers={"Accept": "text/html,application/xhtml+xml", "Referer": BASE_URL + "/"},
-            timeout=self.timeout,
         )
         try:
             if int(getattr(response, "status_code", 0) or 0) >= 400:
@@ -508,11 +559,7 @@ class Oreno3DClient:
     def fetch_detail_url(self, source_id: str, oreno3d_url: str) -> Oreno3DDetail:
         """Fetch one detail page without creating a local Oreno3D mirror."""
 
-        response = self.session.get(
-            oreno3d_url,
-            headers={"Accept": "text/html,application/xhtml+xml", "Referer": BASE_URL + "/"},
-            timeout=self.timeout,
-        )
+        response = self._get(oreno3d_url)
         try:
             if int(getattr(response, "status_code", 0) or 0) >= 400:
                 raise RuntimeError(f"Oreno3D HTTP {response.status_code}")

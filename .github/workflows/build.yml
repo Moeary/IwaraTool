@@ -103,6 +103,6 @@ jobs:
           files: |
             dist/IwaraTool*
           draft: false
-          prerelease: false
+          prerelease: ${{ github.ref_name == 'v0.9.0' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
