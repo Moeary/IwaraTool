@@ -27,6 +27,7 @@ from .search_widgets import (
     _oreno3d_video_url,
 )
 from .search_workers import (
+    SearchAuthorProfileWorker,
     SearchIwaraAuthorWorker,
     SearchOrenoAuthorWorker,
     SearchQueueResolveWorker,
@@ -289,7 +290,7 @@ class SearchActionsMixin:
         if len(values) != 1:
             return
         data = values[0].get("data")
-        target = _author_subscription_target(data)
+        target = self._author_navigation_target(data)
         if target:
             webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
 
@@ -364,9 +365,25 @@ class SearchActionsMixin:
                     triggered=lambda _checked=False: self._open_author_page_for_result(),
                 )
             )
+            menu.addAction(
+                Action(
+                    FluentIcon.SEARCH,
+                    tr("View author's works", "查看作者作品", "作者の作品を表示"),
+                    self,
+                    triggered=lambda _checked=False: self._view_selected_author_works(),
+                )
+            )
+            menu.addAction(
+                Action(
+                    FluentIcon.PEOPLE,
+                    tr("Add subscription and go", "加入订阅并前往", "購読に追加して移動"),
+                    self,
+                    triggered=lambda _checked=False: self._subscribe_selected_author_and_go(),
+                )
+            )
             selected_data = values[0].get("data")
             if isinstance(selected_data, SearchVideo):
-                target = _author_subscription_target(selected_data)
+                target = self._author_navigation_target(selected_data)
                 source_url, source_origin = _author_source_info(selected_data)
                 if target and source_origin == "oreno3d" and source_url:
                     menu.addAction(
@@ -379,6 +396,7 @@ class SearchActionsMixin:
                     )
         author_target = self._selected_author_subscription_target(values)
         if author_target:
+            source_url, source_origin = _author_source_info(values[0].get("data")) if len(values) == 1 else ("", "")
             if menu.actions():
                 menu.addSeparator()
             menu.addAction(
@@ -386,7 +404,9 @@ class SearchActionsMixin:
                     FluentIcon.PEOPLE,
                     tr("Favorite author / add subscription", "收藏作者 / 加入订阅", "作者をお気に入り／購読に追加"),
                     self,
-                    triggered=lambda _checked=False, target=author_target: self._subscribe_to_author(target),
+                    triggered=lambda _checked=False, target=author_target, url=source_url, origin=source_origin: self._subscribe_to_author(
+                        target, source_url=url, source_origin=origin
+                    ),
                 )
             )
         elif len(video_values) == 1 and not author_values:
@@ -437,15 +457,6 @@ class SearchActionsMixin:
                 triggered=self._open_selected,
             )
         )
-        if author_values and len(author_values) == 1:
-            menu.addAction(
-                Action(
-                    FluentIcon.SEARCH,
-                    tr("Search this author's videos", "搜索该作者的视频", "この作者の動画を検索"),
-                    self,
-                    triggered=self._search_selected_author,
-                )
-            )
         menu.exec(global_position)
 
     def _selected_author_subscription_target(
@@ -458,18 +469,221 @@ class SearchActionsMixin:
         for value in values if values is not None else self._selected_data():
             if value.get("kind") not in {"video", "author"}:
                 continue
-            target = _author_subscription_target(value.get("data"))
+            target = self._author_navigation_target(value.get("data"))
             if target:
                 targets.setdefault(target[0].casefold(), target)
         return next(iter(targets.values())) if len(targets) == 1 else None
 
     @staticmethod
+    def _author_navigation_target(
+        value: SearchAuthor | SearchVideo | object,
+    ) -> tuple[str, str, str, str] | None:
+        """Use verified bridge metadata and distinguish card keys from user IDs."""
+
+        raw = value.raw if isinstance(value, (SearchAuthor, SearchVideo)) and isinstance(value.raw, dict) else {}
+        if isinstance(value, SearchVideo) and (
+            value.source_kind == "oreno3d" or raw.get("oreno3d_url")
+        ):
+            mapped = raw.get("oreno_iwara_author")
+            has_mapping = isinstance(mapped, dict) and bool(
+                mapped.get("username") or mapped.get("slug") or mapped.get("profile_url")
+            )
+            if not has_mapping and raw.get("_iwara_metadata_loaded") is not True:
+                return None
+            if not has_mapping:
+                user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
+                author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
+                if not any(
+                    str(candidate.get(key) or "").strip()
+                    for candidate in (user, author, raw)
+                    for key in ("username", "slug", "handle", "author_username")
+                ):
+                    return None
+        target = _author_subscription_target(value)
+        if target and isinstance(value, SearchAuthor):
+            raw_user = raw.get("user") if isinstance(raw.get("user"), dict) else raw
+            real_id = str(raw_user.get("id") or raw_user.get("userId") or raw_user.get("user_id") or "").strip()
+            if real_id:
+                target = (target[0], target[1], real_id, target[3])
+            elif target[2].casefold() == target[0].casefold():
+                # normalize_author uses username as a stable card key when
+                # a compact result lacks user.id; resolve the profile first.
+                target = (target[0], target[1], "", target[3])
+        return target
+
+    def _clear_author_navigation(self):
+        """Exit author browsing and invalidate pending navigation requests."""
+
+        had_target = getattr(self, "_author_video_target", None) is not None
+        self._author_video_target = None
+        self._cancel_pending_author_navigation()
+        if had_target:
+            self._keyword_edit.setPlaceholderText(
+                tr("Keywords or titles…", "输入关键词或标题…", "キーワードまたはタイトル…")
+            )
+            self._scope_hint.setText(
+                tr(
+                    "Enter keywords to search videos.",
+                    "输入关键词搜索视频。",
+                    "キーワードを入力して動画を検索します。",
+                )
+            )
+
+    def _cancel_pending_author_navigation(self):
+        self._author_action_generation = getattr(self, "_author_action_generation", 0) + 1
+        getattr(self, "_pending_author_actions", {}).clear()
+        for worker in getattr(self, "_author_profile_workers", []):
+            worker.requestInterruption()
+
+    def _view_selected_author_works(self):
+        self._request_selected_author_action("view")
+
+    def _subscribe_selected_author_and_go(self):
+        self._request_selected_author_action("subscribe_and_go")
+
+    def _request_selected_author_action(self, action: str):
+        values = self._selected_data()
+        if len(values) != 1:
+            self._show_warning(
+                tr("Select one result for this author action", "请只选择一个结果后操作作者", "作者の操作には1件だけ選択してください")
+            )
+            return
+        data = values[0].get("data")
+        if not isinstance(data, (SearchAuthor, SearchVideo)):
+            return
+        self._cancel_pending_author_navigation()
+        target = self._author_navigation_target(data)
+        if target:
+            source_url, source_origin = _author_source_info(data)
+            self._run_author_action(target, action, source_url=source_url, source_origin=source_origin)
+            return
+        if not isinstance(data, SearchVideo):
+            self._show_warning(tr("This result has no Iwara account", "当前结果没有 Iwara 账号信息", "この結果にはIwaraアカウント情報がありません"))
+            return
+        self._pending_author_actions[data.video_id] = action
+        self._status_label.setText(
+            tr("Resolving the Iwara author…", "正在解析 Iwara 作者…", "Iwara 作者を解析中…")
+        )
+        raw = data.raw if isinstance(data.raw, dict) else {}
+        if data.source_kind == "oreno3d" or raw.get("oreno3d_url"):
+            self._start_oreno_author_resolution(data)
+        else:
+            self._start_iwara_author_hydration(data)
+
+    def _run_author_action(
+        self,
+        target: tuple[str, str, str, str],
+        action: str,
+        *,
+        source_url: str = "",
+        source_origin: str = "",
+    ):
+        if action == "subscribe_and_go":
+            self._subscribe_to_author(
+                target,
+                source_url=source_url,
+                source_origin=source_origin,
+                navigate=True,
+            )
+        elif action == "view":
+            if target[2]:
+                self._show_author_works_target(target)
+            else:
+                self._start_author_profile_resolution(target)
+
+    def _finish_pending_author_action(self, video: SearchVideo):
+        action = getattr(self, "_pending_author_actions", {}).pop(video.video_id, "")
+        if not action:
+            return
+        target = self._author_navigation_target(video)
+        if target:
+            source_url, source_origin = _author_source_info(video)
+            self._run_author_action(target, action, source_url=source_url, source_origin=source_origin)
+            return
+        source_url, _source_origin = _author_source_info(video)
+        message = tr(
+            "Could not identify an Iwara account for this author.",
+            "无法确定该作者的 Iwara 账号。",
+            "この作者のIwaraアカウントを特定できません。",
+        )
+        if source_url:
+            message += tr(
+                " You can still use ‘Open author page’ to browse the Oreno3D source.",
+                " 仍可使用右键菜单“打开作者页”浏览 Oreno3D 来源。",
+                " 右クリックメニューの「作者ページを開く」からOreno3Dの元ページを閲覧できます。",
+            )
+        self._status_label.setText(message)
+        self._show_warning(message)
+
+    def _start_author_profile_resolution(self, target: tuple[str, str, str, str]):
+        if any(
+            worker.isRunning()
+            and not worker.isInterruptionRequested()
+            and worker.generation == self._generation
+            and worker.action_generation == getattr(self, "_author_action_generation", 0)
+            and worker.target[0].casefold() == target[0].casefold()
+            for worker in self._author_profile_workers
+        ):
+            return
+        worker = SearchAuthorProfileWorker(
+            self._generation,
+            getattr(self, "_author_action_generation", 0),
+            target,
+        )
+        self._author_profile_workers.append(worker)
+        worker.result_ready.connect(self._on_author_profile_result)
+        worker.finished.connect(lambda worker=worker: self._cleanup_author_profile_worker(worker))
+        self._status_label.setText(
+            tr(f"Resolving @{target[0]}’s Iwara user ID…", f"正在解析 @{target[0]} 的 Iwara 用户 ID…", f"@{target[0]} のIwaraユーザーIDを取得中…")
+        )
+        worker.start()
+
+    def _on_author_profile_result(self, result: object):
+        if not isinstance(result, dict) or int(result.get("generation", -1)) != self._generation:
+            return
+        if int(result.get("action_generation", -1)) != getattr(self, "_author_action_generation", 0):
+            return
+        target = self._author_navigation_target(result.get("author"))
+        if target and target[2]:
+            self._show_author_works_target(target)
+            return
+        message = str(result.get("error") or tr("Could not resolve the Iwara user ID", "无法解析 Iwara 用户 ID", "IwaraユーザーIDを取得できません"))
+        self._status_label.setText(message)
+        self._show_warning(message)
+
+    def _cleanup_author_profile_worker(self, worker: SearchAuthorProfileWorker):
+        if worker in self._author_profile_workers:
+            self._author_profile_workers.remove(worker)
+        worker.deleteLater()
+
+    def _show_author_works_target(self, target: tuple[str, str, str, str]):
+        """Start a user-scoped video search, with an explicit route back out."""
+
+        self._auto_search_timer.stop()
+        self._set_combo_data(self._source_combo, "iwara")
+        self._set_combo_data(self._scope_combo, "videos")
+        self._keyword_edit.clear()
+        self._auto_search_timer.stop()
+        self._author_video_target = target
+        self._keyword_edit.setPlaceholderText(
+            tr(f"@{target[0]}’s works; type keywords for a new search…", f"@{target[0]} 的作品；输入关键词开始新搜索…", f"@{target[0]} の作品。キーワード入力で新しい検索…")
+        )
+        self._scope_hint.setText(
+            tr(
+                f"Showing @{target[0]}’s works. Enter keywords or change the source or scope to return to general search.",
+                f"正在查看 @{target[0]} 的作品。输入关键词或切换数据源、搜索类型可返回普通搜索。",
+                f"@{target[0]} の作品を表示中。キーワード入力やソース・検索対象の変更で通常の検索に戻ります。",
+            )
+        )
+        self._start_search()
+
+    @staticmethod
     def _needs_iwara_author_hydration(video: SearchVideo) -> bool:
         raw = video.raw if isinstance(video.raw, dict) else {}
-        if raw.get("oreno3d_url") and raw.get("_iwara_metadata_loaded") is not True:
+        if (video.source_kind == "oreno3d" or raw.get("oreno3d_url")) and raw.get("_iwara_metadata_loaded") is not True:
             return True
         return bool(
-            video.download_video_id
+            (video.download_video_id or video.video_id)
             and raw.get("_iwara_metadata_loaded") is not True
             and not _author_subscription_target(video)
         )
@@ -485,7 +699,7 @@ class SearchActionsMixin:
             )
             return
         self._pending_author_subscription_video_ids.add(video.video_id)
-        if video.source_kind == "oreno3d":
+        if video.source_kind == "oreno3d" or video.raw.get("oreno3d_url"):
             self._start_oreno_author_resolution(video)
             self._status_label.setText(
                 tr(
@@ -495,17 +709,15 @@ class SearchActionsMixin:
                 )
             )
             return
-        iwara_id = video.download_video_id or _extract_iwara_video_id(video.iwara_url)
+        iwara_id = (
+            video.download_video_id
+            or _extract_iwara_video_id(video.iwara_url)
+            or (video.video_id if video.source_kind == "iwara" else "")
+        )
         if iwara_id:
             if not video.download_video_id:
-                self._apply_oreno_link(
-                    video,
-                    {
-                        "id": iwara_id,
-                        "url": f"https://www.iwara.tv/video/{iwara_id}",
-                        "metadata": {},
-                    },
-                )
+                video.download_video_id = iwara_id
+                video.iwara_url = video.iwara_url or f"https://www.iwara.tv/video/{iwara_id}"
             self._start_iwara_author_hydration(video)
         elif video.source_kind == "oreno3d":
             self._start_oreno_link_resolution(
@@ -533,7 +745,10 @@ class SearchActionsMixin:
 
     def _start_oreno_author_resolution(self, video: SearchVideo):
         if any(
-            worker.isRunning() and worker.video_id == video.video_id
+            worker.isRunning()
+            and not worker.isInterruptionRequested()
+            and worker.generation == self._generation
+            and worker.video_id == video.video_id
             for worker in self._oreno_author_workers
         ):
             return
@@ -566,7 +781,7 @@ class SearchActionsMixin:
         self._update_video_presentation(video)
         self._start_image_loading()
 
-        target = _author_subscription_target(video)
+        target = self._author_navigation_target(video)
         if video.video_id in self._pending_author_subscription_video_ids:
             self._pending_author_subscription_video_ids.discard(video.video_id)
             if target:
@@ -587,6 +802,7 @@ class SearchActionsMixin:
                         "このOreno3D作者ページから有効なIwara作者を特定できません",
                     )
                 )
+        self._finish_pending_author_action(video)
         if video.video_id in self._pending_open_author_video_ids:
             self._pending_open_author_video_ids.discard(video.video_id)
             source_url, _source_origin = _author_source_info(video)
@@ -601,12 +817,22 @@ class SearchActionsMixin:
         worker.deleteLater()
 
     def _start_iwara_author_hydration(self, video: SearchVideo):
-        iwara_id = str(video.download_video_id or "").strip()
+        iwara_id = str(
+            video.download_video_id
+            or _extract_iwara_video_id(video.iwara_url)
+            or (video.video_id if video.source_kind == "iwara" else "")
+            or ""
+        ).strip()
         if not iwara_id:
             self._pending_author_subscription_video_ids.discard(video.video_id)
+            self._finish_pending_author_action(video)
             return
+        video.download_video_id = iwara_id
         if any(
-            worker.isRunning() and worker.video_id == iwara_id
+            worker.isRunning()
+            and not worker.isInterruptionRequested()
+            and worker.generation == self._generation
+            and worker.video_id == iwara_id
             for worker in self._iwara_author_workers
         ):
             return
@@ -635,7 +861,7 @@ class SearchActionsMixin:
             self._apply_iwara_metadata(video, metadata)
             self._update_video_presentation(video)
             self._start_image_loading()
-        target = _author_subscription_target(video)
+        target = self._author_navigation_target(video)
         if video.video_id in self._pending_author_subscription_video_ids:
             self._pending_author_subscription_video_ids.discard(video.video_id)
             if target:
@@ -656,6 +882,7 @@ class SearchActionsMixin:
                         "Iwara 動画詳細に作者情報がありません",
                     )
                 )
+        self._finish_pending_author_action(video)
         if result.get("error") and not target:
             self._status_label.setText(str(result.get("error")))
 
@@ -695,6 +922,7 @@ class SearchActionsMixin:
         *,
         source_url: str = "",
         source_origin: str = "",
+        navigate: bool = False,
     ):
         username, title, remote_id, avatar_url = target
         kwargs: dict[str, str] = {
@@ -748,6 +976,9 @@ class SearchActionsMixin:
             duration=3500,
             parent=self,
         )
+        if navigate:
+            signal_bus.subscription_source_requested.emit(source_id)
+        return source_id
 
     def _report_author_subscription_failure(self, username: str, error: Exception | None):
         detail = str(error or "").strip()
@@ -762,18 +993,10 @@ class SearchActionsMixin:
         self._show_warning(content)
 
     def _search_selected_author(self):
-        values = self._selected_data()
-        if len(values) != 1 or values[0].get("kind") != "author":
-            return
-        author = values[0].get("data")
-        if not isinstance(author, SearchAuthor):
-            return
-        self._scope_combo.setCurrentIndex(0)
-        self._source_combo.setCurrentIndex(1)
-        self._keyword_edit.setText(author.username)
-        self._start_search()
+        self._view_selected_author_works()
 
     def _reset_filters(self):
+        self._clear_author_navigation()
         self._hide_search_history_popup()
         self._keyword_edit.clear()
         self._source_combo.setCurrentIndex(0)

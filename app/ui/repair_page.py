@@ -38,7 +38,6 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.manager import download_manager
-from ..core.repair import format_repair_filename
 from ..core.rules import active_rule_id, normalize_rule_payload, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
@@ -95,7 +94,7 @@ class RepairWorker(QThread):
         folder: str = "",
         filename_template: str = "",
         output_root: str = "",
-        move_to_output: bool = True,
+        move_to_output: bool = False,
         items: list[dict[str, Any]] | None = None,
         options: dict[str, Any] | None = None,
         parent: QWidget | None = None,
@@ -242,16 +241,18 @@ class RepairInterface(QWidget):
         folder_layout.setContentsMargins(16, 14, 16, 14)
         folder_layout.setSpacing(9)
         folder_layout.addWidget(SubtitleLabel(tr("Source Folder", "视频文件夹", "動画フォルダー"), folder_card))
-        folder_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Drop a folder here or browse it. Subfolders are scanned too.",
-                    "可将文件夹拖入此处或浏览选择；也会扫描子文件夹。",
-                    "フォルダーをドロップまたは参照できます。サブフォルダーも検索します。",
-                ),
-                folder_card,
-            )
+        self._folder_hint = BodyLabel(
+            tr(
+                "Drop a folder here or browse it. Subfolders are scanned too.",
+                "可将文件夹拖入此处或浏览选择；也会扫描子文件夹。",
+                "フォルダーをドロップまたは参照できます。サブフォルダーも検索します。",
+            ),
+            folder_card,
         )
+        # Unwrapped hints become the scroll content's minimum width and hide
+        # the controls beside the path inputs in narrow splitter panes.
+        self._folder_hint.setWordWrap(True)
+        folder_layout.addWidget(self._folder_hint)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
         self._folder_edit = FolderDropLineEdit(folder_card)
@@ -261,10 +262,20 @@ class RepairInterface(QWidget):
         )
         self._folder_edit.returnPressed.connect(self._scan_folder)
         folder_row.addWidget(self._folder_edit, 1)
-        browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
-        browse_btn.clicked.connect(self._browse_folder)
-        folder_row.addWidget(browse_btn)
+        self._source_browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
+        self._source_browse_btn.clicked.connect(self._browse_folder)
+        folder_row.addWidget(self._source_browse_btn)
         folder_layout.addLayout(folder_row)
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        mode_row.addWidget(BodyLabel(tr("Mode", "模式", "モード"), folder_card))
+        self._mode_combo = ComboBox(folder_card)
+        self._mode_combo.addItems([
+            tr("Rename in place", "原地重命名", "現在の場所で名前変更"),
+            tr("Organize into output folder", "整理到输出目录", "出力フォルダーに整理"),
+        ])
+        mode_row.addWidget(self._mode_combo, 1)
+        folder_layout.addLayout(mode_row)
         output_row = QHBoxLayout()
         output_row.setSpacing(8)
         output_row.addWidget(BodyLabel(tr("Output", "输出", "出力"), folder_card))
@@ -272,27 +283,20 @@ class RepairInterface(QWidget):
         self._output_edit.setClearButtonEnabled(True)
         self._output_edit.setPlaceholderText(
             tr(
-                "Leave blank to use the source folder…",
-                "留空则使用输入文件夹…",
-                "空欄なら入力フォルダーを使用…",
+                "Leave blank to organize inside the source folder…",
+                "留空则在输入文件夹内整理…",
+                "空欄なら入力フォルダー内に整理…",
             )
         )
         self._output_edit.textChanged.connect(self._refresh_target_previews)
         output_row.addWidget(self._output_edit, 1)
-        output_browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
-        output_browse_btn.clicked.connect(self._browse_output_folder)
-        output_row.addWidget(output_browse_btn)
+        self._output_browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
+        self._output_browse_btn.clicked.connect(self._browse_output_folder)
+        output_row.addWidget(self._output_browse_btn)
         folder_layout.addLayout(output_row)
-        folder_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Files are moved (cut) into this folder; existing targets are never overwritten.",
-                    "文件会剪切到此文件夹；已有同名目标不会被覆盖。",
-                    "ファイルはこのフォルダーへ移動し、同名の変更先は上書きしません。",
-                ),
-                folder_card,
-            )
-        )
+        self._mode_hint = BodyLabel(folder_card)
+        self._mode_hint.setWordWrap(True)
+        folder_layout.addWidget(self._mode_hint)
         self._scan_btn = PrimaryPushButton(tr("Scan", "扫描", "検索"), folder_card, FluentIcon.SEARCH)
         self._scan_btn.clicked.connect(self._scan_folder)
         folder_layout.addWidget(self._scan_btn)
@@ -303,16 +307,16 @@ class RepairInterface(QWidget):
         rule_layout.setContentsMargins(16, 14, 16, 14)
         rule_layout.setSpacing(9)
         rule_layout.addWidget(SubtitleLabel(tr("Repair Rule", "修复规则", "修復ルール"), rule_card))
-        rule_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Directory segments such as {author}/ are created below the output folder.",
-                    "规则中的 {author}/ 等目录段会在输出文件夹下创建。",
-                    "{author}/ などのディレクトリ部分は出力フォルダー下に作成されます。",
-                ),
-                rule_card,
-            )
+        self._rule_hint = BodyLabel(
+            tr(
+                "In-place mode uses only the filename. Organize mode also applies directory segments such as {author}/.",
+                "原地模式只应用文件名段；整理模式还会应用 {author}/ 等目录段。",
+                "現在の場所ではファイル名のみを適用します。整理モードでは {author}/ などのディレクトリ部分も適用します。",
+            ),
+            rule_card,
         )
+        self._rule_hint.setWordWrap(True)
+        rule_layout.addWidget(self._rule_hint)
         rule_row = QHBoxLayout()
         rule_row.setSpacing(8)
         rule_row.addWidget(BodyLabel(tr("Rule", "规则", "ルール"), rule_card))
@@ -338,6 +342,7 @@ class RepairInterface(QWidget):
         options_layout.addWidget(SubtitleLabel(tr("Repair Options", "修复选项", "修復オプション"), options_card))
         self._rename_check = CheckBox(tr("Rename existing videos", "重命名已有视频", "既存動画を名前変更"), options_card)
         self._rename_check.setChecked(True)
+        self._rename_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._rename_check)
         self._download_video_check = CheckBox(
             tr("Allow video download when needed", "必要时允许下载视频", "必要時に動画ダウンロードを許可"),
@@ -345,21 +350,23 @@ class RepairInterface(QWidget):
         )
         self._download_video_check.setChecked(False)
         options_layout.addWidget(self._download_video_check)
-        options_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "Existing local videos are always kept; this repair page never replaces them.",
-                    "已有本地视频始终保留；修复页不会替换它们。",
-                    "既存のローカル動画は保持され、修復ページで置き換えることはありません。",
-                ),
-                options_card,
-            )
+        self._local_video_hint = BodyLabel(
+            tr(
+                "Existing local videos are always kept; this repair page never replaces them.",
+                "已有本地视频始终保留；修复页不会替换它们。",
+                "既存のローカル動画は保持され、修復ページで置き換えることはありません。",
+            ),
+            options_card,
         )
+        self._local_video_hint.setWordWrap(True)
+        options_layout.addWidget(self._local_video_hint)
         self._thumbnail_check = CheckBox(tr("Download cover screenshot", "下载封面截图", "サムネイルを取得"), options_card)
         self._thumbnail_check.setChecked(True)
+        self._thumbnail_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._thumbnail_check)
         self._nfo_check = CheckBox(tr("Write NFO metadata", "写入 NFO 元数据", "NFO メタデータを書き込む"), options_card)
         self._nfo_check.setChecked(True)
+        self._nfo_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._nfo_check)
         self._history_check = CheckBox(tr("Add to download history", "加入下载历史", "ダウンロード履歴に追加"), options_card)
         self._history_check.setChecked(True)
@@ -411,9 +418,10 @@ class RepairInterface(QWidget):
         list_layout.setSpacing(8)
         list_header = QHBoxLayout()
         list_header.addWidget(SubtitleLabel(tr("Repair List", "修复列表", "修復リスト"), list_card))
-        list_header.addStretch()
         self._summary_label = BodyLabel(tr("No folder scanned", "尚未扫描文件夹", "未検索"), list_card)
-        list_header.addWidget(self._summary_label)
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        list_header.addWidget(self._summary_label, 1)
         list_layout.addLayout(list_header)
 
         self._table = TableWidget(list_card)
@@ -421,11 +429,11 @@ class RepairInterface(QWidget):
         self._table.setHorizontalHeaderLabels(
             [
                 tr("State", "状态", "状態"),
-                tr("File", "文件", "ファイル"),
+                tr("Original Path", "原路径", "元のパス"),
                 "Iwara ID",
                 tr("Title", "标题", "タイトル"),
                 tr("Date", "日期", "日付"),
-                tr("Target Name", "目标名称", "変更後の名前"),
+                tr("Target Path", "目标路径", "変更先パス"),
                 tr("Detail", "详情", "詳細"),
             ]
         )
@@ -458,6 +466,9 @@ class RepairInterface(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([410, 1050])
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self._folder_edit.textChanged.connect(self._refresh_target_previews)
+        self._update_mode_controls()
 
     def _load_rules(self, *_args):
         current_id = active_rule_id()
@@ -489,6 +500,13 @@ class RepairInterface(QWidget):
         self._apply_rule_template(index)
 
     def _load_saved_state(self):
+        # Older versions saved an output folder without recording intent to
+        # move files. Only an explicitly saved organize mode restores moving.
+        saved_mode = str(app_config.get_ui_value("repair_mode", "in_place") or "in_place")
+        self._mode_combo.blockSignals(True)
+        self._mode_combo.setCurrentIndex(1 if saved_mode == "organize" else 0)
+        self._mode_combo.blockSignals(False)
+        self._update_mode_controls()
         saved_folder = str(app_config.get_ui_value("repair_folder", "") or "")
         if saved_folder and os.path.isdir(saved_folder):
             self._folder_edit.setText(saved_folder)
@@ -498,6 +516,31 @@ class RepairInterface(QWidget):
         saved_template = str(app_config.get_ui_value("repair_filename_template", "") or "")
         if saved_template:
             self._template_edit.setText(saved_template)
+
+    def _move_to_output(self) -> bool:
+        return self._mode_combo.currentIndex() == 1
+
+    def _on_mode_changed(self, *_args):
+        app_config.set_ui_value("repair_mode", "organize" if self._move_to_output() else "in_place")
+        self._update_mode_controls()
+        self._refresh_target_previews()
+
+    def _update_mode_controls(self):
+        moving = self._move_to_output()
+        busy = self._worker is not None
+        self._output_edit.setEnabled(moving and not busy)
+        self._output_browse_btn.setEnabled(moving and not busy)
+        self._mode_hint.setText(
+            tr(
+                "Videos and their sidecars are moved into the output folder. Existing targets and batch conflicts are skipped.",
+                "视频及附属文件会剪切到输出目录；已有目标与批次内冲突均跳过。",
+                "動画と関連ファイルを出力フォルダーへ移動します。既存の変更先や一括処理内の競合はスキップします。",
+            ) if moving else tr(
+                "Keep every video's current folder and apply only the filename segment. Covers and NFO files follow; existing targets are skipped.",
+                "保留每个视频的所在目录，只应用规则的文件名段。封面与 NFO 跟随重命名；已有目标会跳过。",
+                "各動画の現在のフォルダーを保ち、ファイル名部分のみ適用します。サムネイルと NFO も名前変更し、既存の変更先はスキップします。",
+            )
+        )
 
     def _browse_folder(self):
         selected = QFileDialog.getExistingDirectory(
@@ -518,6 +561,8 @@ class RepairInterface(QWidget):
             self._output_edit.setText(selected)
 
     def _output_root(self) -> str:
+        if not self._move_to_output():
+            return ""
         custom = self._output_edit.text().strip()
         if custom:
             return os.path.abspath(os.path.expanduser(custom))
@@ -531,7 +576,7 @@ class RepairInterface(QWidget):
         return {
             "filename_template": self._template(),
             "output_root": self._output_root(),
-            "move_to_output": True,
+            "move_to_output": self._move_to_output(),
             "rename": self._rename_check.isChecked(),
             "download_video": self._download_video_check.isChecked(),
             "download_thumbnail": self._thumbnail_check.isChecked(),
@@ -549,11 +594,12 @@ class RepairInterface(QWidget):
                 tr("Choose or drop a valid local folder first.", "请先选择或拖入有效的本地文件夹。", "有効なローカルフォルダーを選択またはドロップしてください。"),
             )
             return
-        output_root = self._output_root() or folder
+        output_root = self._output_root()
         self._folder_edit.setText(folder)
         app_config.set_ui_value("repair_folder", folder)
         app_config.set_ui_value("repair_output_folder", self._output_edit.text().strip())
         app_config.set_ui_value("repair_filename_template", self._template())
+        app_config.set_ui_value("repair_mode", "organize" if self._move_to_output() else "in_place")
         self._items.clear()
         self._items_by_path.clear()
         self._clear_table()
@@ -565,9 +611,9 @@ class RepairInterface(QWidget):
         )
         self._append_log(
             tr(
-                f"[Repair] scanning: {folder} -> {output_root}",
-                f"[修复] 开始扫描：{folder} → {output_root}",
-                f"[修復] 検索開始: {folder} -> {output_root}",
+                f"[Repair] scanning ({self._mode_combo.currentText()}): {folder}" + (f" -> {output_root}" if output_root else ""),
+                f"[修复] 开始扫描（{self._mode_combo.currentText()}）：{folder}" + (f" → {output_root}" if output_root else ""),
+                f"[修復] 検索開始（{self._mode_combo.currentText()}）: {folder}" + (f" -> {output_root}" if output_root else ""),
             )
         )
         self._start_worker(
@@ -576,7 +622,7 @@ class RepairInterface(QWidget):
                 folder=folder,
                 filename_template=self._template(),
                 output_root=output_root,
-                move_to_output=True,
+                move_to_output=self._move_to_output(),
                 parent=self,
             )
         )
@@ -592,6 +638,7 @@ class RepairInterface(QWidget):
             return
         app_config.set_ui_value("repair_filename_template", self._template())
         app_config.set_ui_value("repair_output_folder", self._output_edit.text().strip())
+        app_config.set_ui_value("repair_mode", "organize" if self._move_to_output() else "in_place")
         self._repair_log_active = True
         self._append_log(
             tr(
@@ -615,6 +662,12 @@ class RepairInterface(QWidget):
         self._scan_btn.setEnabled(False)
         self._start_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
+        for control in (self._mode_combo, self._folder_edit, self._source_browse_btn,
+                        self._template_edit, self._rule_combo, self._rename_check,
+                        self._thumbnail_check, self._nfo_check,
+                        self._download_video_check, self._history_check):
+            control.setEnabled(False)
+        self._update_mode_controls()
         if worker.mode == "scan":
             self._scan_feedback_timer.start()
         else:
@@ -701,8 +754,9 @@ class RepairInterface(QWidget):
                 for item in self._items
                 if str(item.get("path", "") or "")
             }
+            self._refresh_target_previews()
             self._render_all_items()
-            ready = sum(1 for item in self._items if item.get("status") == "ready")
+            ready = sum(1 for item in self._items if item.get("status") == "ready" and not item.get("target_conflict"))
             self._append_log(
                 tr(
                     f"[Repair] scan complete: {ready}/{len(self._items)} ready",
@@ -722,9 +776,9 @@ class RepairInterface(QWidget):
                 self._render_all_items()
             self._append_log(
                 tr(
-                    f"[Repair] finished: renamed={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, cover={result.get('thumbnail', 0)}, skipped={result.get('skipped', 0)}",
-                    f"[修复] 完成：重命名 {result.get('renamed', 0)}，NFO {result.get('nfo', 0)}，封面 {result.get('thumbnail', 0)}，跳过 {result.get('skipped', 0)}",
-                    f"[修復] 完了: 名前変更={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, サムネイル={result.get('thumbnail', 0)}, スキップ={result.get('skipped', 0)}",
+                    f"[Repair] finished: renamed={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, cover={result.get('thumbnail', 0)}, skipped={result.get('skipped', 0)}, failed={result.get('failed', 0)}",
+                    f"[修复] 完成：重命名 {result.get('renamed', 0)}，NFO {result.get('nfo', 0)}，封面 {result.get('thumbnail', 0)}，跳过 {result.get('skipped', 0)}，失败 {result.get('failed', 0)}",
+                    f"[修復] 完了: 名前変更={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, サムネイル={result.get('thumbnail', 0)}, スキップ={result.get('skipped', 0)}, 失敗={result.get('failed', 0)}",
                 )
             )
         self._update_summary()
@@ -741,7 +795,13 @@ class RepairInterface(QWidget):
         self._worker = None
         self._scan_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
-        ready = sum(1 for item in self._items if item.get("status") == "ready")
+        for control in (self._mode_combo, self._folder_edit, self._source_browse_btn,
+                        self._template_edit, self._rule_combo, self._rename_check,
+                        self._thumbnail_check, self._nfo_check,
+                        self._download_video_check, self._history_check):
+            control.setEnabled(True)
+        self._update_mode_controls()
+        ready = sum(1 for item in self._items if item.get("status") == "ready" and not item.get("target_conflict"))
         self._start_btn.setEnabled(bool(self._items) and ready > 0)
         self._update_summary()
         self._repair_log_active = False
@@ -774,22 +834,25 @@ class RepairInterface(QWidget):
             self._table.insertRow(row)
         self._path_to_row[path] = row
         state_key = str(item.get("status", "") or "")
+        if state_key == "ready" and item.get("target_conflict"):
+            state_key = "conflict"
         state_text = {
             "ready": tr("Ready", "待修复", "待機"),
             "completed": tr("Done", "已完成", "完了"),
             "not_found": tr("Skip", "跳过", "スキップ"),
             "ambiguous": tr("Check", "待确认", "要確認"),
             "failed": tr("Failed", "失败", "失敗"),
+            "conflict": tr("Conflict", "冲突", "競合"),
             "skipped": tr("Skip", "跳过", "スキップ"),
         }.get(state_key, state_key or tr("Unknown", "未知", "不明"))
         values = [
             state_text,
-            str(item.get("original_name", "") or os.path.basename(path)),
+            path,
             str(item.get("video_id", "") or ""),
             str(item.get("title", "") or ""),
             str(item.get("published_at", "") or "")[:10],
-            str(item.get("target_name", "") or ""),
-            str(item.get("message", "") or ""),
+            str(item.get("target_path", "") or ""),
+            str(item.get("target_conflict", "") or item.get("message", "") or ""),
         ]
         color = {
             "ready": QColor("#007c91"),
@@ -797,6 +860,7 @@ class RepairInterface(QWidget):
             "not_found": QColor("#c17d00"),
             "ambiguous": QColor("#c17d00"),
             "failed": QColor("#c42b1c"),
+            "conflict": QColor("#c42b1c"),
             "skipped": QColor("#666666"),
         }.get(state_key)
         for column, value in enumerate(values):
@@ -814,43 +878,36 @@ class RepairInterface(QWidget):
             self._path_to_row.setdefault(target_path, row)
 
     def _refresh_target_previews(self, *_args):
-        template = self._template()
-        output_root = self._output_root()
-        move_to_output = True
+        if self._worker is not None and self._worker_mode == "repair":
+            return
+        self._items = download_manager.preview_repair_files(self._items, options=self._options())
+        self._items_by_path = {
+            str(item.get("path", "") or ""): item for item in self._items
+            if str(item.get("path", "") or "")
+        }
         self._table.setUpdatesEnabled(False)
         try:
             for item in self._items:
-                if item.get("status") not in {"ready", "completed"}:
+                if item.get("status") != "ready":
                     continue
-                metadata = item.get("cached_meta") if isinstance(item.get("cached_meta"), dict) else {}
-                path = str(item.get("path", "") or "")
-                if not path:
-                    continue
-                target_name = format_repair_filename(template, metadata, path)
-                if not move_to_output:
-                    target_name = os.path.basename(target_name)
-                target_root = output_root if move_to_output and output_root else os.path.dirname(path)
-                item["target_name"] = target_name
-                item["target_relative_path"] = target_name
-                item["target_path"] = os.path.join(target_root, target_name)
-                item["output_root"] = target_root
-                item["move_to_output"] = move_to_output
-                self._items_by_path[path] = item
                 self._render_item(item)
         finally:
             self._table.setUpdatesEnabled(True)
             self._table.viewport().update()
+        if self._worker is None:
+            self._start_btn.setEnabled(any(item.get("status") == "ready" and not item.get("target_conflict") for item in self._items))
+        self._update_summary()
 
     def _update_summary(self):
         counts: dict[str, int] = {}
         for item in self._items:
-            key = str(item.get("status", "") or "unknown")
+            key = "conflict" if item.get("status") == "ready" and item.get("target_conflict") else str(item.get("status", "") or "unknown")
             counts[key] = counts.get(key, 0) + 1
         self._summary_label.setText(
             tr(
-                f"Total {len(self._items)} | ready {counts.get('ready', 0)} | done {counts.get('completed', 0)} | skipped {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)}",
-                f"共 {len(self._items)} | 待修复 {counts.get('ready', 0)} | 已完成 {counts.get('completed', 0)} | 跳过 {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)}",
-                f"合計 {len(self._items)} | 待機 {counts.get('ready', 0)} | 完了 {counts.get('completed', 0)} | スキップ {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)}",
+                f"Total {len(self._items)} | ready {counts.get('ready', 0)} | done {counts.get('completed', 0)} | skipped {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | conflict/failed {counts.get('conflict', 0) + counts.get('failed', 0)}",
+                f"共 {len(self._items)} | 待修复 {counts.get('ready', 0)} | 已完成 {counts.get('completed', 0)} | 跳过 {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | 冲突/失败 {counts.get('conflict', 0) + counts.get('failed', 0)}",
+                f"合計 {len(self._items)} | 待機 {counts.get('ready', 0)} | 完了 {counts.get('completed', 0)} | スキップ {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | 競合/失敗 {counts.get('conflict', 0) + counts.get('failed', 0)}",
             )
         )
 

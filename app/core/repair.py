@@ -254,6 +254,30 @@ def format_repair_filename(
     return os.path.join(*safe_directories, filename) if safe_directories else filename
 
 
+def repair_target_path(
+    template: str,
+    metadata: dict[str, Any],
+    original_path: str,
+    *,
+    output_root: str = "",
+    move_to_output: bool = False,
+) -> tuple[str, str]:
+    """Return the relative name and absolute target used by every repair phase.
+
+    In-place repair applies only the final filename segment of a template.
+    Organizing applies its directory segments below the chosen output root.
+    """
+
+    source = os.path.abspath(os.path.expanduser(str(original_path or "")))
+    relative_name = format_repair_filename(template, metadata, source)
+    if move_to_output:
+        root = os.path.abspath(os.path.expanduser(str(output_root or os.path.dirname(source))))
+    else:
+        root = os.path.dirname(source)
+        relative_name = os.path.basename(relative_name)
+    return relative_name, os.path.join(root, relative_name)
+
+
 def _safe_filename(value: str) -> str:
     cleaned = _INVALID_FILENAME_CHARS_RE.sub("-", str(value or "")).strip(" .")
     if not cleaned or cleaned in {".", ".."}:

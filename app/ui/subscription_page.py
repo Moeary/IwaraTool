@@ -1149,6 +1149,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_table.selectRow(selected_row)
         self._source_table.setCurrentCell(selected_row, self._SRC_STATE)
         self._source_table.blockSignals(False)
+        item = self._source_table.item(selected_row, self._SRC_STATE)
+        if item is not None:
+            self._source_table.scrollToItem(item)
         return True
 
     def _render_sources(self):
@@ -1178,6 +1181,11 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_render_index = end
         if end >= len(self._sources):
             self._source_render_timer.stop()
+            # Selecting a newly inserted source happens before its cells are
+            # populated. Restore that selection once the batched render ends,
+            # while respecting any selection made during rendering.
+            if self._current_source_id is not None and self._selected_source_id() is None:
+                self._select_source_id(self._current_source_id)
 
     def _render_source_row(self, row: int, source: dict[str, Any]):
         source_id = int(source.get("id", 0) or 0)

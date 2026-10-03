@@ -189,80 +189,35 @@ class SearchManagerMixin:
         *,
         author_url: str = "",
         author_name: str = "",
+        iwara_author: dict[str, Any] | None = None,
         max_videos: int = 8,
         parallel: bool = False,
     ) -> dict[str, Any]:
         """Map an Oreno3D author page to an Iwara author when possible.
 
-        The Oreno author page is the durable anchor.  We first try the same
-        author name against Iwara's profile endpoint, then inspect a bounded
-        number of Oreno works and use any surviving Iwara link as a fallback.
-        This keeps author navigation useful after the originally selected
-        Iwara video has been deleted.
+        Reuse a saved Iwara mapping or author page first, then inspect a bounded
+        number of works for a surviving Iwara link. An Oreno display name is
+        never sufficient evidence of an Iwara username.
         """
 
         source_id = str(source_id or "").strip()
         oreno3d_url = str(oreno3d_url or "").strip()
         resolved_author_url = str(author_url or "").strip()
         resolved_author_name = str(author_name or "").strip()
-        detail_records: list[Any] = []
-
-        if parallel:
-            session = cloudscraper.create_scraper(
-                browser={"browser": "chrome", "platform": "windows", "mobile": False}
-            )
-            session.proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
-            try:
-                client = Oreno3DClient(session)
-                if not resolved_author_url and source_id and oreno3d_url:
-                    original = client.fetch_detail_url(source_id, oreno3d_url)
-                    if original.author:
-                        resolved_author_url = original.author.url
-                        resolved_author_name = resolved_author_name or original.author.name
-                if resolved_author_url:
-                    listings, _last_page = client.fetch_author_page(resolved_author_url, page=1)
-                    for listing in listings[: max(1, min(20, int(max_videos)))]:
-                        try:
-                            detail_records.append(client.fetch_detail(listing))
-                        except Exception:
-                            continue
-            finally:
-                session.close()
-        else:
-            with self._api_lock:
-                client = Oreno3DClient(self.api.scraper)
-                if not resolved_author_url and source_id and oreno3d_url:
-                    original = client.fetch_detail_url(source_id, oreno3d_url)
-                    if original.author:
-                        resolved_author_url = original.author.url
-                        resolved_author_name = resolved_author_name or original.author.name
-                if resolved_author_url:
-                    listings, _last_page = client.fetch_author_page(resolved_author_url, page=1)
-                    for listing in listings[: max(1, min(20, int(max_videos)))]:
-                        try:
-                            detail_records.append(client.fetch_detail(listing))
-                        except Exception:
-                            continue
-
         result: dict[str, Any] = {
             "oreno_author_url": resolved_author_url,
             "oreno_author_name": resolved_author_name,
         }
-        if not resolved_author_name:
-            for detail in detail_records:
-                if detail.author:
-                    resolved_author_name = detail.author.name
-                    result["oreno_author_name"] = resolved_author_name
-                    result["oreno_author_url"] = detail.author.url
-                    break
 
         def _profile_target(profile: object) -> dict[str, str]:
             profile_map = _dict_or_empty(profile)
-            user = _dict_or_empty(profile_map.get("user"))
+            user = _dict_or_empty(profile_map.get("user")) or profile_map
             username = str(user.get("username", "") or user.get("slug", "") or "").strip()
             if not username:
                 return {}
-            avatar_url = _iwara_image_url(_dict_or_empty(user.get("avatar")), variant="thumbnail")
+            avatar_url = str(user.get("avatar_url") or "").strip() or _iwara_image_url(
+                _dict_or_empty(user.get("avatar")), variant="thumbnail"
+            )
             return {
                 "username": username,
                 "name": str(user.get("name", "") or username).strip() or username,
@@ -271,21 +226,20 @@ class SearchManagerMixin:
                 "profile_url": f"https://www.iwara.tv/profile/{username}",
             }
 
-        if resolved_author_name:
-            try:
-                profile, _profile_error = self._api_call("get_user_profile", resolved_author_name)
-            except Exception:
-                profile = None
-            target = _profile_target(profile)
-            if target:
-                result["iwara_author"] = target
-                return result
+        target = _profile_target(iwara_author)
+        if target:
+            result["iwara_author"] = target
+            return result
 
-        for detail in detail_records:
+        checked_video_ids: set[str] = set()
+        errors: list[str] = []
+
+        def _try_detail(detail: Any) -> bool:
             external_url = str(getattr(detail, "external_video_url", "") or "")
             match = re.search(r"/video/([^/?#]+)", external_url)
-            if not match:
-                continue
+            if not match or match.group(1) in checked_video_ids:
+                return False
+            checked_video_ids.add(match.group(1))
             try:
                 metadata, _metadata_error = self.get_iwara_video_info(match.group(1))
             except Exception:
@@ -293,7 +247,53 @@ class SearchManagerMixin:
             target = _profile_target({"user": _dict_or_empty(metadata).get("user")})
             if target:
                 result["iwara_author"] = target
-                return result
+                return True
+            return False
+
+        def _resolve(client: Oreno3DClient):
+            original = None
+            if not result["oreno_author_url"] and source_id and oreno3d_url:
+                try:
+                    original = client.fetch_detail_url(source_id, oreno3d_url)
+                    if original.author:
+                        result["oreno_author_url"] = original.author.url
+                        result["oreno_author_name"] = result["oreno_author_name"] or original.author.name
+                        result["oreno_author_id"] = original.author.source_id
+                except Exception as exc:
+                    errors.append(str(exc))
+            if original is not None and _try_detail(original):
+                return
+            author_page = str(result["oreno_author_url"] or "").strip()
+            if not author_page:
+                return
+            try:
+                listings, _last_page = client.fetch_author_page(author_page, page=1)
+            except Exception as exc:
+                errors.append(str(exc))
+                return
+            for listing in listings[: max(1, min(20, int(max_videos)))]:
+                try:
+                    detail = client.fetch_detail(listing)
+                except Exception as exc:
+                    errors.append(str(exc))
+                    continue
+                if _try_detail(detail):
+                    return
+
+        if parallel:
+            session = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "windows", "mobile": False}
+            )
+            session.proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+            try:
+                _resolve(Oreno3DClient(session))
+            finally:
+                session.close()
+        else:
+            with self._api_lock:
+                _resolve(Oreno3DClient(self.api.scraper))
+        if errors and "iwara_author" not in result:
+            result["error"] = errors[0]
         return result
 
     def resolve_oreno3d_video_url(self, source_id: str, oreno3d_url: str) -> str:

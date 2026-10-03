@@ -34,6 +34,7 @@ class SearchFilters:
     include_tags: tuple[str, ...] = ()
     exclude_tags: tuple[str, ...] = ()
     author: str = ""
+    author_id: str = ""
     author_any: tuple[str, ...] = ()
     author_not: tuple[str, ...] = ()
     origin_any: tuple[str, ...] = ()
@@ -412,6 +413,8 @@ def build_video_query_params(filters: SearchFilters, page: int = 0) -> dict[str,
     }
     if filters.rating:
         params["rating"] = filters.rating
+    if filters.author_id.strip():
+        params["user"] = filters.author_id.strip()
     include_tags = split_search_terms(" ".join(filters.include_tags))
     if include_tags:
         params["tags"] = ",".join(include_tags)
