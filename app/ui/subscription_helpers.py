@@ -7,10 +7,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtGui import QColor
-from qfluentwidgets import isDarkTheme
 
 from ..core.models import TaskStatus, status_label
 from ..i18n import tr
+from .theme import palette, qcolor
 
 
 def _split_title_keywords(value: str) -> list[str]:
@@ -70,22 +70,14 @@ def _source_origin_label(source: dict[str, Any]) -> str:
 def _source_origin_color(source: dict[str, Any]) -> str:
     origin = str(source.get("source_origin", "") or "").strip().casefold()
     source_type = str(source.get("source_type", "") or "").strip().casefold()
-    if isDarkTheme():
-        if origin == "oreno3d":
-            return "#ffb86c"
-        if origin == "account" or source_type == "feed":
-            return "#4cc2ff"
-        if origin == "playlist" or source_type == "playlist":
-            return "#c3a6ff"
-        return "#6bdc7a"
+    p = palette()
     if origin == "oreno3d":
-        return "#d97706"
+        return p.warning
     if origin == "account" or source_type == "feed":
-        return "#0078d4"
+        return p.info
     if origin == "playlist" or source_type == "playlist":
-        return "#8764b8"
-    return "#107c10"
-
+        return p.purple
+    return p.success
 
 def _parse_ui_bool(value: object) -> bool:
     if isinstance(value, bool):
@@ -177,25 +169,25 @@ def _state_color(
     download_state: str = "",
 ) -> QColor:
     if downloaded and file_exists:
-        return QColor("#107c10")
+        return qcolor("success")
     if downloaded:
-        return QColor("#c17d00")
+        return qcolor("warning")
     if download_state:
-        return QColor("#c42b1c")
+        return qcolor("danger")
     status = _task_status_from_value(task_status)
     if status in (TaskStatus.DOWNLOADING, TaskStatus.COMPLETED):
-        return QColor("#107c10")
+        return qcolor("success")
     if status in (TaskStatus.RESOLVING, TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD):
-        return QColor("#0078d4")
+        return qcolor("info")
     if status in (TaskStatus.CANCELLING, TaskStatus.SKIPPED):
-        return QColor("#c17d00")
+        return qcolor("warning")
     if status == TaskStatus.FAILED:
-        return QColor("#c42b1c")
+        return qcolor("danger")
     if status == TaskStatus.CANCELLED:
-        return QColor("#666666")
+        return qcolor("neutral")
     if queued:
-        return QColor("#0078d4")
-    return QColor("#555555")
+        return qcolor("info")
+    return qcolor("text_secondary")
 
 
 def _item_not_downloadable(item: dict[str, Any]) -> bool:

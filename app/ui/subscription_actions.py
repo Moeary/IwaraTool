@@ -33,6 +33,7 @@ from .subscription_components import (
     _CONTROL_HEIGHT,
 )
 from .subscription_helpers import _detect_source_input, _open_url, _source_url, _video_url
+from .theme import link_color
 from .ui_state import show_fluent_confirmation, show_fluent_text_input
 
 
@@ -281,7 +282,7 @@ class SubscriptionActionsMixin:
         cell.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         cell.setToolTip(tooltip)
-        cell.setForeground(QColor("#0078d4" if enabled else "#999999"))
+        cell.setForeground(link_color(enabled))
         table.setItem(row, column, cell)
 
     def _selected_source_ids(self) -> list[int]:

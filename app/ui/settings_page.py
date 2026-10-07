@@ -4,13 +4,12 @@ from __future__ import annotations
 import json
 import os
 
-from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QThread, Signal
-from PySide6.QtGui import QDrag, QIntValidator
+from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QDrag, QIntValidator
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QSizePolicy,
     QVBoxLayout,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     ComboBox,
     FluentIcon,
@@ -27,6 +27,7 @@ from qfluentwidgets import (
     LineEdit,
     PasswordLineEdit,
     PrimaryPushButton,
+    PushButton,
     ScrollArea,
     Slider,
     SpinBox,
@@ -43,6 +44,7 @@ from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .tag_dictionary_worker import TagDictionaryUpdateWorker
+from .theme import PAGE_MARGINS, apply_theme_mode, normalize_theme_mode, set_secondary_text
 from .ui_state import show_fluent_confirmation
 from .worker_lifecycle import stop_qthreads
 
@@ -126,9 +128,14 @@ class DraggableSettingsCard(CardWidget):
 
 
 class SettingsCardBoard(QWidget):
-    """Responsive two-column board with persisted drag ordering."""
+    """Responsive masonry board (one or two columns) with persisted drag ordering.
+
+    Cards stack independently in each column so a short card is never
+    stretched to the height of a tall neighbour, which a grid row would do.
+    """
 
     _ORDER_KEY = "settings_card_order_v1"
+    _TWO_COLUMN_MIN_WIDTH = 860
     _DEFAULT_ORDER = (
         "account",
         "download_dir",
@@ -144,6 +151,7 @@ class SettingsCardBoard(QWidget):
         "search_limit",
         "search_history",
         "subscription_prompt",
+        "appearance",
         "language",
         "data_paths",
         "aria2",
@@ -154,12 +162,19 @@ class SettingsCardBoard(QWidget):
         self.setObjectName("settingsCardBoard")
         self.setAcceptDrops(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(16)
-        self._grid.setVerticalSpacing(16)
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(16)
+        self._columns: list[QVBoxLayout] = []
+        for _ in range(2):
+            column = QVBoxLayout()
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(16)
+            self._row.addLayout(column, 1)
+            self._columns.append(column)
         self._cards: dict[str, DraggableSettingsCard] = {}
         self._saved_order = self._read_saved_order()
+        self._layout_signature: tuple = ()
 
     @staticmethod
     def _read_saved_order() -> list[str]:
@@ -181,8 +196,42 @@ class SettingsCardBoard(QWidget):
             return
         self._cards[card_key] = card
         card.setParent(self)
+        # Unwrapped descriptions used to become the card's minimum width and
+        # pushed the second column outside the window.
+        for label in card.findChildren(BodyLabel):
+            label.setWordWrap(True)
+            label.setMinimumWidth(0)
+        # Labels placed directly in the card's column are descriptions; those
+        # nested in rows name a control and keep the primary text color.
+        card_layout = card.layout()
+        if card_layout is not None:
+            for index in range(card_layout.count()):
+                widget = card_layout.itemAt(index).widget()
+                if type(widget) is BodyLabel:
+                    set_secondary_text(widget)
+            self._let_row_labels_grow(card_layout)
         card.enable_drag_sources()
-        self._reflow()
+        self._reflow(force=True)
+
+    @classmethod
+    def _let_row_labels_grow(cls, layout):
+        """Give row labels the row's spare width so they wrap only when needed.
+
+        A wrapped label's size hint is deliberately narrow; without a stretch
+        factor the trailing addStretch() spacer took the space instead.
+        """
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            child_layout = item.layout()
+            if child_layout is not None:
+                if isinstance(child_layout, QHBoxLayout):
+                    for child_index in range(child_layout.count()):
+                        widget = child_layout.itemAt(child_index).widget()
+                        if type(widget) is BodyLabel:
+                            child_layout.setStretch(child_index, 1)
+                cls._let_row_labels_grow(child_layout)
+            elif item.widget() is not None and item.widget().layout() is not None:
+                cls._let_row_labels_grow(item.widget().layout())
 
     def _ordered_keys(self) -> list[str]:
         known = set(self._cards)
@@ -193,24 +242,33 @@ class SettingsCardBoard(QWidget):
         return order
 
     def _column_count(self) -> int:
-        width = max(0, self.width())
-        if width >= 760:
-            return 2
-        return 1
+        return 2 if self.width() >= self._TWO_COLUMN_MIN_WIDTH else 1
 
-    def _reflow(self):
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().show()
+    def _reflow(self, *, force: bool = False):
         columns = self._column_count()
-        for column in range(2):
-            self._grid.setColumnStretch(column, 1 if column < columns else 0)
-        for index, card_key in enumerate(self._ordered_keys()):
+        order = self._ordered_keys()
+        signature = (columns, tuple(order))
+        if not force and signature == self._layout_signature:
+            return
+        self._layout_signature = signature
+        self._row.setSpacing(16 if columns > 1 else 0)
+        for column in self._columns:
+            while column.count():
+                column.takeAt(0)
+        column_width = max(1, (self.width() - self._row.spacing() * (columns - 1)) // columns)
+        heights = [0] * columns
+        for card_key in order:
             card = self._cards[card_key]
-            row, column = divmod(index, columns)
-            self._grid.addWidget(card, row, column)
-        self.setMinimumHeight(self._grid.sizeHint().height())
+            # Greedy masonry: always append to the currently shortest column,
+            # keeping the saved order readable left-to-right, top-to-bottom.
+            target = heights.index(min(heights))
+            self._columns[target].addWidget(card)
+            hint = card.heightForWidth(column_width) if card.hasHeightForWidth() else -1
+            heights[target] += (hint if hint > 0 else card.sizeHint().height()) + 16
+            card.show()
+        for index, column in enumerate(self._columns):
+            column.addStretch(1)
+            self._row.setStretch(index, 1 if index < columns else 0)
         self.updateGeometry()
 
     def resizeEvent(self, event):
@@ -246,7 +304,7 @@ class SettingsCardBoard(QWidget):
         else:
             order.append(source_key)
         self._persist_order(order)
-        self._reflow()
+        self._reflow(force=True)
         event.acceptProposedAction()
 
     def dragEnterEvent(self, event):
@@ -310,12 +368,57 @@ class SettingsInterface(ScrollArea):
 
     def _build_ui(self):
         layout = QVBoxLayout(self._content)
-        layout.setContentsMargins(36, 24, 36, 24)
+        layout.setContentsMargins(*PAGE_MARGINS)
         layout.setSpacing(16)
 
-        layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self._content))
+        title_row = QHBoxLayout()
+        title_row.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self._content))
+        title_row.addStretch()
+        drag_hint = CaptionLabel(
+            tr(
+                "Drag a card's title to reorder",
+                "拖动卡片标题可调整顺序",
+                "カードのタイトルをドラッグして並べ替え",
+            ),
+            self._content,
+        )
+        set_secondary_text(drag_hint)
+        title_row.addWidget(drag_hint)
+        layout.addLayout(title_row)
         self._settings_board = SettingsCardBoard(self._content)
         layout.addWidget(self._settings_board)
+
+        # ── Appearance ───────────────────────────────────────────────────────
+        appearance_card = self._settings_board.create_card("appearance")
+        appearance_layout = QVBoxLayout(appearance_card)
+        appearance_layout.setContentsMargins(20, 16, 20, 16)
+        appearance_layout.setSpacing(10)
+        appearance_layout.addWidget(SubtitleLabel(tr("Appearance", "外观", "外観"), appearance_card))
+        appearance_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Light and dark modes share one palette; the choice is remembered.",
+                    "浅色与深色模式共用同一套配色，选择会被记住。",
+                    "ライト/ダークは同じ配色を共有し、選択は保存されます。",
+                ),
+                appearance_card,
+            )
+        )
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(BodyLabel(tr("Theme", "主题模式", "テーマ"), appearance_card))
+        theme_row.addStretch()
+        self._theme_combo = ComboBox(appearance_card)
+        self._theme_combo.addItem(tr("Follow system", "跟随系统", "システムに合わせる"))
+        self._theme_combo.setItemData(0, "auto")
+        self._theme_combo.addItem(tr("Light", "浅色", "ライト"))
+        self._theme_combo.setItemData(1, "light")
+        self._theme_combo.addItem(tr("Dark", "深色", "ダーク"))
+        self._theme_combo.setItemData(2, "dark")
+        self._theme_combo.setFixedWidth(180)
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_mode_changed)
+        theme_row.addWidget(self._theme_combo)
+        appearance_layout.addLayout(theme_row)
+        self._settings_board.add_card("appearance", appearance_card)
 
         # ── Language ─────────────────────────────────────────────────────────
         lang_card = self._settings_board.create_card("language")
@@ -355,6 +458,13 @@ class SettingsInterface(ScrollArea):
         data_layout.addWidget(BodyLabel(f"{tr('Data dir', '数据目录', 'データディレクトリ')}: {app_config.app_data_dir}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('Config file', '配置文件', '設定ファイル')}: {app_config.config_path}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('History DB', '下载历史库', '履歴DB')}: {app_config.history_db_path}", data_card))
+        open_data_btn = PushButton(
+            tr("Open data folder", "打开数据目录", "データフォルダーを開く"),
+            data_card,
+            FluentIcon.FOLDER,
+        )
+        open_data_btn.clicked.connect(lambda: self._open_local_folder(app_config.app_data_dir))
+        data_layout.addWidget(open_data_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         self._settings_board.add_card("data_paths", data_card)
 
         # ── Account / Login card ──────────────────────────────────────────────
@@ -399,8 +509,7 @@ class SettingsInterface(ScrollArea):
         self._login_btn.setFixedWidth(100)
         self._login_btn.clicked.connect(lambda: self._do_login(silent=False))
 
-        self._logout_btn = PrimaryPushButton(tr("Logout", "退出登录", "ログアウト"), self._cred_widget, FluentIcon.CANCEL)
-        self._logout_btn.setFixedWidth(110)
+        self._logout_btn = PushButton(tr("Logout", "退出登录", "ログアウト"), self._cred_widget, FluentIcon.CANCEL)
         self._logout_btn.clicked.connect(self._do_logout)
         self._logout_btn.hide()
 
@@ -469,12 +578,16 @@ class SettingsInterface(ScrollArea):
         self._dir_edit.setPlaceholderText(tr("Choose download directory…", "选择下载目录…", "保存先を選択…"))
         self._dir_edit.setReadOnly(True)
 
-        browse_btn = ToolButton(FluentIcon.FOLDER, dir_card)
+        browse_btn = ToolButton(FluentIcon.EDIT, dir_card)
+        open_dir_btn = ToolButton(FluentIcon.FOLDER, dir_card)
+        open_dir_btn.setToolTip(tr("Open download folder", "打开下载目录", "保存先を開く"))
+        open_dir_btn.clicked.connect(lambda: self._open_local_folder(self._dir_edit.text().strip()))
         browse_btn.setToolTip(tr("Browse…", "浏览…", "参照…"))
         browse_btn.clicked.connect(self._browse_dir)
 
         dir_row.addWidget(self._dir_edit, stretch=1)
         dir_row.addWidget(browse_btn)
+        dir_row.addWidget(open_dir_btn)
         dir_layout.addLayout(dir_row)
 
         cleanup_row = QHBoxLayout()
@@ -489,8 +602,7 @@ class SettingsInterface(ScrollArea):
             )
         )
         cleanup_row.addStretch()
-        cleanup_btn = PrimaryPushButton(tr("Clean *_temp", "清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
-        cleanup_btn.setFixedWidth(140)
+        cleanup_btn = PushButton(tr("Clean *_temp", "清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
         cleanup_btn.clicked.connect(self._confirm_clear_temp_files)
         cleanup_row.addWidget(cleanup_btn)
         dir_layout.addLayout(cleanup_row)
@@ -557,7 +669,7 @@ class SettingsInterface(ScrollArea):
         self._conc_slider = Slider(Qt.Orientation.Horizontal, conc_card)
         self._conc_slider.setRange(1, 10)
         self._conc_slider.valueChanged.connect(self._on_concurrency_changed)
-        self._conc_slider.setMinimumWidth(420)
+        self._conc_slider.setMinimumWidth(160)
         self._conc_slider.setMaximumWidth(10000)
 
         self._conc_input = LineEdit(conc_card)
@@ -785,7 +897,7 @@ class SettingsInterface(ScrollArea):
         tag_dictionary_row.addStretch()
         self._tag_dictionary_status = BodyLabel("", search_resolve_card)
         tag_dictionary_row.addWidget(self._tag_dictionary_status)
-        self._update_tags_btn = PrimaryPushButton(
+        self._update_tags_btn = PushButton(
             tr("Update tags", "更新标签", "タグを更新"),
             search_resolve_card,
             FluentIcon.SYNC,
@@ -1041,7 +1153,7 @@ class SettingsInterface(ScrollArea):
         rule_row.addStretch()
         automation_layout.addLayout(rule_row)
 
-        refresh_now_btn = PrimaryPushButton(
+        refresh_now_btn = PushButton(
             tr("Refresh Now", "立即刷新", "今すぐ更新"),
             automation_card,
             FluentIcon.SYNC,
@@ -1111,7 +1223,7 @@ class SettingsInterface(ScrollArea):
         self._update_check_switch = SwitchButton(update_card)
         update_header.addWidget(self._update_check_switch)
         update_layout.addLayout(update_header)
-        check_update_btn = PrimaryPushButton(
+        check_update_btn = PushButton(
             tr("Check Now", "立即检查", "今すぐ確認"),
             update_card,
             FluentIcon.UPDATE,
@@ -1122,7 +1234,6 @@ class SettingsInterface(ScrollArea):
 
         # ── Save button ───────────────────────────────────────────────────────
         save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self._content, FluentIcon.SAVE)
-        save_btn.setFixedWidth(140)
         save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignLeft)
 
@@ -1159,6 +1270,7 @@ class SettingsInterface(ScrollArea):
         self._schedule_end_edit.setText(normalize_hhmm(app_config.download_schedule_end))
         self._update_check_switch.setChecked(app_config.update_check_enabled)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
+        self._sync_theme_combo()
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
         prompt_mode = app_config.subscription_prompt_mode
@@ -1381,6 +1493,42 @@ class SettingsInterface(ScrollArea):
         else:
             app_config.ui_language = "zh_CN"
         signal_bus.language_changed.emit(app_config.ui_language)
+
+    def _on_theme_mode_changed(self, idx: int):
+        if self._loading_settings:
+            return
+        mode = normalize_theme_mode(self._theme_combo.itemData(idx))
+        app_config.theme_mode = mode
+        apply_theme_mode(mode)
+
+    def _sync_theme_combo(self):
+        mode = app_config.theme_mode
+        index = next(
+            (i for i in range(self._theme_combo.count()) if self._theme_combo.itemData(i) == mode),
+            0,
+        )
+        self._theme_combo.blockSignals(True)
+        self._theme_combo.setCurrentIndex(index)
+        self._theme_combo.blockSignals(False)
+
+    def refresh_theme_styles(self):
+        # The navigation toggle stores an explicit mode; mirror it here.
+        self._sync_theme_combo()
+
+    def _open_local_folder(self, path: str):
+        path = str(path or "").strip()
+        if not path or not os.path.isdir(path):
+            InfoBar.warning(
+                title=tr("Folder not found", "目录不存在", "フォルダーが見つかりません"),
+                content=path,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _browse_dir(self):
         current = self._dir_edit.text() or os.path.expanduser("~")

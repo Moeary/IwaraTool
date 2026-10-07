@@ -13,11 +13,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from qfluentwidgets import LineEdit, ListWidget, isDarkTheme
+from qfluentwidgets import LineEdit, ListWidget
 
 from ..core.search import SearchAuthor, SearchVideo
 from ..core.tag_dictionary import TagSuggestion
 from ..i18n import tr
+from .theme import palette, popup_list_qss, scrollbar_qss
 
 
 DEFAULT_SEARCH_HISTORY_LIMIT = 20
@@ -313,66 +314,34 @@ def _author_source_info(value: SearchAuthor | SearchVideo | object) -> tuple[str
 
 
 def _search_grid_style() -> str:
-    if isDarkTheme():
-        card = "#252a31"
-        border = "#3b424c"
-        hover = "#313945"
-        selected = "#294b58"
-        text = "#f7fbff"
-    else:
-        card = "#ffffff"
-        border = "#d9e2e8"
-        hover = "#f1f8fa"
-        selected = "#c9f0f3"
-        text = "#17343b"
+    p = palette()
+    # Scope the shared scrollbar rules to this list's own bars.
+    scrollbars = scrollbar_qss().replace("QScrollBar", "QListWidget QScrollBar")
     return f"""
         QListWidget {{
             background: transparent;
             border: none;
+            outline: none;
         }}
         QListWidget::item {{
-            background: {card};
-            border: 1px solid {border};
+            background: {p.surface};
+            border: 1px solid {p.border};
             border-radius: 8px;
             padding: 6px;
-            color: {text};
+            color: {p.text};
         }}
         QListWidget::item:hover {{
-            background: {hover};
-            border: 1px solid #00a6b2;
+            background: {p.surface};
+            border: 1px solid {p.accent};
         }}
         QListWidget::item:selected,
         QListWidget::item:selected:active,
         QListWidget::item:selected:!active {{
-            background: {selected};
-            border: 2px solid #00a6b2;
-            color: {text};
+            background: {p.selected};
+            border: 2px solid {p.accent};
+            color: {p.selected_text};
         }}
-        QListWidget QScrollBar:vertical {{
-            background: {"rgba(255, 255, 255, 0.06)" if isDarkTheme() else "rgba(0, 0, 0, 0.045)"};
-            width: 10px;
-            margin: 4px 0 4px 2px;
-            border-radius: 5px;
-        }}
-        QListWidget QScrollBar::handle:vertical {{
-            background: {"rgba(255, 255, 255, 0.30)" if isDarkTheme() else "rgba(0, 145, 158, 0.54)"};
-            min-height: 36px;
-            border-radius: 5px;
-        }}
-        QListWidget QScrollBar::handle:vertical:hover {{
-            background: {"rgba(255, 255, 255, 0.46)" if isDarkTheme() else "rgba(0, 128, 140, 0.70)"};
-        }}
-        QListWidget QScrollBar::add-line:vertical,
-        QListWidget QScrollBar::sub-line:vertical,
-        QListWidget QScrollBar::add-page:vertical,
-        QListWidget QScrollBar::sub-page:vertical {{
-            background: transparent;
-            height: 0px;
-        }}
-        QListWidget QScrollBar:horizontal {{
-            height: 0px;
-            background: transparent;
-        }}
+        {scrollbars}
     """
 
 
@@ -393,25 +362,13 @@ class TagSuggestionPopup(ListWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setMinimumWidth(360)
         self.setMaximumHeight(260)
-        self.setStyleSheet(
-            f"""
-            QListWidget {{
-                background: {"#252a31" if isDarkTheme() else "#ffffff"};
-                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QListWidget::item {{
-                padding: 7px 9px;
-                border-radius: 5px;
-            }}
-            QListWidget::item:selected {{
-                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
-                color: {"#ffffff" if isDarkTheme() else "#12313a"};
-            }}
-            """
-        )
+        self.setStyleSheet(popup_list_qss())
         self.itemClicked.connect(self._choose_item)
+
+    def showEvent(self, event):
+        # Popups outlive theme switches; recolor them whenever they open.
+        self.setStyleSheet(popup_list_qss())
+        super().showEvent(event)
 
     def set_suggestions(self, suggestions: list[TagSuggestion]):
         self.clear()
@@ -467,25 +424,12 @@ class SearchHistoryPopup(ListWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setMinimumWidth(360)
         self.setMaximumHeight(280)
-        self.setStyleSheet(
-            f"""
-            QListWidget {{
-                background: {"#252a31" if isDarkTheme() else "#ffffff"};
-                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QListWidget::item {{
-                padding: 7px 9px;
-                border-radius: 5px;
-            }}
-            QListWidget::item:selected {{
-                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
-                color: {"#ffffff" if isDarkTheme() else "#12313a"};
-            }}
-            """
-        )
+        self.setStyleSheet(popup_list_qss())
         self.itemClicked.connect(self._choose_item)
+
+    def showEvent(self, event):
+        self.setStyleSheet(popup_list_qss())
+        super().showEvent(event)
 
     def set_history(self, entries: list[dict[str, str]], formatter):
         self.clear()

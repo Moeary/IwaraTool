@@ -5,16 +5,15 @@ from datetime import datetime
 from typing import Any
 
 from PySide6.QtCore import QPoint, QSize, QStringListModel, QTimer, Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCompleter,
     QAbstractItemView,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QListWidgetItem,
-    QScrollArea,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -30,10 +29,10 @@ from qfluentwidgets import (
     ListWidget,
     PrimaryPushButton,
     PushButton,
+    ScrollArea,
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
-    isDarkTheme,
 )
 
 from ..core.rules import (
@@ -51,32 +50,19 @@ from ..core.manager import download_manager
 from ..core.tag_dictionary import TagSuggestion
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .theme import (
+    PAGE_MARGINS,
+    PAGE_SPACING,
+    FluentSplitter,
+    apply_scrollbars,
+    palette,
+    popup_list_qss,
+    set_secondary_text,
+)
 from .ui_state import show_fluent_confirmation
 
 
 DRAFT_RULE_ID = "__draft_rule__"
-
-
-def _style_rule_splitter(splitter: QSplitter):
-    """Keep the rule editor splitter visible without a native white strip."""
-
-    if isDarkTheme():
-        handle = "rgba(255, 255, 255, 0.08)"
-        hover = "rgba(255, 255, 255, 0.18)"
-        pressed = "rgba(255, 255, 255, 0.28)"
-    else:
-        handle = "rgba(0, 0, 0, 0.04)"
-        hover = "rgba(0, 0, 0, 0.10)"
-        pressed = "rgba(0, 0, 0, 0.18)"
-    splitter.setStyleSheet(
-        f"""
-        QSplitter::handle {{ background: {handle}; }}
-        QSplitter::handle:horizontal {{ width: 10px; }}
-        QSplitter::handle:vertical {{ height: 10px; }}
-        QSplitter::handle:hover {{ background: {hover}; }}
-        QSplitter::handle:pressed {{ background: {pressed}; }}
-        """
-    )
 
 
 def _rule_summary(payload: dict[str, Any]) -> str:
@@ -122,22 +108,13 @@ class _RuleTagSuggestionPopup(ListWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setMinimumWidth(360)
         self.setMaximumHeight(260)
-        self.setStyleSheet(
-            f"""
-            QListWidget {{
-                background: {"#252a31" if isDarkTheme() else "#ffffff"};
-                border: 1px solid {"#4a5563" if isDarkTheme() else "#d7dce2"};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QListWidget::item {{ padding: 7px 9px; border-radius: 5px; }}
-            QListWidget::item:selected {{
-                background: {"#304b5b" if isDarkTheme() else "#dff4fa"};
-                color: {"#ffffff" if isDarkTheme() else "#12313a"};
-            }}
-            """
-        )
+        self.setStyleSheet(popup_list_qss())
         self.itemClicked.connect(self._choose_item)
+
+    def showEvent(self, event):
+        # The popup outlives theme switches; recolor it whenever it opens.
+        self.setStyleSheet(popup_list_qss())
+        super().showEvent(event)
 
     def set_suggestions(self, suggestions: list[TagSuggestion]):
         self.clear()
@@ -222,6 +199,7 @@ class RuleFormWidget(QWidget):
             storage_card,
         )
         template_help.setWordWrap(True)
+        set_secondary_text(template_help)
         storage_layout.addWidget(template_help, 2, 0, 1, 4)
         root.addWidget(storage_card)
 
@@ -282,6 +260,7 @@ class RuleFormWidget(QWidget):
             filter_card,
         )
         filter_hint.setWordWrap(True)
+        set_secondary_text(filter_hint)
         filter_layout.addWidget(filter_hint, 7, 0, 1, 4)
         root.addWidget(filter_card)
 
@@ -321,6 +300,7 @@ class RuleFormWidget(QWidget):
         download_layout.addWidget(self.record_history, 3, 1)
         self.record_history_hint = BodyLabel("", download_card)
         self.record_history_hint.setWordWrap(True)
+        set_secondary_text(self.record_history_hint)
         download_layout.addWidget(
             self.record_history_hint,
             3,
@@ -612,8 +592,8 @@ class RulesInterface(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 22, 28, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(*PAGE_MARGINS)
+        root.setSpacing(PAGE_SPACING)
         root.addWidget(TitleLabel(tr("Download Rules", "下载规则", "ダウンロードルール"), self))
         intro = BodyLabel(tr(
             "One rule combines filters, naming and download behavior. Selecting a rule on a download page applies it immediately.",
@@ -621,35 +601,37 @@ class RulesInterface(QWidget):
             "フィルター、命名、保存動作を一つにまとめ、選択時に即座に適用します。",
         ), self)
         intro.setWordWrap(True)
+        set_secondary_text(intro)
         root.addWidget(intro)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter = FluentSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(10)
-        _style_rule_splitter(splitter)
         root.addWidget(splitter, 1)
 
         left = CardWidget(splitter)
-        left.setMinimumWidth(300)
+        left.setMinimumWidth(280)
         left.setMaximumWidth(460)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.setSpacing(10)
         left_layout.addWidget(SubtitleLabel(tr("Rules", "规则列表", "ルール一覧"), left))
-        hint = BodyLabel(tr("The teal dot marks the current default.", "青绿色圆点表示当前默认规则。", "青緑の点は現在の既定ルールです。"), left)
+        hint = BodyLabel(tr("The dot marks the current default.", "带 ● 的是当前默认规则。", "● は現在の既定ルールです。"), left)
         hint.setWordWrap(True)
+        set_secondary_text(hint)
         left_layout.addWidget(hint)
         self._list = ListWidget(left)
-        self._list.setSpacing(5)
+        self._list.setSpacing(4)
         self._list.setWordWrap(True)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setStyleSheet(self._list_style())
         self._list.currentItemChanged.connect(self._on_rule_selected)
         left_layout.addWidget(self._list, 1)
         actions = QGridLayout()
+        actions.setHorizontalSpacing(8)
         self._new_btn = PrimaryPushButton(tr("New", "新建", "新規"), left, FluentIcon.ADD)
-        self._duplicate_btn = PushButton(tr("Duplicate", "复制", "複製"), left)
-        self._delete_btn = PushButton(tr("Delete", "删除", "削除"), left)
+        self._duplicate_btn = PushButton(tr("Duplicate", "复制", "複製"), left, FluentIcon.COPY)
+        self._delete_btn = PushButton(tr("Delete", "删除", "削除"), left, FluentIcon.DELETE)
         self._new_btn.clicked.connect(self._new_rule)
         self._duplicate_btn.clicked.connect(self._duplicate_rule)
         self._delete_btn.clicked.connect(self._delete_rule)
@@ -663,33 +645,52 @@ class RulesInterface(QWidget):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
-        self._form_scroll = QScrollArea(right)
+        self._form_scroll = ScrollArea(right)
         self._form_scroll.setWidgetResizable(True)
-        self._form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._form_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._form = RuleFormWidget()
+        self._form.setObjectName("RuleFormWidget")
         self._form.name_edit.textChanged.connect(self._on_form_name_changed)
         self._form_scroll.setWidget(self._form)
+        # Scope transparency to the scroll area and form only: a bare
+        # "background-color" rule cascades into every label and paints
+        # mismatched patches inside the cards.
+        self._form_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._form_scroll.viewport().setStyleSheet("background: transparent;")
+        self._form.setStyleSheet("QWidget#RuleFormWidget { background: transparent; }")
         right_layout.addWidget(self._form_scroll, 1)
         bottom = QHBoxLayout()
-        self._apply_btn = PrimaryPushButton(tr("Set as default", "设为当前默认", "既定に設定"), right, FluentIcon.ACCEPT)
+        bottom.setSpacing(8)
+        bottom.addStretch()
+        self._apply_btn = PushButton(tr("Set as default", "设为当前默认", "既定に設定"), right, FluentIcon.ACCEPT)
         self._save_btn = PrimaryPushButton(tr("Save rule", "保存规则", "ルールを保存"), right, FluentIcon.SAVE)
         self._apply_btn.clicked.connect(self._apply_current)
         self._save_btn.clicked.connect(self._save_rule)
-        bottom.addStretch()
         bottom.addWidget(self._apply_btn)
         bottom.addWidget(self._save_btn)
         right_layout.addLayout(bottom)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([360, 1120])
-        self._apply_fluent_scrollbars()
+        splitter.setSizes([340, 1120])
+        apply_scrollbars(self._list)
+
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        save_shortcut.activated.connect(self._save_rule_if_enabled)
+
+    def _save_rule_if_enabled(self):
+        if self._save_btn.isEnabled():
+            self._save_rule()
 
     def _list_style(self) -> str:
-        if isDarkTheme():
-            return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #3c434a;border-radius:8px;color:#eef2f5;} QListWidget::item:selected{border:1px solid #18a8b2;background:transparent;}"
-        return "QListWidget{background:transparent;border:none;} QListWidget::item{padding:10px;border:1px solid #e2e6ea;border-radius:8px;color:#202428;} QListWidget::item:selected{border:1px solid #00a4af;background:transparent;color:#15272a;}"
+        p = palette()
+        return (
+            "QListWidget{background:transparent;border:none;outline:none;}"
+            f"QListWidget::item{{padding:10px;border:1px solid {p.border};border-radius:8px;color:{p.text};}}"
+            f"QListWidget::item:hover{{border:1px solid {p.text_disabled};}}"
+            f"QListWidget::item:selected{{border:1px solid {p.accent};color:{p.text};}}"
+        )
 
     def _reload_list(self, select_id: str | None = None):
         saved_rules = rule_store.list_available()
@@ -722,12 +723,12 @@ class RulesInterface(QWidget):
         self._paint_list_items()
 
     def _paint_list_items(self):
-        dark = isDarkTheme()
-        normal = QColor("#292d32" if dark else "#fafbfc")
-        default_bg = QColor("#21433f" if dark else "#e8f6ec")
-        selected_bg = QColor("#203d53" if dark else "#e7f4ff")
-        draft_bg = QColor("#4a3d25" if dark else "#fff4dc")
-        selected_default_bg = QColor("#204c54" if dark else "#d9eef6")
+        p = palette()
+        normal = QColor(0, 0, 0, 0)
+        default_bg = QColor(p.success_bg)
+        selected_bg = QColor(p.selected)
+        draft_bg = QColor(p.warning_bg)
+        selected_default_bg = QColor(p.selected)
         for index in range(self._list.count()):
             item = self._list.item(index)
             rule_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
@@ -891,35 +892,7 @@ class RulesInterface(QWidget):
     def _show_error(self, content: str):
         InfoBar.error(title=tr("Invalid rule", "规则无效", "ルールが無効"), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
 
-    def _apply_fluent_scrollbars(self):
-        handle = "#6f7d89" if isDarkTheme() else "#9aa7b2"
-        hover = "#22c3cf" if isDarkTheme() else "#00a4af"
-        qss = f"""
-        QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
-        QScrollBar::handle:vertical {{ background: {handle}; min-height: 38px; border-radius: 5px; }}
-        QScrollBar::handle:vertical:hover {{ background: {hover}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-        QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 1px 2px 1px 2px; }}
-        QScrollBar::handle:horizontal {{ background: {handle}; min-width: 38px; border-radius: 5px; }}
-        QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
-        """
-        self._list.setStyleSheet(self._list_style())
-        for scroll_area in (self._list, self._form_scroll):
-            scroll_area.verticalScrollBar().setStyleSheet(qss)
-            scroll_area.horizontalScrollBar().setStyleSheet(qss)
-        # Styling the whole QScrollArea makes its viewport inherit an opaque
-        # light palette in dark mode. Keep the viewport transparent instead.
-        surface = "#202020" if isDarkTheme() else "#f7f8fa"
-        self.setStyleSheet(f"QWidget#RulesInterface {{ background-color: {surface}; }}")
-        self._form_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        self._form_scroll.viewport().setStyleSheet(f"background-color: {surface};")
-        self._form_scroll.viewport().setAutoFillBackground(True)
-        self._form.setStyleSheet(f"background-color: {surface};")
-
     def refresh_theme_styles(self):
-        if hasattr(self, "_splitter"):
-            _style_rule_splitter(self._splitter)
         self._list.setStyleSheet(self._list_style())
+        apply_scrollbars(self._list)
         self._reload_list(self._selected_id or None)
-        self._apply_fluent_scrollbars()

@@ -5,15 +5,14 @@ import time
 from typing import Any
 
 from PySide6.QtCore import QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
-    QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -31,9 +30,11 @@ from qfluentwidgets import (
     PlainTextEdit,
     PrimaryPushButton,
     PushButton,
+    ScrollArea,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
+    TransparentToolButton,
 )
 
 from ..config import app_config
@@ -41,6 +42,15 @@ from ..core.manager import download_manager
 from ..core.rules import active_rule_id, normalize_rule_payload, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .theme import (
+    PAGE_MARGINS,
+    PAGE_SPACING,
+    FluentSplitter,
+    apply_scrollbars,
+    qcolor,
+    set_secondary_text,
+    summary_text,
+)
 from .worker_lifecycle import stop_qthreads
 
 
@@ -198,8 +208,8 @@ class RepairInterface(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 22, 28, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(*PAGE_MARGINS)
+        root.setSpacing(PAGE_SPACING)
 
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Repair Center", "修复中心", "修復センター"), self))
@@ -208,12 +218,12 @@ class RepairInterface(QWidget):
             tr("Choose a folder to begin", "请选择一个文件夹开始", "フォルダーを選択して開始"),
             self,
         )
+        set_secondary_text(self._status_label)
         title_row.addWidget(self._status_label)
         root.addLayout(title_row)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter = FluentSplitter(Qt.Orientation.Horizontal, self)
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(8)
         self._splitter = splitter
         root.addWidget(splitter, stretch=1)
 
@@ -221,11 +231,12 @@ class RepairInterface(QWidget):
         # including hidden ones. A tall repair form used to force the entire
         # window above the screen height at 175% DPI. Windows then clamps the
         # size during dragging while Qt grows it again, causing snap-back.
-        self._controls_scroll = QScrollArea(splitter)
+        self._controls_scroll = ScrollArea(splitter)
         self._controls_scroll.setObjectName("RepairControlsScroll")
         self._controls_scroll.setWidgetResizable(True)
-        self._controls_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._controls_scroll.setMinimumWidth(360)
+        self._controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._controls_scroll.setMinimumWidth(340)
         self._controls_scroll.setStyleSheet(
             "QScrollArea#RepairControlsScroll { background: transparent; border: none; }"
             "QScrollArea#RepairControlsScroll > QWidget > QWidget { background: transparent; }"
@@ -252,6 +263,7 @@ class RepairInterface(QWidget):
         # Unwrapped hints become the scroll content's minimum width and hide
         # the controls beside the path inputs in narrow splitter panes.
         self._folder_hint.setWordWrap(True)
+        set_secondary_text(self._folder_hint)
         folder_layout.addWidget(self._folder_hint)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
@@ -296,6 +308,7 @@ class RepairInterface(QWidget):
         folder_layout.addLayout(output_row)
         self._mode_hint = BodyLabel(folder_card)
         self._mode_hint.setWordWrap(True)
+        set_secondary_text(self._mode_hint)
         folder_layout.addWidget(self._mode_hint)
         self._scan_btn = PrimaryPushButton(tr("Scan", "扫描", "検索"), folder_card, FluentIcon.SEARCH)
         self._scan_btn.clicked.connect(self._scan_folder)
@@ -316,6 +329,7 @@ class RepairInterface(QWidget):
             rule_card,
         )
         self._rule_hint.setWordWrap(True)
+        set_secondary_text(self._rule_hint)
         rule_layout.addWidget(self._rule_hint)
         rule_row = QHBoxLayout()
         rule_row.setSpacing(8)
@@ -359,6 +373,7 @@ class RepairInterface(QWidget):
             options_card,
         )
         self._local_video_hint.setWordWrap(True)
+        set_secondary_text(self._local_video_hint)
         options_layout.addWidget(self._local_video_hint)
         self._thumbnail_check = CheckBox(tr("Download cover screenshot", "下载封面截图", "サムネイルを取得"), options_card)
         self._thumbnail_check.setChecked(True)
@@ -393,7 +408,8 @@ class RepairInterface(QWidget):
         log_header = QHBoxLayout()
         log_header.addWidget(SubtitleLabel(tr("Repair Log", "修复日志", "修復ログ"), log_card))
         log_header.addStretch()
-        clear_btn = PushButton(tr("Clear", "清空", "クリア"), log_card, FluentIcon.DELETE)
+        clear_btn = TransparentToolButton(FluentIcon.DELETE, log_card)
+        clear_btn.setToolTip(tr("Clear log", "清空日志", "ログをクリア"))
         clear_btn.clicked.connect(self._clear_log)
         log_header.addWidget(clear_btn)
         log_layout.addLayout(log_header)
@@ -405,6 +421,7 @@ class RepairInterface(QWidget):
         if not mono.exactMatch():
             mono = QFont("Courier New", 9)
         self._log_edit.setFont(mono)
+        apply_scrollbars(self._log_edit)
         log_layout.addWidget(self._log_edit)
         left_layout.addWidget(log_card, stretch=1)
 
@@ -420,9 +437,12 @@ class RepairInterface(QWidget):
         list_header.addWidget(SubtitleLabel(tr("Repair List", "修复列表", "修復リスト"), list_card))
         self._summary_label = BodyLabel(tr("No folder scanned", "尚未扫描文件夹", "未検索"), list_card)
         self._summary_label.setWordWrap(True)
-        self._summary_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        list_header.addWidget(self._summary_label, 1)
+        set_secondary_text(self._summary_label)
+        list_header.addStretch()
         list_layout.addLayout(list_header)
+        # A full-width row lets the wrapped summary grow in height; inside the
+        # header's QHBoxLayout it was clipped once it needed a second line.
+        list_layout.addWidget(self._summary_label)
 
         self._table = TableWidget(list_card)
         self._table.setColumnCount(7)
@@ -855,13 +875,13 @@ class RepairInterface(QWidget):
             str(item.get("target_conflict", "") or item.get("message", "") or ""),
         ]
         color = {
-            "ready": QColor("#007c91"),
-            "completed": QColor("#107c10"),
-            "not_found": QColor("#c17d00"),
-            "ambiguous": QColor("#c17d00"),
-            "failed": QColor("#c42b1c"),
-            "conflict": QColor("#c42b1c"),
-            "skipped": QColor("#666666"),
+            "ready": qcolor("accent"),
+            "completed": qcolor("success"),
+            "not_found": qcolor("warning"),
+            "ambiguous": qcolor("warning"),
+            "failed": qcolor("danger"),
+            "conflict": qcolor("danger"),
+            "skipped": qcolor("neutral"),
         }.get(state_key)
         for column, value in enumerate(values):
             cell = self._table.item(row, column) or QTableWidgetItem()
@@ -876,6 +896,17 @@ class RepairInterface(QWidget):
         target_path = str(item.get("target_path", "") or "")
         if target_path:
             self._path_to_row.setdefault(target_path, row)
+
+    def refresh_theme_styles(self):
+        apply_scrollbars(self._log_edit)
+        self._table.setUpdatesEnabled(False)
+        try:
+            for item in self._items:
+                path = str(item.get("path", "") or "")
+                if path in self._path_to_row:
+                    self._render_item(item)
+        finally:
+            self._table.setUpdatesEnabled(True)
 
     def _refresh_target_previews(self, *_args):
         if self._worker is not None and self._worker_mode == "repair":
@@ -903,11 +934,19 @@ class RepairInterface(QWidget):
         for item in self._items:
             key = "conflict" if item.get("status") == "ready" and item.get("target_conflict") else str(item.get("status", "") or "unknown")
             counts[key] = counts.get(key, 0) + 1
+        skipped = counts.get("not_found", 0) + counts.get("ambiguous", 0) + counts.get("skipped", 0)
         self._summary_label.setText(
-            tr(
-                f"Total {len(self._items)} | ready {counts.get('ready', 0)} | done {counts.get('completed', 0)} | skipped {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | conflict/failed {counts.get('conflict', 0) + counts.get('failed', 0)}",
-                f"共 {len(self._items)} | 待修复 {counts.get('ready', 0)} | 已完成 {counts.get('completed', 0)} | 跳过 {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | 冲突/失败 {counts.get('conflict', 0) + counts.get('failed', 0)}",
-                f"合計 {len(self._items)} | 待機 {counts.get('ready', 0)} | 完了 {counts.get('completed', 0)} | スキップ {counts.get('not_found', 0) + counts.get('ambiguous', 0) + counts.get('skipped', 0)} | 競合/失敗 {counts.get('conflict', 0) + counts.get('failed', 0)}",
+            summary_text(
+                [
+                    (tr("Total", "共", "合計"), len(self._items)),
+                    (tr("Ready", "待修复", "待機"), counts.get("ready", 0)),
+                    (tr("Done", "已完成", "完了"), counts.get("completed", 0)),
+                    (tr("Skipped", "跳过", "スキップ"), skipped),
+                    (
+                        tr("Conflict/failed", "冲突/失败", "競合/失敗"),
+                        counts.get("conflict", 0) + counts.get("failed", 0),
+                    ),
+                ]
             )
         )
 

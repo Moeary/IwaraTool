@@ -5,9 +5,9 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHBoxLayout,
     QHeaderView,
     QTableWidgetItem,
     QSizePolicy,
@@ -17,14 +17,15 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     Action,
-    BodyLabel,
+    CaptionLabel,
     ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
-    LineEdit,
-    PrimaryPushButton,
+    PushButton,
     RoundMenu,
+    SearchLineEdit,
+    SubtitleLabel,
     SwitchButton,
     TableWidget,
     TitleLabel,
@@ -35,6 +36,14 @@ from ..core.manager import download_manager
 from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .theme import (
+    PAGE_MARGINS,
+    PAGE_SPACING,
+    link_color,
+    set_secondary_text,
+    summary_text,
+    task_status_color,
+)
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_table_column_saver,
@@ -45,18 +54,6 @@ from .ui_state import (
     restore_table_widths,
 )
 
-
-_STATUS_COLORS: dict[TaskStatus, str] = {
-    TaskStatus.QUEUED_META: "#6b6b6b",
-    TaskStatus.RESOLVING: "#0078d4",
-    TaskStatus.QUEUED_DOWNLOAD: "#8764b8",
-    TaskStatus.DOWNLOADING: "#107c10",
-    TaskStatus.CANCELLING: "#c17d00",
-    TaskStatus.CANCELLED: "#666666",
-    TaskStatus.SKIPPED: "#c17d00",
-    TaskStatus.COMPLETED: "#107c10",
-    TaskStatus.FAILED: "#c42b1c",
-}
 
 _DEFAULT_STATUS_PRIORITY: dict[TaskStatus, int] = {
     TaskStatus.DOWNLOADING: 0,
@@ -135,36 +132,51 @@ class TaskCenterInterface(QWidget):
             root.setContentsMargins(0, 0, 0, 0)
             root.setSpacing(8)
         else:
-            root.setContentsMargins(36, 24, 36, 16)
-            root.setSpacing(12)
+            root.setContentsMargins(*PAGE_MARGINS)
+            root.setSpacing(PAGE_SPACING)
 
         title_row = ResponsiveFlowLayout()
-        title_row.addWidget(TitleLabel(tr("Task Center", "任务中心", "タスクセンター"), self))
+        title_text = tr("Task Center", "任务中心", "タスクセンター")
+        # The workbench already shows a page title; a second TitleLabel made
+        # the embedded header compete with it.
+        title_row.addWidget(SubtitleLabel(title_text, self) if self._embedded else TitleLabel(title_text, self))
 
-        self._exclude_downloaded_switch = SwitchButton(self)
-        self._exclude_downloaded_switch.setChecked(True)
-        title_row.addWidget(BodyLabel(tr("Exclude downloaded", "排除已下载", "ダウンロード済みを除外"), self))
-        title_row.addWidget(self._exclude_downloaded_switch)
-
-        retry_all_btn = PrimaryPushButton(
-            tr("Retry All", "全部重试", "全件再試行"), self, FluentIcon.SYNC
+        retry_all_btn = PushButton(
+            tr("Retry Failed", "重试失败", "失敗を再試行"), self, FluentIcon.SYNC
         )
+        retry_all_btn.setToolTip(tr("Retry every failed task", "重试全部失败任务", "失敗したタスクをすべて再試行"))
         retry_all_btn.clicked.connect(self._retry_all_failed)
         title_row.addWidget(retry_all_btn)
 
-        restore_all_btn = PrimaryPushButton(
+        self._exclude_downloaded_switch = SwitchButton(self)
+        self._exclude_downloaded_switch.setChecked(True)
+        exclude_text = tr("Skip downloaded", "跳过已下载", "保存済みを除外")
+        self._exclude_downloaded_switch.setOnText(exclude_text)
+        self._exclude_downloaded_switch.setOffText(exclude_text)
+        self._exclude_downloaded_switch.setToolTip(
+            tr(
+                "When retrying, mark tasks whose file already exists as completed",
+                "批量重试时，已存在文件的任务直接标记为完成",
+                "再試行時、既存ファイルのあるタスクを完了扱いにします",
+            )
+        )
+        title_row.addWidget(self._exclude_downloaded_switch)
+
+        restore_all_btn = PushButton(
             tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN
         )
+        restore_all_btn.setToolTip(tr("Re-queue every cancelled task", "将全部已中断任务重新排队", "中断済みタスクをすべて再キュー"))
         restore_all_btn.clicked.connect(self._restore_all_cancelled)
         title_row.addWidget(restore_all_btn)
 
-        cancel_all_btn = PrimaryPushButton(
-            tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.CANCEL
+        cancel_all_btn = PushButton(
+            tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.PAUSE
         )
+        cancel_all_btn.setToolTip(tr("Interrupt every active task", "中断全部进行中的任务", "実行中のタスクをすべて中断"))
         cancel_all_btn.clicked.connect(self._cancel_all_active)
         title_row.addWidget(cancel_all_btn)
 
-        clear_btn = PrimaryPushButton(
+        clear_btn = PushButton(
             tr("Clear Done", "清除完成项", "完了項目をクリア"),
             self,
             FluentIcon.BROOM,
@@ -172,17 +184,18 @@ class TaskCenterInterface(QWidget):
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
 
-        columns_btn = PrimaryPushButton(
-            tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING
-        )
+        columns_btn = ToolButton(FluentIcon.SETTING, self)
+        columns_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         columns_btn.clicked.connect(self._configure_columns)
         title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
         filter_row = ResponsiveFlowLayout()
-        self._search_edit = LineEdit(self)
+        filter_row.setSpacing(8)
+        self._search_edit = SearchLineEdit(self)
         self._search_edit.setPlaceholderText(tr("Search tasks...", "搜索任务...", "タスクを検索..."))
         self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.setMinimumWidth(200)
         self._search_edit.textChanged.connect(self._apply_filters)
         filter_row.addWidget(self._search_edit)
 
@@ -226,7 +239,11 @@ class TaskCenterInterface(QWidget):
         self._sort_dir_btn.clicked.connect(self._toggle_sort_direction)
         filter_row.addWidget(self._sort_dir_btn)
 
-        self._priority_combo = ComboBox(self)
+        priority_group = QWidget(self)
+        priority_layout = QHBoxLayout(priority_group)
+        priority_layout.setContentsMargins(0, 0, 0, 0)
+        priority_layout.setSpacing(6)
+        self._priority_combo = ComboBox(priority_group)
         self._priority_combo.addItems(
             [
                 tr("High Priority", "高优先级", "高優先度"),
@@ -238,20 +255,21 @@ class TaskCenterInterface(QWidget):
         self._priority_combo.setItemData(1, 0)
         self._priority_combo.setItemData(2, -10)
         self._priority_combo.setCurrentIndex(1)
-        self._priority_combo.setFixedWidth(130)
-        filter_row.addWidget(self._priority_combo)
-        priority_btn = PrimaryPushButton(
-            tr("Set Priority", "设置优先级", "優先度を設定"), self
+        self._priority_combo.setFixedWidth(160)
+        priority_layout.addWidget(self._priority_combo)
+        priority_btn = PushButton(
+            tr("Apply to selected", "应用到所选", "選択に適用"), priority_group
         )
         priority_btn.clicked.connect(self._set_selected_priority)
-        filter_row.addWidget(priority_btn)
+        priority_layout.addWidget(priority_btn)
+        filter_row.addWidget(priority_group)
 
         root.addLayout(filter_row)
 
-        self._summary_label = BodyLabel("", self)
+        self._summary_label = CaptionLabel("", self)
         self._summary_label.setWordWrap(True)
-        self._summary_label.setMinimumHeight(28)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._summary_label)
         root.addWidget(self._summary_label)
 
         self._table = TableWidget(self)
@@ -337,6 +355,11 @@ class TaskCenterInterface(QWidget):
         if hasattr(self, "_table"):
             fit_table_last_column(self._table)
 
+    def refresh_theme_styles(self):
+        """Repaint status/link colors that were baked into table items."""
+        if hasattr(self, "_table"):
+            self._apply_filters()
+
     # ── Signals ───────────────────────────────────────────────────────────────
 
     def _connect_signals(self):
@@ -408,7 +431,7 @@ class TaskCenterInterface(QWidget):
             item.setToolTip(self._cell_tooltip(task, col_idx, value))
             if col_idx == self._COL_STATE:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setForeground(QColor(_STATUS_COLORS.get(task.status, "#666666")))
+                item.setForeground(task_status_color(task.status))
             elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             elif col_idx == self._COL_PRIORITY:
@@ -469,7 +492,7 @@ class TaskCenterInterface(QWidget):
         item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(tooltip)
-        item.setForeground(QColor("#0078d4" if enabled else "#999999"))
+        item.setForeground(link_color(enabled))
 
     def _update_summary(self, tasks: list[DownloadTask], visible: list[DownloadTask]):
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
@@ -479,10 +502,17 @@ class TaskCenterInterface(QWidget):
         skipped = sum(1 for task in tasks if task.status == TaskStatus.SKIPPED)
         completed = sum(1 for task in tasks if task.status == TaskStatus.COMPLETED)
         self._summary_label.setText(
-            tr(
-                f"Tasks: {len(tasks)} | visible: {len(visible)} | active: {active} | queued: {queued} | failed: {failed} | cancelled: {cancelled} | skipped: {skipped} | completed: {completed}",
-                f"任务: {len(tasks)} | 当前显示: {len(visible)} | 进行中: {active} | 排队: {queued} | 失败: {failed} | 中断: {cancelled} | 跳过: {skipped} | 完成: {completed}",
-                f"タスク: {len(tasks)} | 表示: {len(visible)} | 実行中: {active} | 待機: {queued} | 失敗: {failed} | 中断: {cancelled} | スキップ: {skipped} | 完了: {completed}",
+            summary_text(
+                [
+                    (tr("Tasks", "任务", "タスク"), len(tasks)),
+                    (tr("Visible", "当前显示", "表示"), len(visible)),
+                    (tr("Active", "进行中", "実行中"), active),
+                    (tr("Queued", "排队", "待機"), queued),
+                    (tr("Failed", "失败", "失敗"), failed),
+                    (tr("Cancelled", "中断", "中断"), cancelled),
+                    (tr("Skipped", "跳过", "スキップ"), skipped),
+                    (tr("Completed", "完成", "完了"), completed),
+                ]
             )
         )
 

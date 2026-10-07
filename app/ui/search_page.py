@@ -7,7 +7,7 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QPoint, QThread, Qt, QSize, QTimer
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     ComboBox,
     FluentIcon,
@@ -32,11 +33,9 @@ from qfluentwidgets import (
     ListWidget,
     PrimaryPushButton,
     PushButton,
-    SubtitleLabel,
     TableWidget,
     TitleLabel,
     ToolButton,
-    isDarkTheme,
 )
 
 from ..config import app_config
@@ -87,6 +86,7 @@ from .search_workers import (
     SearchWorker,
 )
 from .ui_state import (
+    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
@@ -94,6 +94,7 @@ from .ui_state import (
     restore_table_widths,
     show_fluent_text_input,
 )
+from .theme import CARD_MARGINS, PAGE_MARGINS, PAGE_SPACING, qcolor, set_secondary_text
 from .worker_lifecycle import stop_qthreads
 
 
@@ -170,13 +171,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(*PAGE_MARGINS)
+        root.setSpacing(PAGE_SPACING)
 
         title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("Search", "搜索", "検索"), self))
         title_row.addStretch()
         self._source_status_label = BodyLabel("", self)
+        set_secondary_text(self._source_status_label)
         title_row.addWidget(self._source_status_label)
         self._toggle_search_controls_btn = PushButton(self)
         self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
@@ -185,12 +187,40 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
         query_card = CardWidget(self)
         query_layout = QVBoxLayout(query_card)
-        query_layout.setContentsMargins(16, 14, 16, 14)
+        query_layout.setContentsMargins(*CARD_MARGINS)
         query_layout.setSpacing(10)
 
-        query_row = QHBoxLayout()
+        # The keyword box is the primary control, so it gets a full row
+        # instead of being squeezed between three combo boxes.
+        keyword_row = QHBoxLayout()
+        keyword_row.setSpacing(8)
+        self._keyword_edit = SearchKeywordEdit(query_card)
+        self._keyword_edit.setClearButtonEnabled(True)
+        self._keyword_edit.setPlaceholderText(
+            tr(
+                "Keywords, tags, author username, or playlist ID…",
+                "输入关键词、标签、作者用户名或播放列表 ID…",
+                "キーワード、タグ、作者名、プレイリストID…",
+            )
+        )
+        self._keyword_edit.returnPressed.connect(self._start_search)
+        self._keyword_edit.textEdited.connect(self._clear_author_navigation)
+        self._keyword_edit.textChanged.connect(self._sync_sort_options)
+        keyword_row.addWidget(self._keyword_edit, 1)
+
+        self._search_btn = PrimaryPushButton(tr("Search", "搜索", "検索"), query_card, FluentIcon.SEARCH)
+        self._search_btn.setMinimumWidth(112)
+        self._search_btn.clicked.connect(self._start_search)
+        keyword_row.addWidget(self._search_btn)
+
+        self._reset_btn = PushButton(tr("Reset", "重置", "リセット"), query_card)
+        self._reset_btn.clicked.connect(self._reset_filters)
+        keyword_row.addWidget(self._reset_btn)
+        query_layout.addLayout(keyword_row)
+
+        query_row = ResponsiveFlowLayout()
         query_row.setSpacing(8)
-        query_row.addWidget(BodyLabel(tr("Source", "数据源", "ソース"), query_card))
+        query_row.addWidget(self._labelled(tr("Source", "数据源", "ソース"), query_card))
         self._source_combo = ComboBox(query_card)
         self._add_combo_item(
             self._source_combo,
@@ -205,7 +235,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._source_combo.setMinimumWidth(178)
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
         query_row.addWidget(self._source_combo)
-        query_row.addWidget(BodyLabel(tr("Scope", "搜索类型", "検索対象"), query_card))
+        query_row.addWidget(self._labelled(tr("Scope", "搜索类型", "検索対象"), query_card))
         self._scope_combo = ComboBox(query_card)
         self._scope_items = [
             (tr("Keywords", "关键词搜索", "キーワード検索"), "videos"),
@@ -219,7 +249,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
         query_row.addWidget(self._scope_combo)
 
-        query_row.addWidget(BodyLabel(tr("Sort", "排序", "並び順"), query_card))
+        query_row.addWidget(self._labelled(tr("Sort", "排序", "並び順"), query_card))
         self._sort_combo = self._make_combo(
             [
                 (tr("Newest", "最新", "新着"), "date"),
@@ -234,55 +264,32 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         query_row.addWidget(self._sort_combo)
 
-        self._keyword_edit = SearchKeywordEdit(query_card)
-        self._keyword_edit.setClearButtonEnabled(True)
-        self._keyword_edit.setPlaceholderText(
+        # The download rule used to occupy its own card; keeping it in the
+        # query card saves a full row of vertical space for results.
+        rule_group = QWidget(query_card)
+        rule_group_layout = QHBoxLayout(rule_group)
+        rule_group_layout.setContentsMargins(0, 0, 0, 0)
+        rule_group_layout.setSpacing(8)
+        rule_group_layout.addWidget(self._labelled(tr("Download rule", "下载规则", "ダウンロードルール"), rule_group))
+        self._rule_picker = RulePicker(rule_group)
+        self._rule_picker.setToolTip(
             tr(
-                "Keywords, tags, author username, or playlist ID…",
-                "输入关键词、标签、作者用户名或播放列表 ID…",
-                "キーワード、タグ、作者名、プレイリストID…",
+                "The selected rule controls filtering, naming and download behavior.",
+                "所选规则统一控制筛选、命名和下载行为。",
+                "選択したルールがフィルター・命名・保存動作を統一します。",
             )
         )
-        self._keyword_edit.returnPressed.connect(self._start_search)
-        self._keyword_edit.textEdited.connect(self._clear_author_navigation)
-        self._keyword_edit.textChanged.connect(self._sync_sort_options)
-        query_row.addWidget(self._keyword_edit, 1)
-
-        self._search_btn = PrimaryPushButton(tr("Search", "搜索", "検索"), query_card, FluentIcon.SEARCH)
-        self._search_btn.setMinimumWidth(112)
-        self._search_btn.clicked.connect(self._start_search)
-        query_row.addWidget(self._search_btn)
-
-        self._reset_btn = PushButton(tr("Reset", "重置", "リセット"), query_card)
-        self._reset_btn.clicked.connect(self._reset_filters)
-        query_row.addWidget(self._reset_btn)
+        rule_group_layout.addWidget(self._rule_picker)
+        query_row.addWidget(rule_group)
         query_layout.addLayout(query_row)
 
-        self._scope_hint = BodyLabel("", query_card)
+        self._scope_hint = CaptionLabel("", query_card)
         self._scope_hint.setWordWrap(True)
+        set_secondary_text(self._scope_hint)
         query_layout.addWidget(self._scope_hint)
         self._query_card = query_card
+        self._rule_card = rule_group
         root.addWidget(query_card)
-
-        rule_card = CardWidget(self)
-        rule_layout = QHBoxLayout(rule_card)
-        rule_layout.setContentsMargins(16, 14, 16, 14)
-        rule_layout.setSpacing(10)
-        rule_layout.addWidget(SubtitleLabel(tr("Download rule", "下载规则", "ダウンロードルール"), rule_card))
-        self._rule_picker = RulePicker(rule_card)
-        rule_layout.addWidget(self._rule_picker, 1)
-        rule_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "The selected rule controls filtering, naming and download behavior.",
-                    "所选规则统一控制筛选、命名和下载行为。",
-                    "選択したルールがフィルター・命名・保存動作を統一します。",
-                ),
-                rule_card,
-            )
-        )
-        self._rule_card = rule_card
-        root.addWidget(rule_card)
 
         self._tag_popup = TagSuggestionPopup(self)
         self._tag_popup.suggestion_chosen.connect(self._apply_tag_suggestion)
@@ -297,62 +304,58 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._keyword_edit.deactivated.connect(self._hide_search_history_popup)
         self._refresh_search_history_popup()
 
-        result_header = QHBoxLayout()
-        # Keep paging beside the result controls so it remains readable and is
-        # immediately below the download-rule card instead of being stranded
-        # in the page's bottom margin.
-        pagination = QHBoxLayout()
-        pagination.setSpacing(8)
-        self._previous_page_btn = ToolButton(self)
+        result_header = ResponsiveFlowLayout()
+        result_header.setSpacing(8)
+        pagination = QWidget(self)
+        pagination_layout = QHBoxLayout(pagination)
+        pagination_layout.setContentsMargins(0, 0, 0, 0)
+        pagination_layout.setSpacing(6)
+        self._previous_page_btn = ToolButton(pagination)
         self._previous_page_btn.setIcon(FluentIcon.LEFT_ARROW)
-        self._previous_page_btn.setFixedSize(44, 36)
         self._previous_page_btn.setToolTip(
-            tr("Previous page", "上一页", "前のページ")
+            tr("Previous page (Alt+Left)", "上一页（Alt+←）", "前のページ（Alt+←）")
         )
         self._previous_page_btn.clicked.connect(self._go_previous_page)
-        pagination.addWidget(self._previous_page_btn)
-        self._page_label = BodyLabel("", self)
-        self._page_label.setMinimumWidth(112)
+        pagination_layout.addWidget(self._previous_page_btn)
+        self._page_label = BodyLabel("", pagination)
+        self._page_label.setMinimumWidth(88)
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pagination.addWidget(self._page_label)
-        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), self)
+        pagination_layout.addWidget(self._page_label)
+        self._next_page_btn = ToolButton(pagination)
+        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
+        self._next_page_btn.setToolTip(
+            tr("Next page (Alt+Right)", "下一页（Alt+→）", "次のページ（Alt+→）")
+        )
+        self._next_page_btn.clicked.connect(self._go_next_page)
+        pagination_layout.addWidget(self._next_page_btn)
+        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), pagination)
         self._jump_page_btn.setToolTip(
             tr("Jump to a page", "输入页码并跳转", "ページ番号を入力して移動")
         )
         self._jump_page_btn.clicked.connect(self._jump_to_page)
-        pagination.addWidget(self._jump_page_btn)
-        self._next_page_btn = ToolButton(self)
-        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
-        self._next_page_btn.setFixedSize(44, 36)
-        self._next_page_btn.setToolTip(
-            tr("Next page", "下一页", "次のページ")
-        )
-        self._next_page_btn.clicked.connect(self._go_next_page)
-        pagination.addWidget(self._next_page_btn)
-        result_header.addLayout(pagination)
-        result_header.addSpacing(12)
-        self._status_label = BodyLabel(
-            tr("Enter a query or search the latest videos", "输入条件后开始搜索，也可以直接查看最新视频", "条件を入力して検索してください"),
-            self,
-        )
-        self._status_label.setWordWrap(True)
-        result_header.addWidget(self._status_label, 1)
-        result_header.addWidget(BodyLabel(tr("View", "视图", "表示"), self))
+        pagination_layout.addWidget(self._jump_page_btn)
+        result_header.addWidget(pagination)
+
+        view_group = QWidget(self)
+        view_layout = QHBoxLayout(view_group)
+        view_layout.setContentsMargins(0, 0, 0, 0)
+        view_layout.setSpacing(6)
+        view_layout.addWidget(self._labelled(tr("View", "视图", "表示"), view_group))
         self._view_combo = self._make_combo(
             [
                 (tr("Grid", "网格", "グリッド"), "grid"),
                 (tr("List", "列表", "リスト"), "list"),
             ],
-            self,
+            view_group,
         )
         self._view_combo.setFixedWidth(96)
         saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
         self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
         self._view_combo.currentIndexChanged.connect(self._on_view_changed)
-        result_header.addWidget(self._view_combo)
-        self._grid_columns_label = BodyLabel(tr("Columns", "每行列数", "1行の列数"), self)
-        result_header.addWidget(self._grid_columns_label)
-        self._grid_columns_combo = ComboBox(self)
+        view_layout.addWidget(self._view_combo)
+        self._grid_columns_label = self._labelled(tr("Columns", "每行列数", "1行の列数"), view_group)
+        view_layout.addWidget(self._grid_columns_label)
+        self._grid_columns_combo = ComboBox(view_group)
         for columns in range(1, _MAX_GRID_COLUMNS + 1):
             self._add_combo_item(self._grid_columns_combo, str(columns), str(columns))
         try:
@@ -362,21 +365,45 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._grid_columns_combo.setCurrentIndex(max(1, min(_MAX_GRID_COLUMNS, saved_columns)) - 1)
         self._grid_columns_combo.setFixedWidth(84)
         self._grid_columns_combo.currentIndexChanged.connect(self._on_grid_columns_changed)
-        result_header.addWidget(self._grid_columns_combo)
-        self._result_fields_btn = PushButton(tr("Fields", "字段设置", "字段設定"), self, FluentIcon.SETTING)
+        view_layout.addWidget(self._grid_columns_combo)
+        self._result_fields_btn = ToolButton(FluentIcon.SETTING, view_group)
+        self._result_fields_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         self._result_fields_btn.clicked.connect(self._configure_result_columns)
-        result_header.addWidget(self._result_fields_btn)
+        view_layout.addWidget(self._result_fields_btn)
+        result_header.addWidget(view_group)
+
+        selection_group = QWidget(self)
+        selection_layout = QHBoxLayout(selection_group)
+        selection_layout.setContentsMargins(0, 0, 0, 0)
+        selection_layout.setSpacing(6)
         self._queue_selected_btn = PrimaryPushButton(
-            tr("Add selected", "加入选中项", "選択を追加"), self, FluentIcon.DOWNLOAD
+            tr("Add selected", "加入选中项", "選択を追加"), selection_group, FluentIcon.DOWNLOAD
         )
         self._queue_selected_btn.setEnabled(False)
         self._queue_selected_btn.clicked.connect(self._queue_selected)
-        result_header.addWidget(self._queue_selected_btn)
-        self._open_selected_btn = PushButton(tr("Open selected", "打开选中项", "選択を開く"), self)
+        selection_layout.addWidget(self._queue_selected_btn)
+        self._open_selected_btn = PushButton(tr("Open selected", "打开选中项", "選択を開く"), selection_group)
         self._open_selected_btn.setEnabled(False)
         self._open_selected_btn.clicked.connect(self._open_selected)
-        result_header.addWidget(self._open_selected_btn)
+        selection_layout.addWidget(self._open_selected_btn)
+        result_header.addWidget(selection_group)
         root.addLayout(result_header)
+
+        self._status_label = CaptionLabel(
+            tr("Enter a query or search the latest videos", "输入条件后开始搜索，也可以直接查看最新视频", "条件を入力して検索してください"),
+            self,
+        )
+        self._status_label.setWordWrap(True)
+        self._status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._status_label)
+        root.addWidget(self._status_label)
+
+        previous_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
+        previous_shortcut.activated.connect(self._go_previous_page_if_enabled)
+        next_shortcut = QShortcut(QKeySequence("Alt+Right"), self)
+        next_shortcut.activated.connect(self._go_next_page_if_enabled)
+        focus_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        focus_shortcut.activated.connect(self._focus_keyword)
 
         result_card = CardWidget(self)
         result_layout = QVBoxLayout(result_card)
@@ -1090,6 +1117,27 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
         self._go_next_page()
 
+    def _go_previous_page_if_enabled(self):
+        if self._previous_page_btn.isEnabled():
+            self._go_previous_page()
+
+    def _go_next_page_if_enabled(self):
+        if self._next_page_btn.isEnabled():
+            self._go_next_page()
+
+    def _focus_keyword(self):
+        if self._search_controls_collapsed:
+            self._set_search_controls_collapsed(False)
+        self._keyword_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._keyword_edit.selectAll()
+
+    @staticmethod
+    def _labelled(text: str, parent: QWidget) -> BodyLabel:
+        """Inline field caption in the shared secondary text color."""
+        label = BodyLabel(text, parent)
+        set_secondary_text(label)
+        return label
+
     def _go_previous_page(self):
         if self._current_page <= 0:
             return
@@ -1668,7 +1716,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         key = f"video:{video.video_id}"
         item = QListWidgetItem(self._placeholder_icon("video"), self._video_card_text(video))
         item.setData(self._DATA_ROLE, {"kind": "video", "key": key, "data": video})
-        item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+        item.setForeground(qcolor("text"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         item.setToolTip(
             f"{video.title}\n"
@@ -1694,7 +1742,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             text += f"\n{_short_text(author.bio, 64)}"
         item = QListWidgetItem(self._placeholder_icon("author"), text)
         item.setData(self._DATA_ROLE, {"kind": "author", "key": key, "data": author})
-        item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+        item.setForeground(qcolor("text"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         item.setToolTip(f"{author.username}\n{author.source_url}")
         item.setSizeHint(QSize(300, _DEFAULT_GRID_HEIGHT))
@@ -1705,7 +1753,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _placeholder_icon(self, kind: str) -> QIcon:
         pixmap = QPixmap(getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE))
-        pixmap.fill(QColor("#30343b" if isDarkTheme() else "#edf0f5"))
+        pixmap.fill(qcolor("placeholder"))
         return QIcon(pixmap)
 
     def _image_icon(self, path: str) -> QIcon:
@@ -1885,7 +1933,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._resize_grid()
         self._results.setStyleSheet(_search_grid_style())
         for key, item in self._item_by_key.items():
-            item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+            item.setForeground(qcolor("text"))
             if key not in self._image_path_by_key:
                 item.setIcon(self._placeholder_icon(key.split(":", 1)[0]))
 

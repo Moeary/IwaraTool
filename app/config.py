@@ -1,6 +1,7 @@
 """Application configuration backed by QSettings."""
 import os
 import sys
+import threading
 from pathlib import Path
 from PySide6.QtCore import QSettings
 
@@ -90,6 +91,7 @@ class AppConfig:
         "download_schedule_end": "00:00",
         "update_check_enabled": True,
         "update_last_prompted_version": "",
+        "theme_mode": "auto",  # auto / light / dark
     }
 
     def __init__(self):
@@ -98,6 +100,9 @@ class AppConfig:
         self._history_db_path = os.path.join(self._data_dir, "history.db")
 
         self._qs = QSettings(self._config_path, QSettings.Format.IniFormat)
+        # QSettings is reentrant, not thread-safe: the download watchdog and
+        # subscription workers read settings while the GUI thread writes them.
+        self._lock = threading.RLock()
         self._migrate_legacy_settings_if_needed()
         self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
@@ -258,7 +263,13 @@ class AppConfig:
 
     def _get(self, key: str):
         default = self._DEFAULTS[key]
-        value = self._qs.value(key, default)
+        with self._lock:
+            try:
+                value = self._qs.value(key, default)
+            except RuntimeError:
+                # Background watchdogs can poll once more while the
+                # interpreter tears QSettings down at exit.
+                value = default
         # QSettings serialises bools as strings on Windows
         if isinstance(default, bool):
             return self._coerce_bool(value)
@@ -267,19 +278,23 @@ class AppConfig:
         return value
 
     def _set(self, key: str, value):
-        self._qs.setValue(key, value)
-        self._qs.sync()
-
-    def get_ui_value(self, key: str, default=""):
-        return self._qs.value(f"ui/{key}", default)
-
-    def set_ui_value(self, key: str, value, *, sync: bool = True):
-        self._qs.setValue(f"ui/{key}", value)
-        if sync:
+        with self._lock:
+            self._qs.setValue(key, value)
             self._qs.sync()
 
+    def get_ui_value(self, key: str, default=""):
+        with self._lock:
+            return self._qs.value(f"ui/{key}", default)
+
+    def set_ui_value(self, key: str, value, *, sync: bool = True):
+        with self._lock:
+            self._qs.setValue(f"ui/{key}", value)
+            if sync:
+                self._qs.sync()
+
     def sync(self):
-        self._qs.sync()
+        with self._lock:
+            self._qs.sync()
 
     # ── properties ───────────────────────────────────────────────────────────
 
@@ -786,6 +801,16 @@ class AppConfig:
     @update_last_prompted_version.setter
     def update_last_prompted_version(self, v: str):
         self._set("update_last_prompted_version", str(v or ""))
+
+    @property
+    def theme_mode(self) -> str:
+        mode = str(self._get("theme_mode") or "auto").strip().lower()
+        return mode if mode in ("auto", "light", "dark") else "auto"
+
+    @theme_mode.setter
+    def theme_mode(self, v: str):
+        mode = str(v or "auto").strip().lower()
+        self._set("theme_mode", mode if mode in ("auto", "light", "dark") else "auto")
 
 
 # Module-level singleton

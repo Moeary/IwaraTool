@@ -1,14 +1,17 @@
 """History Center Interface — DB-backed downloaded file browser."""
 from __future__ import annotations
 
+import csv
 import os
 import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor, QShowEvent
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QFileDialog,
+    QHBoxLayout,
     QHeaderView,
     QTableWidgetItem,
     QSizePolicy,
@@ -18,16 +21,17 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     Action,
-    BodyLabel,
+    CaptionLabel,
     ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
-    LineEdit,
-    PrimaryPushButton,
+    PushButton,
     RoundMenu,
+    SearchLineEdit,
     TableWidget,
     TitleLabel,
+    ToolButton,
 )
 
 from ..config import app_config
@@ -35,6 +39,14 @@ from ..core.manager import download_manager
 from ..core.models import TaskStatus
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .theme import (
+    PAGE_MARGINS,
+    PAGE_SPACING,
+    link_color,
+    qcolor,
+    set_secondary_text,
+    summary_text,
+)
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_table_column_saver,
@@ -87,13 +99,13 @@ class HistoryInterface(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(*PAGE_MARGINS)
+        root.setSpacing(PAGE_SPACING)
 
-        title_row = ResponsiveFlowLayout()
+        title_row = QHBoxLayout()
         title_row.addWidget(TitleLabel(tr("History Center", "历史记录中心", "履歴センター"), self))
-
-        refresh_btn = PrimaryPushButton(tr("Refresh", "刷新", "更新"), self, FluentIcon.SYNC)
+        title_row.addStretch()
+        refresh_btn = PushButton(tr("Refresh", "刷新", "更新"), self, FluentIcon.SYNC)
         refresh_btn.setToolTip(
             tr(
                 "Reload DB and refresh file states; no records are deleted",
@@ -103,57 +115,20 @@ class HistoryInterface(QWidget):
         )
         refresh_btn.clicked.connect(self._load_history)
         title_row.addWidget(refresh_btn)
-
-        clean_btn = PrimaryPushButton(
-            tr("Clean Moved", "清理已移走记录", "移動済みを削除"),
-            self,
-            FluentIcon.BROOM,
-        )
-        clean_btn.setToolTip(
-            tr(
-                "Delete DB records whose files are missing or outside the download folder",
-                "删除数据库中已移走/不在下载文件夹的记录；不会删除本地文件",
-                "ファイル不明または保存先外のDB履歴を削除します",
-            )
-        )
-        clean_btn.clicked.connect(self._sync_with_download_folder)
-        title_row.addWidget(clean_btn)
-
-        self._delete_selected_btn = PrimaryPushButton(
-            tr("Delete Selected", "删除选中记录", "選択した履歴を削除"),
-            self,
-            FluentIcon.DELETE,
-        )
-        self._delete_selected_btn.setEnabled(False)
-        self._delete_selected_btn.setToolTip(
-            tr(
-                "Remove selected history records; local files are untouched",
-                "删除选中的历史记录，不会删除本地文件",
-                "選択した履歴を削除します。ローカルファイルは削除しません",
-            )
-        )
-        self._delete_selected_btn.clicked.connect(self._remove_selected_record)
-        title_row.addWidget(self._delete_selected_btn)
-
-        columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
-        columns_btn.clicked.connect(self._configure_columns)
-        title_row.addWidget(columns_btn)
         root.addLayout(title_row)
 
-        self._db_label = BodyLabel(
+        self._db_label = CaptionLabel(
             f"{tr('History DB', '历史数据库', '履歴DB')}: {app_config.history_db_path}",
             self,
         )
+        self._db_label.setWordWrap(True)
+        self._db_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._db_label)
         root.addWidget(self._db_label)
 
-        self._summary_label = BodyLabel("", self)
-        self._summary_label.setWordWrap(True)
-        self._summary_label.setMinimumHeight(28)
-        self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        root.addWidget(self._summary_label)
-
         filter_row = ResponsiveFlowLayout()
-        self._search_edit = LineEdit(self)
+        filter_row.setSpacing(8)
+        self._search_edit = SearchLineEdit(self)
         self._search_edit.setPlaceholderText(
             tr(
                 "Search table text...",
@@ -162,6 +137,7 @@ class HistoryInterface(QWidget):
             )
         )
         self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.setMinimumWidth(220)
         self._search_edit.textChanged.connect(self._apply_filters)
         filter_row.addWidget(self._search_edit)
 
@@ -194,7 +170,60 @@ class HistoryInterface(QWidget):
         self._state_combo.setFixedWidth(130)
         self._state_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self._state_combo)
+
+        clean_btn = PushButton(
+            tr("Clean Moved", "清理已移走记录", "移動済みを削除"),
+            self,
+            FluentIcon.BROOM,
+        )
+        clean_btn.setToolTip(
+            tr(
+                "Delete DB records whose files are missing or outside the download folder",
+                "删除数据库中已移走/不在下载文件夹的记录；不会删除本地文件",
+                "ファイル不明または保存先外のDB履歴を削除します",
+            )
+        )
+        clean_btn.clicked.connect(self._sync_with_download_folder)
+        filter_row.addWidget(clean_btn)
+
+        self._delete_selected_btn = PushButton(
+            tr("Delete Selected", "删除选中记录", "選択した履歴を削除"),
+            self,
+            FluentIcon.DELETE,
+        )
+        self._delete_selected_btn.setEnabled(False)
+        self._delete_selected_btn.setToolTip(
+            tr(
+                "Remove selected history records; local files are untouched",
+                "删除选中的历史记录，不会删除本地文件",
+                "選択した履歴を削除します。ローカルファイルは削除しません",
+            )
+        )
+        self._delete_selected_btn.clicked.connect(self._remove_selected_record)
+        filter_row.addWidget(self._delete_selected_btn)
+
+        export_btn = PushButton(tr("Export CSV", "导出 CSV", "CSV を書き出す"), self, FluentIcon.SHARE)
+        export_btn.setToolTip(
+            tr(
+                "Export the rows currently shown to a CSV file",
+                "把当前显示的记录导出为 CSV 文件",
+                "現在表示中の行を CSV に書き出します",
+            )
+        )
+        export_btn.clicked.connect(self._export_visible_csv)
+        filter_row.addWidget(export_btn)
+
+        columns_btn = ToolButton(FluentIcon.SETTING, self)
+        columns_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
+        columns_btn.clicked.connect(self._configure_columns)
+        filter_row.addWidget(columns_btn)
         root.addLayout(filter_row)
+
+        self._summary_label = CaptionLabel("", self)
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._summary_label)
+        root.addWidget(self._summary_label)
 
         self._table = TableWidget(self)
         self._table.setMinimumWidth(0)
@@ -333,12 +362,16 @@ class HistoryInterface(QWidget):
             visible_records.append(record)
 
         visible_records = self._sort_records(visible_records)
+        self._visible_records = visible_records
         self._render_table(visible_records)
         self._summary_label.setText(
-            tr(
-                f"Records: {len(self._all_records)} | visible: {len(visible_records)} | OK: {ok_count} | moved: {moved_count}",
-                f"记录数: {len(self._all_records)} | 当前显示: {len(visible_records)} | 正常: {ok_count} | 已移走: {moved_count}",
-                f"履歴: {len(self._all_records)} | 表示: {len(visible_records)} | 正常: {ok_count} | 移動済み: {moved_count}",
+            summary_text(
+                [
+                    (tr("Records", "记录数", "履歴"), len(self._all_records)),
+                    (tr("Visible", "当前显示", "表示"), len(visible_records)),
+                    (tr("OK", "正常", "正常"), ok_count),
+                    (tr("Moved", "已移走", "移動済み"), moved_count),
+                ]
             )
         )
 
@@ -371,7 +404,7 @@ class HistoryInterface(QWidget):
                     item.setToolTip(state_detail if col_idx == self._COL_STATE else value)
                     if col_idx == self._COL_STATE:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                        item.setForeground(QColor("#107c10" if state_key == "ok" else "#c17d00"))
+                        item.setForeground(qcolor("success" if state_key == "ok" else "warning"))
                     elif col_idx in (self._COL_LIKES, self._COL_VIEWS):
                         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     self._table.setItem(row_idx, col_idx, item)
@@ -693,10 +726,62 @@ class HistoryInterface(QWidget):
         item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         if enabled:
             item.setData(Qt.ItemDataRole.UserRole + 1, action)
-            item.setForeground(QColor("#0078d4"))
-        else:
-            item.setForeground(QColor("#9aa0a6"))
+        item.setForeground(link_color(enabled))
         self._table.setItem(row, column, item)
+
+    def refresh_theme_styles(self):
+        """Re-render rows so baked status/link colors follow the new theme."""
+        if hasattr(self, "_table"):
+            self._apply_filters()
+
+    def _export_visible_csv(self):
+        records = list(getattr(self, "_visible_records", []) or [])
+        if not records:
+            InfoBar.warning(
+                title=tr("Nothing to export", "没有可导出的记录", "書き出す履歴がありません"),
+                content="",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self,
+            )
+            return
+        default_path = os.path.join(app_config.app_data_dir, "history_export.csv")
+        path, _selected = QFileDialog.getSaveFileName(
+            self,
+            tr("Export history", "导出历史记录", "履歴を書き出す"),
+            default_path,
+            "CSV (*.csv)",
+        )
+        if not path:
+            return
+        try:
+            write_history_csv(path, records)
+        except OSError as exc:
+            InfoBar.error(
+                title=tr("Export failed", "导出失败", "書き出しに失敗"),
+                content=str(exc),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self,
+            )
+            return
+        InfoBar.success(
+            title=tr("Exported", "已导出", "書き出しました"),
+            content=tr(
+                f"{len(records)} records → {path}",
+                f"{len(records)} 条记录 → {path}",
+                f"{len(records)} 件 → {path}",
+            ),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self,
+        )
 
     def _record_state(self, record: dict[str, Any]) -> tuple[str, str, str]:
         file_path = str(record.get("file_path", "") or "")
@@ -1005,3 +1090,29 @@ def _date_only(value: str) -> str:
 def _video_url(video_id: str) -> str:
     video_id = str(video_id or "").strip()
     return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+
+
+HISTORY_CSV_FIELDS = (
+    "video_id",
+    "title",
+    "author",
+    "quality",
+    "published_at",
+    "likes",
+    "views",
+    "downloaded_at",
+    "file_path",
+    "source_url",
+)
+
+
+def write_history_csv(path: str, records: list[dict[str, Any]]):
+    """Write history rows as UTF-8 CSV with a BOM so Excel opens CJK text."""
+    with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(HISTORY_CSV_FIELDS)
+        for record in records:
+            row = [str(record.get(field, "") or "") for field in HISTORY_CSV_FIELDS]
+            if not row[-1]:
+                row[-1] = _video_url(row[0])
+            writer.writerow(row)

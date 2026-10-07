@@ -170,6 +170,17 @@ class ResponsiveFlowLayout(QLayout):
         y = effective.y()
         line_height = 0
         right = effective.right()
+        # Items are placed per line so shorter controls (labels, switches) can
+        # be centred against taller buttons on the same row.
+        line: list[tuple[QLayoutItem, int, int, int]] = []
+
+        def flush_line():
+            if test_only:
+                return
+            for line_item, item_x, width, height in line:
+                offset = max(0, (line_height - height) // 2)
+                line_item.setGeometry(QRect(QPoint(item_x, y + offset), QSize(width, height)))
+
         for item in self._items:
             hint = item.sizeHint()
             minimum = item.minimumSize()
@@ -178,14 +189,16 @@ class ResponsiveFlowLayout(QLayout):
             item_height = max(minimum.height(), hint.height())
             next_x = x + item_width
             if x > effective.x() and next_x > right:
+                flush_line()
+                line = []
                 x = effective.x()
                 y += line_height + self._spacing
                 next_x = x + item_width
                 line_height = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), QSize(item_width, item_height)))
+            line.append((item, x, item_width, item_height))
             x = next_x + self._spacing
             line_height = max(line_height, item_height)
+        flush_line()
         return y + line_height - rect.y() + margins.bottom()
 
 

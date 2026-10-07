@@ -6,11 +6,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from qfluentwidgets import setTheme, Theme
-
+from app.config import app_config
 from app.core.manager import download_manager
 from app.core.background_services import background_service
 from app.ui.main_window import MainWindow
+from app.ui.theme import apply_theme_mode
 
 
 def main():
@@ -27,8 +27,8 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    # Apply Fluent theme (auto follows system dark/light mode)
-    setTheme(Theme.AUTO)
+    # Apply the saved theme mode; "auto" follows the system dark/light mode.
+    apply_theme_mode(app_config.theme_mode)
 
     # Apply proxy config on startup
     download_manager.apply_config()

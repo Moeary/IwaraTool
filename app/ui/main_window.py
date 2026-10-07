@@ -14,10 +14,8 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     NavigationItemPosition,
-    Theme,
     qconfig,
     isDarkTheme,
-    setTheme,
 )
 
 from ..i18n import tr
@@ -36,6 +34,7 @@ from .repair_page import RepairInterface
 from .search_page import SearchInterface
 from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
+from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
 from .window_drag import WindowsTitleBarDragFilter
 
@@ -52,6 +51,7 @@ class MainWindow(FluentWindow):
     _window_ref: "MainWindow | None" = None
 
     def __init__(self):
+        install_accent()
         super().__init__()
         if sys.platform == "win32":
             self._title_bar_drag_filter = WindowsTitleBarDragFilter(self.titleBar)
@@ -328,13 +328,17 @@ class MainWindow(FluentWindow):
             executor.shutdown(wait=False, cancel_futures=True)
 
     def _toggle_dark_mode(self):
-        setTheme(Theme.LIGHT if isDarkTheme() else Theme.DARK)
+        # Persist the explicit choice so the next launch opens in the same mode.
+        mode = "light" if isDarkTheme() else "dark"
+        app_config.theme_mode = mode
+        apply_theme_mode(mode)
         self._refresh_theme_styles()
 
     def _on_theme_changed(self, *_args):
         self._refresh_theme_styles()
 
     def _refresh_theme_styles(self):
+        refresh_splitters(self)
         for page in (
             getattr(self, "_download_page", None),
             getattr(self, "_search_page", None),

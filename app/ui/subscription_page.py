@@ -31,15 +31,17 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    DropDownPushButton,
     PrimaryDropDownPushButton,
     PrimaryPushButton,
+    PushButton,
     ProgressBar,
     RoundMenu,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
     ToolButton,
-    isDarkTheme,
+    isDarkTheme,  # noqa: F401 - patched by tests; read by subscription_actions
 )
 
 from ..config import app_config
@@ -97,6 +99,7 @@ from .subscription_components import (
     _thumbnail_list_style,
 )
 from .rules_page import RulePicker
+from .theme import PAGE_MARGINS, qcolor, set_secondary_text, summary_text
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_splitter_saver,
@@ -140,6 +143,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
     _ITEM_FILE = 10
 
     _RENDER_BATCH_SIZE = 80
+    _MIN_ITEM_TABLE_HEIGHT = 140
+    _MIN_STACKED_SOURCE_HEIGHT = 200
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -197,7 +202,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 16)
+        root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(12)
 
         title_row = QHBoxLayout()
@@ -304,12 +309,12 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
         source_actions = ResponsiveFlowLayout()
         source_actions.setSpacing(_ROW_SPACING)
-        import_authors_btn = PrimaryPushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
+        import_authors_btn = PushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
         _style_action_button(import_authors_btn)
         import_authors_btn.clicked.connect(self._import_followed_authors)
         source_actions.addWidget(import_authors_btn)
 
-        add_feed_btn = PrimaryPushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
+        add_feed_btn = PushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
         _style_action_button(add_feed_btn)
         add_feed_btn.clicked.connect(self._add_following_feed)
         source_actions.addWidget(add_feed_btn)
@@ -319,7 +324,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         add_source_btn.clicked.connect(self._add_source)
         source_actions.addWidget(add_source_btn)
 
-        delete_source_btn = PrimaryPushButton(
+        delete_source_btn = PushButton(
             tr("Delete Subscription", "删除订阅", "購読を削除"),
             self,
             FluentIcon.DELETE,
@@ -328,7 +333,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         delete_source_btn.clicked.connect(self._delete_selected_source)
         source_actions.addWidget(delete_source_btn)
 
-        self._refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
+        self._refresh_all_btn = PushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
         _style_action_button(self._refresh_all_btn)
         self._refresh_all_btn.clicked.connect(self._refresh_all)
         source_actions.addWidget(self._refresh_all_btn)
@@ -380,8 +385,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         source_meta_row.addWidget(self._source_sort_direction_btn)
         self._update_source_sort_direction_button()
 
-        source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
-        _style_action_button(source_columns_btn, min_width=96)
+        source_columns_btn = ToolButton(FluentIcon.SETTING, self)
+        source_columns_btn.setFixedSize(36, _CONTROL_HEIGHT)
+        source_columns_btn.setToolTip(tr("Source Fields", "源字段", "購読元列"))
         source_columns_btn.clicked.connect(self._configure_source_columns)
         source_meta_row.addWidget(source_columns_btn)
         left_layout.addLayout(source_meta_row)
@@ -464,6 +470,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         item_summary_row.addWidget(SubtitleLabel(tr("Videos", "视频列表", "動画一覧"), self))
         self._summary_label = BodyLabel("", self)
         self._summary_label.setWordWrap(True)
+        set_secondary_text(self._summary_label)
         self._summary_label.setMinimumHeight(_CONTROL_HEIGHT)
         self._summary_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -482,7 +489,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show This Source", "显示这个作者的全部视频", "この購読元の全動画を表示"), self, triggered=self._show_selected_source_all_items))
         history_menu.addAction(Action(FluentIcon.ACCEPT, tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"), self, triggered=self._mark_selected_downloaded_moved))
         history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"), self, triggered=self._restore_selected_downloaded_moved))
-        history_btn = PrimaryDropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
+        history_btn = DropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
         history_btn.setMenu(history_menu)
         history_btn.setToolTip(tr("History and moved-record actions", "历史和已移走记录操作", "履歴・移動済み操作"))
         _style_action_button(history_btn, min_width=150)
@@ -521,7 +528,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 triggered=self._cache_current_source_covers,
             )
         )
-        self._refresh_current_btn = PrimaryDropDownPushButton(
+        self._refresh_current_btn = DropDownPushButton(
             tr("Refresh Actions", "刷新操作", "更新操作"),
             self,
             FluentIcon.SYNC,
@@ -572,7 +579,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         title_filter_label = BodyLabel(tr("Title Filter", "标题筛选", "タイトルフィルター"), self)
         _style_inline_label(title_filter_label)
         title_filter_row.addWidget(title_filter_label)
-        self._title_filter_mode_btn = PrimaryPushButton(tr("Simple", "简单搜索", "簡易検索"), self)
+        self._title_filter_mode_btn = PushButton(tr("Simple", "简单搜索", "簡易検索"), self)
         self._title_filter_mode_btn.setCheckable(True)
         self._title_filter_mode_btn.setFixedSize(120, _CONTROL_HEIGHT)
         self._title_filter_mode_btn.setToolTip(
@@ -686,8 +693,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         )
         item_filter_row.addWidget(self._item_grid_columns_combo)
 
-        self._item_columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
-        _style_action_button(self._item_columns_btn, min_width=96)
+        self._item_columns_btn = ToolButton(FluentIcon.SETTING, self)
+        self._item_columns_btn.setFixedSize(36, _CONTROL_HEIGHT)
+        self._item_columns_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         self._item_columns_btn.clicked.connect(self._configure_item_columns)
         item_filter_row.addWidget(self._item_columns_btn)
         item_controls_layout.addLayout(item_filter_row)
@@ -953,7 +961,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             if self._source_panel_visible and self._items_panel_visible:
                 if should_stack:
                     height = max(1, self._splitter.height())
-                    self._splitter.setSizes([max(250, int(height * 0.50)), max(300, int(height * 0.50))])
+                    # The video panel carries more controls, so it gets the larger share.
+                    self._splitter.setSizes([max(220, int(height * 0.42)), max(300, int(height * 0.58))])
                 else:
                     width = max(1, self._splitter.width())
                     self._splitter.setSizes([max(420, int(width * 0.50)), max(520, int(width * 0.50))])
@@ -968,6 +977,62 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._update_thumbnail_grid()
         self._schedule_thumbnail_grid_update()
         self._update_panel_toggle_buttons()
+        QTimer.singleShot(0, self._fit_item_controls_height)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_item_controls_height)
+
+    def _fit_item_controls_height(self):
+        """Grow the video-controls pane so its buttons are not cut in half.
+
+        The pane stays user-resizable: a collapsed pane (size 0) is respected,
+        and the video table always keeps at least ``_MIN_ITEM_TABLE_HEIGHT``.
+        """
+        splitter = getattr(self, "_item_content_splitter", None)
+        scroll = getattr(self, "_item_controls_scroll", None)
+        if splitter is None or scroll is None or not splitter.isVisible():
+            return
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        if len(sizes) != 2 or total <= 0 or sizes[0] <= 0:
+            return
+        panel = scroll.widget()
+        layout = panel.layout() if panel is not None else None
+        width = scroll.viewport().width()
+        if layout is None or width <= 0:
+            return
+        if layout.hasHeightForWidth():
+            needed = layout.totalHeightForWidth(width)
+        else:
+            needed = layout.totalSizeHint().height()
+        needed += 2
+        deficit = needed + self._MIN_ITEM_TABLE_HEIGHT - total
+        outer = self._splitter.sizes()
+        if (
+            deficit > 0
+            and self._splitter_is_vertical
+            and self._source_panel_visible
+            and self._items_panel_visible
+            and len(outer) == 2
+            and outer[0] > self._MIN_STACKED_SOURCE_HEIGHT
+            and not getattr(self, "_rebalancing_item_panel", False)
+        ):
+            # Stacked panels: borrow height from the source list so the video
+            # controls are not cut in half, then fit again on the next pass.
+            moved = min(deficit, outer[0] - self._MIN_STACKED_SOURCE_HEIGHT)
+            self._rebalancing_item_panel = True
+            self._splitter.setSizes([outer[0] - moved, outer[1] + moved])
+            QTimer.singleShot(0, self._finish_item_panel_rebalance)
+            return
+        table_floor = min(self._MIN_ITEM_TABLE_HEIGHT, int(total * 0.35))
+        needed = min(needed, max(0, total - table_floor))
+        if sizes[0] < needed:
+            splitter.setSizes([needed, total - needed])
+
+    def _finish_item_panel_rebalance(self):
+        self._fit_item_controls_height()
+        self._rebalancing_item_panel = False
 
     def _schedule_thumbnail_grid_update(self):
         """Run one more layout pass after Qt has committed the new viewport size."""
@@ -1255,7 +1320,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         item.setFont(font)
         item.setToolTip(title or tr("No avatar cached yet", "头像尚未缓存", "アバター未保存"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setForeground(QColor("#777777"))
+        item.setForeground(qcolor("text_secondary"))
         return item
 
     def _start_avatar_worker_for_missing_sources(self):
@@ -1406,10 +1471,16 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             if _item_not_downloadable(item_data):
                 unavailable_count += 1
         self._summary_label.setText(
-            tr(
-                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | pending: {len(self._pending_video_ids)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
-                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 待操作: {len(self._pending_video_ids)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count} | 不可下载: {unavailable_count}",
-                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 操作待ち: {len(self._pending_video_ids)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
+            summary_text(
+                [
+                    (tr("Visible", "当前显示", "表示"), f"{len(self._visible_items)}/{len(self._all_items)}"),
+                    (tr("Pending", "待操作", "操作待ち"), len(self._pending_video_ids)),
+                    (tr("New", "新增", "新規"), new_count),
+                    (tr("Downloaded", "本地已下载", "保存済み"), downloaded_count),
+                    (tr("Moved", "已移走", "移動済み"), moved_count),
+                    (tr("Queued", "已在队列", "キュー内"), queued_count),
+                    (tr("Unavailable", "不可下载", "保存不可"), unavailable_count),
+                ]
             )
         )
         if self._title_filter_error:
@@ -1533,7 +1604,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
     def _thumbnail_placeholder_icon(self) -> QIcon:
         pixmap = QPixmap(self._thumbnail_list.iconSize())
-        pixmap.fill(QColor("#34373d" if isDarkTheme() else "#e8e8e8"))
+        pixmap.fill(qcolor("placeholder"))
         return QIcon(pixmap)
 
     def _thumbnail_icon(self, path: str) -> QIcon:
@@ -1700,9 +1771,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                     )
                 )
             elif col == self._ITEM_REASON and download_reason:
-                cell.setForeground(QColor("#c42b1c"))
+                cell.setForeground(qcolor("danger"))
             elif col == self._ITEM_NEW and is_new:
-                cell.setForeground(QColor("#c17d00"))
+                cell.setForeground(qcolor("warning"))
             self._item_table.setItem(row, col, cell)
 
         source_url_item = QTableWidgetItem(source_url)
