@@ -18,20 +18,7 @@ from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from ..core.manager import download_manager
-
-
-# Colour map for status badges
-_STATUS_COLORS: dict[TaskStatus, str] = {
-    TaskStatus.QUEUED_META: "#888888",
-    TaskStatus.RESOLVING: "#0078d4",
-    TaskStatus.QUEUED_DOWNLOAD: "#8764b8",
-    TaskStatus.DOWNLOADING: "#0f7b0f",
-    TaskStatus.CANCELLING: "#c17d00",
-    TaskStatus.CANCELLED: "#666666",
-    TaskStatus.SKIPPED: "#c17d00",
-    TaskStatus.COMPLETED: "#107c10",
-    TaskStatus.FAILED: "#c42b1c",
-}
+from .theme import task_status_color
 
 
 class TaskCard(CardWidget):
@@ -138,7 +125,7 @@ class TaskCard(CardWidget):
 
     def _set_status(self, status: TaskStatus):
         label = status_label(status)
-        color = _STATUS_COLORS.get(status, "#888888")
+        color = task_status_color(status).name()
         self._status_lbl.setText(label)
         self._status_lbl.setStyleSheet(
             f"color: {color}; font-weight: bold;"

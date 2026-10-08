@@ -1,4 +1,4 @@
-﻿# IwaraTool
+# IwaraTool
 
 ![logo](./docs/iwaratool_logo.png)
 
@@ -8,44 +8,33 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 
 ![demo](./docs/iwaratool_demo_v0.6.gif)
 
+Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API.md) · [Tag index](./docs/iwara_tags.md)
+
 ## Features
-- Valid `X-Version` signature calculation for API requests.
-- Quality fallback: `Source -> 540 -> 360`.
-- Stateful scheduler to avoid early URL expiration.
-- Recoverable task queue with safe-exit persistence and automatic restart recovery.
-- Local dedup + SQLite history center.
-- Batch enqueue from user profile, playlist, and search URLs.
-- Fluent search page with online Oreno3D video/tag search, live Iwara video/author/playlist search, bilingual/trilingual tag suggestions, pagination, grid/list views, and configurable columns.
-- Search cards and lists show local download status, with context actions to view an author's works or add a subscription and navigate to it.
-- Oreno3D is used only as an online search bridge: the app resolves the Iwara ID, hydrates metadata from the Iwara API, and opens the canonical `iwara.tv/video/{id}` page without mirroring the Oreno3D catalog locally.
-- Local subscription management with followed-author import, refresh tracking, new-item counts, and list/cover views.
-- Named rules for likes, views, date range, tags, title keywords, naming templates, and download behavior.
-- Search-only result cap.
-- Token cache in `data/config.ini` for faster startup sign-in.
-- Runtime language switching (`zh/en/ja`) without restarting.
-- Runtime light/dark theme switching.
-- Filename template placeholders for flexible naming and directory layout.
-- Repair Center supports batch renaming in place (the default) or organizing files into an output folder, with video, cover, and NFO destination conflict checks.
+- Batch enqueue from user profile, playlist, and search URLs; the task queue is persistent and recovers automatically after a safe exit.
+- Download engine: valid `X-Version` signature calculation, quality fallback (`Source -> 540 -> 360`), and a stateful scheduler that avoids early URL expiration.
+- Local dedup and a SQLite history center with search, filters, sorting, and cleanup.
+- Search: live Iwara video/author/playlist search, Oreno3D online video search, and trilingual tag suggestions; results show local download status.
+- Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
+- Subscriptions: authors and playlists with refresh tracking and new-item counts; the default overview lists each one with its avatar and latest videos, opens into a poster grid, and the classic table is one click away.
+- Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
+- Home: customizable rows (your subscriptions, hot lists, or any tag / keyword / author search), cached on disk and refreshed only when posts change; in-app detail pages, Like and bulk download; a SFW / NSFW content filter applies to Home and Search.
+- Author pages: open an author inside the app from Search or a detail page, see whether you subscribe in the app or follow on Iwara, and subscribe / follow right there.
+- Shortcuts: press F1 for the full list (rebindable in Settings); cover grids work with arrow keys, Enter, Space and more.
+- Repair Center: batch-rename existing videos in place or organize them into an output folder, with destination conflict checks.
+- Runtime switching between zh/en/ja and light/dark themes; table columns are configurable and persistent.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
-- Download rules can generate Emby/Kodi/Jellyfin-friendly `<movie>` NFO sidecars with standard metadata fields plus Iwara IDs and statistics.
-- History center with search, filters, sorting, open-file actions, rename, and moved-record cleanup.
-- Configurable table columns, persistent widths/order, and responsive split layouts.
-- Retry now cleans matching temporary cache files before re-downloading.
+- Reliability: size and resume verification for downloads, back-off retries and pacing for API requests, SQLite WAL, rotating logs (`data/logs/`).
+- Maintenance: system tray and launch at login, credential-free data backup/restore, SHA-256 verified one-click updates (packaged Windows build).
 
 ## Quick Start
 1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
    - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
 2. Open the app. Sign in when downloading private videos or importing followed authors.
 3. Paste a URL in `Download Workbench`, choose a rule if needed, and submit it.
-4. Use `Subscriptions` to track account feeds, authors, or playlists and batch-download new items.
+4. Use `Subscriptions` to track authors or playlists (your account feed is "My subscriptions" on Home) and batch-download new items.
 
-To rename existing videos, select a folder and naming rule in Repair Center, then scan it. The default in-place mode keeps each video's parent folder and uses only the filename part of the rule. Choose the output-folder mode to move files using directory patterns such as `{author}/`; a blank output uses the scan root. Review the full source and destination paths before applying. Conflicting items are skipped without overwriting existing targets. To import download history only, turn off renaming, covers, and NFO generation and keep the history option enabled.
-
-Search status reflects local history and file availability: a recorded file that still exists is downloaded locally, while a missing path is marked as moved. Oreno3D results are checked after their Iwara ID is resolved. Viewing an author's works does not add a subscription; adding and navigating selects that author's subscription source.
-
-If an Oreno3D result's original Iwara video is deleted or inaccessible, automatic hydration looks for the Iwara author through other works on the source author page. In on-demand mode, author actions trigger this lookup. If no account can be verified, the Oreno3D author page remains available; display names are never guessed to be Iwara accounts.
-
-Iwara keyword and tag searches keep separate input and sort settings. Keyword search supports newest, relevance, views, and likes; use double quotes for exact phrases or leave the input blank to browse videos. Tag search accepts suggestions or exact translated names in English, Chinese, and Japanese; separate multiple tags with commas to find videos containing all of them. Sorting and pagination use the server results, and failures remain visible.
+For more detail (Repair Center, search download status, Oreno3D author fallback, keyword/tag search, subscription cover cache), see the [Usage Guide](./docs/guide/usage_en.md). For local data and caches, see [Local Data and Caches](./docs/guide/data_en.md).
 
 ## Supported URL Types
 ```text
@@ -61,29 +50,6 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 `sort` supports: `date`, `trending`, `popularity`, `views`, `likes`.
 
 `tags` supports see [Tag index](./docs/iwara_tags.md).
-
-## Local Data and Caches
-
-Runtime data is stored under `data/` and is separated by purpose:
-
-| Path | Purpose |
-| --- | --- |
-| `data/config.ini` | Token, UI, concurrency, and download behavior settings |
-| `data/tasks.json` | Recoverable queued, running, failed, and cancelled task state |
-| `data/history.db` | Download history, subscription sources, videos, and refresh state |
-| `data/rules.json` | Named download rules |
-| `data/iwara_tags.json` | Generated offline tag index with localized fields |
-| `app/data/tag_translations/loveiwara_iwara_tags_localized.json` | Bundled MIT-licensed LoveIwara translation source |
-| `data/tag_translations/loveiwara_iwara_tags_localized.json` | Runtime translation cache, refreshed by “Update Tags” |
-| `data/img/search/` | Search-page image cache |
-| `data/img/sub/` | Subscription-page video cover cache |
-| `data/img/avatar/` | Subscription author avatar cache |
-
-Packaged builds embed the LoveIwara dictionary under `app/data/` and expand it to `data/tag_translations/` beside the executable on first run when no runtime cache exists. Existing runtime caches are kept. Other files from the development machine's `data/` directory are not embedded; keep that directory beside an updated executable to retain local state.
-
-When NFO generation is enabled in a download rule, the NFO is written beside the video with the same base name. New files include standard movie metadata fields for media-center import and retain Iwara-specific aliases; existing NFO files are not rewritten automatically.
-
-The search page keeps Oreno3D results online and only caches the current result images. Oreno3D supports video/tag search in this bridge; switch to the Iwara live API for author or playlist results. In tag scope, a single label uses the direct `/tags/{id}` index, while multiple labels are intersected client-side; `tag:<id>`, `origin:<id>`, `character:<id>`, and Oreno3D entity URLs are also accepted. Results are resolved to the canonical Iwara video before opening or queueing.
 
 ## Screenshots
 
@@ -106,11 +72,6 @@ The search page keeps Oreno3D results online and only caches the current result 
 
    ![Settings](./docs/panel_view/iwaratool_settings_panel.jpg)
 
-## Docs
-- Wiki: <https://github.com/Moeary/IwaraTool/wiki>
-- API notes (EN): [docs/API.md](./docs/API.md)
-- Tag index: [docs/iwara_tags.md](./docs/iwara_tags.md)
-
 ## Run / Build
 
 Project dependencies are managed by [pixi](https://pixi.prefix.dev/latest/).
@@ -122,7 +83,7 @@ pixi install
 pixi run start  # Run the application
 pixi run build  # Build the application
 pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
-pixi run python -m unittest discover -s tests -p "test_*.py" -v
+pixi run test   # Run the test suite
 ```
 
 ## Contributing

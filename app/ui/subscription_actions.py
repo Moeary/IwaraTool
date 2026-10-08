@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QDialog, QListWidgetItem, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QDialog, QListWidgetItem, QTableWidgetItem
 
 from qfluentwidgets import (
     Action,
@@ -24,6 +24,7 @@ from ..config import app_config
 from ..core.manager import download_manager as _default_download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus as _default_signal_bus
+from .author_view import clean_username
 from .download_page import FilterDialog, option_button_style
 from .subscription_components import (
     SubscriptionEnqueueWorker,
@@ -33,6 +34,7 @@ from .subscription_components import (
     _CONTROL_HEIGHT,
 )
 from .subscription_helpers import _detect_source_input, _open_url, _source_url, _video_url
+from .theme import link_color
 from .ui_state import show_fluent_confirmation, show_fluent_text_input
 
 
@@ -160,6 +162,33 @@ class SubscriptionActionsMixin:
 
     def _show_pending_context_menu(self, video_ids: list[str], global_pos):
         menu = RoundMenu(parent=self)
+        if len(video_ids) == 1:
+            single = video_ids[0]
+            menu.addAction(
+                Action(
+                    FluentIcon.VIEW,
+                    tr("View Details", "查看详情", "詳細を表示"),
+                    self,
+                    triggered=lambda _checked=False: signal_bus.media_detail_requested.emit("video", single),
+                )
+            )
+            menu.addAction(
+                Action(
+                    FluentIcon.PLAY,
+                    tr("Play", "播放", "再生"),
+                    self,
+                    triggered=lambda _checked=False: self._activate_video_id(single),
+                )
+            )
+            menu.addAction(
+                Action(
+                    FluentIcon.GLOBE,
+                    tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"),
+                    self,
+                    triggered=lambda _checked=False: _open_url(_video_url(single)),
+                )
+            )
+            menu.addSeparator()
         pending = [video_id for video_id in video_ids if video_id in self._pending_video_ids]
         if len(pending) == len(video_ids):
             menu.addAction(
@@ -281,7 +310,7 @@ class SubscriptionActionsMixin:
         cell.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         cell.setToolTip(tooltip)
-        cell.setForeground(QColor("#0078d4" if enabled else "#999999"))
+        cell.setForeground(link_color(enabled))
         table.setItem(row, column, cell)
 
     def _selected_source_ids(self) -> list[int]:
@@ -354,16 +383,8 @@ class SubscriptionActionsMixin:
             (item for item in self._all_items if str(item.get("video_id", "") or "") == video_id),
             None,
         )
-        if not item_data:
-            _open_url(_video_url(video_id))
-            return
-        if bool(item_data.get("download_file_exists")):
-            self._open_history_item(
-                video_id,
-                open_file=app_config.completed_task_click_action == "player",
-            )
-            return
-        _open_url(str(item_data.get("source_url", "") or _video_url(video_id)))
+        title = str((item_data or {}).get("title", "") or "")
+        signal_bus.video_preview_requested.emit(video_id, title, "")
 
     def _on_item_cell_clicked(self, row: int, column: int):
         if column not in (self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):
@@ -417,10 +438,6 @@ class SubscriptionActionsMixin:
             parent=self,
         )
 
-    def _add_following_feed(self):
-        download_manager.add_following_subscription()
-        self._load_sources()
-
     def _add_source(self):
         text, ok = show_fluent_text_input(
             self,
@@ -466,9 +483,15 @@ class SubscriptionActionsMixin:
             self._source_search_edit.blockSignals(True)
             self._source_search_edit.clear()
             self._source_search_edit.blockSignals(False)
-        self._all_sources = download_manager.get_subscription_sources()
+        self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=source_id)
         self._start_refresh(source_id)
+
+    def _on_sources_changed_elsewhere(self):
+        """Another page (author status bar, detail page) removed a subscription."""
+
+        if not self._shutting_down:
+            self._load_sources()
 
     def _import_followed_authors(self):
         if self._import_worker and self._import_worker.isRunning():
@@ -601,7 +624,17 @@ class SubscriptionActionsMixin:
             )
 
     def _refresh_all(self):
-        self._start_refresh(None)
+        hidden_feed = any(
+            str(s.get("source_type", "") or "") == "feed" and int(s.get("enabled", 1) or 0)
+            for s in download_manager.get_subscription_sources()
+        )
+        if not hidden_feed:
+            self._start_refresh(None)
+            return
+        # A leftover account-feed source is not shown here; do not refresh it behind the user's back.
+        ids = [int(s["id"]) for s in self._all_sources if int(s.get("enabled", 1) or 0)]
+        if ids:
+            self._start_refresh(ids)
 
     def _show_selected_source_all_items(self):
         source_id = self._selected_source_id() or self._current_source_id
@@ -1089,3 +1122,233 @@ class SubscriptionActionsMixin:
             parent=self,
         )
 
+
+    # ── overview / source-grid support ───────────────────────────────────────
+
+    def _set_view_mode(self, mode: str, *, persist: bool = True):
+        mode = "table" if mode == "table" else "overview"
+        self._view_switch.blockSignals(True)
+        self._view_switch.setCurrentItem(mode)
+        self._view_switch.blockSignals(False)
+        if mode == "table":
+            self._view_stack.setCurrentWidget(self._table_page)
+        else:
+            # The overview reloads itself when it becomes visible; doing it here
+            # as well built every row twice while the page was still hidden.
+            self._view_stack.setCurrentWidget(self._overview)
+        for button in (self._toggle_sources_btn, self._toggle_items_btn):
+            button.setVisible(mode == "table")
+        if persist:
+            app_config.set_ui_value("subscription_view_mode_v1", mode)
+
+    def _open_source_grid(self, source_id: int):
+        source = next((s for s in self._all_sources if int(s.get("id", 0) or 0) == int(source_id)), None)
+        if source is None:
+            return
+        self._source_view.open_source(source)
+        self._view_stack.setCurrentWidget(self._source_view)
+
+    def _leave_page_view(self):
+        """Back from a source/author page: to the caller, or to the overview."""
+
+        if self._external_return:
+            self._external_return = False
+            origin, self._page_origin = self._page_origin, None
+            # Park on the list view so returning here later is not stuck on the author.
+            self._view_stack.setCurrentWidget(self._overview if self._view_mode_is_overview() else self._table_page)
+            self.return_requested.emit()
+            return
+        origin, self._page_origin = self._page_origin, None
+        if origin is None or origin is self._author_view or origin is self._source_view:
+            origin = self._overview if self._view_mode_is_overview() else self._table_page
+        self._view_stack.setCurrentWidget(origin)
+        if origin is self._overview:
+            self._overview.reload_if_dirty()
+
+    def go_back_view(self):
+        """Alt+Left: from an opened subscription / author back to the list."""
+
+        if self._view_stack.currentWidget() in (self._source_view, self._author_view):
+            self._leave_page_view()
+
+    def select_all_in_view(self):
+        if self._view_stack.currentWidget() is self._source_view:
+            self._source_view._grid.select_all(True)
+            return
+        # Elsewhere the key keeps its usual meaning for the focused control.
+        focus = QApplication.focusWidget()
+        if focus is not None and hasattr(focus, "selectAll"):
+            focus.selectAll()
+
+    def clear_selection_in_view(self):
+        if self._view_stack.currentWidget() is self._source_view:
+            self._source_view._grid.clear_selection()
+            return
+        focus = QApplication.focusWidget()
+        if focus is not None and hasattr(focus, "clearSelection"):
+            focus.clearSelection()
+
+    def toggle_view_mode(self):
+        self._set_view_mode("table" if self._view_mode_is_overview() else "overview")
+
+    def focus_filter(self):
+        current = self._view_stack.currentWidget()
+        edit = {
+            self._overview: getattr(self._overview, "_search", None),
+            self._source_view: getattr(self._source_view, "_search", None),
+            self._table_page: getattr(self, "_source_search_edit", None),
+        }.get(current)
+        if edit is not None:
+            edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            edit.selectAll()
+
+    def _view_mode_is_overview(self) -> bool:
+        return str(app_config.get_ui_value("subscription_view_mode_v1", "overview") or "overview") != "table"
+
+    def _close_source_grid(self):
+        self._leave_page_view()
+
+    def _close_author_view(self):
+        self._leave_page_view()
+
+    def show_source(self, source_id: int):
+        """Bring one source to the front (after subscribing from another page)."""
+
+        self._select_source_id(source_id)
+        if self._view_stack.currentWidget() is not self._table_page:
+            self._open_source_grid(source_id)
+
+    def show_author(self, target, *, external: bool = False):
+        """Open an author inside the app.
+
+        A local subscription opens on its poster grid; anyone else gets a live
+        author page with the subscribe/follow controls.  ``external`` means
+        another page asked, so Back returns there.
+        """
+
+        username = clean_username(target[0]) if target else ""
+        if not username:
+            return
+        self._external_return = bool(external)
+        self._page_origin = None if external else self._view_stack.currentWidget()
+        source = download_manager.find_author_subscription(username)
+        source_id = int((source or {}).get("id", 0) or 0)
+        if source_id and any(int(s.get("id", 0) or 0) == source_id for s in self._all_sources):
+            self._open_source_grid(source_id)
+            return
+        self._author_view.open_author(tuple(target))
+        self._view_stack.setCurrentWidget(self._author_view)
+
+    def _schedule_views_refresh(self, *_args):
+        self._overview.mark_dirty()
+        if not self._shutting_down:
+            self._views_timer.start()
+
+    def _refresh_views(self):
+        if self._shutting_down:
+            return
+        current = self._view_stack.currentWidget()
+        self._author_view.refresh_status()
+        self._source_view.refresh_status()
+        if current is self._source_view and self._source_view.source_id and not any(
+            int(s.get("id", 0) or 0) == self._source_view.source_id for s in self._all_sources
+        ):
+            self._leave_page_view()  # the subscription being viewed was deleted
+            return
+        if current is self._source_view:
+            self._source_view.reload_if_visible()
+        elif current is self._overview and self.isVisible():
+            self._overview.reload()
+
+    def _recent_items(self, per_source: int) -> dict[int, list[dict[str, Any]]]:
+        try:
+            try:
+                recent = download_manager.get_subscription_recent_items(per_source, resolve_thumbnails=False)
+            except TypeError:  # a manager without the option
+                recent = download_manager.get_subscription_recent_items(per_source)
+        except Exception:
+            return {}
+        return recent if isinstance(recent, dict) else {}
+
+    def _cover_path(self, video_id: str, thumbnail_url: str = "") -> str:
+        """The video's cover if it is already cached on disk (cheap, one file check)."""
+
+        try:
+            path = download_manager.subscription_cover_path(video_id, thumbnail_url)
+        except Exception:
+            return ""
+        return path if isinstance(path, str) else ""
+
+    def _source_items(self, source_id: int) -> list[dict[str, Any]]:
+        items = download_manager.get_subscription_items(int(source_id))
+        return list(items) if isinstance(items, list) else []
+
+    def _source_page_url(self, source: dict[str, Any]) -> str:
+        return _source_url(source)
+
+    def _refresh_source_ids_from_view(self, source_id: int):
+        self._start_refresh(int(source_id), ignore_disabled=True)
+
+    def _show_video_detail(self, video):
+        signal_bus.media_detail_requested.emit("video", video.video_id)
+
+    def _show_source_menu(self, source_id: int, global_pos):
+        source = next((s for s in self._all_sources if int(s.get("id", 0) or 0) == int(source_id)), None)
+        if source is None:
+            return
+        enabled = bool(int(source.get("enabled", 1) or 0))
+        menu = RoundMenu(parent=self)
+        menu.addAction(Action(FluentIcon.VIEW, tr("View All", "查看全部", "すべて表示"), self, triggered=lambda: self._open_source_grid(source_id)))
+        menu.addAction(Action(FluentIcon.SYNC, tr("Refresh", "刷新", "更新"), self, triggered=lambda: self._refresh_source_ids_from_view(source_id)))
+        url = _source_url(source)
+        if url:
+            menu.addAction(Action(FluentIcon.GLOBE, tr("Open Page", "打开主页", "ページを開く"), self, triggered=lambda: _open_url(url)))
+        if str(source.get("source_type", "") or "") == "author":
+            key = str(source.get("source_key", "") or "")
+            target = (key, str(source.get("title", "") or key), str(source.get("remote_id", "") or ""), str(source.get("avatar_url", "") or ""))
+            menu.addAction(Action(FluentIcon.SEARCH, tr("Search Their Works", "在搜索页查看作品", "検索ページで作品を表示"), self, triggered=lambda: signal_bus.search_requested.emit({"author": target})))
+        menu.addSeparator()
+        menu.addAction(
+            Action(
+                FluentIcon.PAUSE if enabled else FluentIcon.PLAY,
+                tr("Pause Updates", "停用此订阅", "更新を停止") if enabled else tr("Resume Updates", "启用此订阅", "更新を再開"),
+                self,
+                triggered=lambda: self._toggle_source_enabled(source_id, not enabled),
+            )
+        )
+        menu.addAction(Action(FluentIcon.DELETE, tr("Delete Subscription", "删除订阅", "購読を削除"), self, triggered=lambda: self._delete_source_ids([source_id])))
+        menu.exec(global_pos)
+
+    def _toggle_source_enabled(self, source_id: int, enabled: bool):
+        download_manager.set_subscription_enabled(int(source_id), bool(enabled))
+        self._load_sources()
+
+    def _show_video_menu(self, video, global_pos, selection: list[str] | None = None):
+        """Context menu for a poster card (overview strip or source grid)."""
+
+        video_id = video.video_id
+        ids = list(selection) if selection and len(selection) > 1 else [video_id]
+        menu = RoundMenu(parent=self)
+        menu.addAction(Action(FluentIcon.VIEW, tr("View Details", "查看详情", "詳細を表示"), self, triggered=lambda: self._show_video_detail(video)))
+        menu.addAction(Action(FluentIcon.PLAY, tr("Play", "播放", "再生"), self, triggered=lambda: self._activate_video_id(video_id)))
+        menu.addAction(Action(FluentIcon.GLOBE, tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: _open_url(_video_url(video_id))))
+        menu.addSeparator()
+        label = (
+            tr("Download Selected", "下载选中", "選択を保存")
+            if len(ids) > 1
+            else tr("Download", "下载", "保存")
+        )
+        menu.addAction(Action(FluentIcon.DOWNLOAD, label, self, triggered=lambda: self._download_selected_with_rule(ids)))
+        menu.addAction(
+            Action(
+                FluentIcon.ACCEPT,
+                tr("Mark as Downloaded", "标记为已下载/已移走", "保存済み/移動済みにする"),
+                self,
+                triggered=lambda: self._mark_selected_downloaded_moved(ids),
+            )
+        )
+        if video.author_username:
+            author = (video.author_username, video.author_name or video.author_username, "", "")
+            menu.addAction(Action(FluentIcon.PEOPLE, tr("Open Author Page", "打开作者页", "作者ページを開く"), self, triggered=lambda: signal_bus.author_page_requested.emit(author)))
+            menu.addAction(Action(FluentIcon.SEARCH, tr("Search Author's Works", "查看作者作品", "作者の作品を表示"), self, triggered=lambda: signal_bus.search_requested.emit({"author": author})))
+        menu.exec(global_pos)

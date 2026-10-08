@@ -429,7 +429,13 @@ class AuthorNavigationPageTests(unittest.TestCase):
         client.fetch_author_page.assert_called_once_with(source_author.url, page=1)
         self.assertEqual(video.iwara_url, "https://www.iwara.tv/video/deleted")
         with self.selected(video), patch("app.ui.search_page.webbrowser.open") as browser:
+            # An Iwara account was found, so the default opens the in-app author page...
             self.page._open_author_page_for_result()
+            browser.assert_not_called()
+            self.bus.author_page_requested.emit.assert_called_once()
+            self.assertEqual(self.bus.author_page_requested.emit.call_args.args[0][0], "creator")
+            # ...and the browser entry still reaches the source's own author page.
+            self.page._open_source_author_page_for_result()
             browser.assert_called_once_with(source_author.url)
             self.page._view_selected_author_works()
         self.assertEqual(self.run_search.call_args.args[0].author_id, "user-42")

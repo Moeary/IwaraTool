@@ -2,23 +2,19 @@
 from __future__ import annotations
 
 import gc
-import hashlib
 import json
 import os
 import re
-import shutil
 import sys
-import threading
 import time
-import uuid
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
 
 from ..config import app_config
 from ..i18n import tr
+from ..logging_setup import get_logger
 from ..signal_bus import signal_bus
+from .download_integrity import classify_416, incomplete_reason, resume_offset_mismatch
 from .download_policy import is_time_in_window
 from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
@@ -30,7 +26,6 @@ from .manager_state import (
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
 from .models import DownloadTask, TaskStatus
-from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
 from .rules import (
     active_rule_id as _default_active_rule_id,
     current_rule_payload,
@@ -53,6 +48,9 @@ def active_rule_id() -> str:
     manager_module = sys.modules.get("app.core.manager")
     resolver = getattr(manager_module, "active_rule_id", _default_active_rule_id)
     return str(resolver())
+
+
+logger = get_logger(__name__)
 
 
 class DownloadRuntimeMixin:
@@ -131,6 +129,7 @@ class DownloadRuntimeMixin:
         try:
             self._resolve_task_impl(task_id)
         except Exception as exc:
+            logger.exception("Resolve failed for task %s", task_id)
             signal_bus.log_message.emit(
                 tr(
                     f"[Resolve error] {task_id} -> {exc}",
@@ -565,175 +564,6 @@ class DownloadRuntimeMixin:
         )
         self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
 
-    def _download_task_aria2(
-        self,
-        task_id: str,
-        final_path: str,
-        temp_path: str,
-    ):
-        task = self._tasks.get(task_id)
-        if not task:
-            return
-
-        rpc_url = app_config.aria2_rpc_url.strip()
-        if not rpc_url:
-            signal_bus.log_message.emit(
-                tr(
-                    "  aria2 RPC URL is empty, fallback to built-in downloader",
-                    "  aria2 RPC 地址为空，回退到内置下载器",
-                    "  aria2 RPC URL が空のため内蔵ダウンローダーへフォールバック",
-                )
-            )
-            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
-            return
-
-        save_dir = os.path.dirname(temp_path)
-        filename = os.path.basename(temp_path)
-        headers: list[str] = []
-        token = self._current_token()
-        if token:
-            headers.append(f"Authorization: Bearer {token}")
-
-        options: dict[str, str | list[str]] = {
-            "dir": save_dir,
-            "out": filename,
-            "continue": "true",
-            "max-connection-per-server": "16",
-            "split": "16",
-            "min-split-size": "1M",
-            "timeout": "60",
-            "max-tries": "5",
-            "retry-wait": "2",
-            "auto-file-renaming": "false",
-            "allow-overwrite": "false",
-            "file-allocation": "none",
-        }
-        if headers:
-            options["header"] = headers
-        if app_config.download_proxy_enabled and app_config.download_proxy_url:
-            options["all-proxy"] = app_config.download_proxy_url
-
-        self._apply_aria2_global_speed_limit()
-
-        signal_bus.log_message.emit(
-            tr(
-                f"  Download via aria2 RPC: {rpc_url}",
-                f"  使用 aria2 RPC 下载: {rpc_url}",
-                f"  aria2 RPC でダウンロード: {rpc_url}",
-            )
-        )
-        gid, add_err = self._aria2_rpc_add_uri(task.download_url, options)
-        if not gid:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  aria2 RPC submit failed, fallback to built-in downloader: {add_err}",
-                    f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}",
-                    f"  aria2 RPC 送信失敗、内蔵ダウンローダーへフォールバック: {add_err}",
-                )
-            )
-            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
-            return
-
-        with self._lock:
-            task.aria2_gid = gid
-            self._touch_task_activity_locked(task_id)
-        if self._is_cancel_requested(task_id):
-            self._aria2_rpc_cancel(gid)
-            self._cancel_task_terminal(
-                task_id,
-                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-            )
-            return
-
-        last_emit = 0.0
-        last_done = -1
-        last_status = ""
-        while True:
-            if self._is_cancel_requested(task_id):
-                self._aria2_rpc_cancel(gid)
-                self._cancel_task_terminal(
-                    task_id,
-                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                )
-                return
-            status_info, err = self._aria2_rpc_tell_status(gid)
-            if not status_info:
-                self._fail_task(
-                    task_id,
-                    tr(
-                        f"aria2 RPC query failed: {err}",
-                        f"aria2 RPC 查询失败: {err}",
-                        f"aria2 RPC 問い合わせ失敗: {err}",
-                    ),
-                )
-                return
-
-            status = str(status_info.get("status", ""))
-            done = int(status_info.get("completedLength", "0") or 0)
-            total = int(status_info.get("totalLength", "0") or 0)
-            speed = int(status_info.get("downloadSpeed", "0") or 0)
-            speed_str = _fmt_speed(float(speed)) if speed > 0 else ""
-            if status != last_status or done > last_done or speed > 0:
-                self._touch_task_activity(task_id)
-                last_status = status
-                last_done = max(last_done, done)
-
-            now = time.monotonic()
-            if now - last_emit >= 0.5:
-                with self._lock:
-                    task.downloaded_bytes = done
-                    task.total_bytes = total
-                    task.speed_str = speed_str
-                signal_bus.task_progress_updated.emit(task_id, done, total, speed_str)
-                last_emit = now
-
-            if status == "complete":
-                if self._is_cancel_requested(task_id):
-                    self._aria2_rpc_cancel(gid)
-                    self._cancel_task_terminal(
-                        task_id,
-                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                    )
-                    return
-                downloaded = os.path.getsize(temp_path) if os.path.exists(temp_path) else done
-                if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
-                    return
-                with self._lock:
-                    task.downloaded_bytes = downloaded
-                    task.total_bytes = max(total, downloaded)
-                    task.speed_str = ""
-                signal_bus.task_progress_updated.emit(task_id, downloaded, max(total, downloaded), "")
-                signal_bus.log_message.emit(
-                    tr(
-                        f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
-                        f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
-                        f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
-                    )
-                )
-                self._complete_task(task_id)
-                self._aria2_rpc_remove_result(gid)
-                return
-
-            if status in ("error", "removed"):
-                if self._is_cancel_requested(task_id):
-                    self._cancel_task_terminal(
-                        task_id,
-                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                    )
-                    self._aria2_rpc_remove_result(gid)
-                    return
-                err_msg = str(
-                    status_info.get(
-                        "errorMessage",
-                        tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー"),
-                    )
-                    or tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー")
-                )
-                self._fail_task(task_id, f"aria2 {status}: {err_msg}")
-                self._aria2_rpc_remove_result(gid)
-                return
-
-            time.sleep(0.5)
 
     def _download_task_native(self, task_id: str, final_path: str, temp_path: str):
         task = self._tasks.get(task_id)
@@ -786,6 +616,18 @@ class DownloadRuntimeMixin:
                 f"  HTTP {resp.status_code}  Content-Length: {resp.headers.get('Content-Length', '?')}"
             )
 
+            if resp.status_code == 416 and classify_416(resp.headers, existing_size) == "corrupt":
+                self._discard_temp_file(temp_path)
+                self._fail_task(
+                    task_id,
+                    tr(
+                        "Local partial file does not match the server file; it was removed. Retry to download again.",
+                        "本地缓存与服务器文件不一致，已清除；请重试以重新下载。",
+                        "ローカルの一時ファイルがサーバー側と一致しないため削除しました。再試行してください。",
+                    ),
+                )
+                return
+
             if resp.status_code == 416:
                 signal_bus.log_message.emit(
                     tr(
@@ -807,8 +649,22 @@ class DownloadRuntimeMixin:
                 self._fail_task(task_id, f"HTTP {resp.status_code}: {resp.text[:200]}")
                 return
 
+            if resp.status_code == 206:
+                mismatch = resume_offset_mismatch(resp.headers, existing_size)
+                if mismatch:
+                    self._discard_temp_file(temp_path)
+                    self._fail_task(
+                        task_id,
+                        tr(
+                            f"Resume failed ({mismatch}); partial file removed. Retry to download again.",
+                            f"断点续传失败（{mismatch}），已清除缓存；请重试以重新下载。",
+                            f"レジュームに失敗しました（{mismatch}）。一時ファイルを削除しました。再試行してください。",
+                        ),
+                    )
+                    return
+
             # Compute total size
-            content_length = int(resp.headers.get("Content-Length", 0))
+            content_length = int(resp.headers.get("Content-Length", 0) or 0)
             if resp.status_code == 206:
                 total = existing_size + content_length
             else:
@@ -884,6 +740,19 @@ class DownloadRuntimeMixin:
                 task.downloaded_bytes = downloaded
             signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
 
+            short = incomplete_reason(downloaded, total, resp.headers)
+            if short:
+                # Keep the temp file: a retry resumes from what we have.
+                self._fail_task(
+                    task_id,
+                    tr(
+                        f"Incomplete download ({short}). Retry to resume.",
+                        f"下载不完整（{short}），重试可继续。",
+                        f"ダウンロードが不完全です（{short}）。再試行で再開できます。",
+                    ),
+                )
+                return
+
             if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
                 return
 
@@ -897,6 +766,7 @@ class DownloadRuntimeMixin:
             self._complete_task(task_id)
 
         except Exception as exc:
+            logger.exception("Native download failed for task %s", task_id)
             signal_bus.log_message.emit(
                 tr(
                     f"[Download error] \"{task.title}\" -> {exc}",
@@ -911,6 +781,14 @@ class DownloadRuntimeMixin:
                     resp.close()
                 except Exception:
                     pass
+
+    @staticmethod
+    def _discard_temp_file(temp_path: str) -> None:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            logger.warning("Could not remove temp file %s", temp_path, exc_info=True)
 
     # ── Local file / filename helpers ────────────────────────────────────────
 
@@ -1417,36 +1295,6 @@ class DownloadRuntimeMixin:
             payload=payload or current_rule_payload(),
         )
 
-    def _apply_aria2_global_speed_limit(self):
-        limit = (
-            f"{max(0, int(app_config.global_speed_limit_kib))}K"
-            if app_config.global_speed_limit_enabled and app_config.global_speed_limit_kib > 0
-            else "0"
-        )
-        if limit == self._last_aria2_global_limit:
-            return
-        now = time.monotonic()
-        if (
-            limit == self._last_aria2_limit_attempted
-            and now - self._last_aria2_limit_attempt_at < 60
-        ):
-            return
-        self._last_aria2_limit_attempted = limit
-        self._last_aria2_limit_attempt_at = now
-        data, error = self._aria2_rpc_call(
-            "aria2.changeGlobalOption",
-            [{"max-overall-download-limit": limit}],
-        )
-        if data:
-            self._last_aria2_global_limit = limit
-        elif error:
-            signal_bus.log_message.emit(
-                tr(
-                    f"[Speed limit] aria2 global limit failed: {error}",
-                    f"[限速] aria2 全局限速应用失败：{error}",
-                    f"[速度制限] aria2 の全体制限に失敗：{error}",
-                )
-            )
 
     def _skip_task(self, task_id: str, reason: str):
         if self._is_cancel_requested(task_id):
@@ -1473,417 +1321,6 @@ class DownloadRuntimeMixin:
         self._schedule_task_persist()
         self._try_activate()
 
-    def _aria2_rpc_call(self, method: str, params: list) -> tuple[dict | None, str]:
-        rpc_url = app_config.aria2_rpc_url.strip()
-        if not rpc_url:
-            return None, tr(
-                "aria2 RPC URL is empty",
-                "aria2 RPC URL 为空",
-                "aria2 RPC URL が空です",
-            )
-
-        payload_params = list(params)
-        token = app_config.aria2_rpc_token.strip()
-        if token:
-            payload_params.insert(0, f"token:{token}")
-
-        payload = {
-            "jsonrpc": "2.0",
-            "id": str(uuid.uuid4()),
-            "method": method,
-            "params": payload_params,
-        }
-
-        resp = None
-        try:
-            resp = self.api.scraper.post(
-                rpc_url,
-                json=payload,
-                timeout=15,
-                proxies={"http": None, "https": None},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            return None, str(exc)
-        finally:
-            if resp is not None:
-                try:
-                    resp.close()
-                except Exception:
-                    pass
-
-        if data.get("error"):
-            return None, str(data.get("error"))
-        return data, ""
-
-    def _aria2_rpc_add_uri(self, uri: str, options: dict) -> tuple[str | None, str]:
-        data, err = self._aria2_rpc_call("aria2.addUri", [[uri], options])
-        if not data:
-            return None, err
-        gid = str(data.get("result", "") or "")
-        if not gid:
-            return None, tr(
-                "aria2 did not return gid",
-                "aria2 未返回 gid",
-                "aria2 が gid を返しませんでした",
-            )
-        return gid, ""
-
-    def _aria2_rpc_tell_status(self, gid: str) -> tuple[dict | None, str]:
-        keys = ["status", "completedLength", "totalLength", "downloadSpeed", "errorMessage"]
-        data, err = self._aria2_rpc_call("aria2.tellStatus", [gid, keys])
-        if not data:
-            return None, err
-        result = data.get("result")
-        if not isinstance(result, dict):
-            return None, tr(
-                f"Unexpected aria2 tellStatus result: {result!r}",
-                f"aria2 tellStatus 返回异常: {result!r}",
-                f"aria2 tellStatus の戻り値が不正です: {result!r}",
-            )
-        return result, ""
-
-    def _aria2_rpc_remove_result(self, gid: str):
-        self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
-
-    def _aria2_rpc_cancel(self, gid: str):
-        if not gid:
-            return
-        data, err = self._aria2_rpc_call("aria2.remove", [gid])
-        if not data and err:
-            self._aria2_rpc_call("aria2.forceRemove", [gid])
-        self._aria2_rpc_remove_result(gid)
-
-    def _subscription_thumbnail_cache_path(self, video_id: str, thumbnail_url: str) -> str:
-        video_id = self._sanitize_path_segment(str(video_id or "").strip())
-        thumbnail_url = str(thumbnail_url or "").strip()
-        if not video_id or not thumbnail_url:
-            return ""
-        url_name = os.path.basename(urlparse(thumbnail_url).path)
-        ext = os.path.splitext(url_name)[1].lower()
-        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
-            ext = ".jpg"
-        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
-        return os.path.join(img_dir, f"video_{video_id}_{fingerprint}{ext}")
-
-    def _legacy_subscription_v2_thumbnail_cache_path(
-        self,
-        video_id: str,
-        thumbnail_url: str,
-    ) -> str:
-        """Return the previous ``sub_video`` path for one-time migration."""
-        video_id = self._sanitize_path_segment(str(video_id or "").strip())
-        thumbnail_url = str(thumbnail_url or "").strip()
-        if not video_id or not thumbnail_url:
-            return ""
-        url_name = os.path.basename(urlparse(thumbnail_url).path)
-        ext = os.path.splitext(url_name)[1].lower()
-        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
-            ext = ".jpg"
-        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        return os.path.join(
-            app_config.app_data_dir,
-            "img",
-            "sub_video",
-            f"video_{video_id}_{fingerprint}{ext}",
-        )
-
-    def _legacy_subscription_thumbnail_cache_path(self, video_id: str, thumbnail_url: str) -> str:
-        """Return the pre-v2 cover path for one-time cache migration."""
-        video_id = self._sanitize_path_segment(str(video_id or "").strip())
-        thumbnail_url = str(thumbnail_url or "").strip()
-        if not video_id or not thumbnail_url:
-            return ""
-        url_name = os.path.basename(urlparse(thumbnail_url).path)
-        ext = os.path.splitext(url_name)[1].lower()
-        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
-            ext = ".jpg"
-        fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        return os.path.join(
-            app_config.app_data_dir,
-            "img",
-            f"cover_{video_id}_{fingerprint}{ext}",
-        )
-
-    @staticmethod
-    def _copy_cached_image(source_path: str, target_path: str) -> bool:
-        source_path = str(source_path or "")
-        target_path = str(target_path or "")
-        if not source_path or not target_path or os.path.abspath(source_path) == os.path.abspath(target_path):
-            return bool(target_path and os.path.isfile(target_path) and os.path.getsize(target_path) > 0)
-        try:
-            if not os.path.isfile(source_path) or os.path.getsize(source_path) <= 0:
-                return False
-            if os.path.isfile(target_path) and os.path.getsize(target_path) > 0:
-                return True
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            temp_path = f"{target_path}.{threading.get_ident()}.tmp"
-            shutil.copy2(source_path, temp_path)
-            os.replace(temp_path, target_path)
-            return True
-        except OSError:
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except (OSError, UnboundLocalError):
-                pass
-            return False
-
-    def _ensure_subscription_thumbnail_cache(
-        self,
-        video_id: str,
-        thumbnail_url: str,
-        history_thumbnail_path: str = "",
-    ) -> str:
-        target = self._subscription_thumbnail_cache_path(video_id, thumbnail_url)
-        if not target:
-            return ""
-        if os.path.isfile(target) and os.path.getsize(target) > 0:
-            return target
-        candidates = [
-            str(history_thumbnail_path or ""),
-            self._legacy_subscription_v2_thumbnail_cache_path(video_id, thumbnail_url),
-            self._legacy_subscription_thumbnail_cache_path(video_id, thumbnail_url),
-        ]
-        for candidate in candidates:
-            if self._copy_cached_image(candidate, target):
-                return target
-        return ""
-
-    def _subscription_avatar_cache_path(
-        self,
-        source: dict[str, Any],
-        avatar_url: str,
-        legacy_path: str = "",
-    ) -> str:
-        source_key = self._sanitize_path_segment(str(source.get("source_key", "") or "author"))
-        url_name = os.path.basename(urlparse(str(avatar_url or "")).path)
-        if not url_name and legacy_path:
-            url_name = os.path.basename(str(legacy_path))
-        ext = os.path.splitext(url_name)[1].lower()
-        if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
-            ext = ".jpg"
-        avatar_id = ""
-        parts = [part for part in urlparse(str(avatar_url or "")).path.split("/") if part]
-        if len(parts) >= 2:
-            avatar_id = self._sanitize_path_segment(parts[-2])
-        suffix = avatar_id or hashlib.sha1(str(avatar_url or source_key).encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img", "avatar")
-        # The username is deliberately the first segment so the directory is
-        # understandable without opening the database. No legacy ``avatar_``
-        # prefix is used for new files.
-        return os.path.join(img_dir, f"{source_key}_{suffix}{ext}")
-
-    def _migrate_subscription_avatar_cache(self):
-        """Copy legacy ``data/img/avatar_*`` files into the named avatar cache.
-
-        Migration is intentionally copy-based: an interrupted first launch or
-        an older build can still read the original file. The source row is
-        updated only after the new file is present.
-        """
-        try:
-            sources = self.subscriptions.list_sources()
-        except Exception:
-            return
-        for source in sources:
-            if str(source.get("source_type", "") or "") != "author":
-                continue
-            old_path = str(source.get("avatar_path", "") or "")
-            avatar_url = str(source.get("avatar_url", "") or "")
-            target = self._subscription_avatar_cache_path(source, avatar_url, old_path)
-            if not target:
-                continue
-            if not old_path or not os.path.isfile(old_path):
-                source_id = int(source.get("id", 0) or 0)
-                old_dir = os.path.join(app_config.app_data_dir, "img")
-                prefix = f"avatar_{source_id}_"
-                try:
-                    old_path = next(
-                        (
-                            os.path.join(old_dir, name)
-                            for name in os.listdir(old_dir)
-                            if name.startswith(prefix) and os.path.isfile(os.path.join(old_dir, name))
-                        ),
-                        "",
-                    )
-                except OSError:
-                    old_path = ""
-            migrated = bool(old_path and self._copy_cached_image(old_path, target))
-            if not migrated and os.path.isfile(target) and os.path.getsize(target) > 0:
-                migrated = True
-            if migrated:
-                if old_path != target or str(source.get("avatar_path", "") or "") != target:
-                    self.subscriptions.update_source_avatar(
-                        int(source.get("id", 0) or 0),
-                        avatar_url,
-                        target,
-                    )
-
-    def _download_subscription_avatar(self, avatar_url: str, avatar_path: str) -> bool:
-        if not avatar_url or not avatar_path:
-            return False
-        if os.path.isfile(avatar_path) and os.path.getsize(avatar_path) > 0:
-            return True
-        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
-        temp_path = f"{avatar_path}.tmp"
-        resp = None
-        try:
-            token = self._current_token()
-            headers = {"Authorization": f"Bearer {token}"} if token else {}
-            resp = self.api.scraper.get(avatar_url, headers=headers, stream=True, timeout=30)
-            if resp.status_code != 200:
-                return False
-            content_type = str(resp.headers.get("content-type", "") or "").lower()
-            if content_type and not content_type.startswith("image/"):
-                return False
-            with open(temp_path, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        fh.write(chunk)
-            if os.path.isfile(temp_path) and os.path.getsize(temp_path) > 0:
-                os.replace(temp_path, avatar_path)
-                return True
-            return False
-        except Exception:
-            return False
-        finally:
-            if resp is not None:
-                resp.close()
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
-
-    def _download_thumbnail(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
-        if not task.file_path:
-            return False
-        if require_video_file:
-            if not os.path.exists(task.file_path):
-                return False
-            if os.path.getsize(task.file_path) <= 0:
-                return False
-        if not task.file_id or not task.file_url:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [Thumbnail] \"{task.title}\" missing file_id/file_url, skipped",
-                    f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过",
-                    f"  [サムネイル] 「{task.title}」file_id/file_url 欠落のためスキップ",
-                )
-            )
-            return False
-
-        host = urlparse(task.file_url).netloc
-        if not host:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [Thumbnail] \"{task.title}\" invalid file_url, skipped",
-                    f"  [封面] 《{task.title}》 无效 file_url，跳过",
-                    f"  [サムネイル] 「{task.title}」無効な file_url のためスキップ",
-                )
-            )
-            return False
-
-        thumbnail_path = os.path.splitext(task.file_path)[0] + ".jpg"
-        temp_path = f"{thumbnail_path}_temp"
-        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
-        if os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 0:
-            task.thumbnail_path = thumbnail_path
-            return True
-
-        index = max(0, int(task.thumbnail_index))
-        thumb_url = f"https://{host}/image/original/{task.file_id}/thumbnail-{index:02d}.jpg"
-        resp = None
-        try:
-            resp = self.api.scraper.get(thumb_url, stream=True, timeout=60)
-            if resp.status_code != 200:
-                signal_bus.log_message.emit(
-                    tr(
-                        f"  [Thumbnail] \"{task.title}\" failed HTTP {resp.status_code}",
-                        f"  [封面] 《{task.title}》 下载失败 HTTP {resp.status_code}",
-                        f"  [サムネイル] 「{task.title}」HTTP {resp.status_code} 失敗",
-                    )
-                )
-                return False
-            with open(temp_path, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        fh.write(chunk)
-
-            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
-                os.replace(temp_path, thumbnail_path)
-                task.thumbnail_path = thumbnail_path
-                signal_bus.log_message.emit(
-                    tr(
-                        f"  [Thumbnail] saved: {thumbnail_path}",
-                        f"  [封面] 已保存: {thumbnail_path}",
-                        f"  [サムネイル] 保存完了: {thumbnail_path}",
-                    )
-                )
-                return True
-
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception as exc:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [Thumbnail] \"{task.title}\" error: {exc}",
-                    f"  [封面] 《{task.title}》 下载异常: {exc}",
-                    f"  [サムネイル] 「{task.title}」エラー: {exc}",
-                )
-            )
-        finally:
-            if resp is not None:
-                try:
-                    resp.close()
-                except Exception:
-                    pass
-        return False
-
-    def _write_nfo(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
-        if not task.file_path:
-            return False
-        if require_video_file:
-            if not os.path.exists(task.file_path):
-                return False
-            if os.path.getsize(task.file_path) <= 0:
-                return False
-
-        nfo_path = os.path.splitext(task.file_path)[0] + ".nfo"
-        tags = parse_nfo_tags(task.tags_json)
-        nfo_text = build_nfo_text(task, tags)
-
-        temp_path = f"{nfo_path}_temp"
-        try:
-            os.makedirs(os.path.dirname(nfo_path), exist_ok=True)
-            ET.fromstring(nfo_text)
-            with open(temp_path, "w", encoding="utf-8") as fh:
-                fh.write(nfo_text)
-            os.replace(temp_path, nfo_path)
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [NFO] saved: {nfo_path}",
-                    f"  [NFO] 已保存: {nfo_path}",
-                    f"  [NFO] 保存完了: {nfo_path}",
-                )
-            )
-            return True
-        except Exception as exc:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [NFO] \"{task.title}\" write failed: {exc}",
-                    f"  [NFO] 《{task.title}》 写入失败: {exc}",
-                    f"  [NFO] 「{task.title}」書き込み失敗: {exc}",
-                )
-            )
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-        return False
 
     def _complete_task(self, task_id: str):
         task = self._tasks.get(task_id)
@@ -1925,6 +1362,7 @@ class DownloadRuntimeMixin:
                     }
                 )
             except Exception as exc:
+                logger.exception("Failed to write history DB for task %s", task_id)
                 signal_bus.log_message.emit(
                     tr(
                         f"[Warning] Failed to write history DB (download file is safe): {exc}",
@@ -1953,13 +1391,33 @@ class DownloadRuntimeMixin:
         self._try_activate()
 
 
-
 def _fmt_speed(bps: float) -> str:
     if bps >= 1024**2:
         return f"{bps / 1024**2:.1f} MB/s"
     if bps >= 1024:
         return f"{bps / 1024:.1f} KB/s"
     return f"{bps:.0f} B/s"
+
+
+def format_speed(bps: float) -> str:
+    """Public name for the speed text shown in the task list."""
+
+    return _fmt_speed(max(0.0, float(bps or 0)))
+
+
+def parse_speed(text: str) -> float:
+    """Bytes per second for text produced by ``_fmt_speed`` (``"1.5 MB/s"``); 0 if blank."""
+
+    parts = str(text or "").strip().split()
+    if len(parts) != 2:
+        return 0.0
+    unit = {"B/S": 1.0, "KB/S": 1024.0, "MB/S": 1024.0**2, "GB/S": 1024.0**3}.get(parts[1].upper())
+    if unit is None:
+        return 0.0
+    try:
+        return max(0.0, float(parts[0])) * unit
+    except ValueError:
+        return 0.0
 
 
 def _fmt_bytes(n: int) -> str:

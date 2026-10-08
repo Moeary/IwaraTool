@@ -42,6 +42,9 @@ class TaskSignalBus(QObject):
     # source_id
     subscription_source_added = Signal(int)
 
+    # A local subscription was removed outside the Subscriptions page.
+    subscription_sources_changed = Signal()
+
     # source_id; explicitly navigate to an existing subscription source.
     subscription_source_requested = Signal(int)
 
@@ -59,6 +62,31 @@ class TaskSignalBus(QObject):
 
     # GitHub Release payload
     release_update_available = Signal(dict)
+
+    # A keyboard shortcut was reassigned or reset.
+    shortcuts_changed = Signal()
+
+    # video id, title, local file path (empty when the video is not on disk)
+    video_preview_requested = Signal(str, str, str)
+
+    # SFW/NSFW selection (core.rating value) changed on Home or Search.
+    content_rating_changed = Signal(str)
+
+    # Preferred minimum card width (px) of the poster grids changed.
+    media_card_size_changed = Signal(int)
+
+    # kind ("video" / "image"), id; show that post in the Home detail view.
+    media_detail_requested = Signal(str, str)
+
+    # {"scope", "keyword", "sort", "author": (username, name, id, avatar)};
+    # run an Iwara search on the Search page.
+    search_requested = Signal(dict)
+
+    # (username, name, user id, avatar url); open that author's in-app page.
+    author_page_requested = Signal(object)
+
+    # The set or order of Home rows was edited (Settings or Home).
+    home_layout_changed = Signal()
 
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()

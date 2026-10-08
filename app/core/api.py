@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 import cloudscraper
 
+from ..config import app_config
 from ..i18n import tr
+from ..logging_setup import get_logger
+from . import net_policy
+
+logger = get_logger(__name__)
 
 BASE_API = "https://api.iwara.tv"
 ALT_BASE_API = "https://apiq.iwara.tv"
@@ -23,6 +30,49 @@ _X_VERSION_SALTS = (
     "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
     "5nFp9kmbNnHdAFhaqMvt",
 )
+SALTS_OVERRIDE_FILE = "x_version_salts.json"
+
+
+def x_version_salts() -> tuple[str, ...]:
+    """Salts to try, user overrides first.
+
+    The site rotates its shared secret from time to time; this lets a user
+    recover without waiting for a new release by either filling the
+    ``x_version_salts`` setting (comma separated) or dropping a JSON list
+    into ``data/x_version_salts.json``.
+    """
+    extra: list[str] = []
+    try:
+        extra.extend(
+            part.strip()
+            for part in str(app_config.x_version_salts or "").replace(";", ",").split(",")
+            if part.strip()
+        )
+        path = os.path.join(app_config.app_data_dir, SALTS_OVERRIDE_FILE)
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            if isinstance(payload, dict):
+                payload = payload.get("salts", [])
+            if isinstance(payload, list):
+                extra.extend(str(item).strip() for item in payload if str(item).strip())
+    except Exception:
+        logger.warning("Ignoring unreadable X-Version salt override", exc_info=True)
+    merged: list[str] = []
+    for salt in (*extra, *_X_VERSION_SALTS):
+        if salt not in merged:
+            merged.append(salt)
+    return tuple(merged)
+
+
+# Orders accepted by ``/search`` per type (verified against the live API:
+# users/playlists answer ``errors.badRequest`` for views and likes).
+IWARA_SEARCH_SORTS: dict[str, tuple[str, ...]] = {
+    "videos": ("relevance", "date", "views", "likes"),
+    "images": ("relevance", "date", "views", "likes"),
+    "users": ("relevance", "date"),
+    "playlists": ("relevance", "date"),
+}
 
 
 class IwaraAPI:
@@ -34,6 +84,11 @@ class IwaraAPI:
     def __init__(self):
         self.scraper = cloudscraper.create_scraper(
             browser={"browser": "chrome", "platform": "windows", "mobile": False}
+        )
+        net_policy.install(
+            self.scraper,
+            min_interval=lambda: max(0, app_config.request_min_interval_ms) / 1000.0,
+            max_retries=lambda: app_config.request_max_retries,
         )
         self.token: Optional[str] = None
 
@@ -224,7 +279,7 @@ class IwaraAPI:
 
         sources: Optional[list[dict]] = None
         last_error = ""
-        for idx, salt in enumerate(_X_VERSION_SALTS, start=1):
+        for idx, salt in enumerate(x_version_salts(), start=1):
             x_version = self.compute_x_version(file_url, salt)
             _log(f"  X-Version[{idx}]: {x_version}")
             resp = None
@@ -363,6 +418,56 @@ class IwaraAPI:
         except Exception as exc:
             return None, str(exc)
 
+    # ── Account actions (need a logged-in token) ─────────────────────────────
+
+    def _mutate(self, method: str, url: str, *, action: str) -> tuple[bool, str]:
+        """POST/DELETE an account action; any 2xx counts as success."""
+
+        if not self.token:
+            return False, tr(
+                "Sign in to Iwara first (Settings → Account).",
+                "请先在设置中登录 Iwara 账号。",
+                "先にIwaraへログインしてください（設定 → アカウント）。",
+            )
+        resp = None
+        try:
+            resp = self.scraper.request(method, url, headers=self._headers(), timeout=30)
+            if 200 <= resp.status_code < 300:
+                return True, ""
+            ok, data, parse_error = _try_response_json(resp, action=action)
+            message = _extract_api_message(data) if ok else ""
+            return False, f"HTTP {resp.status_code}: {message}" if message else (parse_error or _friendly_http_response(resp))
+        except Exception as exc:
+            return False, _friendly_network_error(str(exc), action=action)
+        finally:
+            if resp is not None:
+                resp.close()
+
+    def set_liked(self, kind: str, item_id: str, liked: bool) -> tuple[bool, str]:
+        """Like (``POST``) or un-like (``DELETE``) a video or image post."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        item_id = str(item_id or "").strip()
+        if not item_id:
+            return False, tr("Missing post id", "缺少作品 ID", "投稿IDがありません")
+        return self._mutate(
+            "POST" if liked else "DELETE",
+            f"{BASE_API}/{kind}/{item_id}/like",
+            action=tr("like request", "点赞请求", "いいねリクエスト"),
+        )
+
+    def set_following(self, user_id: str, following: bool) -> tuple[bool, str]:
+        """Follow (``POST``) or unfollow (``DELETE``) a user on the website."""
+
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            return False, tr("Missing user id", "缺少用户 ID", "ユーザーIDがありません")
+        return self._mutate(
+            "POST" if following else "DELETE",
+            f"{BASE_API}/user/{user_id}/followers",
+            action=tr("follow request", "关注请求", "フォローリクエスト"),
+        )
+
     def get_user_videos(
         self,
         user_id: str,
@@ -479,6 +584,17 @@ class IwaraAPI:
             params["tags"] = legacy_tag
         return self._get_video_result_page("/videos", params, page=page, limit=limit)
 
+    def get_images_page(
+        self,
+        query_params: dict[str, Any] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Browse image posts by sort, author or rating; this is not text search."""
+
+        return self._get_video_result_page("/images", dict(query_params or {}), page=page, limit=limit)
+
     def search_videos_page(
         self,
         query_params: dict[str, Any],
@@ -488,12 +604,43 @@ class IwaraAPI:
     ) -> tuple[list[dict], int | None, bool, str]:
         """Search Iwara's text index with its own query and sort parameters."""
 
-        params = {key: query_params[key] for key in ("query", "sort") if key in query_params}
-        params["type"] = "videos"
-        if not str(params.get("query") or "").strip():
+        return self.search_page(
+            "videos",
+            query_params,
+            page=page,
+            limit=limit,
+        )
+
+    def search_page(
+        self,
+        search_type: str,
+        query_params: dict[str, Any],
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Read one page of Iwara's native ``/search`` for any supported type.
+
+        ``users`` and ``playlists`` reject ``views``/``likes`` with HTTP 400,
+        so unsupported orders fall back to relevance before reaching the server.
+        """
+
+        search_type = str(search_type or "").strip().lower()
+        if search_type not in IWARA_SEARCH_SORTS:
+            return [], None, False, tr(
+                f"Unsupported search type: {search_type}",
+                f"不支持的搜索类型：{search_type}",
+                f"未対応の検索タイプ: {search_type}",
+            )
+        query = str(query_params.get("query") or "").strip()
+        if not query:
             return [], None, False, tr(
                 "Enter a keyword first", "请先输入关键词", "キーワードを入力してください",
             )
+        sort = str(query_params.get("sort") or "").strip().lower()
+        if sort not in IWARA_SEARCH_SORTS[search_type]:
+            sort = "relevance"
+        params = {"type": search_type, "query": query, "sort": sort}
         return self._get_video_result_page("/search", params, page=page, limit=limit)
 
     def _get_video_result_page(
@@ -568,7 +715,7 @@ class IwaraAPI:
             # publishing it as a total makes the UI invent a growing page
             # count on every navigation.
             count_is_page_sentinel = bool(
-                endpoint == "/videos"
+                endpoint in {"/videos", "/images"}
                 and total is not None
                 and len(results) >= effective_limit
                 and total == (page_number + 1) * effective_limit + 1
@@ -597,6 +744,70 @@ class IwaraAPI:
             return [], None, False, str(exc) or tr(
                 "Search request failed", "搜索请求失败", "検索リクエストに失敗しました",
             )
+
+    # ── Detail pages ────────────────────────────────────────────────────────
+
+    def get_image_info(self, image_id: str) -> tuple[Optional[dict], str]:
+        """Fetch one image post, including its ``files``."""
+
+        image_id = str(image_id or "").strip()
+        if not image_id:
+            return None, tr("Missing image id", "缺少图片 ID", "画像IDがありません")
+        try:
+            data = self._get_json(f"{BASE_API}/image/{image_id}")
+        except Exception as exc:
+            return None, _friendly_request_error(str(exc))
+        if not isinstance(data, dict) or not data.get("id"):
+            return None, _extract_api_message(data) or tr(
+                "Image not found or not visible to the current account.",
+                "图片不存在或当前账号不可见。",
+                "画像が存在しないか、現在のアカウントでは表示できません。",
+            )
+        return data, ""
+
+    def get_related(self, kind: str, item_id: str, *, limit: int = 12) -> tuple[list[dict], str]:
+        """Related videos (``kind="video"``) or images (``kind="image"``)."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        try:
+            data = self._get_json(
+                f"{BASE_API}/{kind}/{str(item_id).strip()}/related",
+                params={"limit": str(max(1, min(50, int(limit))))},
+            )
+        except Exception as exc:
+            return [], _friendly_request_error(str(exc))
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            return [], ""
+        return [item for item in results if isinstance(item, dict)], ""
+
+    def get_comments(
+        self,
+        kind: str,
+        item_id: str,
+        *,
+        page: int = 0,
+        parent: str = "",
+        limit: int = 20,
+    ) -> tuple[list[dict], int | None, str]:
+        """One page of comments, or the replies to ``parent``. Returns ``(rows, total, error)``."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        params = {"page": str(max(0, int(page))), "limit": str(max(1, min(50, int(limit))))}
+        if parent:
+            params["parent"] = str(parent)
+        try:
+            data = self._get_json(f"{BASE_API}/{kind}/{str(item_id).strip()}/comments", params=params)
+        except Exception as exc:
+            return [], None, _friendly_request_error(str(exc))
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            return [], None, ""
+        total = data.get("count")
+        return (
+            [row for row in data["results"] if isinstance(row, dict)],
+            total if isinstance(total, int) and total >= 0 else None,
+            "",
+        )
 
     def get_videos_by_query(
         self,

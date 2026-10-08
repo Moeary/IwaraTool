@@ -10,6 +10,11 @@ from contextlib import closing
 from typing import Any
 
 from ..config import app_config
+from ..logging_setup import get_logger
+from .sqlite_utils import connect as _sqlite_connect
+
+
+logger = get_logger(__name__)
 
 
 class SubscriptionStore:
@@ -44,7 +49,7 @@ class SubscriptionStore:
         return self._backup_path
 
     def _init_db(self):
-        with closing(sqlite3.connect(self._db_path)) as conn:
+        with closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS sources ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -97,8 +102,8 @@ class SubscriptionStore:
         target: sqlite3.Connection | None = None
         try:
             with self._lock:
-                legacy = sqlite3.connect(legacy_path)
-                target = sqlite3.connect(self._db_path)
+                legacy = _sqlite_connect(legacy_path)
+                target = _sqlite_connect(self._db_path)
                 legacy.row_factory = sqlite3.Row
                 target.row_factory = sqlite3.Row
                 if not _table_exists(legacy, "sources"):
@@ -214,7 +219,7 @@ class SubscriptionStore:
             else ""
         )
         insert_origin = requested_origin or _default_source_origin(source_type)
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             # Iwara usernames are case-insensitive. Reuse the existing author
             # row so an account import can promote a local author source rather
             # than creating a duplicate subscription with a second casing.
@@ -276,7 +281,7 @@ class SubscriptionStore:
             return int(row[0]) if row else 0
 
     def list_sources(self) -> list[dict[str, Any]]:
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT s.*, "
@@ -290,7 +295,7 @@ class SubscriptionStore:
             return [dict(row) for row in rows]
 
     def get_source(self, source_id: int) -> dict[str, Any] | None:
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT * FROM sources WHERE id=?",
@@ -306,7 +311,7 @@ class SubscriptionStore:
         if not ids:
             return 0
         placeholders = ",".join("?" for _ in ids)
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 f"DELETE FROM items WHERE source_id IN ({placeholders})",
                 ids,
@@ -320,7 +325,7 @@ class SubscriptionStore:
             return max(0, int(cursor.rowcount or 0))
 
     def set_source_enabled(self, source_id: int, enabled: bool):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE sources SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (1 if enabled else 0, int(source_id)),
@@ -329,7 +334,7 @@ class SubscriptionStore:
             self._export_sources_backup(conn)
 
     def update_source_remote_id(self, source_id: int, remote_id: str):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE sources SET remote_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (remote_id, int(source_id)),
@@ -346,7 +351,7 @@ class SubscriptionStore:
         avatar_url: str = "",
     ):
         """Persist non-empty profile fields discovered for an author source."""
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE sources SET "
                 "title=CASE WHEN ? != '' THEN ? ELSE title END, "
@@ -367,7 +372,7 @@ class SubscriptionStore:
             self._export_sources_backup(conn)
 
     def update_source_avatar(self, source_id: int, avatar_url: str, avatar_path: str):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE sources SET avatar_url=?, avatar_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (str(avatar_url or ""), str(avatar_path or ""), int(source_id)),
@@ -376,7 +381,7 @@ class SubscriptionStore:
             self._export_sources_backup(conn)
 
     def touch_source_checked(self, source_id: int):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE sources SET last_checked_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (int(source_id),),
@@ -386,7 +391,7 @@ class SubscriptionStore:
 
     def upsert_items(self, source_id: int, items: list[dict[str, Any]]) -> tuple[int, int]:
         new_count = 0
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             for item in items:
                 video_id = str(item.get("video_id", "") or "").strip()
                 if not video_id:
@@ -448,7 +453,7 @@ class SubscriptionStore:
         return new_count, total_count
 
     def count_items(self, source_id: int) -> int:
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM items WHERE source_id=?",
                 (int(source_id),),
@@ -461,7 +466,7 @@ class SubscriptionStore:
         if source_id:
             where = "WHERE i.source_id=?"
             params = (int(source_id),)
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT i.*, s.source_type, s.source_key, s.title AS source_title, s.enabled AS source_enabled "
@@ -473,12 +478,34 @@ class SubscriptionStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def list_recent_items(self, per_source: int = 8) -> dict[int, list[dict[str, Any]]]:
+        """The newest ``per_source`` items of every source, newest first."""
+
+        per_source = max(1, int(per_source))
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM ("
+                "SELECT i.*, ROW_NUMBER() OVER ("
+                "PARTITION BY i.source_id "
+                "ORDER BY i.published_at DESC, i.discovered_at DESC) AS rank_in_source "
+                "FROM items i JOIN sources s ON s.id=i.source_id"
+                ") WHERE rank_in_source <= ? "
+                "ORDER BY source_id, rank_in_source",
+                (per_source,),
+            ).fetchall()
+        recent: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            data = dict(row)
+            recent.setdefault(int(data.get("source_id", 0) or 0), []).append(data)
+        return recent
+
     def get_items_by_video_ids(self, video_ids: list[str]) -> list[dict[str, Any]]:
         ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
         if not ids:
             return []
         result: dict[str, dict[str, Any]] = {}
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.row_factory = sqlite3.Row
             for start in range(0, len(ids), 500):
                 chunk = ids[start:start + 500]
@@ -500,7 +527,7 @@ class SubscriptionStore:
         ids = [str(v or "").strip() for v in video_ids if str(v or "").strip()]
         if not ids:
             return
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.executemany(
                 "UPDATE items SET is_new=0, updated_at=CURRENT_TIMESTAMP WHERE video_id=?",
                 [(video_id,) for video_id in ids],
@@ -511,7 +538,7 @@ class SubscriptionStore:
         video_id = str(video_id or "").strip()
         if not video_id:
             return
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE items SET download_state=?, download_reason=?, download_checked_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE video_id=?",
                 (str(download_state or ""), str(download_reason or ""), video_id),
@@ -524,7 +551,7 @@ class SubscriptionStore:
         thumbnail_url = str(thumbnail_url or "").strip()
         if not video_id or not thumbnail_url:
             return
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE items SET thumbnail_url=?, updated_at=CURRENT_TIMESTAMP WHERE video_id=?",
                 (thumbnail_url, video_id),
@@ -532,7 +559,7 @@ class SubscriptionStore:
             conn.commit()
 
     def mark_source_seen(self, source_id: int):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             conn.execute(
                 "UPDATE items SET is_new=0, updated_at=CURRENT_TIMESTAMP WHERE source_id=?",
                 (int(source_id),),
@@ -540,13 +567,13 @@ class SubscriptionStore:
             conn.commit()
 
     def _write_sources_backup_snapshot(self):
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             self._export_sources_backup(conn)
 
     def _restore_sources_backup_if_empty(self):
         if not os.path.exists(self._backup_path):
             return
-        with self._lock, closing(sqlite3.connect(self._db_path)) as conn:
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
             row = conn.execute("SELECT COUNT(*) FROM sources").fetchone()
             if row and int(row[0] or 0) > 0:
                 return
@@ -554,6 +581,7 @@ class SubscriptionStore:
                 with open(self._backup_path, "r", encoding="utf-8") as fh:
                     payload = json.load(fh)
             except Exception:
+                logger.warning("Unreadable subscription backup %s", self._backup_path, exc_info=True)
                 return
             sources = payload.get("sources") if isinstance(payload, dict) else None
             if not isinstance(sources, list):

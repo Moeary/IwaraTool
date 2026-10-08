@@ -139,10 +139,11 @@ def normalize_rule_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 def apply_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Apply a rule to the current global settings and return normalized data."""
     normalized = normalize_rule_payload(payload)
-    for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
-        setattr(app_config, key, normalized[key])
-    app_config.filter_title_include = normalized["title_include"]
-    app_config.filter_title_exclude = normalized["title_exclude"]
+    with app_config.deferred_sync():  # ~20 settings, one disk write
+        for key in RULE_FILTER_KEYS + RULE_DOWNLOAD_KEYS + RULE_STORAGE_KEYS:
+            setattr(app_config, key, normalized[key])
+        app_config.filter_title_include = normalized["title_include"]
+        app_config.filter_title_exclude = normalized["title_exclude"]
     return normalized
 
 

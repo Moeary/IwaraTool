@@ -4,22 +4,17 @@ from __future__ import annotations
 import json
 import os
 
-from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QThread, Signal
-from PySide6.QtGui import QDrag, QIntValidator
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIntValidator
 from PySide6.QtWidgets import (
-    QApplication,
     QFileDialog,
-    QFrame,
-    QGridLayout,
     QHBoxLayout,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from qfluentwidgets import (
     BodyLabel,
-    CardWidget,
     ComboBox,
     FluentIcon,
     InfoBar,
@@ -27,7 +22,7 @@ from qfluentwidgets import (
     LineEdit,
     PasswordLineEdit,
     PrimaryPushButton,
-    ScrollArea,
+    PushButton,
     Slider,
     SpinBox,
     SubtitleLabel,
@@ -42,7 +37,12 @@ from ..core.download_policy import normalize_hhmm
 from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .settings_home_cards import HomeSettingsCards
+from .settings_sections import SettingsSections
+from .settings_shortcuts_cards import ShortcutSettingsCards
+from .settings_system_cards import SystemSettingsCards
 from .tag_dictionary_worker import TagDictionaryUpdateWorker
+from .theme import PAGE_MARGINS, apply_theme_mode, normalize_theme_mode
 from .ui_state import show_fluent_confirmation
 from .worker_lifecycle import stop_qthreads
 
@@ -62,234 +62,22 @@ class LoginWorker(QThread):
         self.finished.emit(ok, msg)
 
 
-class DraggableSettingsCard(CardWidget):
-    """A settings card that can be reordered inside the settings board."""
-
-    def __init__(self, card_key: str, board: "SettingsCardBoard"):
-        super().__init__(board)
-        self.card_key = str(card_key)
-        self._board = board
-        self._drag_start_pos = QPoint()
-        self._drag_start_global = QPoint()
-        self.setProperty("settingsCardKey", self.card_key)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setToolTip(
-            tr(
-                "Drag this card to reorder settings",
-                "拖动此卡片可调整设置顺序",
-                "このカードをドラッグして設定順を変更",
-            )
-        )
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_pos = event.position().toPoint()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (
-            event.buttons() & Qt.MouseButton.LeftButton
-            and (event.position().toPoint() - self._drag_start_pos).manhattanLength()
-            >= QApplication.startDragDistance()
-        ):
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setText(self.card_key)
-            drag.setMimeData(mime_data)
-            drag.exec(Qt.DropAction.MoveAction)
-            return
-        super().mouseMoveEvent(event)
-
-    def enable_drag_sources(self):
-        # Inputs keep their normal mouse behavior.  Text labels provide a
-        # reliable drag surface even when a compact card has no empty padding.
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (BodyLabel, SubtitleLabel, TitleLabel)):
-                child.installEventFilter(self)
-
-    def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_global = event.globalPosition().toPoint()
-        elif (
-            event.type() == QEvent.Type.MouseMove
-            and event.buttons() & Qt.MouseButton.LeftButton
-            and (event.globalPosition().toPoint() - self._drag_start_global).manhattanLength()
-            >= QApplication.startDragDistance()
-        ):
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setText(self.card_key)
-            drag.setMimeData(mime_data)
-            drag.exec(Qt.DropAction.MoveAction)
-            return True
-        return super().eventFilter(watched, event)
-
-
-class SettingsCardBoard(QWidget):
-    """Responsive two-column board with persisted drag ordering."""
-
-    _ORDER_KEY = "settings_card_order_v1"
-    _DEFAULT_ORDER = (
-        "account",
-        "download_dir",
-        "quality",
-        "concurrency",
-        "cover_performance",
-        "subscription_automation",
-        "download_policy",
-        "updates",
-        "search_bridge",
-        "behavior",
-        "proxy",
-        "search_limit",
-        "search_history",
-        "subscription_prompt",
-        "language",
-        "data_paths",
-        "aria2",
-    )
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("settingsCardBoard")
-        self.setAcceptDrops(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(16)
-        self._grid.setVerticalSpacing(16)
-        self._cards: dict[str, DraggableSettingsCard] = {}
-        self._saved_order = self._read_saved_order()
-
-    @staticmethod
-    def _read_saved_order() -> list[str]:
-        raw = app_config.get_ui_value(SettingsCardBoard._ORDER_KEY, "")
-        try:
-            value = json.loads(str(raw or ""))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return []
-        if not isinstance(value, list):
-            return []
-        return [str(item).strip() for item in value if str(item).strip()]
-
-    def create_card(self, card_key: str) -> DraggableSettingsCard:
-        return DraggableSettingsCard(card_key, self)
-
-    def add_card(self, card_key: str, card: DraggableSettingsCard):
-        card_key = str(card_key).strip()
-        if not card_key:
-            return
-        self._cards[card_key] = card
-        card.setParent(self)
-        card.enable_drag_sources()
-        self._reflow()
-
-    def _ordered_keys(self) -> list[str]:
-        known = set(self._cards)
-        order: list[str] = []
-        for key in (*self._saved_order, *self._DEFAULT_ORDER, *self._cards.keys()):
-            if key in known and key not in order:
-                order.append(key)
-        return order
-
-    def _column_count(self) -> int:
-        width = max(0, self.width())
-        if width >= 760:
-            return 2
-        return 1
-
-    def _reflow(self):
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().show()
-        columns = self._column_count()
-        for column in range(2):
-            self._grid.setColumnStretch(column, 1 if column < columns else 0)
-        for index, card_key in enumerate(self._ordered_keys()):
-            card = self._cards[card_key]
-            row, column = divmod(index, columns)
-            self._grid.addWidget(card, row, column)
-        self.setMinimumHeight(self._grid.sizeHint().height())
-        self.updateGeometry()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._reflow()
-
-    def _card_from_position(self, position: QPoint) -> DraggableSettingsCard | None:
-        widget = self.childAt(position)
-        while widget is not None and widget is not self:
-            if isinstance(widget, DraggableSettingsCard):
-                return widget
-            widget = widget.parentWidget()
-        return None
-
-    def _persist_order(self, order: list[str]):
-        self._saved_order = list(order)
-        app_config.set_ui_value(self._ORDER_KEY, json.dumps(order, ensure_ascii=False))
-
-    def dropEvent(self, event):
-        source_key = str(event.mimeData().text() or "").strip()
-        order = self._ordered_keys()
-        if source_key not in order:
-            event.ignore()
-            return
-        target = self._card_from_position(event.position().toPoint())
-        target_key = target.card_key if target else ""
-        order.remove(source_key)
-        if target_key and target_key != source_key:
-            target_index = order.index(target_key)
-            if event.position().toPoint().y() > target.geometry().center().y():
-                target_index += 1
-            order.insert(target_index, source_key)
-        else:
-            order.append(source_key)
-        self._persist_order(order)
-        self._reflow()
-        event.acceptProposedAction()
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasText() and event.mimeData().text() in self._cards:
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dragMoveEvent(self, event):
-        self.dragEnterEvent(event)
-
-
 # ── Settings Interface ────────────────────────────────────────────────────────
 
-class SettingsInterface(ScrollArea):
+class SettingsInterface(QWidget):
     """Page for configuring application-level settings (including login)."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SettingsInterface")
-        # A native QScrollArea viewport otherwise keeps its light palette and
-        # paints an opaque white page over FluentWindow's Mica/dark background.
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setStyleSheet(
-            "QScrollArea#SettingsInterface { background: transparent; border: none; }"
-            "QScrollArea#SettingsInterface > QWidget > QWidget { background: transparent; }"
-            "QWidget#settingsContent { background: transparent; }"
-        )
-        self.viewport().setAutoFillBackground(False)
 
         self._worker: LoginWorker | None = None
         self._tag_dictionary_worker: TagDictionaryUpdateWorker | None = None
         self._loading_settings = False
-
-        self._content = QWidget(self)
-        self._content.setObjectName("settingsContent")
-        self._content.setAutoFillBackground(False)
-        self.setWidget(self._content)
-        self.setWidgetResizable(True)
-
-        self._build_ui()
-        self._load_settings()
+        # The page is the heaviest widget tree in the app (about 65 MB) and the one
+        # opened least, so it is built the first time it is shown, not at startup.
+        self._built = False
+        self._login_ui_state: tuple[bool, str] | None = None
         signal_bus.rules_changed.connect(self._reload_auto_enqueue_rules)
 
         # Startup auth: prefer cached token for faster boot; fallback to credential login.
@@ -297,7 +85,23 @@ class SettingsInterface(ScrollArea):
             self._set_logged_in_ui(True, tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
             signal_bus.login_state_changed.emit(True)
         elif app_config.auth_enabled and app_config.username and app_config.password:
+            self.ensure_built()  # the silent login reads the saved credentials from the form
             self._do_login(silent=True)
+
+    def ensure_built(self):
+        """Create the settings widgets (once)."""
+
+        if self._built:
+            return
+        self._built = True
+        self._build_ui()
+        self._load_settings()
+        if self._login_ui_state is not None:
+            self._set_logged_in_ui(*self._login_ui_state)
+
+    def showEvent(self, event):
+        self.ensure_built()
+        super().showEvent(event)
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
         """Wait for an in-flight login request before destroying its QThread."""
@@ -308,14 +112,52 @@ class SettingsInterface(ScrollArea):
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
+    def show_shortcut_settings(self):
+        """Jump to Settings → Keyboard Shortcuts (the F1 cheat sheet's button)."""
+
+        self.ensure_built()
+        self._settings_board.select_category("shortcuts")
+
     def _build_ui(self):
-        layout = QVBoxLayout(self._content)
-        layout.setContentsMargins(36, 24, 36, 24)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(*PAGE_MARGINS)
         layout.setSpacing(16)
 
-        layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self._content))
-        self._settings_board = SettingsCardBoard(self._content)
-        layout.addWidget(self._settings_board)
+        layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self))
+        self._settings_board = SettingsSections(self)
+        layout.addWidget(self._settings_board, 1)
+
+        # ── Appearance ───────────────────────────────────────────────────────
+        appearance_card = self._settings_board.create_card("appearance")
+        appearance_layout = QVBoxLayout(appearance_card)
+        appearance_layout.setContentsMargins(20, 16, 20, 16)
+        appearance_layout.setSpacing(10)
+        appearance_layout.addWidget(SubtitleLabel(tr("Appearance", "外观", "外観"), appearance_card))
+        appearance_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Light and dark modes share one palette; the choice is remembered.",
+                    "浅色与深色模式共用同一套配色，选择会被记住。",
+                    "ライト/ダークは同じ配色を共有し、選択は保存されます。",
+                ),
+                appearance_card,
+            )
+        )
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(BodyLabel(tr("Theme", "主题模式", "テーマ"), appearance_card))
+        theme_row.addStretch()
+        self._theme_combo = ComboBox(appearance_card)
+        self._theme_combo.addItem(tr("Follow system", "跟随系统", "システムに合わせる"))
+        self._theme_combo.setItemData(0, "auto")
+        self._theme_combo.addItem(tr("Light", "浅色", "ライト"))
+        self._theme_combo.setItemData(1, "light")
+        self._theme_combo.addItem(tr("Dark", "深色", "ダーク"))
+        self._theme_combo.setItemData(2, "dark")
+        self._theme_combo.setFixedWidth(180)
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_mode_changed)
+        theme_row.addWidget(self._theme_combo)
+        appearance_layout.addLayout(theme_row)
+        self._settings_board.add_card("appearance", appearance_card)
 
         # ── Language ─────────────────────────────────────────────────────────
         lang_card = self._settings_board.create_card("language")
@@ -355,6 +197,13 @@ class SettingsInterface(ScrollArea):
         data_layout.addWidget(BodyLabel(f"{tr('Data dir', '数据目录', 'データディレクトリ')}: {app_config.app_data_dir}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('Config file', '配置文件', '設定ファイル')}: {app_config.config_path}", data_card))
         data_layout.addWidget(BodyLabel(f"{tr('History DB', '下载历史库', '履歴DB')}: {app_config.history_db_path}", data_card))
+        open_data_btn = PushButton(
+            tr("Open data folder", "打开数据目录", "データフォルダーを開く"),
+            data_card,
+            FluentIcon.FOLDER,
+        )
+        open_data_btn.clicked.connect(lambda: self._open_local_folder(app_config.app_data_dir))
+        data_layout.addWidget(open_data_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         self._settings_board.add_card("data_paths", data_card)
 
         # ── Account / Login card ──────────────────────────────────────────────
@@ -399,8 +248,7 @@ class SettingsInterface(ScrollArea):
         self._login_btn.setFixedWidth(100)
         self._login_btn.clicked.connect(lambda: self._do_login(silent=False))
 
-        self._logout_btn = PrimaryPushButton(tr("Logout", "退出登录", "ログアウト"), self._cred_widget, FluentIcon.CANCEL)
-        self._logout_btn.setFixedWidth(110)
+        self._logout_btn = PushButton(tr("Logout", "退出登录", "ログアウト"), self._cred_widget, FluentIcon.CANCEL)
         self._logout_btn.clicked.connect(self._do_logout)
         self._logout_btn.hide()
 
@@ -469,12 +317,16 @@ class SettingsInterface(ScrollArea):
         self._dir_edit.setPlaceholderText(tr("Choose download directory…", "选择下载目录…", "保存先を選択…"))
         self._dir_edit.setReadOnly(True)
 
-        browse_btn = ToolButton(FluentIcon.FOLDER, dir_card)
+        browse_btn = ToolButton(FluentIcon.EDIT, dir_card)
+        open_dir_btn = ToolButton(FluentIcon.FOLDER, dir_card)
+        open_dir_btn.setToolTip(tr("Open download folder", "打开下载目录", "保存先を開く"))
+        open_dir_btn.clicked.connect(lambda: self._open_local_folder(self._dir_edit.text().strip()))
         browse_btn.setToolTip(tr("Browse…", "浏览…", "参照…"))
         browse_btn.clicked.connect(self._browse_dir)
 
         dir_row.addWidget(self._dir_edit, stretch=1)
         dir_row.addWidget(browse_btn)
+        dir_row.addWidget(open_dir_btn)
         dir_layout.addLayout(dir_row)
 
         cleanup_row = QHBoxLayout()
@@ -489,8 +341,7 @@ class SettingsInterface(ScrollArea):
             )
         )
         cleanup_row.addStretch()
-        cleanup_btn = PrimaryPushButton(tr("Clean *_temp", "清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
-        cleanup_btn.setFixedWidth(140)
+        cleanup_btn = PushButton(tr("Clean *_temp", "清理 _temp", "_temp を削除"), dir_card, FluentIcon.DELETE)
         cleanup_btn.clicked.connect(self._confirm_clear_temp_files)
         cleanup_row.addWidget(cleanup_btn)
         dir_layout.addLayout(cleanup_row)
@@ -557,7 +408,7 @@ class SettingsInterface(ScrollArea):
         self._conc_slider = Slider(Qt.Orientation.Horizontal, conc_card)
         self._conc_slider.setRange(1, 10)
         self._conc_slider.valueChanged.connect(self._on_concurrency_changed)
-        self._conc_slider.setMinimumWidth(420)
+        self._conc_slider.setMinimumWidth(160)
         self._conc_slider.setMaximumWidth(10000)
 
         self._conc_input = LineEdit(conc_card)
@@ -785,7 +636,7 @@ class SettingsInterface(ScrollArea):
         tag_dictionary_row.addStretch()
         self._tag_dictionary_status = BodyLabel("", search_resolve_card)
         tag_dictionary_row.addWidget(self._tag_dictionary_status)
-        self._update_tags_btn = PrimaryPushButton(
+        self._update_tags_btn = PushButton(
             tr("Update tags", "更新标签", "タグを更新"),
             search_resolve_card,
             FluentIcon.SYNC,
@@ -1041,7 +892,7 @@ class SettingsInterface(ScrollArea):
         rule_row.addStretch()
         automation_layout.addLayout(rule_row)
 
-        refresh_now_btn = PrimaryPushButton(
+        refresh_now_btn = PushButton(
             tr("Refresh Now", "立即刷新", "今すぐ更新"),
             automation_card,
             FluentIcon.SYNC,
@@ -1111,7 +962,7 @@ class SettingsInterface(ScrollArea):
         self._update_check_switch = SwitchButton(update_card)
         update_header.addWidget(self._update_check_switch)
         update_layout.addLayout(update_header)
-        check_update_btn = PrimaryPushButton(
+        check_update_btn = PushButton(
             tr("Check Now", "立即检查", "今すぐ確認"),
             update_card,
             FluentIcon.UPDATE,
@@ -1120,13 +971,16 @@ class SettingsInterface(ScrollArea):
         update_layout.addWidget(check_update_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         self._settings_board.add_card("updates", update_card)
 
-        # ── Save button ───────────────────────────────────────────────────────
-        save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self._content, FluentIcon.SAVE)
-        save_btn.setFixedWidth(140)
-        save_btn.clicked.connect(self._save_settings)
-        layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        # ── Window, request pacing and maintenance (self-applying) ───────────
+        self._system_cards = SystemSettingsCards(self._settings_board, self)
+        self._home_cards = HomeSettingsCards(self._settings_board, self)
+        self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
 
-        layout.addStretch()
+        # ── Save button ───────────────────────────────────────────────────────
+        # Kept under the category list so it is reachable from every page.
+        save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self, FluentIcon.SAVE)
+        save_btn.clicked.connect(self._save_settings)
+        self._settings_board.nav_column.addWidget(save_btn)
 
     # ── Load / save ───────────────────────────────────────────────────────────
 
@@ -1159,6 +1013,7 @@ class SettingsInterface(ScrollArea):
         self._schedule_end_edit.setText(normalize_hhmm(app_config.download_schedule_end))
         self._update_check_switch.setChecked(app_config.update_check_enabled)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
+        self._sync_theme_combo()
         action = str(app_config.completed_task_click_action or "folder").lower()
         self._completed_click_combo.setCurrentIndex(1 if action == "player" else 0)
         prompt_mode = app_config.subscription_prompt_mode
@@ -1238,6 +1093,9 @@ class SettingsInterface(ScrollArea):
     # ── Login helpers ─────────────────────────────────────────────────────────
 
     def _set_logged_in_ui(self, logged_in: bool, status_text: str = ""):
+        self._login_ui_state = (logged_in, status_text)
+        if not self._built:
+            return  # applied when the page is built
         if logged_in:
             self._login_status_lbl.setText(status_text or tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
             self._logout_btn.show()
@@ -1381,6 +1239,43 @@ class SettingsInterface(ScrollArea):
         else:
             app_config.ui_language = "zh_CN"
         signal_bus.language_changed.emit(app_config.ui_language)
+
+    def _on_theme_mode_changed(self, idx: int):
+        if self._loading_settings:
+            return
+        mode = normalize_theme_mode(self._theme_combo.itemData(idx))
+        app_config.theme_mode = mode
+        apply_theme_mode(mode)
+
+    def _sync_theme_combo(self):
+        mode = app_config.theme_mode
+        index = next(
+            (i for i in range(self._theme_combo.count()) if self._theme_combo.itemData(i) == mode),
+            0,
+        )
+        self._theme_combo.blockSignals(True)
+        self._theme_combo.setCurrentIndex(index)
+        self._theme_combo.blockSignals(False)
+
+    def refresh_theme_styles(self):
+        # The navigation toggle stores an explicit mode; mirror it here.
+        if self._built:
+            self._sync_theme_combo()
+
+    def _open_local_folder(self, path: str):
+        path = str(path or "").strip()
+        if not path or not os.path.isdir(path):
+            InfoBar.warning(
+                title=tr("Folder not found", "目录不存在", "フォルダーが見つかりません"),
+                content=path,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _browse_dir(self):
         current = self._dir_edit.text() or os.path.expanduser("~")
@@ -1683,6 +1578,8 @@ class SettingsInterface(ScrollArea):
         )
 
     def _save_settings(self):
+        if not self._built:
+            return  # nothing has been shown, so nothing can have been edited
         self._on_concurrency_input_finished()
         self._on_stall_timeout_input_finished()
         app_config.auto_restore_stalled_cancelled = self._auto_restore_stalled_switch.isChecked()

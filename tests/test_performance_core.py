@@ -1250,7 +1250,7 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_subscription_pending_items_survive_title_filter_changes(self):
         mgr = make_manager()
-        source_id = mgr.subscriptions.add_source("feed", "feed01", "Feed 01")
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
         mgr.subscriptions.upsert_items(
             source_id,
             [
@@ -1322,7 +1322,7 @@ class UiPerformanceTests(unittest.TestCase):
     def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):
         mgr = make_manager()
         source_ids = [
-            mgr.subscriptions.add_source("feed", f"select-feed-{index}", f"Feed {index}")
+            mgr.subscriptions.add_source("author", f"select-author-{index}", f"Author {index}")
             for index in range(3)
         ]
 
@@ -1387,7 +1387,8 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_search_history_click_restores_fields_and_runs_search(self):
         page = SearchInterface()
-        entry = {"keyword": "test history", "source": "iwara", "scope": "authors", "sort": "views"}
+        # Iwara's user search only accepts relevance/date ordering.
+        entry = {"keyword": "test history", "source": "iwara", "scope": "authors", "sort": "relevance"}
         try:
             page._search_history_popup.set_history([entry], page._search_history_label)
             with patch.object(page, "_start_search") as start:

@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from PySide6.QtCore import QSize, QTimer, Qt, QThread
+from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,15 +31,17 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    DropDownPushButton,
     PrimaryDropDownPushButton,
     PrimaryPushButton,
+    PushButton,
     ProgressBar,
     RoundMenu,
+    SegmentedWidget,
     SubtitleLabel,
     TableWidget,
-    TitleLabel,
     ToolButton,
-    isDarkTheme,
+    isDarkTheme,  # noqa: F401 - patched by tests; read by subscription_actions
 )
 
 from ..config import app_config
@@ -73,6 +75,9 @@ from .subscription_helpers import (
     _video_url,
     _split_title_keywords,
 )
+from .author_view import AuthorView
+from .chrome import PageHeader
+from .media_card import CARD_WIDTH_MIN, CardSizeControl, PixmapLRU, read_pixmap, saved_card_width
 from .subscription_components import (
     ResponsiveCoverList,
     SubscriptionAvatarWorker,
@@ -82,7 +87,6 @@ from .subscription_components import (
     SubscriptionThumbnailWorker,
     _CONTROL_HEIGHT,
     _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-    _DEFAULT_SUBSCRIPTION_GRID_COLUMNS,
     _FluentContentSplitter,
     _MAX_COVER_DOWNLOAD_CONCURRENCY,
     _MAX_SUBSCRIPTION_GRID_COLUMNS,
@@ -97,6 +101,13 @@ from .subscription_components import (
     _thumbnail_list_style,
 )
 from .rules_page import RulePicker
+from .subscription_views import (
+    CoverLoader,
+    SourceItemsView,
+    SubscriptionOverview,
+    is_feed_source,
+)
+from .theme import PAGE_MARGINS, qcolor, set_secondary_text, summary_text
 from .ui_state import (
     ResponsiveFlowLayout,
     connect_splitter_saver,
@@ -139,7 +150,14 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
     _ITEM_FOLDER = 9
     _ITEM_FILE = 10
 
+    # Emitted whenever the source list was re-read (refresh, add, delete, ...).
+    sources_changed = Signal()
+    # An author/source page that another page opened was closed with Back.
+    return_requested = Signal()
+
     _RENDER_BATCH_SIZE = 80
+    _MIN_ITEM_TABLE_HEIGHT = 140
+    _MIN_STACKED_SOURCE_HEIGHT = 200
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -184,7 +202,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._item_render_timer = QTimer(self)
         self._item_render_timer.setInterval(0)
         self._item_render_timer.timeout.connect(self._render_item_batch)
+        self._covers = CoverLoader(self)
+        self._views_timer = QTimer(self)
+        self._views_timer.setSingleShot(True)
+        self._views_timer.setInterval(350)
+        self._views_timer.timeout.connect(self._refresh_views)
         self._build_ui()
+        self.sources_changed.connect(self._schedule_views_refresh)
         self._load_sources()
         signal_bus.tasks_added.connect(self._on_tasks_changed)
         signal_bus.task_added.connect(self._on_task_changed)
@@ -193,17 +217,21 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         signal_bus.task_removed.connect(self._on_task_changed)
         signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
         signal_bus.subscription_source_added.connect(self._on_subscription_source_added)
+        signal_bus.subscription_sources_changed.connect(self._on_sources_changed_elsewhere)
         self._sync_download_option_buttons()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 16)
+        root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(12)
 
-        title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Subscriptions", "订阅页", "購読"), self))
-        title_row.addStretch()
-        root.addLayout(title_row)
+        # Same header as Home: title on the left, the page's switches on the right.
+        self._page_header = PageHeader(tr("Subscriptions", "订阅页", "購読"), self)
+        self._view_switch = SegmentedWidget(self)
+        self._view_switch.addItem("overview", tr("Overview", "总览", "概要"), lambda: self._set_view_mode("overview"))
+        self._view_switch.addItem("table", tr("Table", "经典表格", "表形式"), lambda: self._set_view_mode("table"))
+        self._page_header.tools.addWidget(self._view_switch)
+        root.addWidget(self._page_header)
 
         splitter = _FluentContentSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
@@ -215,7 +243,27 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(10)
         _style_content_splitter(splitter)
-        root.addWidget(splitter, stretch=1)
+        # The table view is one page of a stack next to the overview and the
+        # per-source grid; its widgets and logic are unchanged.
+        self._view_stack = QStackedWidget(self)
+        self._table_page = QWidget(self._view_stack)
+        table_layout = QVBoxLayout(self._table_page)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(splitter, stretch=1)
+        self._overview = SubscriptionOverview(self, self._covers, self._view_stack)
+        self._source_view = SourceItemsView(self, self._covers, self._view_stack)
+        self._view_stack.addWidget(self._overview)
+        self._author_view = AuthorView(self._view_stack)
+        self._view_stack.addWidget(self._source_view)
+        self._view_stack.addWidget(self._author_view)
+        self._view_stack.addWidget(self._table_page)
+        self._overview.source_opened.connect(self._open_source_grid)
+        self._source_view.back_requested.connect(self._close_source_grid)
+        self._author_view.back_requested.connect(self._close_author_view)
+        self._author_view.open_subscription_requested.connect(self._open_source_grid)
+        self._external_return = False  # Back from the open author/source page leaves this page
+        self._page_origin = None
+        root.addWidget(self._view_stack, stretch=1)
 
         left_panel = CardWidget(self)
         self._source_panel = left_panel
@@ -292,8 +340,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             button.setFixedSize(40, _CONTROL_HEIGHT)
         self._toggle_sources_btn.clicked.connect(self._toggle_source_panel)
         self._toggle_items_btn.clicked.connect(self._toggle_item_panel)
-        title_row.addWidget(self._toggle_sources_btn)
-        title_row.addWidget(self._toggle_items_btn)
+        self._page_header.tools.addWidget(self._toggle_sources_btn)
+        self._page_header.tools.addWidget(self._toggle_items_btn)
         self._update_panel_toggle_buttons()
 
         source_header = QHBoxLayout()
@@ -304,22 +352,17 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
         source_actions = ResponsiveFlowLayout()
         source_actions.setSpacing(_ROW_SPACING)
-        import_authors_btn = PrimaryPushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
+        import_authors_btn = PushButton(tr("Import Followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
         _style_action_button(import_authors_btn)
         import_authors_btn.clicked.connect(self._import_followed_authors)
         source_actions.addWidget(import_authors_btn)
-
-        add_feed_btn = PrimaryPushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
-        _style_action_button(add_feed_btn)
-        add_feed_btn.clicked.connect(self._add_following_feed)
-        source_actions.addWidget(add_feed_btn)
 
         add_source_btn = PrimaryPushButton(tr("Add Author / Playlist", "添加作者/播放列表", "作者/リストを追加"), self, FluentIcon.PEOPLE)
         _style_action_button(add_source_btn)
         add_source_btn.clicked.connect(self._add_source)
         source_actions.addWidget(add_source_btn)
 
-        delete_source_btn = PrimaryPushButton(
+        delete_source_btn = PushButton(
             tr("Delete Subscription", "删除订阅", "購読を削除"),
             self,
             FluentIcon.DELETE,
@@ -328,7 +371,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         delete_source_btn.clicked.connect(self._delete_selected_source)
         source_actions.addWidget(delete_source_btn)
 
-        self._refresh_all_btn = PrimaryPushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
+        self._refresh_all_btn = PushButton(tr("Refresh All", "刷新全部", "全件更新"), self, FluentIcon.SYNC)
         _style_action_button(self._refresh_all_btn)
         self._refresh_all_btn.clicked.connect(self._refresh_all)
         source_actions.addWidget(self._refresh_all_btn)
@@ -380,8 +423,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         source_meta_row.addWidget(self._source_sort_direction_btn)
         self._update_source_sort_direction_button()
 
-        source_columns_btn = PrimaryPushButton(tr("Source Fields", "源字段", "購読元列"), self, FluentIcon.SETTING)
-        _style_action_button(source_columns_btn, min_width=96)
+        source_columns_btn = ToolButton(FluentIcon.SETTING, self)
+        source_columns_btn.setFixedSize(36, _CONTROL_HEIGHT)
+        source_columns_btn.setToolTip(tr("Source Fields", "源字段", "購読元列"))
         source_columns_btn.clicked.connect(self._configure_source_columns)
         source_meta_row.addWidget(source_columns_btn)
         left_layout.addLayout(source_meta_row)
@@ -464,6 +508,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         item_summary_row.addWidget(SubtitleLabel(tr("Videos", "视频列表", "動画一覧"), self))
         self._summary_label = BodyLabel("", self)
         self._summary_label.setWordWrap(True)
+        set_secondary_text(self._summary_label)
         self._summary_label.setMinimumHeight(_CONTROL_HEIGHT)
         self._summary_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -482,7 +527,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show This Source", "显示这个作者的全部视频", "この購読元の全動画を表示"), self, triggered=self._show_selected_source_all_items))
         history_menu.addAction(Action(FluentIcon.ACCEPT, tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"), self, triggered=self._mark_selected_downloaded_moved))
         history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"), self, triggered=self._restore_selected_downloaded_moved))
-        history_btn = PrimaryDropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
+        history_btn = DropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
         history_btn.setMenu(history_menu)
         history_btn.setToolTip(tr("History and moved-record actions", "历史和已移走记录操作", "履歴・移動済み操作"))
         _style_action_button(history_btn, min_width=150)
@@ -521,7 +566,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 triggered=self._cache_current_source_covers,
             )
         )
-        self._refresh_current_btn = PrimaryDropDownPushButton(
+        self._refresh_current_btn = DropDownPushButton(
             tr("Refresh Actions", "刷新操作", "更新操作"),
             self,
             FluentIcon.SYNC,
@@ -572,7 +617,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         title_filter_label = BodyLabel(tr("Title Filter", "标题筛选", "タイトルフィルター"), self)
         _style_inline_label(title_filter_label)
         title_filter_row.addWidget(title_filter_label)
-        self._title_filter_mode_btn = PrimaryPushButton(tr("Simple", "简单搜索", "簡易検索"), self)
+        self._title_filter_mode_btn = PushButton(tr("Simple", "简单搜索", "簡易検索"), self)
         self._title_filter_mode_btn.setCheckable(True)
         self._title_filter_mode_btn.setFixedSize(120, _CONTROL_HEIGHT)
         self._title_filter_mode_btn.setToolTip(
@@ -655,39 +700,15 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._item_view_combo.currentIndexChanged.connect(self._on_item_view_changed)
         item_filter_row.addWidget(self._item_view_combo)
 
-        self._item_grid_columns_label = BodyLabel(
-            tr("Columns", "每行列数", "1行の列数"), self
-        )
-        _style_inline_label(self._item_grid_columns_label)
-        item_filter_row.addWidget(self._item_grid_columns_label)
-        self._item_grid_columns_combo = ComboBox(self)
-        for columns in range(1, _MAX_SUBSCRIPTION_GRID_COLUMNS + 1):
-            self._item_grid_columns_combo.addItem(str(columns))
-            self._item_grid_columns_combo.setItemData(
-                self._item_grid_columns_combo.count() - 1,
-                str(columns),
-            )
-        try:
-            saved_grid_columns = int(
-                app_config.get_ui_value(
-                    "subscription_grid_columns_v1",
-                    _DEFAULT_SUBSCRIPTION_GRID_COLUMNS,
-                )
-                or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            saved_grid_columns = _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        self._item_grid_columns_combo.setCurrentIndex(
-            max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, saved_grid_columns)) - 1
-        )
-        self._item_grid_columns_combo.setFixedWidth(84)
-        self._item_grid_columns_combo.currentIndexChanged.connect(
-            self._on_item_grid_columns_changed
-        )
-        item_filter_row.addWidget(self._item_grid_columns_combo)
+        # Same cover-size slider as Home, Search and the overview.
+        self._item_card_size = CardSizeControl(self)
+        self._item_card_size.size_changed.connect(self._on_item_card_size_changed)
+        self._item_card_min_width = max(CARD_WIDTH_MIN, int(saved_card_width() * 0.8))
+        item_filter_row.addWidget(self._item_card_size)
 
-        self._item_columns_btn = PrimaryPushButton(tr("Fields", "字段设置", "列設定"), self, FluentIcon.SETTING)
-        _style_action_button(self._item_columns_btn, min_width=96)
+        self._item_columns_btn = ToolButton(FluentIcon.SETTING, self)
+        self._item_columns_btn.setFixedSize(36, _CONTROL_HEIGHT)
+        self._item_columns_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         self._item_columns_btn.clicked.connect(self._configure_item_columns)
         item_filter_row.addWidget(self._item_columns_btn)
         item_controls_layout.addLayout(item_filter_row)
@@ -780,6 +801,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._sync_item_grid_controls()
         self._update_thumbnail_grid()
         fit_table_last_column(self._item_table)
+        mode = str(app_config.get_ui_value("subscription_view_mode_v1", "overview") or "overview")
+        self._set_view_mode("table" if mode == "table" else "overview", persist=False)
 
     def refresh_theme_styles(self):
         """Refresh custom styles that qfluentwidgets cannot recolor automatically."""
@@ -953,7 +976,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             if self._source_panel_visible and self._items_panel_visible:
                 if should_stack:
                     height = max(1, self._splitter.height())
-                    self._splitter.setSizes([max(250, int(height * 0.50)), max(300, int(height * 0.50))])
+                    # The video panel carries more controls, so it gets the larger share.
+                    self._splitter.setSizes([max(220, int(height * 0.42)), max(300, int(height * 0.58))])
                 else:
                     width = max(1, self._splitter.width())
                     self._splitter.setSizes([max(420, int(width * 0.50)), max(520, int(width * 0.50))])
@@ -968,6 +992,62 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._update_thumbnail_grid()
         self._schedule_thumbnail_grid_update()
         self._update_panel_toggle_buttons()
+        QTimer.singleShot(0, self._fit_item_controls_height)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_item_controls_height)
+
+    def _fit_item_controls_height(self):
+        """Grow the video-controls pane so its buttons are not cut in half.
+
+        The pane stays user-resizable: a collapsed pane (size 0) is respected,
+        and the video table always keeps at least ``_MIN_ITEM_TABLE_HEIGHT``.
+        """
+        splitter = getattr(self, "_item_content_splitter", None)
+        scroll = getattr(self, "_item_controls_scroll", None)
+        if splitter is None or scroll is None or not splitter.isVisible():
+            return
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        if len(sizes) != 2 or total <= 0 or sizes[0] <= 0:
+            return
+        panel = scroll.widget()
+        layout = panel.layout() if panel is not None else None
+        width = scroll.viewport().width()
+        if layout is None or width <= 0:
+            return
+        if layout.hasHeightForWidth():
+            needed = layout.totalHeightForWidth(width)
+        else:
+            needed = layout.totalSizeHint().height()
+        needed += 2
+        deficit = needed + self._MIN_ITEM_TABLE_HEIGHT - total
+        outer = self._splitter.sizes()
+        if (
+            deficit > 0
+            and self._splitter_is_vertical
+            and self._source_panel_visible
+            and self._items_panel_visible
+            and len(outer) == 2
+            and outer[0] > self._MIN_STACKED_SOURCE_HEIGHT
+            and not getattr(self, "_rebalancing_item_panel", False)
+        ):
+            # Stacked panels: borrow height from the source list so the video
+            # controls are not cut in half, then fit again on the next pass.
+            moved = min(deficit, outer[0] - self._MIN_STACKED_SOURCE_HEIGHT)
+            self._rebalancing_item_panel = True
+            self._splitter.setSizes([outer[0] - moved, outer[1] + moved])
+            QTimer.singleShot(0, self._finish_item_panel_rebalance)
+            return
+        table_floor = min(self._MIN_ITEM_TABLE_HEIGHT, int(total * 0.35))
+        needed = min(needed, max(0, total - table_floor))
+        if sizes[0] < needed:
+            splitter.setSizes([needed, total - needed])
+
+    def _finish_item_panel_rebalance(self):
+        self._fit_item_controls_height()
+        self._rebalancing_item_panel = False
 
     def _schedule_thumbnail_grid_update(self):
         """Run one more layout pass after Qt has committed the new viewport size."""
@@ -993,17 +1073,14 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             int(self._thumbnail_list.verticalScrollBar().sizeHint().width()) - 1,
         )
         available_width = max(1, viewport_width - scrollbar_reserve)
-        try:
-            requested_columns = int(
-                self._item_grid_columns_combo.currentData()
-                or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            requested_columns = _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        # The selector is an explicit user preference.  Preserve the exact
-        # number of columns and shrink each card on compact split panes rather
-        # than silently reducing (for example) 8 columns to 4.
-        columns = max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, requested_columns))
+        # As many columns as fit at the chosen cover size.
+        columns = max(
+            1,
+            min(
+                _MAX_SUBSCRIPTION_GRID_COLUMNS,
+                (available_width + spacing) // (self._item_card_min_width + spacing),
+            ),
+        )
         card_width = max(
             40,
             (available_width - spacing * (columns - 1)) // columns,
@@ -1022,7 +1099,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         updates_enabled = self._thumbnail_list.updatesEnabled()
         self._thumbnail_list.setUpdatesEnabled(False)
         try:
-            self._thumbnail_list.setIconSize(QSize(image_width, image_height))
+            icon_size = QSize(image_width, image_height)
+            size_changed = self._thumbnail_list.iconSize() != icon_size
+            self._thumbnail_list.setIconSize(icon_size)
+            if size_changed:
+                # QIcon never scales a pixmap up, so covers rendered for a
+                # narrower cell must be rebuilt or they stay small and centered.
+                self._refresh_thumbnail_icons()
             self._thumbnail_list.setGridSize(grid_size)
             self._thumbnail_list.setSpacing(spacing)
             for index in range(self._thumbnail_list.count()):
@@ -1097,14 +1180,19 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             )
         )
 
+    def _fetch_sources(self) -> list[dict[str, Any]]:
+        """Authors and playlists; the old account-feed source lives on Home now."""
+
+        return [s for s in download_manager.get_subscription_sources() if not is_feed_source(s)]
+
     def _load_sources(self):
         previous_source_id = self._selected_source_id()
-        self._all_sources = download_manager.get_subscription_sources()
+        self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=previous_source_id)
 
     def _refresh_sources_keep_current_items(self):
         source_id = self._current_source_id
-        self._all_sources = download_manager.get_subscription_sources()
+        self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=source_id)
 
     def _apply_source_filters(self, *_args, preferred_source_id: int | None = None):
@@ -1122,6 +1210,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             sources = [source for source in sources if query in _source_search_text(source)]
         self._sources = sources
         self._render_sources()
+        self.sources_changed.emit()
         if selected_source_id is not None and self._select_source_id(selected_source_id):
             self._load_items(selected_source_id)
             return
@@ -1237,7 +1326,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         title = str(source.get("title", "") or source.get("source_key", "") or "")
         avatar_path = str(source.get("avatar_path", "") or "")
         if avatar_path and os.path.isfile(avatar_path):
-            pixmap = QPixmap(avatar_path)
+            pixmap = read_pixmap(avatar_path, 256)
             if not pixmap.isNull():
                 size = self._source_table.iconSize()
                 scaled = pixmap.scaled(
@@ -1255,7 +1344,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         item.setFont(font)
         item.setToolTip(title or tr("No avatar cached yet", "头像尚未缓存", "アバター未保存"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setForeground(QColor("#777777"))
+        item.setForeground(qcolor("text_secondary"))
         return item
 
     def _start_avatar_worker_for_missing_sources(self):
@@ -1283,6 +1372,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._avatar_worker.start()
 
     def _on_avatar_ready(self, source_id: int, avatar_url: str, avatar_path: str):
+        self._overview.set_avatar(source_id, avatar_path)
+        self._source_view.set_avatar(source_id, avatar_path)
         for collection in (self._all_sources, self._sources):
             for source in collection:
                 if int(source.get("id", 0) or 0) == int(source_id):
@@ -1406,10 +1497,16 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             if _item_not_downloadable(item_data):
                 unavailable_count += 1
         self._summary_label.setText(
-            tr(
-                f"Visible: {len(self._visible_items)}/{len(self._all_items)} | pending: {len(self._pending_video_ids)} | new: {new_count} | downloaded: {downloaded_count} | moved: {moved_count} | queued: {queued_count} | unavailable: {unavailable_count}",
-                f"当前显示: {len(self._visible_items)}/{len(self._all_items)} | 待操作: {len(self._pending_video_ids)} | 新增: {new_count} | 本地已下载: {downloaded_count} | 已移走: {moved_count} | 已在队列: {queued_count} | 不可下载: {unavailable_count}",
-                f"表示: {len(self._visible_items)}/{len(self._all_items)} | 操作待ち: {len(self._pending_video_ids)} | 新規: {new_count} | 保存済み: {downloaded_count} | 移動済み: {moved_count} | キュー内: {queued_count} | 保存不可: {unavailable_count}",
+            summary_text(
+                [
+                    (tr("Visible", "当前显示", "表示"), f"{len(self._visible_items)}/{len(self._all_items)}"),
+                    (tr("Pending", "待操作", "操作待ち"), len(self._pending_video_ids)),
+                    (tr("New", "新增", "新規"), new_count),
+                    (tr("Downloaded", "本地已下载", "保存済み"), downloaded_count),
+                    (tr("Moved", "已移走", "移動済み"), moved_count),
+                    (tr("Queued", "已在队列", "キュー内"), queued_count),
+                    (tr("Unavailable", "不可下载", "保存不可"), unavailable_count),
+                ]
             )
         )
         if self._title_filter_error:
@@ -1461,21 +1558,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             hasattr(self, "_item_view_combo")
             and self._item_view_combo.currentIndex() == 1
         )
-        if hasattr(self, "_item_grid_columns_label"):
-            self._item_grid_columns_label.setVisible(cover_mode)
-        if hasattr(self, "_item_grid_columns_combo"):
-            self._item_grid_columns_combo.setVisible(cover_mode)
+        if hasattr(self, "_item_card_size"):
+            self._item_card_size.setVisible(cover_mode)
         if hasattr(self, "_item_columns_btn"):
             self._item_columns_btn.setVisible(not cover_mode)
 
-    def _on_item_grid_columns_changed(self, _index: int):
-        if not hasattr(self, "_item_grid_columns_combo"):
-            return
-        value = str(
-            self._item_grid_columns_combo.currentData()
-            or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        )
-        app_config.set_ui_value("subscription_grid_columns_v1", value)
+    def _on_item_card_size_changed(self, width: int):
+        self._item_card_min_width = max(CARD_WIDTH_MIN, int(int(width) * 0.8))
         self._update_thumbnail_grid()
         self._schedule_thumbnail_grid_update()
 
@@ -1531,16 +1620,41 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._schedule_thumbnail_grid_update()
         self._start_thumbnail_worker_for_visible_items()
 
+    def _refresh_thumbnail_icons(self):
+        """Re-render every loaded cover at the list's current icon size."""
+
+        paths = {
+            str(entry.get("video_id", "")): str(entry.get("thumbnail_path", "") or "")
+            for entry in self._visible_items
+        }
+        placeholder = self._thumbnail_placeholder_icon()
+        for video_id, list_items in self._thumbnail_items_by_video_id.items():
+            path = paths.get(video_id, "")
+            icon = self._thumbnail_icon(path) if path and os.path.isfile(path) else placeholder
+            for list_item in list_items:
+                list_item.setIcon(icon)
+
     def _thumbnail_placeholder_icon(self) -> QIcon:
         pixmap = QPixmap(self._thumbnail_list.iconSize())
-        pixmap.fill(QColor("#34373d" if isDarkTheme() else "#e8e8e8"))
+        pixmap.fill(qcolor("placeholder"))
         return QIcon(pixmap)
 
     def _thumbnail_icon(self, path: str) -> QIcon:
-        pixmap = QPixmap(path)
-        if pixmap.isNull():
-            return self._thumbnail_placeholder_icon()
+        # Decoded covers (at the size shown, not the file's) are kept up to a byte
+        # budget so a grid resize can re-scale them cheaply.
         size = self._thumbnail_list.iconSize()
+        want = max(240, round(size.width() * 1.25))
+        cache = self.__dict__.setdefault("_thumbnail_pixmaps", PixmapLRU(48 * 1024 * 1024))
+        small = self.__dict__.setdefault("_thumbnail_small_sources", set())
+        pixmap = cache.get(path)
+        if pixmap is None or (pixmap.width() < want and path not in small):
+            pixmap = read_pixmap(path, want)
+            if not pixmap.isNull():
+                if pixmap.width() < want:
+                    small.add(path)  # the file itself is that small
+                cache[path] = pixmap
+        if pixmap is None or pixmap.isNull():
+            return self._thumbnail_placeholder_icon()
         scaled = pixmap.scaled(
             size,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -1700,9 +1814,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                     )
                 )
             elif col == self._ITEM_REASON and download_reason:
-                cell.setForeground(QColor("#c42b1c"))
+                cell.setForeground(qcolor("danger"))
             elif col == self._ITEM_NEW and is_new:
-                cell.setForeground(QColor("#c17d00"))
+                cell.setForeground(qcolor("warning"))
             self._item_table.setItem(row, col, cell)
 
         source_url_item = QTableWidgetItem(source_url)
@@ -1749,6 +1863,12 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._shutting_down = True
         self._source_render_timer.stop()
         self._item_render_timer.stop()
+        self._views_timer.stop()
+        covers_stopped = all([
+            self._covers.shutdown(timeout_ms),
+            self._author_view.shutdown(timeout_ms),
+            self._source_view.status_bar.shutdown(timeout_ms),
+        ])
         workers: list[QThread | None] = [
             self._worker,
             self._import_worker,
@@ -1757,7 +1877,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             self._thumbnail_worker,
             self._cover_cache_worker,
         ]
-        return stop_qthreads(workers, timeout_ms=timeout_ms)
+        return stop_qthreads(workers, timeout_ms=timeout_ms) and covers_stopped
 
     def _show_error(self, msg: str):
         InfoBar.error(
@@ -1780,6 +1900,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._schedule_items_refresh_after_task_change()
 
     def _schedule_items_refresh_after_task_change(self):
+        self._schedule_views_refresh()
         if self._items_refresh_pending:
             return
         self._items_refresh_pending = True

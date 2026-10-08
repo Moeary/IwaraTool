@@ -8,6 +8,10 @@ import re
 import threading
 from urllib.parse import urlparse
 
+from ..logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class SearchImageCache:
     """Cache remote search images under ``data/img/search``.
@@ -133,6 +137,7 @@ class SearchImageCache:
                 return path
             return ""
         except Exception:
+            logger.debug("Image fetch failed: %s", image_url, exc_info=True)
             return ""
         finally:
             close = getattr(response, "close", None)

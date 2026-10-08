@@ -2,53 +2,106 @@
 
 [English](./API.md) | [日本語](./API_ja.md)
 
-本文档说明当前项目中已实现的 API 能力。
+本文档说明 IwaraTool 使用的 Iwara REST API，以及每个功能会发出哪些请求。Iwara 没有官方公开 API：以下内容来自对线上站点的实测、本项目的测试，以及开源客户端 [LoveIwara](https://github.com/FoxSensei001/LoveIwara) 与 [gallery-dl](https://github.com/mikf/gallery-dl/blob/master/gallery_dl/extractor/iwara.py) 的实现。每个接口标注 **已验证**（本项目对线上接口实测过）或 **参考**（取自其他客户端源码，本项目未用真实账号实测）。
 
-## 1. 认证
+目录：[1 约定与认证](#1-约定与认证) · [2 读取接口](#2-读取接口) · [3 账号操作](#3-账号操作) · [4 功能与请求对照](#4-功能与请求对照) · [5 搜索下载](#5-搜索下载) · [6 Fluent 搜索页](#6-fluent-搜索页) · [7 筛选](#7-筛选) · [8 UI 支持的输入 URL 类型](#8-ui-支持的输入-url-类型) · [9 标签抓取脚本](#9-标签抓取脚本为后续一键标签筛选做准备) · [10 NFO 生成与 Emby 兼容](#10-nfo-生成与-emby-兼容)
 
-### 登录
-- 接口：`POST https://api.iwara.tv/user/login`
-- 请求体：
-  - `email`：用户名或邮箱
-  - `password`：账号密码
-- 成功后：
-  - 返回 `token`（Bearer Token）
+## 1. 约定与认证
 
-### Token 用法
-- 鉴权请求头：
-  - `Authorization: Bearer <token>`
-- Token 本地缓存到 `data/config.ini`：
-  - `auth_token`
-  - `auth_token_saved_at`
-- 启动策略：
-  - 优先使用本地 token（快速路径）
-  - 无 token 时再回退账号密码登录
+### 主机与请求头
+- API 主机：`https://api.iwara.tv`。`https://apiq.iwara.tv` 提供同样的路由，用作视频详情、关注列表和标签抓取的备用地址。
+- 媒体主机：`https://i.iwara.tv`（封面、头像、图片作品的图片）。
+- 每个请求都带 `Accept: application/json, text/plain, */*`、`Origin: https://www.iwara.tv`、`Referer: https://www.iwara.tv/` 和 `X-Site: www.iwara.tv`；HTTP 会话使用 `cloudscraper`（Chrome / Windows 配置），以通过 Cloudflare 的浏览器校验。
+- 错误以 JSON `{"message": "errors.xxx"}` 返回（如 `errors.privateVideo`、`errors.notFound`、`errors.badRequest`）。客户端会把 HTTP 与网络失败转成可读的提示，不会把失败当作空结果。
 
-## 2. 视频信息与下载直链解析
+### 请求节奏与重试
+- 同一主机的请求至少间隔 `request_min_interval_ms`（默认 200 毫秒）。
+- `429`、`502`、`503`、`504` 与临时网络错误最多重试 `request_max_retries` 次（默认 2），指数退避（1 秒、2 秒、4 秒…最长 30 秒）；若响应带 `Retry-After`，最多按 30 秒等待。
+- 这两项在“应用设置 → 系统与维护 → 请求节奏”。后台任务（首页栏目、封面、订阅刷新）每个工作线程使用独立的 HTTP 会话，沿用相同的 token 与代理，互不排队。
 
-### 获取视频元信息
-- 接口：`GET https://api.iwara.tv/video/{video_id}`
+### 登录 — 已验证
+- `POST /user/login`，请求体 `{"email": "<用户名或邮箱>", "password": "<密码>"}`；成功返回 `{"token": "<jwt>"}`。
+- 所有需要登录的请求带 `Authorization: Bearer <token>`。
+- Token 缓存在 `data/config.ini`（`auth_token`、`auth_token_saved_at`）。启动时优先使用缓存 token，没有 token 才回退账号密码登录。
+- 公开内容无需登录；登录后可访问私有视频、订阅流，以及下文的账号字段（`liked`、`following`）。
 
-### 解析可下载源
-- 输入：视频元信息中的 `fileUrl`
-- 追加 `X-Version` 请求头，计算基于：
-  - `{filename}_{expires}_{salt}`
-  - SHA1
-- 内置画质回退：
-  - `Source -> 540 -> 360`
+## 2. 读取接口
 
-## 3. 批量来源
+### 视频与图片详情 — 已验证
+- `GET /video/{id}`：单个视频。程序读取的字段：`id`、`title`、`body`、`rating`（`general` | `ecchi`）、`numLikes`、`numViews`、`numComments`、`createdAt`、`user`（`id`、`name`、`username`、`avatar`）、`tags[]`（`id`、`type`）、`file`（`id`、`duration`、`height`）、`fileUrl`、`thumbnail`（封面序号）、`embedUrl`（YouTube 嵌入无法下载），登录后还有 `liked`。
+- `GET /image/{id}`：单个图片作品，字段同上，另有 `numImages` 与 `files[]`（`id`、`name`、`width`、`height`）。图片地址：`https://i.iwara.tv/image/original/{file.id}/{file.name}` 与 `https://i.iwara.tv/image/thumbnail/{file.id}/{file.id}.jpg`。
+- 封面：`https://{host}/image/original/{file.id}/thumbnail-{NN}.jpg`；首页卡片把 `original` 换成 `thumbnail`（约 10 KB 的小图）。头像：`https://i.iwara.tv/image/avatar/{id}/{name}`。
+- `GET /video/{id}/related?limit=12`、`GET /image/{id}/related?limit=12`：相关作品（忽略 SFW / NSFW 选择，程序在本地过滤）。
+- `GET /video/{id}/comments?page=0&limit=20`、`GET /image/{id}/comments?...`：评论；加 `&parent={评论id}` 返回该评论的回复。响应 `{count, results[]}`。
 
-### 按用户
-- 先解析用户 id：
-  - `GET https://api.iwara.tv/profile/{username}`
-- 再拉取视频列表：
-  - `GET https://api.iwara.tv/videos?user={user_id}&sort=date&page={n}`
+### 下载源 — 已验证
+- 输入：视频详情中的 `fileUrl`。携带 `Authorization`（已登录时）和 `X-Version` 请求头对它发 `GET`，返回 `{name, src: {view, download}}` 列表。
+- `X-Version = sha1("{文件 uuid}_{expires}_{salt}")`，uuid 是 `/file/` 之后的路径段，`expires` 来自 URL 查询串。站点会不定期更换 salt，所以客户端依次尝试内置 salt 与用户补充的 salt（应用设置，或 `data/x_version_salts.json`）。
+- 画质回退：从偏好画质起 `Source → 540 → 360`。`fileUrl` 缺失表示私有视频（`errors.privateVideo`）、外站嵌入或作品不可用。
 
-### 按播放列表
-- `GET https://api.iwara.tv/playlist/{playlist_id}?page={n}`
+### 列表：`/videos` 与 `/images` — 已验证
+`GET /videos` 与 `GET /images` 参数相同：
 
-## 4. 搜索下载（新增）
+| 参数 | 含义 |
+|---|---|
+| `page`、`limit` | 从 0 开始的页码与每页数量（程序发送 1–100；首页取 24，搜索页 32，“查看更多”列表 32）。 |
+| `sort` | `date`、`trending`、`popularity`、`views`、`likes`。 |
+| `rating` | `general`（SFW）或 `ecchi`（NSFW）；省略则两者都返回。 |
+| `tags` | 逗号分隔的标签 ID，必须全部命中。**复数**：线上接口忽略单数 `tag`（程序会把旧输入转换成 `tags`）。`/images` 不支持。 |
+| `user` | 用户 ID（不是用户名），先用 `GET /profile/{username}` 解析。 |
+| `subscribed=true` | 已登录账号的订阅流（需要 token）。 |
+
+响应：`{count, limit, page, results[]}`。`count` **不是**稳定的总数：满页时为 `(page + 1) × limit + 1`，程序把它当作“还有下一页”，而不是显示页数。不存在的标签可能返回 HTTP 500，因此服务器错误不会被当作“没有结果”。
+
+### 文本搜索：`/search` — 已验证
+`GET /search?type={videos|images|users|playlists}&query=…&sort=…&page=…&limit=…`
+
+- 各类型的排序：`videos`、`images` 支持 `relevance`、`date`、`views`、`likes`；`users`、`playlists` 只支持 `relevance`、`date`（`views` / `likes` 会返回 `errors.badRequest`，客户端会退回相关度）。
+- 该接口忽略 `rating`，所以 SFW / NSFW 在结果上本地过滤。
+- 空 `query` 不会发送：视频浏览用 `/videos`，图片浏览用 `/images`。
+
+### 用户 — 已验证
+- `GET /profile/{username}` → `{user: {id, name, username, avatar, …}}`。已登录时 `user` 还带 `following`（你是否关注了他）、`followedBy`、`friend`——即程序里的“已在 Iwara 关注”状态。
+- `GET /user/{id}/following?page=…&limit=50`：用户关注的账号（“导入关注作者”使用）。
+
+### 播放列表 — 已验证
+- `GET /playlist/{id}?page={n}`：播放列表中的视频。播放列表卡片来自 `/search?type=playlists`。
+
+### 标签 — 已验证
+- `GET https://apiq.iwara.tv/tags?filter={A-Z0-9}&page={n}`：标签目录（见第 9 节）。
+
+## 3. 账号操作
+
+下面三类都需要 token；未登录时客户端不会发送，而是提示“请先登录”。任何 `2xx` 响应都视为成功，不使用响应体。**参考**（来自 LoveIwara 客户端；本项目的测试使用模拟会话，没有用真实账号）。
+
+| 操作 | 请求 |
+|---|---|
+| 给视频 / 图片点赞 | `POST /video/{id}/like` · `POST /image/{id}/like` |
+| 取消点赞 | `DELETE /video/{id}/like` · `DELETE /image/{id}/like` |
+| 在网站上关注作者 | `POST /user/{userId}/followers` |
+| 取消关注 | `DELETE /user/{userId}/followers` |
+
+- 详情页显示的点赞状态是 `GET /video/{id}` / `/image/{id}` 里的 `liked`；点击成功后点赞数在本地即时变化。
+- 网站上的关注与程序的**本地订阅**（`data/subscriptions.db` 中的一行）是两回事：作者页并排显示两种状态，并分别修改。“导入关注作者”会把网站上的关注复制成本地订阅。
+
+## 4. 功能与请求对照
+
+| 功能 | 请求 |
+|---|---|
+| 首页 — “我的订阅” | `/videos?subscribed=true&sort=date[&rating]` 与 `/images?…`（需登录） |
+| 首页 — 热门栏 | `/videos?sort=trending\|popularity\|date[&rating]`、`/images?…` |
+| 首页 — 标签栏 | `/videos?tags=<解析后的 ID>&sort=…[&rating]`（名称先经本地标签词典） |
+| 首页 — 关键词栏 | `/search?type=videos\|images&query=…&sort=…` |
+| 首页 — 作者栏、作者页 | 每个会话先 `/profile/{username}` 取一次 ID，再 `/videos?user={id}&sort=date` / `/images?…` |
+| 首页 — 条数与缓存 | 每栏取 24 条（第 0 页）。每栏、每个标签页、每种分级各存一份在 `data/home_feed_cache.json`；缓存的“签名”是按顺序排列的作品 ID，所以重新检查得到相同的 ID 时不会动卡片。重新检查的间隔：应用设置 → 首页（默认 15 分钟，0 = 仅手动）。 |
+| “在搜索页查看更多” | 对应的搜索页查询（类型、标签或关键词、排序）；作者栏打开程序内作者页 |
+| 作品详情 | `/video/{id}` 或 `/image/{id}`，然后 `/related`、`/comments`；点赞 → `POST|DELETE …/like` |
+| 作者页 / 状态栏 | `/profile/{username}`（关注状态）+ `/videos?user=…`；关注 → `POST|DELETE /user/{id}/followers` |
+| 订阅刷新 | `/videos?user={id}&sort=date`（增量：遇到第一个已知 ID 即停）、`/playlist/{id}`、`/videos?subscribed=true`；列表行没有文件 ID 时用 `/video/{id}` 补封面 |
+| 搜索页 | `/videos`、`/images`、`/search`、`/profile/{username}`、`/playlist/{id}`（见第 6 节） |
+| 下载 | `/video/{id}` → `fileUrl` → 下载源（第 2 节） |
+
+## 5. 搜索下载（新增）
 
 程序已支持在下载输入框直接粘贴搜索 URL。
 
@@ -59,8 +112,8 @@
   - `https://api.iwara.tv/videos?tags=2d&sort=date`
 - `https://www.iwara.tv/videos?tags=2d&sort=date`
 
-网页路由使用 `tags`，当前 JSON 接口实际通过单数参数 `tag` 执行筛选；IwaraTool
-会同时接受两种形式，并在 API 边界统一转换。
+网页路由与 JSON 接口都使用复数 `tags`（2026-10-03 实测：单数 `tag` 会被忽略并返回未筛选的结果）。IwaraTool
+仍接受旧的单数写法，并在 API 边界统一转换为 `tags`。
 
 ### 行为
 - 解析 URL 查询参数
@@ -75,14 +128,15 @@
 - 启用后只会入队前 `N` 条搜索结果
 - 若 URL 自带 `limit`，最终上限为 `min(url limit, setting limit)`
 
-## 5. Fluent 搜索页
+## 6. Fluent 搜索页
 
 主窗口侧栏中的“搜索”页是面向浏览和批量入队的 Fluent 搜索界面，和下载工作台里的“搜索 URL 入队”互不替代。数据源默认是 Oreno3D 在线搜索，也可以切换为 Iwara 实时 API。
 
 ### 搜索类型
 
 - 关键词搜索：Iwara 非空关键词调用 `GET https://api.iwara.tv/search?type=videos&query=...&sort=...&page=0`，原样保留引号短语及其他输入；留空则调用 `/videos` 浏览列表。Oreno3D 模式请求 `GET https://oreno3d.com/search?keyword=...&sort=latest&page=1`，打开结果时解析为 Iwara 页面。
-- 作者：切换到 Iwara 实时 API 后按用户名请求作者主页，展示作者简介和视频数量。
+- 作者：切换到 Iwara 实时 API 后按用户名请求作者主页，展示作者简介和视频数量；无关键词格式的自由文本走 `/search?type=users`。
+- 打开作者页：右键菜单“打开作者页”在能确定 Iwara 账号时进入程序内作者页（显示是否已在程序内订阅、是否已在 Iwara 关注，见第 3 节），否则回退到来源站的作者页；“在浏览器打开作者页”始终打开来源站。
 - 标签搜索：Iwara 使用 `/videos?tags=...`，多个标签用逗号连接，要求同时命中。完整中日英译名会通过词典精确映射为标签 ID；同一译名对应多个 ID 时要求选择具体候选，不按词典顺序盲选；未识别的原始 ID 保留，不作模糊替换。Oreno3D 使用其独立的标签映射与实体路由，未知名称回退到其关键词入口。
 - 每个数据源和搜索类型各自保留输入与排序草稿；切换模式不会把标题关键词当作标签提交。搜索历史仍记录原始输入及其类型。
 - 播放列表：输入播放列表 ID 或 `/playlist/{id}` 链接，展示其中的视频。
@@ -111,6 +165,7 @@
 - 视频封面与作者头像按需下载。
 - 搜索页图片缓存目录：`data/img/search/`。
 - 订阅页视频封面缓存目录：`data/img/sub/`；会优先复用历史记录中已有的 Iwara 封面并复制到此目录，不覆盖下载规则生成的封面。旧版本的 `data/img/sub_video/` 会在读取对应条目时迁移式复用。
+- 用户正在看的封面会排在后台封面（如订阅总览里各行的封面条）之前请求；下载失败的封面在下次被请求时会重试。
 - 作者、订阅流等列表接口若只返回 Iwara ID，刷新封面时会调用 `GET /video/{id}` 补齐 `file.id`、`fileUrl` 和 `thumbnail`，再按 `https://{file-host}/image/original/{file-id}/thumbnail-{index:02d}.jpg` 下载到上述目录；成功解析的地址会回写订阅数据库。
 - 订阅作者头像缓存目录：`data/img/avatar/`；新文件以 `username` 开头。启动时会把旧版 `data/img/avatar_*` 文件复制迁移到新目录，并更新订阅源记录，旧文件不会被强制删除。
 - 文件使用 URL 指纹命名，并通过临时文件原子替换，网络失败只保留占位图，不影响搜索结果。
@@ -121,12 +176,13 @@
   - `cover_download_workers_v1`：搜索页和订阅页封面获取并发数，范围为 `1–16`，默认 `6`；Oreno3D 缩略图与 Iwara API 补齐的封面都使用该并发池。
   - `subscription_refresh_workers_v1`：启用订阅源刷新并发数，范围为 `1–8`，默认 `3`；每个刷新任务使用独立的 API 会话，并复用当前 token 与代理。
   - `subscription_incremental_refresh_v1`：账户订阅增量刷新开关，默认开启。
+  - `home_cache_minutes_v1`：首页栏目缓存多久后才重新向网站检查，默认 `15` 分钟，`0` 表示只在手动刷新时检查。
 - 增量刷新只对账户订阅流和从账户导入的作者生效：接口按最新排序分页，遇到本地已知的 Iwara 视频 ID 即停止；首次没有已知 ID 时仍会建立完整本地索引。播放列表和本地作者源保持原有完整拉取语义。
 - 并发仅作用于网络请求；SQLite 写入仍由订阅存储层串行保护，避免多个刷新任务破坏本地数据。
 
 ### 结果视图
 
-- 网格模式可手动指定每行列数，程序根据可用宽度自动计算卡片和缩略图尺寸。
+- 网格模式使用与首页、订阅页共用的“封面大小”滑块（同一个控件、同一份保存的大小），每行列数由可用宽度自动计算。
 - 列表模式不加载缩略图，以表格展示 Iwara ID、标题、作者、播放量、点赞数、评论数、发布时间、标签和链接；字段可通过“字段设置”自定义。
 - “字段设置”复用订阅页的列显示、顺序和宽度持久化机制。
 
@@ -163,7 +219,7 @@
 - 首次运行且可执行文件旁的 `data/tag_translations/` 缺少缓存时，程序会自动展开内置词典；已有用户缓存不会被覆盖。开发机 `data/` 中的其他运行时文件仍需自行保留。
 - 第三方来源及许可证见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
-## 6. 筛选
+## 7. 筛选
 
 全局筛选开关在解析阶段生效。
 
@@ -181,7 +237,7 @@
 - 归一化对比字段：
   - `id`、`type`、`slug`、`name`、`title`
 
-## 7. UI 支持的输入 URL 类型
+## 8. UI 支持的输入 URL 类型
 
 - 单视频：
   - `https://www.iwara.tv/video/{id}`
@@ -193,7 +249,7 @@
   - `https://api.iwara.tv/videos?...`
   - `https://www.iwara.tv/videos?...`
 
-## 8. 标签抓取脚本（为后续一键标签筛选做准备）
+## 9. 标签抓取脚本（为后续一键标签筛选做准备）
 
 - 脚本路径：
   - `app/core/crawl_iwara_tags.py`
@@ -212,7 +268,7 @@
 - 示例：
   - `pixi run python app/core/crawl_iwara_tags.py`
 
-## 9. NFO 生成与 Emby 兼容
+## 10. NFO 生成与 Emby 兼容
 
 下载规则启用 `NFO` 行为后，程序会在视频文件旁生成同名 `.nfo` 文件。文件是 UTF-8 编码的 `<movie>` XML，可被 Emby、Jellyfin 和 Kodi 作为本地元数据读取。
 

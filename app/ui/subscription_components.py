@@ -8,11 +8,12 @@ from typing import Any
 
 from PySide6.QtCore import QRect, QThread, Qt, Signal
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QFrame, QSplitter, QSplitterHandle, QWidget
+from PySide6.QtWidgets import QSplitter, QWidget
 
-from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton, isDarkTheme
+from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton
 
 from ..core.manager import download_manager as _default_download_manager
+from .theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
 
 
 class _SubscriptionManagerProxy:
@@ -272,106 +273,17 @@ def _style_action_button(button: PrimaryPushButton, *, min_width: int = 0):
 def _style_inline_label(label: BodyLabel):
     label.setFixedHeight(_CONTROL_HEIGHT)
     label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+    set_secondary_text(label)
 
 
 def _apply_fluent_scrollbars(widget: QWidget):
     """Use compact Fluent scrollbars without replacing the view's theme QSS."""
-    if isDarkTheme():
-        track = "rgba(255, 255, 255, 0.06)"
-        handle = "rgba(255, 255, 255, 0.30)"
-        hover = "rgba(255, 255, 255, 0.46)"
-        pressed = "rgba(255, 255, 255, 0.58)"
-    else:
-        track = "rgba(0, 0, 0, 0.045)"
-        handle = "rgba(0, 145, 158, 0.54)"
-        hover = "rgba(0, 128, 140, 0.70)"
-        pressed = "rgba(0, 112, 124, 0.82)"
-    qss = f"""
-        QScrollBar:vertical {{
-            background: {track};
-            width: 10px;
-            margin: 4px 2px 4px 2px;
-            border-radius: 5px;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {handle};
-            min-height: 36px;
-            border-radius: 5px;
-        }}
-        QScrollBar::handle:vertical:hover {{ background: {hover}; }}
-        QScrollBar::handle:vertical:pressed {{ background: {pressed}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-            background: transparent;
-            height: 0px;
-        }}
-        QScrollBar:horizontal {{
-            background: {track};
-            height: 10px;
-            margin: 2px 4px 2px 4px;
-            border-radius: 5px;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {handle};
-            min-width: 36px;
-            border-radius: 5px;
-        }}
-        QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
-        QScrollBar::handle:horizontal:pressed {{ background: {pressed}; }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
-        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-            background: transparent;
-            width: 0px;
-        }}
-    """
-    # Setting this QSS on a TableWidget/ListWidget replaces qfluentwidgets'
-    # theme stylesheet.  Style only their native scrollbars instead.
-    vertical = getattr(widget, "verticalScrollBar", lambda: None)()
-    horizontal = getattr(widget, "horizontalScrollBar", lambda: None)()
-    if vertical is not None:
-        vertical.setStyleSheet(qss)
-    if horizontal is not None:
-        horizontal.setStyleSheet(qss)
+    apply_scrollbars(widget)
 
 
 def _thumbnail_list_style() -> str:
     """Theme-aware canvas and item colors for the native cover list."""
-    if isDarkTheme():
-        border = "rgba(255, 255, 255, 0.13)"
-        foreground = "#f2f2f2"
-        hover = "rgba(255, 255, 255, 0.07)"
-        selected = "#244954"
-        selected_border = "#18c4cf"
-    else:
-        border = "rgba(0, 0, 0, 0.15)"
-        foreground = "#202428"
-        hover = "rgba(0, 0, 0, 0.045)"
-        selected = "#c9f0f3"
-        selected_border = "#008c98"
-    return f"""
-        QListWidget#SubscriptionThumbnailList {{
-            background-color: transparent;
-            border: 1px solid {border};
-            border-radius: 4px;
-            outline: none;
-            color: {foreground};
-        }}
-        QListWidget#SubscriptionThumbnailList::item {{
-            background-color: transparent;
-            border: 1px solid transparent;
-            border-radius: 7px;
-            color: {foreground};
-            padding: 0px;
-        }}
-        QListWidget#SubscriptionThumbnailList::item:hover {{
-            background-color: {hover};
-        }}
-        QListWidget#SubscriptionThumbnailList::item:selected {{
-            background-color: {selected};
-            border-color: {selected_border};
-            color: {foreground};
-        }}
-    """
+    return cover_grid_qss("SubscriptionThumbnailList")
 
 
 def _grid_text_height(list_widget: ListWidget, width: int, fallback_lines: int) -> int:
@@ -395,55 +307,13 @@ def _grid_text_height(list_widget: ListWidget, width: int, fallback_lines: int) 
     return height
 
 
-class _FluentSplitterHandle(QSplitterHandle):
-    """Small rounded grip that makes the otherwise subtle splitter discoverable."""
-
-    def __init__(self, orientation: Qt.Orientation, parent: QSplitter):
-        super().__init__(orientation, parent)
-        self._grip = QFrame(self)
-        self._grip.setObjectName("FluentSplitterGrip")
-        self._grip.setFrameShape(QFrame.Shape.NoFrame)
-        self._grip.setStyleSheet(
-            "QFrame#FluentSplitterGrip { background: rgba(0, 160, 170, 0.48); border-radius: 3px; }"
-        )
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.orientation() == Qt.Orientation.Vertical:
-            grip_width, grip_height = min(56, max(32, self.width() - 12)), 4
-        else:
-            grip_width, grip_height = 4, min(56, max(32, self.height() - 12))
-        self._grip.setGeometry(
-            max(0, (self.width() - grip_width) // 2),
-            max(0, (self.height() - grip_height) // 2),
-            grip_width,
-            grip_height,
-        )
-
-
-class _FluentContentSplitter(QSplitter):
-    def createHandle(self):
-        return _FluentSplitterHandle(self.orientation(), self)
+# The subscription page shares the app-wide splitter look.
+_FluentContentSplitter = FluentSplitter
 
 
 def _style_content_splitter(splitter: QSplitter):
-    """Make the vertical content splitter look like a subtle Fluent grab handle."""
-    if isDarkTheme():
-        base = "rgba(255, 255, 255, 0.06)"
-        hover = "rgba(255, 255, 255, 0.18)"
-        pressed = "rgba(255, 255, 255, 0.28)"
+    """Re-apply the shared splitter colors after a theme switch."""
+    if isinstance(splitter, FluentSplitter):
+        splitter.refresh_theme_style()
     else:
-        base = "rgba(0, 0, 0, 0.04)"
-        hover = "rgba(0, 0, 0, 0.10)"
-        pressed = "rgba(0, 0, 0, 0.18)"
-    splitter.setStyleSheet(
-        f"""
-        QSplitter::handle {{ background: {base}; }}
-        QSplitter::handle:horizontal {{ height: 10px; }}
-        QSplitter::handle:vertical {{ width: 10px; }}
-        QSplitter::handle:hover {{ background: {hover}; }}
-        QSplitter::handle:pressed {{ background: {pressed}; }}
-        """
-    )
-
-
+        style_splitter(splitter)

@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlsplit
 
 from PySide6.QtCore import QThread, QTimer, Signal
 
-from ..core.search import SearchVideo
+from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ..i18n import tr
 
 
@@ -137,6 +137,8 @@ class SearchDownloadStatusMixin:
         signal_bus.task_status_changed.connect(self._on_download_task_status_changed)
 
     def _download_status_text(self, video: SearchVideo) -> str:
+        if video.source_kind == IWARA_IMAGE_SOURCE_KIND:
+            return tr("Image post · browse only", "图片作品 · 仅浏览", "画像投稿 · 閲覧のみ")
         status = self._download_status_by_id.get(
             iwara_history_id(video), SearchDownloadStatus.UNIDENTIFIED
         )

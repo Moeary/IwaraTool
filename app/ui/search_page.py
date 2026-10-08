@@ -7,7 +7,7 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QPoint, QThread, Qt, QSize, QTimer
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     ComboBox,
     FluentIcon,
@@ -32,11 +33,8 @@ from qfluentwidgets import (
     ListWidget,
     PrimaryPushButton,
     PushButton,
-    SubtitleLabel,
     TableWidget,
-    TitleLabel,
     ToolButton,
-    isDarkTheme,
 )
 
 from ..config import app_config
@@ -49,9 +47,13 @@ from ..core.search import (
     SearchAuthor,
     SearchFilters,
     SearchPageResult,
+    SearchPlaylist,
     SearchVideo,
     normalize_video,
+    playlist_reference,
+    profile_reference,
 )
+from ..core.rating import RATING_ALL, UI_RATING_KEY, api_rating, normalize_rating, rating_options
 from ..core.tag_dictionary import complete_tag_query, tag_query_fragment
 from ..i18n import tr
 from ..signal_bus import signal_bus
@@ -94,13 +96,15 @@ from .ui_state import (
     restore_table_widths,
     show_fluent_text_input,
 )
+from .media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN, CardSizeControl, PixmapLRU, read_pixmap, saved_card_width
+from .shortcuts import attach_hint
+from .theme import CARD_MARGINS, PAGE_MARGINS, qcolor, set_secondary_text
 from .worker_lifecycle import stop_qthreads
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)
 _DEFAULT_GRID_HEIGHT = 238
-_DEFAULT_GRID_COLUMNS = 4
-_MAX_GRID_COLUMNS = 8
+_MAX_GRID_COLUMNS = 12
 _SEARCH_HISTORY_KEY = "search_history_v1"
 
 
@@ -145,11 +149,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._search_error = ""
         self._all_videos: list[SearchVideo] = []
         self._all_authors: list[SearchAuthor] = []
+        self._all_playlists: list[SearchPlaylist] = []
         self._author_video_target = None
         self._author_profile_workers = []
         self._pending_author_actions = {}
         self._item_by_key: dict[str, QListWidgetItem] = {}
         self._image_path_by_key: dict[str, str] = {}
+        self._source_pixmaps = PixmapLRU(64 * 1024 * 1024)
+        self._small_sources: set[str] = set()
         self._search_workers: list[SearchWorker] = []
         self._image_workers: list[SearchImageWorker] = []
         self._image_pending_keys: set[str] = set()
@@ -162,6 +169,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
+        self._pending_preview_video_ids: set[str] = set()
         self._pending_open_author_video_ids: set[str] = set()
         self._pending_author_subscription_video_ids: set[str] = set()
         self._init_download_status(download_manager.history, signal_bus)
@@ -170,27 +178,18 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 24, 36, 18)
-        root.setSpacing(12)
-
-        title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Search", "搜索", "検索"), self))
-        title_row.addStretch()
-        self._source_status_label = BodyLabel("", self)
-        title_row.addWidget(self._source_status_label)
-        self._toggle_search_controls_btn = PushButton(self)
-        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
-        title_row.addWidget(self._toggle_search_controls_btn)
-        root.addLayout(title_row)
+        root.setContentsMargins(*PAGE_MARGINS)
+        root.setSpacing(10)
 
         query_card = CardWidget(self)
         query_layout = QVBoxLayout(query_card)
-        query_layout.setContentsMargins(16, 14, 16, 14)
+        query_layout.setContentsMargins(*CARD_MARGINS)
         query_layout.setSpacing(10)
 
-        query_row = QHBoxLayout()
-        query_row.setSpacing(8)
-        query_row.addWidget(BodyLabel(tr("Source", "数据源", "ソース"), query_card))
+        # Row 1: where to search, what to search for, go.  The combo boxes
+        # show their current value, so they carry no separate captions.
+        keyword_row = QHBoxLayout()
+        keyword_row.setSpacing(8)
         self._source_combo = ComboBox(query_card)
         self._add_combo_item(
             self._source_combo,
@@ -202,37 +201,10 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             tr("Iwara live API", "Iwara 实时 API", "IwaraライブAPI"),
             "iwara",
         )
-        self._source_combo.setMinimumWidth(178)
+        self._source_combo.setMinimumWidth(168)
+        self._source_combo.setToolTip(tr("Search source", "数据源", "検索ソース"))
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
-        query_row.addWidget(self._source_combo)
-        query_row.addWidget(BodyLabel(tr("Scope", "搜索类型", "検索対象"), query_card))
-        self._scope_combo = ComboBox(query_card)
-        self._scope_items = [
-            (tr("Keywords", "关键词搜索", "キーワード検索"), "videos"),
-            (tr("Authors", "作者", "作者"), "authors"),
-            (tr("Tags", "标签搜索", "タグ検索"), "tags"),
-            (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
-        ]
-        for text, data in self._scope_items:
-            self._add_combo_item(self._scope_combo, text, data)
-        self._scope_combo.setMinimumWidth(132)
-        self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
-        query_row.addWidget(self._scope_combo)
-
-        query_row.addWidget(BodyLabel(tr("Sort", "排序", "並び順"), query_card))
-        self._sort_combo = self._make_combo(
-            [
-                (tr("Newest", "最新", "新着"), "date"),
-                (tr("Trending", "趋势", "トレンド"), "trending"),
-                (tr("Popularity", "热度", "人気"), "popularity"),
-                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
-                (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
-            ],
-            query_card,
-        )
-        self._sort_combo.setMinimumWidth(132)
-        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-        query_row.addWidget(self._sort_combo)
+        keyword_row.addWidget(self._source_combo)
 
         self._keyword_edit = SearchKeywordEdit(query_card)
         self._keyword_edit.setClearButtonEnabled(True)
@@ -246,43 +218,111 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._keyword_edit.returnPressed.connect(self._start_search)
         self._keyword_edit.textEdited.connect(self._clear_author_navigation)
         self._keyword_edit.textChanged.connect(self._sync_sort_options)
-        query_row.addWidget(self._keyword_edit, 1)
+        keyword_row.addWidget(self._keyword_edit, 1)
 
         self._search_btn = PrimaryPushButton(tr("Search", "搜索", "検索"), query_card, FluentIcon.SEARCH)
-        self._search_btn.setMinimumWidth(112)
+        self._search_btn.setMinimumWidth(104)
         self._search_btn.clicked.connect(self._start_search)
-        query_row.addWidget(self._search_btn)
+        keyword_row.addWidget(self._search_btn)
 
-        self._reset_btn = PushButton(tr("Reset", "重置", "リセット"), query_card)
+        self._reset_btn = ToolButton(FluentIcon.CANCEL, query_card)
+        self._reset_btn.setToolTip(tr("Reset the search", "重置搜索", "検索をリセット"))
         self._reset_btn.clicked.connect(self._reset_filters)
-        query_row.addWidget(self._reset_btn)
-        query_layout.addLayout(query_row)
+        keyword_row.addWidget(self._reset_btn)
+        query_layout.addLayout(keyword_row)
 
-        self._scope_hint = BodyLabel("", query_card)
+        # Row 2: scope / sort / rating on the left, the view switch on the right.
+        options_row = QHBoxLayout()
+        options_row.setSpacing(8)
+        self._scope_combo = ComboBox(query_card)
+        self._scope_items = [
+            (tr("Videos", "视频", "動画"), "videos"),
+            (tr("Images", "图片", "画像"), "images"),
+            (tr("Authors", "作者", "作者"), "authors"),
+            (tr("Tags", "标签搜索", "タグ検索"), "tags"),
+            (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
+        ]
+        for text, data in self._scope_items:
+            self._add_combo_item(self._scope_combo, text, data)
+        self._scope_combo.setMinimumWidth(120)
+        self._scope_combo.setToolTip(tr("What to search", "搜索类型", "検索対象"))
+        self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
+        options_row.addWidget(self._scope_combo)
+
+        self._sort_combo = self._make_combo(
+            [
+                (tr("Newest", "最新", "新着"), "date"),
+                (tr("Trending", "趋势", "トレンド"), "trending"),
+                (tr("Popularity", "热度", "人気"), "popularity"),
+                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
+                (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
+            ],
+            query_card,
+        )
+        self._sort_combo.setMinimumWidth(120)
+        self._sort_combo.setToolTip(tr("Sort order", "排序", "並び順"))
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        options_row.addWidget(self._sort_combo)
+
+        # SFW / NSFW, shared with the Home page. Oreno3D cards carry no
+        # rating, so the selector is only offered for the Iwara source.
+        self._rating_group = QWidget(query_card)
+        rating_layout = QHBoxLayout(self._rating_group)
+        rating_layout.setContentsMargins(0, 0, 0, 0)
+        rating_layout.setSpacing(0)
+        self._rating_combo = self._make_combo(rating_options(), self._rating_group)
+        self._rating_combo.setMinimumWidth(104)
+        self._rating_combo.setToolTip(
+            tr(
+                "Content rating. SFW shows general-rated posts only, NSFW shows R-18 (ecchi) posts only.",
+                "内容分级。SFW 仅显示全年龄作品，NSFW 仅显示 R-18（ecchi）作品。",
+                "コンテンツ区分。SFWは全年齢向けのみ、NSFWはR-18（ecchi）のみを表示します。",
+            )
+        )
+        self._set_combo_data(
+            self._rating_combo, normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
+        )
+        self._rating_combo.currentIndexChanged.connect(self._on_rating_changed)
+        rating_layout.addWidget(self._rating_combo)
+        options_row.addWidget(self._rating_group)
+        signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
+
+        options_row.addStretch(1)
+
+        self._view_combo = self._make_combo(
+            [
+                (tr("Grid", "网格", "グリッド"), "grid"),
+                (tr("List", "列表", "リスト"), "list"),
+            ],
+            query_card,
+        )
+        self._view_combo.setFixedWidth(92)
+        self._view_combo.setToolTip(tr("Result view", "结果视图", "表示"))
+        saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
+        self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
+        self._view_combo.currentIndexChanged.connect(self._on_view_changed)
+        options_row.addWidget(self._view_combo)
+        # The same cover-size slider as Home and Subscriptions: one control,
+        # one saved size, instead of a separate "columns" number here.
+        self._card_size_control = CardSizeControl(query_card)
+        options_row.addWidget(self._card_size_control)
+        self._card_min_width = saved_card_width()
+        self._card_size_control.size_changed.connect(self._on_card_size_changed)
+        self._result_fields_btn = ToolButton(FluentIcon.SETTING, query_card)
+        self._result_fields_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
+        self._result_fields_btn.clicked.connect(self._configure_result_columns)
+        options_row.addWidget(self._result_fields_btn)
+        query_layout.addLayout(options_row)
+
+        # Only shown while browsing one author's works; the generic per-scope
+        # explanations live in the keyword box's tooltip instead.
+        self._scope_hint = CaptionLabel("", query_card)
         self._scope_hint.setWordWrap(True)
+        self._scope_hint.hide()
+        set_secondary_text(self._scope_hint)
         query_layout.addWidget(self._scope_hint)
         self._query_card = query_card
         root.addWidget(query_card)
-
-        rule_card = CardWidget(self)
-        rule_layout = QHBoxLayout(rule_card)
-        rule_layout.setContentsMargins(16, 14, 16, 14)
-        rule_layout.setSpacing(10)
-        rule_layout.addWidget(SubtitleLabel(tr("Download rule", "下载规则", "ダウンロードルール"), rule_card))
-        self._rule_picker = RulePicker(rule_card)
-        rule_layout.addWidget(self._rule_picker, 1)
-        rule_layout.addWidget(
-            BodyLabel(
-                tr(
-                    "The selected rule controls filtering, naming and download behavior.",
-                    "所选规则统一控制筛选、命名和下载行为。",
-                    "選択したルールがフィルター・命名・保存動作を統一します。",
-                ),
-                rule_card,
-            )
-        )
-        self._rule_card = rule_card
-        root.addWidget(rule_card)
 
         self._tag_popup = TagSuggestionPopup(self)
         self._tag_popup.suggestion_chosen.connect(self._apply_tag_suggestion)
@@ -297,75 +337,63 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._keyword_edit.deactivated.connect(self._hide_search_history_popup)
         self._refresh_search_history_popup()
 
+        # Result bar: pager and status on the left, what to do with the
+        # selection on the right.
         result_header = QHBoxLayout()
-        # Keep paging beside the result controls so it remains readable and is
-        # immediately below the download-rule card instead of being stranded
-        # in the page's bottom margin.
-        pagination = QHBoxLayout()
-        pagination.setSpacing(8)
-        self._previous_page_btn = ToolButton(self)
+        result_header.setSpacing(8)
+        pagination = QWidget(self)
+        pagination_layout = QHBoxLayout(pagination)
+        pagination_layout.setContentsMargins(0, 0, 0, 0)
+        pagination_layout.setSpacing(4)
+        self._previous_page_btn = ToolButton(pagination)
         self._previous_page_btn.setIcon(FluentIcon.LEFT_ARROW)
-        self._previous_page_btn.setFixedSize(44, 36)
         self._previous_page_btn.setToolTip(
-            tr("Previous page", "上一页", "前のページ")
+            tr("Previous page (Alt+Left)", "上一页（Alt+←）", "前のページ（Alt+←）")
         )
         self._previous_page_btn.clicked.connect(self._go_previous_page)
-        pagination.addWidget(self._previous_page_btn)
-        self._page_label = BodyLabel("", self)
-        self._page_label.setMinimumWidth(112)
+        pagination_layout.addWidget(self._previous_page_btn)
+        self._page_label = BodyLabel("", pagination)
+        self._page_label.setMinimumWidth(84)
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pagination.addWidget(self._page_label)
-        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), self)
+        pagination_layout.addWidget(self._page_label)
+        self._next_page_btn = ToolButton(pagination)
+        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
+        self._next_page_btn.setToolTip(
+            tr("Next page (Alt+Right)", "下一页（Alt+→）", "次のページ（Alt+→）")
+        )
+        self._next_page_btn.clicked.connect(self._go_next_page)
+        pagination_layout.addWidget(self._next_page_btn)
+        self._jump_page_btn = ToolButton(FluentIcon.SEND, pagination)
         self._jump_page_btn.setToolTip(
             tr("Jump to a page", "输入页码并跳转", "ページ番号を入力して移動")
         )
         self._jump_page_btn.clicked.connect(self._jump_to_page)
-        pagination.addWidget(self._jump_page_btn)
-        self._next_page_btn = ToolButton(self)
-        self._next_page_btn.setIcon(FluentIcon.RIGHT_ARROW)
-        self._next_page_btn.setFixedSize(44, 36)
-        self._next_page_btn.setToolTip(
-            tr("Next page", "下一页", "次のページ")
-        )
-        self._next_page_btn.clicked.connect(self._go_next_page)
-        pagination.addWidget(self._next_page_btn)
-        result_header.addLayout(pagination)
-        result_header.addSpacing(12)
-        self._status_label = BodyLabel(
-            tr("Enter a query or search the latest videos", "输入条件后开始搜索，也可以直接查看最新视频", "条件を入力して検索してください"),
-            self,
-        )
-        self._status_label.setWordWrap(True)
+        pagination_layout.addWidget(self._jump_page_btn)
+        result_header.addWidget(pagination)
+
+        self._status_label = CaptionLabel("", self)
+        self._status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._status_label)
         result_header.addWidget(self._status_label, 1)
-        result_header.addWidget(BodyLabel(tr("View", "视图", "表示"), self))
-        self._view_combo = self._make_combo(
-            [
-                (tr("Grid", "网格", "グリッド"), "grid"),
-                (tr("List", "列表", "リスト"), "list"),
-            ],
-            self,
+
+        # The rule decides naming and filtering of whatever is added, so it
+        # sits right next to the buttons that add.
+        rule_group = QWidget(self)
+        rule_group_layout = QHBoxLayout(rule_group)
+        rule_group_layout.setContentsMargins(0, 0, 0, 0)
+        rule_group_layout.setSpacing(0)
+        self._rule_picker = RulePicker(rule_group)
+        self._rule_picker.setToolTip(
+            tr(
+                "Download rule: controls filtering, naming and download behavior.",
+                "下载规则：统一控制筛选、命名和下载行为。",
+                "ダウンロードルール：フィルター・命名・保存動作を統一します。",
+            )
         )
-        self._view_combo.setFixedWidth(96)
-        saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
-        self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
-        self._view_combo.currentIndexChanged.connect(self._on_view_changed)
-        result_header.addWidget(self._view_combo)
-        self._grid_columns_label = BodyLabel(tr("Columns", "每行列数", "1行の列数"), self)
-        result_header.addWidget(self._grid_columns_label)
-        self._grid_columns_combo = ComboBox(self)
-        for columns in range(1, _MAX_GRID_COLUMNS + 1):
-            self._add_combo_item(self._grid_columns_combo, str(columns), str(columns))
-        try:
-            saved_columns = int(app_config.get_ui_value("search_grid_columns_v1", _DEFAULT_GRID_COLUMNS) or _DEFAULT_GRID_COLUMNS)
-        except (TypeError, ValueError):
-            saved_columns = _DEFAULT_GRID_COLUMNS
-        self._grid_columns_combo.setCurrentIndex(max(1, min(_MAX_GRID_COLUMNS, saved_columns)) - 1)
-        self._grid_columns_combo.setFixedWidth(84)
-        self._grid_columns_combo.currentIndexChanged.connect(self._on_grid_columns_changed)
-        result_header.addWidget(self._grid_columns_combo)
-        self._result_fields_btn = PushButton(tr("Fields", "字段设置", "字段設定"), self, FluentIcon.SETTING)
-        self._result_fields_btn.clicked.connect(self._configure_result_columns)
-        result_header.addWidget(self._result_fields_btn)
+        rule_group_layout.addWidget(self._rule_picker)
+        self._rule_card = rule_group
+        result_header.addWidget(rule_group)
+
         self._queue_selected_btn = PrimaryPushButton(
             tr("Add selected", "加入选中项", "選択を追加"), self, FluentIcon.DOWNLOAD
         )
@@ -376,7 +404,16 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._open_selected_btn.setEnabled(False)
         self._open_selected_btn.clicked.connect(self._open_selected)
         result_header.addWidget(self._open_selected_btn)
+        self._toggle_search_controls_btn = ToolButton(self)
+        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
+        result_header.addWidget(self._toggle_search_controls_btn)
         root.addLayout(result_header)
+
+        # Paging, focus and the other search keys come from the shortcut catalogue
+        # (see shortcut_bindings), so rebinding them in Settings really takes effect.
+        attach_hint(self._previous_page_btn, tr("Previous page", "上一页", "前のページ"), "search_prev_page")
+        attach_hint(self._next_page_btn, tr("Next page", "下一页", "次のページ"), "search_next_page")
+        attach_hint(self._reset_btn, tr("Reset the search", "重置搜索", "検索をリセット"), "search_reset")
 
         result_card = CardWidget(self)
         result_layout = QVBoxLayout(result_card)
@@ -517,18 +554,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._hide_search_history_popup()
             if self._tag_popup is not None:
                 self._tag_popup.hide()
-            self._toggle_search_controls_btn.setText(
+            self._toggle_search_controls_btn.setIcon(FluentIcon.DOWN)
+            self._toggle_search_controls_btn.setToolTip(
                 tr("Show search controls", "展开搜索区", "検索欄を展開")
             )
-            self._toggle_search_controls_btn.setToolTip(
-                tr("Show search and download rule controls", "显示搜索与下载规则", "検索・保存ルール欄を表示")
-            )
         else:
-            self._toggle_search_controls_btn.setText(
-                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
-            )
+            self._toggle_search_controls_btn.setIcon(FluentIcon.UP)
             self._toggle_search_controls_btn.setToolTip(
-                tr("Hide search and download rule controls", "隐藏搜索与下载规则", "検索・保存ルール欄を隠す")
+                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
             )
         if persist:
             app_config.set_ui_value(
@@ -560,7 +593,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             "Latest videos", "最新视频", "最新動画"
         )
         scope_labels = {
-            "videos": tr("Keywords", "关键词搜索", "キーワード検索"),
+            "videos": tr("Videos", "视频", "動画"),
+            "images": tr("Images", "图片", "画像"),
             "authors": tr("Authors", "作者", "作者"),
             "tags": tr("Tags", "标签搜索", "タグ検索"),
             "playlists": tr("Playlists", "播放列表", "プレイリスト"),
@@ -680,23 +714,32 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             value = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
         return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
 
+    def _grid_only_results(self) -> bool:
+        """Author and playlist cards have no table columns to show."""
+
+        scope = str(self._scope_combo.currentData() or "videos")
+        return scope == "authors" or bool(self._all_playlists)
+
     def _is_list_view(self) -> bool:
         return (
             str(self._view_combo.currentData() or "grid") == "list"
-            and str(self._scope_combo.currentData() or "videos") != "authors"
+            and not self._grid_only_results()
         )
 
     def _sync_view_controls(self):
         if not hasattr(self, "_view_combo"):
             return
-        if str(self._scope_combo.currentData() or "videos") == "authors":
-            self._view_combo.blockSignals(True)
-            self._view_combo.setCurrentIndex(0)
-            self._view_combo.blockSignals(False)
+        # Card-only results show the grid without overwriting the saved view,
+        # so returning to video results restores the user's list preference.
+        grid_only = self._grid_only_results()
+        saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
+        self._view_combo.blockSignals(True)
+        self._view_combo.setCurrentIndex(0 if grid_only or saved_view != "list" else 1)
+        self._view_combo.blockSignals(False)
+        self._view_combo.setEnabled(not grid_only)
         list_mode = self._is_list_view()
         grid_mode = not list_mode
-        self._grid_columns_label.setVisible(grid_mode)
-        self._grid_columns_combo.setVisible(grid_mode)
+        self._card_size_control.setVisible(grid_mode)
         self._result_fields_btn.setVisible(list_mode)
         if hasattr(self, "_results_stack"):
             self._results_stack.setCurrentIndex(1 if list_mode else 0)
@@ -711,15 +754,15 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if not self._is_list_view():
             self._start_image_loading()
 
-    def _on_grid_columns_changed(self, _index: int):
-        try:
-            value = int(self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS)
-        except (TypeError, ValueError):
-            value = _DEFAULT_GRID_COLUMNS
-        value = max(1, min(_MAX_GRID_COLUMNS, value))
-        app_config.set_ui_value("search_grid_columns_v1", value)
+    def _on_card_size_changed(self, width: int):
+        self._card_min_width = max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, int(width)))
         self._resize_grid()
         self._schedule_grid_resize()
+
+    def _grid_columns_for(self, available_width: int, spacing: int) -> int:
+        """Cards per row for the chosen cover size: as many as fit at least that wide."""
+
+        return max(1, min(_MAX_GRID_COLUMNS, (available_width + spacing) // (self._card_min_width + spacing)))
 
     def _configure_result_columns(self):
         open_table_column_dialog(
@@ -755,12 +798,21 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         scope = str(self._scope_combo.currentData() or "videos")
         if scope == "authors":
             hint = tr(
-                "Author mode uses the Iwara live API. Switch the source if needed.",
-                "作者模式使用 Iwara 实时 API；如需切换请修改数据源。",
-                "作者モードはIwaraライブAPIを使用します。必要ならソースを切り替えてください。",
+                "Searches Iwara users by name. Use @username or a profile URL to open one exact account.",
+                "按名称搜索 Iwara 用户；输入 @用户名 或个人主页链接可直接定位到该账号。",
+                "名前でIwaraユーザーを検索します。@ユーザー名またはプロフィールURLで特定のアカウントを開けます。",
             )
             self._keyword_edit.setPlaceholderText(
-                tr("Author username…", "输入作者用户名…", "作者ユーザー名…")
+                tr("Author name, @username or profile URL…", "输入作者名称、@用户名或主页链接…", "作者名、@ユーザー名、プロフィールURL…")
+            )
+        elif scope == "images":
+            hint = tr(
+                "Searches Iwara image posts; leave blank to browse them. Images can be viewed, but not queued for download.",
+                "搜索 Iwara 图片作品，留空则浏览图片列表；图片可查看，但不能加入下载队列。",
+                "Iwaraの画像投稿を検索します。空欄なら一覧を表示します。閲覧はできますが、ダウンロードキューには追加できません。",
+            )
+            self._keyword_edit.setPlaceholderText(
+                tr("Image keywords (blank to browse)…", "输入图片关键词（留空浏览）…", "画像のキーワード（空欄で一覧）…")
             )
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
@@ -784,12 +836,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             )
         elif scope == "playlists":
             hint = tr(
-                "Paste a playlist ID or an iwara.tv/playlist/... URL.",
-                "可输入播放列表 ID，或粘贴 iwara.tv/playlist/... 链接。",
-                "プレイリストIDまたはiwara.tv/playlist/... URLを入力できます。",
+                "Searches playlists by title. Paste a playlist ID or iwara.tv/playlist/... URL to list its videos; double-click a playlist card to open it here.",
+                "按标题搜索播放列表；粘贴播放列表 ID 或 iwara.tv/playlist/... 链接可直接列出其中视频，双击播放列表卡片也可在此打开。",
+                "タイトルでプレイリストを検索します。プレイリストIDまたはiwara.tv/playlist/... URLで動画一覧を表示し、カードをダブルクリックしてもここで開けます。",
             )
             self._keyword_edit.setPlaceholderText(
-                tr("Playlist ID or URL…", "输入播放列表 ID 或链接…", "プレイリストIDまたはURL…")
+                tr("Playlist keywords, ID or URL…", "输入播放列表关键词、ID 或链接…", "プレイリストのキーワード、ID、URL…")
             )
         else:
             hint = tr(
@@ -808,7 +860,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                     "キーワードまたはタイトル…",
                 )
             )
-        self._scope_hint.setText(hint)
+        self._keyword_edit.setToolTip(hint)
         if scope != "tags" and self._tag_popup is not None:
             self._tag_popup.hide()
         self._sync_view_controls()
@@ -845,6 +897,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                 self._last_page = self._next_page = self._total = None
                 self._all_videos.clear()
                 self._all_authors.clear()
+                self._all_playlists.clear()
                 self._render_results()
                 self._set_loading(False)
                 self._status_label.setText(tr("Enter search terms", "请输入搜索条件", "検索条件を入力してください"))
@@ -853,23 +906,30 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
     def _sync_sort_options(self, *_args):
         """Only advertise sorts supported by the selected remote endpoint."""
 
-        keyword_search = (
-            str(self._source_combo.currentData() or "oreno3d") == "iwara"
-            and str(self._scope_combo.currentData() or "videos") == "videos"
-            and bool(self._keyword_edit.text().strip())
-        )
-        items = [
-            (tr("Newest", "最新", "新着"), "date"),
-            (tr("Relevance", "相关度", "関連度"), "relevance"),
-            (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
-            (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
-        ] if keyword_search else [
-            (tr("Newest", "最新", "新着"), "date"),
-            (tr("Trending", "趋势", "トレンド"), "trending"),
-            (tr("Popularity", "热度", "人気"), "popularity"),
-            (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
-            (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
-        ]
+        iwara = str(self._source_combo.currentData() or "oreno3d") == "iwara"
+        scope = str(self._scope_combo.currentData() or "videos")
+        keyword = self._keyword_edit.text().strip()
+        newest = (tr("Newest", "最新", "新着"), "date")
+        relevance = (tr("Relevance", "相关度", "関連度"), "relevance")
+        views = (tr("Most viewed", "最多人观看", "再生数最多"), "views")
+        likes = (tr("Most liked", "喜欢最多", "いいね順"), "likes")
+        if iwara and scope in {"images", "videos"} and keyword:
+            # Native /search for videos and images accepts four orders.
+            items = [newest, relevance, views, likes]
+        elif iwara and (
+            (scope == "authors" and not profile_reference(keyword))
+            or (scope == "playlists" and not playlist_reference(keyword))
+        ):
+            # Native user and playlist search only accepts these two.
+            items = [newest, relevance]
+        else:
+            items = [
+                newest,
+                (tr("Trending", "趋势", "トレンド"), "trending"),
+                (tr("Popularity", "热度", "人気"), "popularity"),
+                views,
+                likes,
+            ]
         if [self._sort_combo.itemData(i) for i in range(self._sort_combo.count())] == [key for _, key in items]:
             return
         previous = str(self._sort_combo.currentData() or "date")
@@ -892,6 +952,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
         supported = {"videos", "tags"} if source == "oreno3d" else {
             "videos",
+            "images",
             "authors",
             "tags",
             "playlists",
@@ -912,12 +973,32 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._clear_author_navigation()
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
-        self._source_status_label.clear()
+        self._rating_group.setVisible(source == "iwara")
         self._on_scope_changed(trigger_search=False)
         if trigger_search:
             self._schedule_auto_search()
 
     def _on_sort_changed(self, *_args):
+        self._schedule_auto_search()
+
+    def _selected_rating(self) -> str:
+        return normalize_rating(self._rating_combo.currentData())
+
+    def _on_rating_changed(self, *_args):
+        rating = self._selected_rating()
+        app_config.set_ui_value(UI_RATING_KEY, rating)
+        signal_bus.content_rating_changed.emit(rating)
+        self._schedule_auto_search()
+
+    def _on_rating_broadcast(self, rating: str):
+        """Follow a change made on the Home page without echoing it back."""
+
+        rating = normalize_rating(rating)
+        if rating == self._selected_rating():
+            return
+        self._rating_combo.blockSignals(True)
+        self._set_combo_data(self._rating_combo, rating)
+        self._rating_combo.blockSignals(False)
         self._schedule_auto_search()
 
     def _schedule_auto_search(self):
@@ -997,11 +1078,20 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             and str(self._scope_combo.currentData() or "videos") == "videos"
             else ""
         )
+        iwara = str(self._source_combo.currentData() or "oreno3d") == "iwara"
+        keyword = self._keyword_edit.text().strip()
+        rating = api_rating(self._selected_rating()) if iwara else ""
+        page_size = 32 if iwara else 36
+        if rating and keyword:
+            # /search ignores the rating, so the page is filtered locally;
+            # ask for the largest page so a filtered page is not nearly empty.
+            page_size = 100
         return SearchFilters(
-            keyword=self._keyword_edit.text().strip(),
+            keyword=keyword,
             author_id=author_id,
             sort=str(self._sort_combo.currentData() or "date"),
-            page_size=36 if str(self._source_combo.currentData() or "oreno3d") == "oreno3d" else 32,
+            rating=rating,
+            page_size=page_size,
         )
 
     def _start_search(self, *_args):
@@ -1014,23 +1104,23 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
         scope = str(self._scope_combo.currentData() or "videos")
         source = str(self._source_combo.currentData() or "oreno3d")
-        if scope in {"authors", "playlists"} and source == "oreno3d":
+        if scope in {"images", "authors", "playlists"} and source == "oreno3d":
             self._show_warning(
                 tr(
-                    "Oreno3D online search currently returns video cards. Switch to Iwara live API for author or playlist results.",
-                    "Oreno3D 在线搜索当前返回视频卡片；作者或播放列表结果请切换到 Iwara 实时 API。",
-                    "Oreno3Dオンライン検索は現在動画カードを返します。作者・プレイリストはIwaraライブAPIへ切り替えてください。",
+                    "Oreno3D online search currently returns video cards. Switch to Iwara live API for image, author or playlist results.",
+                    "Oreno3D 在线搜索当前返回视频卡片；图片、作者或播放列表结果请切换到 Iwara 实时 API。",
+                    "Oreno3Dオンライン検索は現在動画カードを返します。画像・作者・プレイリストはIwaraライブAPIへ切り替えてください。",
                 )
             )
             return
         if scope == "authors" and not filters.keyword:
-            self._show_error(tr("Enter an author username first", "请先输入作者用户名", "作者ユーザー名を入力してください"))
+            self._show_error(tr("Enter an author name first", "请先输入作者名称", "作者名を入力してください"))
             return
         if scope == "tags" and not filters.keyword:
             self._show_error(tr("Enter at least one tag", "请至少输入一个标签", "タグを1つ以上入力してください"))
             return
         if scope == "playlists" and not filters.keyword:
-            self._show_error(tr("Enter a playlist ID or URL", "请输入播放列表 ID 或链接", "プレイリストIDまたはURLを入力してください"))
+            self._show_error(tr("Enter playlist keywords, an ID or a URL", "请输入播放列表关键词、ID 或链接", "プレイリストのキーワード、ID、URLを入力してください"))
             return
 
         self._record_current_search()
@@ -1040,11 +1130,13 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._current_page = 0
         self._last_page = None
         self._pending_open_video_ids.clear()
+        self._pending_preview_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._next_page = 0
         self._total = None
         self._all_videos.clear()
         self._all_authors.clear()
+        self._all_playlists.clear()
         self._image_path_by_key.clear()
         self._image_pending_keys.clear()
         self._render_results()
@@ -1090,6 +1182,33 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
         self._go_next_page()
 
+    def _go_previous_page_if_enabled(self):
+        if self._previous_page_btn.isEnabled():
+            self._go_previous_page()
+
+    def _go_next_page_if_enabled(self):
+        if self._next_page_btn.isEnabled():
+            self._go_next_page()
+
+    def _toggle_view_mode(self):
+        """Switch between the poster grid and the table (when the results allow it)."""
+
+        if not self._view_combo.isEnabled():
+            return
+        self._view_combo.setCurrentIndex(0 if self._is_list_view() else 1)
+
+    def _focus_keyword(self):
+        if self._search_controls_collapsed:
+            self._set_search_controls_collapsed(False)
+        self._keyword_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._keyword_edit.selectAll()
+
+    def _set_scope_hint(self, text: str):
+        """Context line under the query box; hidden whenever it has nothing to say."""
+
+        self._scope_hint.setText(text)
+        self._scope_hint.setVisible(bool(text))
+
     def _go_previous_page(self):
         if self._current_page <= 0:
             return
@@ -1107,7 +1226,13 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._navigate_to_page(page)
 
     def _jump_to_page(self):
-        if self._last_page is None and self._total is None and not self._all_videos and not self._all_authors:
+        if (
+            self._last_page is None
+            and self._total is None
+            and not self._all_videos
+            and not self._all_authors
+            and not self._all_playlists
+        ):
             self._show_warning(
                 tr(
                     "Run a search before jumping to a page.",
@@ -1170,6 +1295,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
+        self._pending_preview_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._current_page = page
         self._next_page = None
@@ -1178,7 +1304,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
     def _run_search(self, filters: SearchFilters, scope: str, *, source: str, page: int, replace_results: bool):
         worker = SearchWorker(
             filters,
-            scope if scope in {"videos", "authors", "tags", "playlists"} else "videos",
+            scope if scope in {"videos", "images", "authors", "tags", "playlists"} else "videos",
             page,
             self._generation,
             replace_results=replace_results,
@@ -1197,6 +1323,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if worker.replace_results:
             self._all_videos.clear()
             self._all_authors.clear()
+            self._all_playlists.clear()
+        existing_playlist_ids = {item.playlist_id for item in self._all_playlists}
+        for playlist in result.playlists:
+            if playlist.playlist_id not in existing_playlist_ids:
+                self._all_playlists.append(playlist)
+                existing_playlist_ids.add(playlist.playlist_id)
         existing_video_ids = {video.video_id for video in self._all_videos}
         for video in result.videos:
             if video.video_id not in existing_video_ids:
@@ -1362,6 +1494,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
 
         focused = self.focusWidget()
+        if video.video_id in self._pending_preview_video_ids:
+            preview_id = self._preview_video_id(video)
+            if preview_id:
+                self._pending_preview_video_ids.discard(video.video_id)
+                signal_bus.video_preview_requested.emit(preview_id, video.title, "")
+            elif link.get("error"):
+                self._pending_preview_video_ids.discard(video.video_id)
+                self._show_warning(str(link["error"]))
         if video.video_id in self._pending_open_video_ids:
             if video.iwara_url:
                 self._pending_open_video_ids.discard(video.video_id)
@@ -1443,6 +1583,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                     key = f"author:{author.author_id}"
                     if key not in self._image_path_by_key and key not in pending_keys:
                         jobs.append(("author", author.author_id, author.avatar_url))
+        for playlist in self._all_playlists:
+            if playlist.thumbnail_url:
+                key = f"playlist:{playlist.playlist_id}"
+                if key not in self._image_path_by_key and key not in pending_keys:
+                    jobs.append(("playlist", playlist.playlist_id, playlist.thumbnail_url))
         if not jobs:
             return
         self._image_pending_keys.update(f"{kind}:{item_key}" for kind, item_key, _ in jobs)
@@ -1486,10 +1631,13 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._results_table.setRowCount(0)
             self._item_by_key.clear()
             scope = str(self._scope_combo.currentData() or "videos")
-            list_mode = self._is_list_view() and scope != "authors"
+            list_mode = self._is_list_view()
             if scope == "authors":
                 for author in self._all_authors:
                     self._add_author_item(author)
+            elif self._all_playlists:
+                for playlist in self._all_playlists:
+                    self._add_playlist_item(playlist)
             elif list_mode:
                 self._render_video_table()
             else:
@@ -1668,7 +1816,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         key = f"video:{video.video_id}"
         item = QListWidgetItem(self._placeholder_icon("video"), self._video_card_text(video))
         item.setData(self._DATA_ROLE, {"kind": "video", "key": key, "data": video})
-        item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+        item.setForeground(qcolor("text"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         item.setToolTip(
             f"{video.title}\n"
@@ -1684,17 +1832,23 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
 
     def _add_author_item(self, author: SearchAuthor):
         key = f"author:{author.author_id}"
-        count = tr(
-            f"{_format_count(author.video_count)} videos",
-            f"{_format_count(author.video_count)} 个视频",
-            f"動画 {_format_count(author.video_count)} 件",
-        )
-        text = f"{_short_text(author.name or author.username, 42)}\n@{author.username}\n{count}"
+        if author.video_count or not author.joined_at:
+            detail = tr(
+                f"{_format_count(author.video_count)} videos",
+                f"{_format_count(author.video_count)} 个视频",
+                f"動画 {_format_count(author.video_count)} 件",
+            )
+        else:
+            # Native user search rows carry no work count; show when the
+            # account was created instead of a misleading "0 videos".
+            joined = author.joined_at[:10]
+            detail = tr(f"Joined {joined}", f"注册于 {joined}", f"登録日 {joined}")
+        text = f"{_short_text(author.name or author.username, 42)}\n@{author.username}\n{detail}"
         if author.bio:
             text += f"\n{_short_text(author.bio, 64)}"
         item = QListWidgetItem(self._placeholder_icon("author"), text)
         item.setData(self._DATA_ROLE, {"kind": "author", "key": key, "data": author})
-        item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+        item.setForeground(qcolor("text"))
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         item.setToolTip(f"{author.username}\n{author.source_url}")
         item.setSizeHint(QSize(300, _DEFAULT_GRID_HEIGHT))
@@ -1703,16 +1857,71 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._results.addItem(item)
         self._item_by_key[key] = item
 
+    def _add_playlist_item(self, playlist: SearchPlaylist):
+        key = f"playlist:{playlist.playlist_id}"
+        count = tr(
+            f"{_format_count(playlist.video_count)} videos",
+            f"{_format_count(playlist.video_count)} 个视频",
+            f"動画 {_format_count(playlist.video_count)} 件",
+        )
+        author = (
+            f"@{playlist.author_username}"
+            if playlist.author_username
+            else tr("Unknown author", "未知作者", "作者不明")
+        )
+        text = f"{_short_text(playlist.title, 46)}\n{author}\n{count}"
+        item = QListWidgetItem(self._placeholder_icon("playlist"), text)
+        item.setData(self._DATA_ROLE, {"kind": "playlist", "key": key, "data": playlist})
+        item.setForeground(qcolor("text"))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        item.setToolTip(
+            f"{playlist.title}\n{playlist.source_url}\n"
+            + tr(
+                "Double-click to list its videos here",
+                "双击在此列出其中的视频",
+                "ダブルクリックでここに動画一覧を表示",
+            )
+        )
+        item.setSizeHint(getattr(self, "_grid_item_size", QSize(300, _DEFAULT_GRID_HEIGHT)))
+        if key in self._image_path_by_key:
+            item.setIcon(self._image_icon(self._image_path_by_key[key]))
+        self._results.addItem(item)
+        self._item_by_key[key] = item
+
     def _placeholder_icon(self, kind: str) -> QIcon:
-        pixmap = QPixmap(getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE))
-        pixmap.fill(QColor("#30343b" if isDarkTheme() else "#edf0f5"))
-        return QIcon(pixmap)
+        # One grey tile per (size, theme colour), shared by every card without a cover yet.
+        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
+        color = qcolor("placeholder")
+        cache = self.__dict__.setdefault("_placeholder_icons", {})
+        key = (size.width(), size.height(), color.name())
+        icon = cache.get(key)
+        if icon is None:
+            if len(cache) > 8:
+                cache.clear()
+            pixmap = QPixmap(size)
+            pixmap.fill(color)
+            icon = cache[key] = QIcon(pixmap)
+        return icon
 
     def _image_icon(self, path: str) -> QIcon:
-        pixmap = QPixmap(path)
+        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
+        # Decode at the size a card shows (plus some headroom), not at the file's
+        # native size: a 1280 x 720 cover is 3.7 MB decoded and a page has
+        # 100 of them.  Decoded covers are kept up to a byte budget so a resize
+        # can rebuild the cards without reading the files; a cover cached
+        # smaller than a bigger card now needs is read again.
+        want = max(240, round(size.width() * 1.25))
+        cache = self._source_pixmaps
+        pixmap = cache.get(path)
+        if pixmap is None or (pixmap.width() < want and path not in self._small_sources):
+            pixmap = read_pixmap(path, want)
+            if pixmap.isNull():
+                return QIcon()
+            if pixmap.width() < want:
+                self._small_sources.add(path)  # the file itself is that small
+            cache[path] = pixmap
         if pixmap.isNull():
             return QIcon()
-        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
         scaled = pixmap.scaled(
             size,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -1724,18 +1933,20 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             scaled = scaled.copy(x, y, size.width(), size.height())
         return QIcon(scaled)
 
+    def _refresh_item_icons(self):
+        """Re-render every card image at the current grid icon size."""
+
+        for key, item in self._item_by_key.items():
+            path = self._image_path_by_key.get(key)
+            icon = self._image_icon(path) if path else QIcon()
+            item.setIcon(icon if not icon.isNull() else self._placeholder_icon(key.split(":", 1)[0]))
+
     def _resize_grid(self):
         if not hasattr(self, "_results"):
             return
         width = self._results.viewport().width()
         if width <= 0:
             return
-        try:
-            requested_columns = int(
-                self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            requested_columns = _DEFAULT_GRID_COLUMNS
         spacing = 12
         # Keep a small fixed reserve for the vertical scrollbar and Qt's list
         # layout rounding.  Without it a 1208px viewport calculates 301px
@@ -1746,10 +1957,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             int(self._results.verticalScrollBar().sizeHint().width()) - 1,
         )
         available_width = max(1, width - scrollbar_reserve)
-        # The selector is an explicit user preference.  Keep that exact
-        # column count even on compact panes and calculate a smaller cell
-        # instead of silently reducing 8 columns to 4.
-        columns = max(1, min(_MAX_GRID_COLUMNS, requested_columns))
+        columns = self._grid_columns_for(available_width, spacing)
         cell_width = max(
             40,
             (available_width - spacing * (columns - 1)) // columns,
@@ -1763,14 +1971,19 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._results,
             cell_width,
             QSize(image_width, image_height),
-            fallback_lines=5 if self._all_authors else 6,
+            fallback_lines=5 if self._all_authors or self._all_playlists else 6,
         )
+        previous_icon_size = getattr(self, "_grid_icon_size", None)
         self._grid_icon_size = QSize(image_width, image_height)
         self._grid_item_size = QSize(cell_width, grid_height)
         updates_enabled = self._results.updatesEnabled()
         self._results.setUpdatesEnabled(False)
         try:
             self._results.setIconSize(self._grid_icon_size)
+            if previous_icon_size != self._grid_icon_size:
+                # QIcon only scales pixmaps down. Covers rendered for a smaller
+                # cell would otherwise stay small and centered in a wide card.
+                self._refresh_item_icons()
             self._results.setGridSize(self._grid_item_size)
             self._results.setSpacing(spacing)
             for index in range(self._results.count()):
@@ -1855,6 +2068,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                 or self._total is not None
                 or self._all_videos
                 or self._all_authors
+                or self._all_playlists
             )
             self._jump_page_btn.setEnabled(not self._loading and has_page_state)
 
@@ -1869,14 +2083,24 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             ))
             return
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")
+        total = f" / {self._total}" if self._total is not None else ""
         if scope == "authors":
             count = len(self._all_authors)
             self._status_label.setText(
-                tr(f"Found {count} author(s)", f"找到 {count} 位作者", f"作者 {count} 件")
+                tr(f"Found {count} author(s){total}", f"找到 {count} 位作者{total}", f"作者 {count} 件{total}")
+            )
+        elif self._all_playlists:
+            count = len(self._all_playlists)
+            self._status_label.setText(
+                tr(f"Found {count} playlist(s){total}", f"找到 {count} 个播放列表{total}", f"プレイリスト {count} 件{total}")
+            )
+        elif scope == "images":
+            count = len(self._all_videos)
+            self._status_label.setText(
+                tr(f"Found {count} image post(s){total}", f"找到 {count} 个图片作品{total}", f"画像 {count} 件{total}")
             )
         else:
             count = len(self._all_videos)
-            total = f" / {self._total}" if self._total is not None else ""
             self._status_label.setText(
                 tr(f"Found {count} video(s){total}", f"找到 {count} 个视频{total}", f"動画 {count} 件{total}")
             )
@@ -1885,9 +2109,31 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._resize_grid()
         self._results.setStyleSheet(_search_grid_style())
         for key, item in self._item_by_key.items():
-            item.setForeground(QColor("#f7fbff" if isDarkTheme() else "#17343b"))
+            item.setForeground(qcolor("text"))
             if key not in self._image_path_by_key:
                 item.setIcon(self._placeholder_icon(key.split(":", 1)[0]))
+
+    def apply_external_query(self, request: dict):
+        """Run an Iwara search asked for by another page (tag click, author, etc.)."""
+
+        scope = str(request.get("scope") or "videos")
+        keyword = str(request.get("keyword") or "").strip()
+        sort = str(request.get("sort") or "")
+        author = request.get("author")
+        self._auto_search_timer.stop()
+        self._set_combo_data(self._source_combo, "iwara")
+        if isinstance(author, (tuple, list)) and len(author) == 4:
+            self._show_author_works_target(tuple(author))
+            return
+        self._clear_author_navigation()
+        self._set_combo_data(self._scope_combo, scope)
+        self._keyword_edit.setText(keyword)
+        self._sync_sort_options()
+        if sort:
+            self._sort_combo.blockSignals(True)
+            self._set_combo_data(self._sort_combo, sort)
+            self._sort_combo.blockSignals(False)
+        self._start_search()
 
     def _show_error(self, message: str):
         InfoBar.error(

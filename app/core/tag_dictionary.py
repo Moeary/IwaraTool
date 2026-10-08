@@ -22,6 +22,7 @@ from typing import Any, Mapping
 
 from ..config import app_config
 from ..i18n import tr
+from ..logging_setup import get_logger
 
 
 LOVEIWARA_TAGS_URL = (
@@ -54,6 +55,9 @@ def _bundled_tag_path() -> str | None:
         if os.path.isfile(candidate):
             return candidate
     return None
+
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +296,7 @@ class TagDictionary:
             count = self.reload()
             return count, ""
         except Exception as exc:
+            logger.warning("Tag dictionary update failed", exc_info=True)
             return 0, str(exc)
         finally:
             close = getattr(response, "close", None)

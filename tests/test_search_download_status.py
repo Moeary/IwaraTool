@@ -26,6 +26,15 @@ from app.ui.search_download_status import (
 from app.ui.search_page import SearchInterface
 
 
+def _set_columns(page, columns: int):
+    """Pick the cover size that makes the grid lay out exactly ``columns`` per row."""
+
+    spacing = 12
+    available = max(1, page._results.viewport().width() - 16)
+    page._card_min_width = max(40, (available + spacing) // columns - spacing)
+    page._resize_grid()
+
+
 class _FakeHistory:
     def __init__(self, records=None):
         self.records = records or {}
@@ -46,6 +55,7 @@ class _FakeSignalBus(QObject):
     task_status_changed = Signal(str, str)
     task_progress_updated = Signal(str, int, int, str)
     log_message = Signal(str)
+    content_rating_changed = Signal(str)
 
 
 def _iwara(video_id, **kwargs):
@@ -280,7 +290,7 @@ class SearchDownloadStatusPageTests(unittest.TestCase):
                 video.title = title
             for columns in (4, 8):
                 with self.subTest(language=language, columns=columns):
-                    self.page._set_combo_data(self.page._grid_columns_combo, str(columns))
+                    _set_columns(self.page, columns)
                     self.page._render_results()
                     self.app.processEvents()
                     view = self.page._results
@@ -303,7 +313,7 @@ class SearchDownloadStatusPageTests(unittest.TestCase):
         self.page.show()
         for columns in (4, 8):
             with self.subTest(columns=columns):
-                self.page._set_combo_data(self.page._grid_columns_combo, str(columns))
+                _set_columns(self.page, columns)
                 self.page._render_results()
                 self.app.processEvents()
                 self._assert_card_caption_visible(self.page._results.item(0))
