@@ -1150,8 +1150,13 @@ class TaskCenterInterface(QWidget):
             self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
             return
         task = self._tasks_by_id.get(task_id)
-        if task and task.status == TaskStatus.COMPLETED:
+        if not task:
+            return
+        if task.status == TaskStatus.COMPLETED:
             self._open_task(task_id)
+        elif task.video_id:
+            # Not on disk yet: stream it in the built-in player.
+            signal_bus.video_preview_requested.emit(task.video_id, task.title or "", "")
 
     # ── Toolbar actions ───────────────────────────────────────────────────────
 

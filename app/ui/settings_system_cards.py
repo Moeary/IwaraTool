@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget, QS
 
 from qfluentwidgets import (
     BodyLabel,
+    ComboBox,
     FluentIcon,
     InfoBar,
     InfoBarPosition,
@@ -24,7 +25,7 @@ from qfluentwidgets import (
 )
 
 from ..config import app_config
-from ..core import autostart, backup
+from ..core import autostart, backup, video_player
 from ..i18n import tr
 from ..logging_setup import get_logger, log_dir
 from .ui_state import show_fluent_confirmation
@@ -39,6 +40,7 @@ class SystemSettingsCards:
         self._owner = owner
         self._loading = True
         self._build_window_card(board)
+        self._build_playback_card(board)
         self._build_request_card(board)
         self._build_maintenance_card(board)
         self.load()
@@ -94,6 +96,85 @@ class SystemSettingsCards:
             card,
         )
         board.add_card("window", card)
+
+    _PLAYER_MODES = (video_player.MODE_SYSTEM, video_player.MODE_BUILTIN, video_player.MODE_CUSTOM)
+    _PREVIEW_QUALITIES = ("Source", "540", "360")
+
+    def _build_playback_card(self, board):
+        card = board.create_card("playback")
+        layout = self._card_layout(
+            card,
+            tr("Video Playback", "视频播放", "動画再生"),
+            tr(
+                "Double-click a video anywhere to play it. Downloaded files open in the player below; videos that are not on disk (or were moved) stream in the built-in player window.",
+                "在任意页面双击视频即可播放。已下载的文件用下方选择的播放器打开；未下载或已被移走的视频会在内置播放窗口中在线播放。",
+                "どのページでも動画をダブルクリックすると再生します。ダウンロード済みは下で選んだプレイヤーで開き、未保存・移動済みの動画は内蔵プレイヤーでストリーミングします。",
+            ),
+        )
+        self._player_combo = ComboBox(card)
+        self._player_combo.addItems(
+            [
+                tr("System default player", "系统默认播放器", "システム既定のプレイヤー"),
+                tr("Built-in player", "内置播放器", "内蔵プレイヤー"),
+                tr("Custom command", "自定义命令", "カスタムコマンド"),
+            ]
+        )
+        self._player_combo.currentIndexChanged.connect(self._on_player_mode_changed)
+        self._row(layout, tr("Player for downloaded videos", "已下载视频使用的播放器", "ダウンロード済み動画のプレイヤー"), self._player_combo, card)
+
+        self._player_command_widget = QWidget(card)
+        command_row = QHBoxLayout(self._player_command_widget)
+        command_row.setContentsMargins(0, 0, 0, 0)
+        self._player_command_edit = LineEdit(self._player_command_widget)
+        self._player_command_edit.setPlaceholderText(
+            r'"C:\Program Files\mpv\mpv.exe" --fs "{file}"'
+        )
+        self._player_command_edit.editingFinished.connect(
+            lambda: self._set("preview_player_command", self._player_command_edit.text().strip())
+        )
+        browse_btn = PushButton(tr("Browse…", "浏览…", "参照…"), self._player_command_widget, FluentIcon.FOLDER)
+        browse_btn.clicked.connect(self._browse_player)
+        command_row.addWidget(self._player_command_edit, 1)
+        command_row.addWidget(browse_btn)
+        layout.addWidget(self._player_command_widget)
+        layout.addWidget(
+            BodyLabel(
+                tr(
+                    "{file} is replaced by the video path; without it the path is appended.",
+                    "{file} 会替换为视频路径；不写则把路径附加在命令末尾。",
+                    "{file} は動画のパスに置き換えられます。省略時は末尾に追加されます。",
+                ),
+                card,
+            )
+        )
+
+        self._quality_combo = ComboBox(card)
+        self._quality_combo.addItems(
+            [
+                tr("Source (largest)", "原画（最大）", "ソース（最大）"),
+                "540p",
+                "360p",
+            ]
+        )
+        self._quality_combo.currentIndexChanged.connect(
+            lambda index: self._set("preview_quality", self._PREVIEW_QUALITIES[max(0, index)])
+        )
+        self._row(layout, tr("Streaming quality", "在线播放画质", "ストリーミング画質"), self._quality_combo, card)
+        board.add_card("playback", card)
+
+    def _on_player_mode_changed(self, index: int):
+        mode = self._PLAYER_MODES[max(0, min(index, len(self._PLAYER_MODES) - 1))]
+        self._set("preview_player_mode", mode)
+        self._player_command_widget.setVisible(mode == video_player.MODE_CUSTOM)
+
+    def _browse_player(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self._owner, tr("Choose a player", "选择播放器", "プレイヤーを選択"), "", ""
+        )
+        if path:
+            quoted = f'"{path}" "{{file}}"' if " " in path else f'{path} "{{file}}"'
+            self._player_command_edit.setText(quoted)
+            self._set("preview_player_command", quoted)
 
     def _build_request_card(self, board):
         card = board.create_card("request_policy")
@@ -181,6 +262,14 @@ class SystemSettingsCards:
         self._loading = True
         self._tray_switch.setChecked(app_config.minimize_to_tray)
         self._autostart_switch.setChecked(autostart.is_enabled())
+        mode = video_player.player_mode()
+        self._player_combo.setCurrentIndex(self._PLAYER_MODES.index(mode))
+        self._player_command_edit.setText(app_config.preview_player_command)
+        self._player_command_widget.setVisible(mode == video_player.MODE_CUSTOM)
+        quality = app_config.preview_quality
+        self._quality_combo.setCurrentIndex(
+            self._PREVIEW_QUALITIES.index(quality) if quality in self._PREVIEW_QUALITIES else 1
+        )
         self._interval_spin.setValue(max(0, app_config.request_min_interval_ms))
         self._retries_spin.setValue(max(0, app_config.request_max_retries))
         self._salts_edit.setText(app_config.x_version_salts)

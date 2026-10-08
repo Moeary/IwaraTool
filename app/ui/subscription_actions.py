@@ -355,16 +355,8 @@ class SubscriptionActionsMixin:
             (item for item in self._all_items if str(item.get("video_id", "") or "") == video_id),
             None,
         )
-        if not item_data:
-            _open_url(_video_url(video_id))
-            return
-        if bool(item_data.get("download_file_exists")):
-            self._open_history_item(
-                video_id,
-                open_file=app_config.completed_task_click_action == "player",
-            )
-            return
-        _open_url(str(item_data.get("source_url", "") or _video_url(video_id)))
+        title = str((item_data or {}).get("title", "") or "")
+        signal_bus.video_preview_requested.emit(video_id, title, "")
 
     def _on_item_cell_clicked(self, row: int, column: int):
         if column not in (self._ITEM_URL, self._ITEM_FOLDER, self._ITEM_FILE):

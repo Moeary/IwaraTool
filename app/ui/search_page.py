@@ -170,6 +170,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
+        self._pending_preview_video_ids: set[str] = set()
         self._pending_open_author_video_ids: set[str] = set()
         self._pending_author_subscription_video_ids: set[str] = set()
         self._init_download_status(download_manager.history, signal_bus)
@@ -1107,6 +1108,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._current_page = 0
         self._last_page = None
         self._pending_open_video_ids.clear()
+        self._pending_preview_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._next_page = 0
         self._total = None
@@ -1265,6 +1267,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
+        self._pending_preview_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._current_page = page
         self._next_page = None
@@ -1463,6 +1466,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
 
         focused = self.focusWidget()
+        if video.video_id in self._pending_preview_video_ids:
+            preview_id = self._preview_video_id(video)
+            if preview_id:
+                self._pending_preview_video_ids.discard(video.video_id)
+                signal_bus.video_preview_requested.emit(preview_id, video.title, "")
+            elif link.get("error"):
+                self._pending_preview_video_ids.discard(video.video_id)
+                self._show_warning(str(link["error"]))
         if video.video_id in self._pending_open_video_ids:
             if video.iwara_url:
                 self._pending_open_video_ids.discard(video.video_id)

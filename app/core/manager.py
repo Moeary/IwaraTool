@@ -567,8 +567,20 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
         if not file_path or not os.path.exists(file_path):
             return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
 
-        target = file_path if open_file else os.path.dirname(file_path)
-        return self._open_system_path(target)
+        if open_file:
+            return self._open_video_file(
+                file_path, video_id=video_id, title=str(record.get("title", "") or "")
+            )
+        return self._open_system_path(os.path.dirname(file_path))
+
+    def _open_video_file(self, path: str, *, video_id: str = "", title: str = "") -> tuple[bool, str]:
+        """Open a downloaded video in the player chosen in Settings."""
+        from .video_player import MODE_BUILTIN, open_local_video, player_mode
+
+        if player_mode() == MODE_BUILTIN:
+            signal_bus.video_preview_requested.emit(video_id, title, path)
+            return True, ""
+        return open_local_video(path)
 
     def rename_history_file(
         self, video_id: str, new_filename: str
@@ -650,6 +662,7 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
             status = task.status
             file_path = task.file_path
             title = task.title or task.video_id
+            video_id = task.video_id
 
         if status != TaskStatus.COMPLETED:
             return False, tr(
@@ -668,21 +681,12 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
         if not target:
             return False, tr("No openable path", "无可打开路径", "開けるパスがありません")
 
-        try:
-            if os.name == "nt":
-                os.startfile(target)
-            elif shutil.which("xdg-open"):
-                subprocess.Popen(["xdg-open", target])
-            elif shutil.which("open"):
-                subprocess.Popen(["open", target])
-            else:
-                return False, tr(
-                    "System does not support auto-open",
-                    "系统不支持自动打开",
-                    "システムが自動オープンに対応していません",
-                )
-        except Exception as exc:
-            return False, str(exc)
+        if open_file:
+            ok, message = self._open_video_file(file_path, video_id=video_id, title=title)
+        else:
+            ok, message = self._open_system_path(target)
+        if not ok:
+            return False, message
 
         if action == "player":
             action_text = tr("Player", "播放器", "プレイヤー")

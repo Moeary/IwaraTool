@@ -94,11 +94,11 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
             FluentIcon.DEVELOPER_TOOLS,
             tr("System & Maintenance", "系统与维护", "システムと保守"),
             tr(
-                "Tray and startup behaviour, request pacing, backups and logs.",
-                "托盘与开机启动、请求节奏、备份与日志。",
-                "トレイと起動、リクエスト間隔、バックアップとログ。",
+                "Tray and startup behaviour, video playback, request pacing, backups and logs.",
+                "托盘与开机启动、视频播放、请求节奏、备份与日志。",
+                "トレイと起動、動画再生、リクエスト間隔、バックアップとログ。",
             ),
-            ("window", "request_policy", "maintenance"),
+            ("window", "playback", "request_policy", "maintenance"),
         ),
     )
 

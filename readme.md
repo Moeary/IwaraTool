@@ -15,6 +15,7 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
 - Download engine: valid `X-Version` signature calculation, quality fallback (`Source -> 540 -> 360`), and a stateful scheduler that avoids early URL expiration.
 - Local dedup and a SQLite history center with search, filters, sorting, and cleanup.
 - Search: live Iwara video/author/playlist search, Oreno3D online video search, and trilingual tag suggestions; results show local download status.
+- Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
 - Subscriptions: followed accounts, authors, and playlists with refresh tracking, new-item counts, and list/cover views.
 - Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
 - Repair Center: batch-rename existing videos in place or organize them into an output folder, with destination conflict checks.

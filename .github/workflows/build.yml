@@ -57,6 +57,7 @@ jobs:
             --standalone \
             --onefile \
             --enable-plugin=pyside6 \
+            --include-qt-plugins=multimedia \
             --windows-console-mode=disable \
             --include-package-data=cloudscraper \
             --windows-icon-from-ico=app/icon.ico \
@@ -80,6 +81,7 @@ jobs:
             --onefile \
             --static-libpython=yes \
             --enable-plugin=pyside6 \
+            --include-qt-plugins=multimedia \
             --include-package-data=cloudscraper \
             --include-data-file=app/icon.ico=app/icon.ico \
             --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \

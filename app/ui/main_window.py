@@ -23,7 +23,7 @@ from qfluentwidgets import (
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from ..config import app_config
-from ..core import self_update
+from ..core import preview_stream, self_update, video_player
 from ..core.manager import download_manager
 from ..logging_setup import get_logger
 from .download_page import DownloadInterface
@@ -40,6 +40,7 @@ from .settings_page import SettingsInterface
 from .subscription_page import SubscriptionInterface
 from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
+from .video_preview_window import VideoPreviewWindow
 from .window_drag import WindowsTitleBarDragFilter
 
 
@@ -68,6 +69,7 @@ class MainWindow(FluentWindow):
         self._tray_hint_shown = False
         self._pending_update_path = ""
         self._update_in_progress = False
+        self._preview_window: VideoPreviewWindow | None = None
         self._task_notification_batch = TaskNotificationBatch()
         self._task_notification_timer = QTimer(self)
         self._task_notification_timer.setSingleShot(True)
@@ -87,6 +89,7 @@ class MainWindow(FluentWindow):
         signal_bus.language_changed.connect(self._on_language_changed)
         signal_bus.desktop_notification_requested.connect(self._show_desktop_notification)
         signal_bus.release_update_available.connect(self._on_release_update_available)
+        signal_bus.video_preview_requested.connect(self._on_video_preview_requested)
         signal_bus.task_status_changed.connect(self._on_task_status_notification)
         signal_bus.subscription_source_requested.connect(self._on_subscription_source_requested)
         qconfig.themeChanged.connect(self._on_theme_changed)
@@ -252,6 +255,43 @@ class MainWindow(FluentWindow):
             QSystemTrayIcon.MessageIcon.Information,
             8000,
         )
+
+    def _on_video_preview_requested(self, video_id: str, title: str, path: str):
+        """Play locally when the file is on disk, otherwise stream it in a window."""
+        video_id = str(video_id or "").strip()
+        local = path if path and os.path.isfile(path) else video_player.local_video_path(video_id)
+        if local and video_player.player_mode() != video_player.MODE_BUILTIN:
+            ok, message = video_player.open_local_video(local)
+            if not ok:
+                InfoBar.warning(
+                    title=tr("Cannot open", "无法打开", "開けません"),
+                    content=message,
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=4000,
+                    parent=self,
+                )
+            return
+        if not local and not video_id:
+            return
+        if self._preview_window is None:
+            self._preview_window = VideoPreviewWindow()
+        window = self._preview_window
+        if local:
+            window.play_local(local, title, video_id)
+        else:
+            window.play_remote(video_id, title)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        window.setFocus()
+
+    def _close_preview_window(self):
+        window, self._preview_window = self._preview_window, None
+        if window is not None:
+            window.close()
+            window.deleteLater()
 
     def _on_release_update_available(self, release: dict):
         version = str(release.get("version", "") or "")
@@ -518,6 +558,7 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event: QCloseEvent):
         """Persist active work before the final application window closes."""
         if self._reloading_language or MainWindow._window_ref is not self:
+            self._close_preview_window()
             if not self._shutdown_page_workers():
                 event.ignore()
                 return
@@ -581,6 +622,8 @@ class MainWindow(FluentWindow):
 
         background_service.stop(wait=False)
         self._shutdown_task_notification_worker()
+        self._close_preview_window()
+        preview_stream.shutdown_proxy()
         download_manager.shutdown(wait=False)
         if self._pending_update_path:
             try:

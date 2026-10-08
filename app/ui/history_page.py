@@ -628,7 +628,10 @@ class HistoryInterface(QWidget):
             self._COL_REMOVE,
         }:
             return
-        self._open_selected(open_file=True)
+        video_id = self._selected_video_id()
+        if video_id:
+            title = str(self._records_by_id.get(video_id, {}).get("title", "") or "")
+            signal_bus.video_preview_requested.emit(video_id, title, "")
 
     def _on_header_clicked(self, column: int):
         if column not in self._sortable_columns():

@@ -253,6 +253,42 @@ class SearchActionsMixin:
         self._keyword_edit.setText(playlist.source_url)
         self._start_search()
 
+    @staticmethod
+    def _preview_video_id(video: SearchVideo) -> str:
+        """Iwara id to play, or empty when an Oreno3D result is not resolved yet."""
+
+        return str(
+            video.download_video_id
+            or _extract_iwara_video_id(video.iwara_url)
+            or (video.video_id if video.source_kind == "iwara" else "")
+            or ""
+        )
+
+    def _preview_video(self, video: SearchVideo):
+        """Play a local copy, or stream the video in the built-in player."""
+
+        if not video.downloadable:
+            self._open_video(video)  # image posts have nothing to play
+            return
+        video_id = self._preview_video_id(video)
+        if video_id:
+            signal_bus.video_preview_requested.emit(video_id, video.title, "")
+            return
+        if video.source_kind == "oreno3d":
+            self._pending_preview_video_ids.add(video.video_id)
+            self._start_oreno_link_resolution([video], priority=True, hydrate_metadata=False)
+            self._status_label.setText(
+                tr("Resolving the Iwara ID…", "正在解析 Iwara ID…", "Iwara IDを取得中…")
+            )
+            return
+        self._open_video(video)
+
+    def _preview_selected(self):
+        for value in self._selected_data():
+            data = value.get("data")
+            if isinstance(data, SearchVideo):
+                self._preview_video(data)
+
     def _open_video(self, video: SearchVideo):
         """Open the final Iwara page; Oreno3D is never used as a fallback URL."""
 
@@ -351,7 +387,7 @@ class SearchActionsMixin:
         if isinstance(value, dict):
             data = value.get("data")
             if isinstance(data, SearchVideo):
-                self._open_video(data)
+                self._preview_video(data)
             elif isinstance(data, SearchPlaylist):
                 self._open_playlist_videos(data)
 
@@ -360,7 +396,7 @@ class SearchActionsMixin:
         if isinstance(value, dict):
             data = value.get("data")
             if isinstance(data, SearchVideo):
-                self._open_video(data)
+                self._preview_video(data)
 
     def _show_context_menu(self, position):
         if self._is_list_view():
@@ -383,6 +419,15 @@ class SearchActionsMixin:
         video_values = [value for value in values if value.get("kind") == "video"]
         author_values = [value for value in values if value.get("kind") == "author"]
         playlist_values = [value for value in values if value.get("kind") == "playlist"]
+        if len(video_values) == 1 and len(values) == 1:
+            menu.addAction(
+                Action(
+                    FluentIcon.PLAY,
+                    tr("Play / Preview", "播放 / 预览", "再生 / プレビュー"),
+                    self,
+                    triggered=self._preview_selected,
+                )
+            )
         if any(self._is_queueable(value) for value in values):
             menu.addAction(
                 Action(
@@ -1088,6 +1133,7 @@ class SearchActionsMixin:
             worker.requestInterruption()
         self._pending_author_subscription_video_ids.clear()
         self._pending_open_video_ids.clear()
+        self._pending_preview_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._current_page = 0
         self._last_page = None
