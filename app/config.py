@@ -2,6 +2,7 @@
 import os
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from PySide6.QtCore import QSettings
 
@@ -132,6 +133,8 @@ class AppConfig:
         # QSettings is reentrant, not thread-safe: the download watchdog and
         # subscription workers read settings while the GUI thread writes them.
         self._lock = threading.RLock()
+        self._defer = 0
+        self._pending_sync = False
         self._migrate_legacy_settings_if_needed()
         self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
@@ -248,10 +251,45 @@ class AppConfig:
             return int(value)
         return value
 
+    def _unchanged(self, key: str, value) -> bool:
+        """True when ``value`` is what is already stored (or the default, if never stored)."""
+
+        stored = self._qs.value(key, None)
+        if stored is None:
+            stored = self._DEFAULTS.get(key)
+            if stored is None:
+                return False
+        if isinstance(value, bool):
+            return self._coerce_bool(stored) == value
+        return str(stored) == str(value)
+
+    @contextmanager
+    def deferred_sync(self):
+        """Write many settings with one disk sync at the end instead of one each."""
+
+        with self._lock:
+            self._defer += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._defer -= 1
+                if self._defer == 0 and self._pending_sync:
+                    self._pending_sync = False
+                    self._qs.sync()
+
+    def _flush(self):
+        if self._defer:
+            self._pending_sync = True
+        else:
+            self._qs.sync()
+
     def _set(self, key: str, value):
         with self._lock:
+            if self._unchanged(key, value):
+                return  # re-applying the same rule must not rewrite the file
             self._qs.setValue(key, value)
-            self._qs.sync()
+            self._flush()
 
     def get_ui_value(self, key: str, default=""):
         with self._lock:
@@ -259,9 +297,13 @@ class AppConfig:
 
     def set_ui_value(self, key: str, value, *, sync: bool = True):
         with self._lock:
-            self._qs.setValue(f"ui/{key}", value)
+            full = f"ui/{key}"
+            stored = self._qs.value(full, None)
+            if stored is not None and str(stored) == str(value):
+                return
+            self._qs.setValue(full, value)
             if sync:
-                self._qs.sync()
+                self._flush()
 
     def sync(self):
         with self._lock:

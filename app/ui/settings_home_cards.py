@@ -128,9 +128,16 @@ class HomeSettingsCards:
 
     def _refresh_summary(self):
         shown = [spec.display_title() for spec in load_specs() if spec.enabled]
-        self._summary.setText(
-            tr("Showing: ", "当前显示：", "表示中: ") + (" · ".join(shown) if shown else tr("nothing", "无", "なし"))
-        )
+        try:
+            self._summary.setText(
+                tr("Showing: ", "当前显示：", "表示中: ") + (" · ".join(shown) if shown else tr("nothing", "无", "なし"))
+            )
+        except RuntimeError:
+            # The settings page is gone (window closed); stop listening.
+            try:
+                signal_bus.home_layout_changed.disconnect(self._refresh_summary)
+            except (RuntimeError, TypeError):
+                pass
 
     def _on_minutes(self, value: int):
         if not self._loading:

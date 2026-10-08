@@ -51,13 +51,48 @@ def _rows(prefix: str, count: int = 3) -> list[dict]:
 
 
 class SpecTests(unittest.TestCase):
-    def test_defaults_are_latest_feed_hot_videos_hot_images(self):
-        self.assertEqual([s.id for s in default_specs()], ["latest", "subscriptions", "hot_videos", "hot_images"])
-        self.assertEqual([s.id for s in home_sections(default_specs())], ["latest", "subscriptions", "hot_videos", "hot_images"])
+    def test_defaults_are_the_account_feed_then_hot_videos_then_hot_images(self):
+        self.assertEqual([s.id for s in default_specs()], ["subscriptions", "hot_videos", "hot_images"])
+        self.assertEqual([s.id for s in home_sections(default_specs())], ["subscriptions", "hot_videos", "hot_images"])
+
+    def test_the_old_untouched_latest_default_is_dropped_on_load(self):
+        old = [
+            {"id": "latest", "mode": "browse", "content": "video", "sort": "date"},
+            {"id": "subscriptions", "mode": "subscriptions", "content": "video"},
+            {"id": "hot_videos", "mode": "browse", "content": "video"},
+            {"id": "hot_images", "mode": "browse", "content": "image"},
+        ]
+        self.assertEqual([s.id for s in load_specs(_Store(json.dumps(old)))], ["subscriptions", "hot_videos", "hot_images"])
+
+    def test_a_layout_the_user_arranged_keeps_its_latest_row(self):
+        mine = [
+            {"id": "latest", "mode": "browse", "content": "video", "sort": "date"},
+            {"id": "hot_videos", "mode": "browse", "content": "video"},
+        ]
+        self.assertEqual([s.id for s in load_specs(_Store(json.dumps(mine)))], ["latest", "hot_videos"])
+        reordered = [
+            {"id": "subscriptions", "mode": "subscriptions", "content": "video"},
+            {"id": "latest", "mode": "browse", "content": "video", "sort": "date"},
+            {"id": "hot_videos", "mode": "browse", "content": "video"},
+            {"id": "hot_images", "mode": "browse", "content": "image"},
+        ]
+        self.assertEqual(len(load_specs(_Store(json.dumps(reordered)))), 4)
+        edited = [dict(old, enabled=False) if old["id"] == "latest" else old for old in [
+            {"id": "latest", "mode": "browse", "content": "video", "sort": "date"},
+            {"id": "subscriptions", "mode": "subscriptions", "content": "video"},
+            {"id": "hot_videos", "mode": "browse", "content": "video"},
+            {"id": "hot_images", "mode": "browse", "content": "image"},
+        ]]
+        self.assertEqual(len(load_specs(_Store(json.dumps(edited)))), 4)
+
+    def test_a_fixed_sort_row_is_named_after_its_sort_and_type(self):
+        spec = HomeSectionSpec("c-x", MODE_BROWSE, "video", sort="date")
+        self.assertIn("最新", spec.display_title())
+        self.assertIn("视频", spec.display_title())
 
     def test_missing_or_corrupt_storage_falls_back_to_defaults(self):
         for stored in ("", "not json", "{}", None):
-            self.assertEqual([s.id for s in load_specs(_Store(stored))], ["latest", "subscriptions", "hot_videos", "hot_images"])
+            self.assertEqual([s.id for s in load_specs(_Store(stored))], ["subscriptions", "hot_videos", "hot_images"])
 
     def test_round_trip_keeps_order_and_enabled_flags(self):
         store = _Store()
@@ -435,18 +470,18 @@ class LayoutDialogTests(_QtCase):
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_lists_the_default_rows_in_order(self):
-        self.assertEqual([s.id for s in self.dialog.specs()], ["latest", "subscriptions", "hot_videos", "hot_images"])
+        self.assertEqual([s.id for s in self.dialog.specs()], ["subscriptions", "hot_videos", "hot_images"])
 
     def test_rows_can_be_hidden_moved_and_removed(self):
         dialog = self.dialog
         dialog._list.item(0).setCheckState(Qt.CheckState.Unchecked)
-        dialog._list.setCurrentRow(3)
+        dialog._list.setCurrentRow(2)
         dialog._move(-1)
-        self.assertEqual([s.id for s in dialog.specs()], ["latest", "subscriptions", "hot_images", "hot_videos"])
+        self.assertEqual([s.id for s in dialog.specs()], ["subscriptions", "hot_images", "hot_videos"])
         self.assertFalse(dialog.specs()[0].enabled)
         dialog._list.setCurrentRow(1)
         dialog._remove_current()
-        self.assertEqual([s.id for s in dialog.specs()], ["latest", "hot_images", "hot_videos"])
+        self.assertEqual([s.id for s in dialog.specs()], ["subscriptions", "hot_videos"])
 
     def test_saving_persists_and_announces_the_new_layout(self):
         from app.signal_bus import signal_bus
@@ -463,7 +498,7 @@ class LayoutDialogTests(_QtCase):
         with mock.patch("app.ui.home_layout_dialog.save_specs", side_effect=lambda specs: save_specs(specs, store)):
             self.assertTrue(self.dialog.validate())
         self.assertEqual(announced, [True])
-        self.assertEqual([(s.id, s.enabled) for s in load_specs(store)][1], ("subscriptions", False))
+        self.assertEqual([(s.id, s.enabled) for s in load_specs(store)][1], ("hot_videos", False))
 
     def test_editor_requires_a_value_for_search_rows(self):
         from app.ui.home_layout_dialog import SectionEditorDialog
@@ -481,7 +516,7 @@ class LayoutDialogTests(_QtCase):
     def test_editing_a_builtin_into_something_else_gives_it_a_new_identity(self):
         from app.ui.home_layout_dialog import SectionEditorDialog
 
-        original = default_specs()[2]  # hot_videos
+        original = default_specs()[1]  # hot_videos
         editor = SectionEditorDialog(original, self.host)
         self.addCleanup(editor.deleteLater)
         self.assertEqual(editor.collect().id, "hot_videos")  # untouched
@@ -532,8 +567,8 @@ class HomeInterfaceLayoutTests(_QtCase):
     def test_rows_follow_the_saved_layout_when_it_changes(self):
         from app.signal_bus import signal_bus
 
-        self.assertEqual([b.section.id for b in self.home._feed.blocks], ["latest", "subscriptions", "hot_videos", "hot_images"])
-        self.specs = [HomeSectionSpec("c-1", MODE_TAGS, "video", value="hmv", sort="date"), *self.specs[3:]]
+        self.assertEqual([b.section.id for b in self.home._feed.blocks], ["subscriptions", "hot_videos", "hot_images"])
+        self.specs = [HomeSectionSpec("c-1", MODE_TAGS, "video", value="hmv", sort="date"), *self.specs[2:]]
         signal_bus.home_layout_changed.emit()
         self.assertEqual([b.section.id for b in self.home._feed.blocks], ["c-1", "hot_images"])
         self.assertTrue(self.home._feed._empty.isHidden())

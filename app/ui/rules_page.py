@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from PySide6.QtCore import QPoint, QSize, QStringListModel, QTimer, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCompleter,
     QAbstractItemView,
@@ -675,9 +675,6 @@ class RulesInterface(QWidget):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([340, 1120])
         apply_scrollbars(self._list)
-
-        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
-        save_shortcut.activated.connect(self._save_rule_if_enabled)
 
     def _save_rule_if_enabled(self):
         if self._save_btn.isEnabled():

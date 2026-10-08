@@ -6,7 +6,7 @@ import os
 import sys
 import threading
 
-from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -24,7 +24,9 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from ..config import app_config
 from ..core import preview_stream, self_update, video_player
+from ..core import memory, shortcut_defs
 from ..core.manager import download_manager
+from ..core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
 from ..logging_setup import get_logger
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
@@ -72,6 +74,10 @@ class MainWindow(FluentWindow):
         self._pending_update_path = ""
         self._update_in_progress = False
         self._preview_window: VideoPreviewWindow | None = None
+        self._trim_timer = QTimer(self)
+        self._trim_timer.setSingleShot(True)
+        self._trim_timer.setInterval(3000)
+        self._trim_timer.timeout.connect(self._trim_memory_if_idle)
         self._task_notification_batch = TaskNotificationBatch()
         self._task_notification_timer = QTimer(self)
         self._task_notification_timer.setSingleShot(True)
@@ -582,6 +588,64 @@ class MainWindow(FluentWindow):
             self._task_notification_executor = None
             executor.shutdown(wait=False, cancel_futures=True)
 
+    def quick_download(self):
+        """Ctrl+Alt+V: paste the clipboard link and queue it, from any page."""
+
+        self.switchTo(self._download_page)
+        self._download_page._paste_from_clipboard(submit=True)
+
+    def open_download_folder(self):
+        folder = app_config.download_dir
+        if folder and os.path.isdir(folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            return
+        InfoBar.warning(
+            title=tr("Download folder not found", "找不到下载文件夹", "保存フォルダーが見つかりません"),
+            content=str(folder or ""),
+            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self,
+        )
+
+    def cycle_rating(self):
+        """Ctrl+Shift+R: All → SFW → NSFW for Home and Search together."""
+
+        current = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
+        following = RATINGS[(RATINGS.index(current) + 1) % len(RATINGS)]
+        app_config.set_ui_value(UI_RATING_KEY, following)
+        signal_bus.content_rating_changed.emit(following)
+        InfoBar.info(
+            title=tr("Content filter", "内容分级", "コンテンツ区分"),
+            content=rating_label(following),
+            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self,
+        )
+
+    def toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def show_shortcut_help(self):
+        """F1: the cheat sheet; its button opens Settings → Keyboard Shortcuts."""
+
+        from .shortcut_help import ShortcutHelpDialog
+
+        page = self.stackedWidget.currentWidget()
+        scope = {
+            self._home_page: shortcut_defs.SCOPE_HOME,
+            self._search_page: shortcut_defs.SCOPE_SEARCH,
+            self._subscription_page: shortcut_defs.SCOPE_SUBSCRIPTIONS,
+            self._download_page: shortcut_defs.SCOPE_DOWNLOAD,
+            self._history_page: shortcut_defs.SCOPE_HISTORY,
+            self._repair_page: shortcut_defs.SCOPE_REPAIR,
+            self._rules_page: shortcut_defs.SCOPE_RULES,
+            self._settings_page: shortcut_defs.SCOPE_SETTINGS,
+        }.get(page, "")
+        dialog = ShortcutHelpDialog(self, scope)
+        dialog.exec()
+        if dialog.customize_requested:
+            self.switchTo(self._settings_page)
+            self._settings_page.show_shortcut_settings()
+
     def _toggle_dark_mode(self):
         # Persist the explicit choice so the next launch opens in the same mode.
         mode = "light" if isDarkTheme() else "dark"
@@ -624,6 +688,31 @@ class MainWindow(FluentWindow):
             new_window.show()
         MainWindow._window_ref = new_window
         self.close()
+
+    # ── idle memory ──────────────────────────────────────────────────────────
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._trim_timer.stop()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._schedule_memory_trim()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+            self._schedule_memory_trim()
+
+    def _schedule_memory_trim(self):
+        if not self._reloading_language and not self._quitting:
+            self._trim_timer.start()
+
+    def _trim_memory_if_idle(self):
+        """Nobody is looking (minimized or in the tray): hand unused pages back to the OS."""
+
+        if not self.isVisible() or self.isMinimized():
+            memory.trim_memory()
 
     def closeEvent(self, event: QCloseEvent):
         """Persist active work before the final application window closes."""

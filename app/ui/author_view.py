@@ -11,7 +11,6 @@ from __future__ import annotations
 import webbrowser
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -36,7 +35,8 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
 from .home_page import BrowseView, queueable_ids
-from .home_workers import ApiCallWorker, CoverFetcher
+from .media_card import read_pixmap
+from .home_workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 
 
@@ -134,7 +134,7 @@ class AuthorView(QWidget):
 
     def _on_cover(self, kind: str, key: str, path: str):
         if kind == "avatar" and key == self._username:
-            pixmap = QPixmap(path)
+            pixmap = read_pixmap(path, 256)
             if not pixmap.isNull():
                 self._avatar.setImage(pixmap)
 

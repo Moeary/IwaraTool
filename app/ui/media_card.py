@@ -7,11 +7,12 @@ selection tick top-right.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetrics,
+    QImageReader,
     QPainter,
     QPainterPath,
     QPen,
@@ -46,6 +47,102 @@ def saved_card_width() -> int:
     except (TypeError, ValueError):
         value = CARD_WIDTH_DEFAULT
     return max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, value))
+
+
+CARD_WIDTH_STEP = 24
+
+
+def set_card_width(width: int) -> int:
+    """Save and broadcast one cover size to every grid (what the slider does)."""
+
+    width = max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, int(width)))
+    app_config.set_ui_value(CARD_WIDTH_KEY, width)
+    signal_bus.media_card_size_changed.emit(width)
+    return width
+
+
+def step_card_width(steps: int) -> int:
+    """Make the covers larger (``steps`` > 0) or smaller by one slider notch per step."""
+
+    return set_card_width(saved_card_width() + steps * CARD_WIDTH_STEP)
+
+
+def reset_card_width() -> int:
+    return set_card_width(CARD_WIDTH_DEFAULT)
+
+
+def read_pixmap(path: str, max_width: int = 0) -> QPixmap:
+    """A picture from disk, decoded no larger than ``max_width`` pixels wide.
+
+    The reader scales while decoding (JPEG decodes straight to a fraction of its
+    size), so a 3200 x 2000 original never exists in memory at full size: that
+    is 25 MB as a pixmap, and image posts have dozens of them.
+    """
+
+    reader = QImageReader(path)
+    reader.setAutoTransform(True)
+    size = reader.size()
+    if max_width > 0 and size.isValid() and size.width() > max_width:
+        reader.setScaledSize(QSize(max_width, max(1, round(size.height() * max_width / size.width()))))
+    image = reader.read()
+    return QPixmap.fromImage(image) if not image.isNull() else QPixmap()
+
+
+def image_size(path: str) -> QSize:
+    """Pixel size of an image file from its header (nothing is decoded)."""
+
+    return QImageReader(path).size()
+
+
+class PixmapLRU:
+    """Decoded covers, kept up to a byte budget and re-read from disk when evicted.
+
+    A dict of every cover ever shown grows with the library (hundreds of
+    ~300 KB pixmaps); the files are cached on disk anyway.
+    """
+
+    def __init__(self, max_bytes: int = 48 * 1024 * 1024):
+        self._max = max_bytes
+        self._items: dict[str, QPixmap] = {}
+        self._bytes = 0
+
+    @staticmethod
+    def _size(pixmap: QPixmap) -> int:
+        return pixmap.width() * pixmap.height() * max(1, pixmap.depth() // 8)
+
+    def get(self, key: str, default=None):
+        pixmap = self._items.pop(key, None)
+        if pixmap is None:
+            return default
+        self._items[key] = pixmap  # most recently used goes last
+        return pixmap
+
+    def __setitem__(self, key: str, pixmap: QPixmap):
+        old = self._items.pop(key, None)
+        if old is not None:
+            self._bytes -= self._size(old)
+        self._items[key] = pixmap
+        self._bytes += self._size(pixmap)
+        while self._bytes > self._max and len(self._items) > 1:
+            _key, evicted = next(iter(self._items.items()))
+            del self._items[_key]
+            self._bytes -= self._size(evicted)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._items
+
+    def __getitem__(self, key: str) -> QPixmap:
+        pixmap = self.get(key)
+        if pixmap is None:
+            raise KeyError(key)
+        return pixmap
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def clear(self):
+        self._items.clear()
+        self._bytes = 0
 
 
 def wrap_lines(text: str, metrics: QFontMetrics, width: int, max_lines: int) -> list[str]:
@@ -95,6 +192,7 @@ class MediaCard(QWidget):
         self._pixmap: QPixmap | None = None
         self._scaled: QPixmap | None = None
         self._scaled_size = QSize()
+        self._current = False  # the keyboard cursor sits here (drawn as a ring)
         self._hover_t = 0.0  # 0..1, eased in and out so hovering feels alive
         self._cover_alpha = 1.0  # a freshly arrived cover fades in
         self._anim: QVariantAnimation | None = None
@@ -134,6 +232,11 @@ class MediaCard(QWidget):
             "unavailable": (tr("Unavailable", "不可下载", "保存不可"), QColor(150, 60, 60, 225)),
         }
         return marks.get(state)
+
+    def set_current(self, current: bool):
+        if current != self._current:
+            self._current = current
+            self.update()
 
     def set_selected(self, selected: bool, *, emit: bool = False):
         selected = bool(selected) and self._selectable
@@ -225,6 +328,9 @@ class MediaCard(QWidget):
         # A plain QWidget ignores presses, which would route the release to
         # the parent instead of completing the click here.
         if event.button() == Qt.MouseButton.LeftButton:
+            parent = self.parentWidget()
+            if parent is not None and parent.focusPolicy() != Qt.FocusPolicy.NoFocus:
+                parent.setFocus(Qt.FocusReason.MouseFocusReason)  # arrow keys continue from here
             event.accept()
             return
         super().mousePressEvent(event)
@@ -397,6 +503,11 @@ class MediaCard(QWidget):
         painter.setPen(border)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(shape)
+        if self._current:
+            ring = QPainterPath()
+            ring.addRoundedRect(QRectF(self.rect()).adjusted(2, 2, -2, -2), CARD_RADIUS - 2, CARD_RADIUS - 2)
+            painter.setPen(QPen(accent, 2))
+            painter.drawPath(ring)
 
 
 class MediaGrid(QWidget):
@@ -429,9 +540,12 @@ class MediaGrid(QWidget):
         self._compact = compact
         self._videos: list[SearchVideo] = []
         self._cards: list[MediaCard] = []
-        self._covers: dict[str, QPixmap] = {}
+        self._covers = PixmapLRU(32 * 1024 * 1024)  # decoded covers; evicted ones are re-read from disk
         self._columns = 1
         self._fetcher = None
+        self._stale_layout = False
+        self._cursor = -1  # keyboard cursor: index into the shown cards
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._loading = False
         self._skeleton_phase = 0.0
         self._skeleton_timer = QTimer(self)
@@ -457,9 +571,11 @@ class MediaGrid(QWidget):
         ])
 
     def _on_fetched_cover(self, kind: str, key: str, path: str):
-        if kind != "video" or not any(card.video.video_id == key for card in self._cards):
+        # A cover this grid already decoded is not read from disk again (a
+        # rebuild re-announces every cached cover, once per grid on the page).
+        if kind != "video" or key in self._covers or not any(card.video.video_id == key for card in self._cards):
             return
-        pixmap = QPixmap(path)
+        pixmap = read_pixmap(path, 640)  # a cover is drawn ~300 px wide; never keep a huge original
         if not pixmap.isNull():
             self.set_cover(key, pixmap)
 
@@ -476,10 +592,24 @@ class MediaGrid(QWidget):
         if width == self._min_card_width:
             return
         self._min_card_width = width
+        if not self.isVisible():
+            # Dragging the shared slider must not relayout every grid of every
+            # hidden page; each catches up when it is shown again.
+            self._stale_layout = True
+            return
+        self._apply_card_width()
+
+    def _apply_card_width(self):
+        self._stale_layout = False
         if self._max_rows:
             self._rebuild()  # the number of cards that fit changes
         else:
             self._layout_cards()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._stale_layout:
+            self._apply_card_width()
 
     def columns_for_width(self, width: int) -> int:
         return max(1, (max(1, width) + self._gap) // (self._min_card_width + self._gap))
@@ -571,26 +701,36 @@ class MediaGrid(QWidget):
         return [card.video for card in self._cards]
 
     def _rebuild(self):
-        for card in self._cards:
-            card.hide()
-            card.setParent(None)
-            card.deleteLater()
-        self._cards = []
         shown = self._videos
         capacity = self.visible_capacity()
         if capacity:
             shown = shown[:capacity]
+        # Cards for videos that stay are reused as they are (a window resize or
+        # the cover-size slider changes how many fit, not what they show), so
+        # only the difference is created or destroyed.
+        reusable = {id(card.video): card for card in self._cards}
+        cards: list[MediaCard] = []
         for video in shown:
-            card = MediaCard(video, self, selectable=self._selectable, compact=self._compact)
-            card.activated.connect(self.card_activated)
-            card.context_requested.connect(self.card_context_requested)
-            card.toggled.connect(lambda *_: self.selection_changed.emit())
-            pixmap = self._covers.get(video.video_id)
-            if pixmap is not None:
-                card.set_cover(pixmap)
-            card.show()
-            self._cards.append(card)
+            card = reusable.pop(id(video), None)
+            if card is None:
+                card = MediaCard(video, self, selectable=self._selectable, compact=self._compact)
+                card.activated.connect(self.card_activated)
+                card.context_requested.connect(self.card_context_requested)
+                card.toggled.connect(lambda *_: self.selection_changed.emit())
+                pixmap = self._covers.get(video.video_id)
+                if pixmap is not None:
+                    card.set_cover(pixmap)
+            cards.append(card)
+        for card in reusable.values():
+            card.hide()
+            card.deleteLater()
+        self._cards = cards
         self._layout_cards()
+        for card in cards:
+            if card.isHidden():
+                card.show()
+        self._cursor = min(self._cursor, len(cards) - 1)
+        self._paint_cursor()
         self._request_covers()
         self.selection_changed.emit()
 
@@ -651,6 +791,100 @@ class MediaGrid(QWidget):
 
     def sizeHint(self) -> QSize:
         return QSize(self._min_card_width, self.height())
+
+    # ── keyboard ─────────────────────────────────────────────────────────────
+
+    def cursor_index(self) -> int:
+        return self._cursor
+
+    def _set_cursor(self, index: int, *, scroll: bool = True):
+        if not self._cards:
+            self._cursor = -1
+            return
+        self._cursor = max(0, min(len(self._cards) - 1, index))
+        self._paint_cursor()
+        if scroll:
+            self._reveal(self._cards[self._cursor])
+
+    def _paint_cursor(self):
+        for position, card in enumerate(self._cards):
+            card.set_current(self.hasFocus() and position == self._cursor)
+
+    def _reveal(self, card: QWidget):
+        from PySide6.QtWidgets import QScrollArea
+
+        parent = self.parentWidget()
+        while parent is not None and not isinstance(parent, QScrollArea):
+            parent = parent.parentWidget()
+        if parent is not None:
+            parent.ensureWidgetVisible(card, 0, 24)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if self._cards:
+            self._set_cursor(self._cursor if self._cursor >= 0 else 0, scroll=False)
+            self._reveal(self._cards[self._cursor])
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self._paint_cursor()
+
+    def event(self, event):
+        # Esc / Ctrl+A would otherwise be taken by a page-level shortcut while the grid has them to use.
+        if event.type() == QEvent.Type.ShortcutOverride and self._cards:
+            key, mods = event.key(), event.modifiers()
+            if key == Qt.Key.Key_Escape and self.selected_videos():
+                event.accept()
+                return True
+            if key == Qt.Key.Key_A and mods == Qt.KeyboardModifier.ControlModifier and self._selectable:
+                event.accept()
+                return True
+        return super().event(event)
+
+    def keyPressEvent(self, event):
+        count = len(self._cards)
+        if not count:
+            super().keyPressEvent(event)
+            return
+        key, mods = event.key(), event.modifiers()
+        columns = max(1, self._columns)
+        current = self._cursor if self._cursor >= 0 else 0
+        moves = {
+            Qt.Key.Key_Left: current - 1,
+            Qt.Key.Key_Right: current + 1,
+            Qt.Key.Key_Up: current - columns if current - columns >= 0 else current,
+            Qt.Key.Key_Down: current + columns if current + columns < count else current,
+            Qt.Key.Key_PageUp: max(0, current - columns * 3),
+            Qt.Key.Key_PageDown: min(count - 1, current + columns * 3),
+            Qt.Key.Key_Home: 0,
+            Qt.Key.Key_End: count - 1,
+        }
+        if key in moves and not mods & Qt.KeyboardModifier.ControlModifier:
+            self._set_cursor(moves[key])
+            event.accept()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.card_activated.emit(self._cards[current].video)
+            event.accept()
+        elif key == Qt.Key.Key_Space:
+            card = self._cards[current]
+            if self._selectable:
+                self._set_cursor(current, scroll=False)
+                card.set_selected(not card.is_selected(), emit=True)
+            else:
+                self.card_activated.emit(card.video)
+            event.accept()
+        elif key == Qt.Key.Key_A and mods == Qt.KeyboardModifier.ControlModifier and self._selectable:
+            self.select_all(True)
+            event.accept()
+        elif key == Qt.Key.Key_Escape and self.selected_videos():
+            self.clear_selection()
+            event.accept()
+        elif key == Qt.Key.Key_Menu or (key == Qt.Key.Key_F10 and mods == Qt.KeyboardModifier.ShiftModifier):
+            card = self._cards[current]
+            self.card_context_requested.emit(card.video, card.mapToGlobal(card.rect().center()))
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
 
 class CardSizeControl(QWidget):

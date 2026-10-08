@@ -9,6 +9,7 @@ delete here goes through the page so both views behave the same.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
@@ -39,6 +40,8 @@ from .media_card import (
     CardSizeControl,
     MediaCard,
     MediaGrid,
+    PixmapLRU,
+    read_pixmap,
     saved_card_width,
     transparent_scroll_area,
 )
@@ -159,12 +162,8 @@ def load_pixmap(path: str, max_width: int = 360) -> QPixmap | None:
 
     if not path or not os.path.isfile(path):
         return None
-    pixmap = QPixmap(path)
-    if pixmap.isNull():
-        return None
-    if pixmap.width() > max_width:
-        pixmap = pixmap.scaledToWidth(max_width, Qt.TransformationMode.SmoothTransformation)
-    return pixmap
+    pixmap = read_pixmap(path, max_width)  # decoded at the target size, never at full size
+    return None if pixmap.isNull() else pixmap
 
 
 # ── cover loading ────────────────────────────────────────────────────────────
@@ -346,6 +345,8 @@ class SourceRow(CardWidget):
         super().__init__(parent)
         self.source = source
         self.source_id = int(source.get("id", 0) or 0)
+        self.signature = None
+        self.avatar_path = ""
         self.setBorderRadius(10)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(
@@ -442,6 +443,7 @@ class SourceRow(CardWidget):
         pixmap = load_pixmap(path, 160)
         if pixmap is not None:
             self.avatar.setImage(pixmap)
+            self.avatar_path = path
 
     def set_tile_min_width(self, width: int):
         if self.strip is not None:
@@ -457,8 +459,22 @@ class SubscriptionOverview(QWidget):
         super().__init__(parent)
         self._page = page
         self._covers = covers
-        self._rows: dict[int, SourceRow] = {}
-        self._pixmaps: dict[str, QPixmap] = {}
+        self._rows: dict[int, SourceRow] = {}  # the subscriptions that currently have a real row
+        self._slots: dict[int, QWidget] = {}  # what fills each subscription's place: a row or a spacer
+        self._heights: dict[int, int] = {}  # measured row heights, kept after a row is torn down
+        self._data: dict[int, tuple] = {}  # source, recent items, signature of every listed subscription
+        self._order: dict[int, int] = {}
+        self._tiles_stale = False
+        self._realize_timer = QTimer(self)
+        self._realize_timer.setSingleShot(True)
+        self._realize_timer.setInterval(60)
+        self._realize_timer.timeout.connect(self._realize)
+        self._todo: list = []
+        self._scroll_target = 0
+        self._build_timer = QTimer(self)
+        self._build_timer.setSingleShot(True)
+        self._build_timer.timeout.connect(lambda: self._build_rows(sliced=True))
+        self._pixmaps = PixmapLRU()
         self._dirty = True
         self._tile_min = int(saved_card_width() * 0.8)
         field = str(app_config.get_ui_value("subscription_overview_sort_v1", "title") or "title")
@@ -544,7 +560,7 @@ class SubscriptionOverview(QWidget):
         self._cover_timer.setSingleShot(True)
         self._cover_timer.setInterval(120)
         self._cover_timer.timeout.connect(self._request_visible_covers)
-        self._scroll.verticalScrollBar().valueChanged.connect(lambda _v: self._cover_timer.start())
+        self._scroll.verticalScrollBar().valueChanged.connect(lambda _v: (self._cover_timer.start(), self._realize_timer.start()))
 
         covers.cover_ready.connect(self._on_cover_ready)
         signal_bus.media_card_size_changed.connect(self._on_card_size)
@@ -569,29 +585,170 @@ class SubscriptionOverview(QWidget):
         sources.sort(key=lambda s: _source_sort_key(s, self._sort_field), reverse=self._sort_desc)
         return sources
 
+    # A row is a whole styled widget tree (about 1 MB), and a library can have
+    # hundreds of subscriptions.  Only the rows near the viewport are real
+    # widgets; every other subscription is a bare spacer of the same height.
+    # Rows are built in time slices as they come into range and torn down
+    # again once they are far away, so memory and start-up cost follow what is
+    # on screen instead of the size of the library.
+    SYNC_ROWS = 6  # up to this many new rows are built at once
+    SLICE_SECONDS = 0.012
+    ROW_ESTIMATE = 250  # px, until a real row has been measured
+    ROW_SPACING = 12
+    BUILD_MARGIN = 1.0  # viewport heights above and below that get real rows
+    KEEP_MARGIN = 2.5  # beyond this many viewport heights a row is torn down
+    MIN_VIEWPORT = 600  # px; a hidden page has no real viewport yet
+
+    _SIGNATURE_FIELDS = (
+        "id", "title", "source_key", "source_type", "enabled", "new_count", "item_count",
+        "undownloaded_count", "last_checked_at", "source_origin",
+    )
+
+    def _row_signature(self, source: dict[str, Any], items: list[dict[str, Any]]):
+        return (
+            tuple(source.get(key) for key in self._SIGNATURE_FIELDS),
+            tuple((i.get("video_id"), item_state(i), i.get("thumbnail_url"), i.get("thumbnail_path")) for i in items),
+        )
+
+    def _make_row(self, source: dict[str, Any], items: list[dict[str, Any]], signature) -> SourceRow:
+        row = SourceRow(source, items, self._tile_min, self)
+        row.signature = signature
+        row.open_requested.connect(self.source_opened)
+        row.refresh_requested.connect(self._page._refresh_source_ids_from_view)
+        row.menu_requested.connect(self._page._show_source_menu)
+        row.video_activated.connect(self._page._show_video_detail)
+        row.video_context.connect(self._page._show_video_menu)
+        avatar = str(source.get("avatar_path", "") or "")
+        if avatar:
+            row.set_avatar(avatar)
+        return row
+
+    # ── slots: every subscription owns one place in the layout ──────────────
+
+    def _average_height(self) -> int:
+        heights = [h for h in self._heights.values() if h > 0]
+        return round(sum(heights) / len(heights)) if heights else self.ROW_ESTIMATE
+
+    def _slot_height(self, source_id: int) -> int:
+        return self._heights.get(source_id) or self._average_height()
+
+    def _new_spacer(self, source_id: int) -> QWidget:
+        spacer = QWidget(self)
+        spacer.setFixedHeight(self._slot_height(source_id))
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        return spacer
+
+    def _replace_slot(self, source_id: int, new: QWidget, *, keep_view: bool = True):
+        """Swap what fills a subscription's place, keeping what the user is looking at still."""
+
+        old = self._slots.get(source_id)
+        bar = self._scroll.verticalScrollBar()
+        above = old is not None and old.y() + old.height() <= bar.value()
+        before = old.height() if old is not None else 0
+        if old is None:
+            self._column.insertWidget(self._column.count() - 1, new)
+        else:
+            self._column.replaceWidget(old, new)
+            old.hide()
+            old.deleteLater()  # no setParent(None): re-parenting a styled tree is slow
+        self._slots[source_id] = new
+        new.show()
+        if keep_view and above:
+            # A slot above the viewport changed height: shift the scroll bar by the same
+            # amount, otherwise the page would jump under the cursor.
+            new_height = new.sizeHint().height() if isinstance(new, SourceRow) else new.height()
+            bar.setValue(bar.value() + (new_height - before))
+
+    def _drop_slot(self, source_id: int):
+        widget = self._slots.pop(source_id, None)
+        if widget is not None:
+            self._column.removeWidget(widget)
+            widget.hide()
+            widget.deleteLater()
+        self._rows.pop(source_id, None)
+        self._heights.pop(source_id, None)
+        self._data.pop(source_id, None)
+
+    def _tear_down_row(self, source_id: int):
+        row = self._rows.pop(source_id, None)
+        if row is None:
+            return
+        self._heights[source_id] = max(row.height(), row.sizeHint().height())
+        self._replace_slot(source_id, self._new_spacer(source_id))
+
+    def _sync_order(self):
+        """Keep the layout in the sorted order even while rows arrive piecemeal."""
+
+        position = 0
+        for source_id in sorted(self._slots, key=lambda sid: self._order.get(sid, 1 << 30)):
+            widget = self._slots[source_id]
+            if self._column.indexOf(widget) != position:
+                self._column.removeWidget(widget)
+                self._column.insertWidget(position, widget)
+            widget.show()
+            position += 1
+
+    def _wanted_ids(self, margin: float) -> list[int]:
+        """Subscription ids whose slot is within ``margin`` viewport heights of the viewport."""
+
+        viewport = max(self._scroll.viewport().height(), self.MIN_VIEWPORT)
+        top = self._scroll.verticalScrollBar().value() - viewport * margin
+        bottom = self._scroll.verticalScrollBar().value() + viewport * (1 + margin)
+        y = 0
+        wanted: list[int] = []
+        for source_id in sorted(self._order, key=self._order.get):
+            height = self._slots[source_id].height() if source_id in self._rows else self._slot_height(source_id)
+            if y + height >= top and y <= bottom:
+                wanted.append(source_id)
+            y += height + self.ROW_SPACING
+        return wanted
+
+    def _realize(self):
+        """Queue real rows for what is near the viewport and tear down what is far away."""
+
+        if not self._order:
+            return
+        near = self._wanted_ids(self.BUILD_MARGIN)
+        keep = set(self._wanted_ids(self.KEEP_MARGIN))
+        for source_id in [sid for sid in self._rows if sid not in keep]:
+            self._tear_down_row(source_id)
+        queued = {entry[0] for entry in self._todo}
+        for source_id in near:
+            if source_id not in self._rows and source_id not in queued and source_id in self._data:
+                source, items, signature = self._data[source_id]
+                self._todo.append((source_id, source, items, signature))
+        if self._todo:
+            self._build_rows(sliced=len(self._todo) > self.SYNC_ROWS)
+        else:
+            self._cover_timer.start()
+
     def reload(self):
         self._dirty = False
+        self._build_timer.stop()
         sources = self.visible_sources()
         recent = self._page._recent_items(RECENT_PER_SOURCE)
         scroll_value = self._scroll.verticalScrollBar().value()
-        for row in self._rows.values():
-            row.hide()
-            row.setParent(None)
-            row.deleteLater()
-        self._rows = {}
+        self._order = {int(s.get("id", 0) or 0): index for index, s in enumerate(sources)}
+        for source_id in [sid for sid in self._slots if sid not in self._order]:
+            self._drop_slot(source_id)
+        self._todo = []
         for source in sources:
             source_id = int(source.get("id", 0) or 0)
-            row = SourceRow(source, recent.get(source_id, []), self._tile_min, self)
-            row.open_requested.connect(self.source_opened)
-            row.refresh_requested.connect(self._page._refresh_source_ids_from_view)
-            row.menu_requested.connect(self._page._show_source_menu)
-            row.video_activated.connect(self._page._show_video_detail)
-            row.video_context.connect(self._page._show_video_menu)
-            avatar = str(source.get("avatar_path", "") or "")
-            if avatar:
-                row.set_avatar(avatar)
-            self._column.insertWidget(self._column.count() - 1, row)
-            self._rows[source_id] = row
+            items = recent.get(source_id, [])
+            signature = self._row_signature(source, items)
+            self._data[source_id] = (source, items, signature)
+            row = self._rows.get(source_id)
+            if row is not None and getattr(row, "signature", None) == signature:
+                avatar = str(source.get("avatar_path", "") or "")
+                if avatar and avatar != row.avatar_path:
+                    row.set_avatar(avatar)
+            elif row is not None:
+                # Changed data: the row is rebuilt below if it is still near the viewport.
+                self._heights[source_id] = max(row.height(), row.sizeHint().height())
+                self._rows.pop(source_id, None)
+                self._replace_slot(source_id, self._new_spacer(source_id), keep_view=False)
+            elif source_id not in self._slots:
+                self._replace_slot(source_id, self._new_spacer(source_id), keep_view=False)
         total_new = sum(int(s.get("new_count", 0) or 0) for s in sources)
         total_missing = sum(int(s.get("undownloaded_count", 0) or 0) for s in sources)
         self._summary.setText(
@@ -618,8 +775,31 @@ class SubscriptionOverview(QWidget):
                 )
             if self._empty.button is not None:
                 self._empty.button.setVisible(not has_any)
-        QTimer.singleShot(0, lambda: self._restore_scroll(scroll_value))
+        self._scroll_target = scroll_value
+        self._sync_order()
+        self._realize()
+
+    def _build_rows(self, *, sliced: bool):
+        """Create queued rows; when ``sliced`` stop after ~12 ms and continue next tick."""
+
+        start = time.perf_counter()
+        while self._todo:
+            source_id, source, items, signature = self._todo.pop(0)
+            if source_id not in self._order or source_id in self._rows:
+                continue
+            row = self._make_row(source, items, signature)
+            self._rows[source_id] = row
+            self._replace_slot(source_id, row)
+            self._heights[source_id] = row.sizeHint().height()
+            if sliced and self._todo and time.perf_counter() - start > self.SLICE_SECONDS:
+                self._build_timer.start(0)
+                return
+        self._sync_order()
+        QTimer.singleShot(0, lambda: self._restore_scroll(self._scroll_target))
         self._cover_timer.start()
+
+    def building(self) -> bool:
+        return bool(self._todo)
 
     def _restore_scroll(self, value: int):
         try:
@@ -654,9 +834,27 @@ class SubscriptionOverview(QWidget):
 
     def _on_card_size(self, width: int):
         self._tile_min = max(120, int(width * 0.8))
+        if not self.isVisible():
+            self._tiles_stale = True  # applied on show; 65 rows of strips are not worth relaying out unseen
+            return
+        self._apply_tile_size()
+
+    def _apply_tile_size(self):
+        self._tiles_stale = False
         for row in self._rows.values():
             row.set_tile_min_width(self._tile_min)
+        # Strip heights follow the tile size: forget the old measurements and re-measure.
+        self._heights.clear()
+        QTimer.singleShot(0, self._remeasure)
         self._cover_timer.start()
+
+    def _remeasure(self):
+        for source_id, row in list(self._rows.items()):
+            self._heights[source_id] = row.sizeHint().height()
+        for source_id, widget in self._slots.items():
+            if source_id not in self._rows:
+                widget.setFixedHeight(self._slot_height(source_id))
+        self._realize_timer.start()
 
     # ── covers ───────────────────────────────────────────────────────────────
 
@@ -677,7 +875,10 @@ class SubscriptionOverview(QWidget):
                 video = card.video
                 cached = self._pixmaps.get(video.video_id)
                 if cached is None:
-                    cached = load_pixmap(str(video.raw.get("_thumbnail_path", "") or ""))
+                    path = str(video.raw.get("_thumbnail_path", "") or "") or self._page._cover_path(
+                        video.video_id, video.thumbnail_url,
+                    )
+                    cached = load_pixmap(path)
                     if cached is not None:
                         self._pixmaps[video.video_id] = cached
                 if cached is not None:
@@ -701,8 +902,11 @@ class SubscriptionOverview(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if self._tiles_stale:
+            self._apply_tile_size()
         self.reload_if_dirty()
         self._cover_timer.start()
+        self._realize_timer.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -712,6 +916,7 @@ class SubscriptionOverview(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._cover_timer.start()
+        self._realize_timer.start()
 
 
 # ── one source as a grid ─────────────────────────────────────────────────────
@@ -729,7 +934,7 @@ class SourceItemsView(QWidget):
         self._source: dict[str, Any] = {}
         self._items: list[dict[str, Any]] = []
         self._filtered: list[dict[str, Any]] = []
-        self._pixmaps: dict[str, QPixmap] = {}
+        self._pixmaps = PixmapLRU()
         self._page_index = 0
         self._stale = False
 

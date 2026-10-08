@@ -227,8 +227,32 @@ class SubscriptionManagerMixin:
             item["downloadable"] = not bool(history_record) and not bool(task_status) and not download_state
         return items
 
-    def get_subscription_recent_items(self, per_source: int = 8) -> dict[int, list[dict[str, Any]]]:
-        """Latest items per source with their local download state (for the overview)."""
+    def subscription_cover_path(self, video_id: str, thumbnail_url: str = "") -> str:
+        """Local path of a video's cover when it is already on disk, else ``""``.
+
+        One file check per call: the overview resolves only the covers it is
+        about to show instead of probing every video of every subscription.
+        """
+
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return ""
+        record = self.history.get_record(video_id)
+        history_path = str(record.get("thumbnail_path", "") or "") if record else ""
+        cached = self._ensure_subscription_thumbnail_cache(video_id, str(thumbnail_url or ""), history_path)
+        if cached:
+            return cached
+        return history_path if history_path and os.path.isfile(history_path) else ""
+
+    def get_subscription_recent_items(
+        self, per_source: int = 8, *, resolve_thumbnails: bool = True,
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Latest items per source with their local download state (for the overview).
+
+        ``resolve_thumbnails=False`` skips the per-video disk probe for cover
+        files (hundreds of stat calls on a large library); callers then resolve
+        the visible ones with :meth:`subscription_cover_path`.
+        """
 
         recent = self.subscriptions.list_recent_items(per_source)
         items = [item for rows in recent.values() for item in rows]
@@ -244,14 +268,18 @@ class SubscriptionManagerMixin:
             record = history_records.get(video_id)
             file_path = str(record.get("file_path", "") or "") if record else ""
             history_thumbnail_path = str(record.get("thumbnail_path", "") or "") if record else ""
-            cached = self._ensure_subscription_thumbnail_cache(
-                video_id, str(item.get("thumbnail_url", "") or ""), history_thumbnail_path,
+            cached = (
+                self._ensure_subscription_thumbnail_cache(
+                    video_id, str(item.get("thumbnail_url", "") or ""), history_thumbnail_path,
+                )
+                if resolve_thumbnails
+                else ""
             )
             item["downloaded"] = bool(record)
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
             item["thumbnail_path"] = cached or (
                 history_thumbnail_path
-                if history_thumbnail_path and os.path.isfile(history_thumbnail_path)
+                if resolve_thumbnails and history_thumbnail_path and os.path.isfile(history_thumbnail_path)
                 else ""
             )
             item["queued"] = bool(task_status_by_video_id.get(video_id.lower()))

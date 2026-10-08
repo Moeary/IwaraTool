@@ -11,7 +11,7 @@ import re
 import webbrowser
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
@@ -48,9 +48,11 @@ from ..core.search import (
 )
 from ..i18n import current_language, tr
 from ..signal_bus import signal_bus
+from ..core import shortcut_defs
 from .author_status import AuthorStatusBar
+from .shortcuts import attach_hint
 from .home_workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
-from .media_card import MediaGrid, transparent_scroll_area
+from .media_card import MediaGrid, image_size, read_pixmap, transparent_scroll_area
 from .search_widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
 from .ui_state import ResponsiveFlowLayout
@@ -59,6 +61,7 @@ CONTENT_MAX_WIDTH = 1840
 SIDE_WIDTH = 360
 SIDE_MIN_PAGE_WIDTH = 1180  # below this the related list drops under the post
 GALLERY_MAX_WIDTH = 1280
+GALLERY_DECODE_WIDTH = 1920  # decoded pictures are capped at this width
 _URL_RE = re.compile(r"(https?://[^\s<>\"']+)")
 
 
@@ -86,11 +89,25 @@ class MediaStage(QWidget):
         self._playable = False
         self._badge = ""
         self._max_height = 640
+        self._scaled: QPixmap | None = None
+        self._scaled_key: tuple | None = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(180)
 
+    def _scaled_pixmap(self) -> QPixmap:
+        """The cover fitted to the stage, scaled once per size rather than on every paint."""
+
+        key = (self.size().width(), self.size().height(), self._pixmap.cacheKey())
+        if self._scaled_key != key:
+            self._scaled = self._pixmap.scaled(
+                self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+            )
+            self._scaled_key = key
+        return self._scaled
+
     def set_pixmap(self, pixmap: QPixmap | None):
         self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self._scaled_key = None
         # A tiny copy stretched over the stage reads as a blurred backdrop, so a
         # 16:9 cover on a very wide window is not flanked by empty black bars.
         self._backdrop = (
@@ -145,9 +162,7 @@ class MediaStage(QWidget):
             painter.drawPixmap(self.rect(), self._backdrop)
             painter.fillRect(self.rect(), QColor(0, 0, 0, 150))
         if self._pixmap is not None:
-            scaled = self._pixmap.scaled(
-                self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
-            )
+            scaled = self._scaled_pixmap()
             painter.drawPixmap((self.width() - scaled.width()) // 2, (self.height() - scaled.height()) // 2, scaled)
         if self._playable:
             radius = 34
@@ -186,10 +201,38 @@ class GalleryImage(QWidget):
         width, height = file_info.get("width"), file_info.get("height")
         self._ratio = (height / width) if isinstance(width, int) and isinstance(height, int) and width and height else 0.62
         self._pixmap: QPixmap | None = None
+        self._scaled: QPixmap | None = None
+        self._scaled_key: tuple | None = None
         self._final = False
+        self._path = ""  # the file to decode when this picture is on screen
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMaximumWidth(GALLERY_MAX_WIDTH)
+
+    def set_source(self, path: str, *, final: bool):
+        """Point at a picture on disk; it is decoded only while it is near the viewport."""
+
+        if self._final and not final:
+            return
+        size = image_size(path)
+        if not size.isValid() or not size.width():
+            return
+        self._path = path
+        self._final = self._final or final
+        if final:
+            self._ratio = size.height() / size.width()
+        self._pixmap = self._scaled = self._scaled_key = None
+        self._fit_height()
+        self.update()
+
+    def release(self):
+        """Drop the decoded picture (it is re-read from disk if it scrolls back into view)."""
+
+        if self._path:
+            self._pixmap = self._scaled = self._scaled_key = None
+
+    def is_decoded(self) -> bool:
+        return self._pixmap is not None
 
     def set_pixmap(self, pixmap: QPixmap, *, final: bool):
         if pixmap.isNull() or (self._final and not final):
@@ -227,13 +270,19 @@ class GalleryImage(QWidget):
         shape.addRoundedRect(QRectF(self.rect()), 8, 8)
         painter.setClipPath(shape)
         painter.fillRect(self.rect(), to_qcolor(palette().placeholder))
-        if self._pixmap is not None:
-            painter.drawPixmap(
-                self.rect(),
-                self._pixmap.scaled(
+        if self._pixmap is None and self._path:
+            # Painting means some of it is visible; decode at what is displayed
+            # (never more than GALLERY_DECODE_WIDTH), not at the original size.
+            self._pixmap = read_pixmap(self._path, min(GALLERY_DECODE_WIDTH, max(64, round(self.width() * self.devicePixelRatioF()))))
+            self._scaled_key = None
+        if self._pixmap is not None and not self._pixmap.isNull():
+            key = (self.width(), self.height(), self._pixmap.cacheKey())
+            if self._scaled_key != key:
+                self._scaled = self._pixmap.scaled(
                     self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation,
-                ),
-            )
+                )
+                self._scaled_key = key
+            painter.drawPixmap(self.rect(), self._scaled)
 
 
 class CommentWidget(QWidget):
@@ -301,7 +350,7 @@ class CommentWidget(QWidget):
             self._set_avatar(path)
 
     def _set_avatar(self, path: str):
-        pixmap = QPixmap(path)
+        pixmap = read_pixmap(path, 256)
         if not pixmap.isNull():
             self._avatar.setImage(pixmap)
 
@@ -421,6 +470,10 @@ class DetailView(QWidget):
         self._copy_btn.clicked.connect(self._copy_link)
         self._like_btn = ToggleButton(tr("Like", "点赞", "いいね"), content, FluentIcon.HEART)
         self._like_btn.clicked.connect(self._toggle_like)
+        attach_hint(self._play_btn, tr("Play", "播放", "再生"), "detail_play")
+        attach_hint(self._download_btn, tr("Download", "下载", "ダウンロード"), "detail_download")
+        attach_hint(self._browser_btn, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), "detail_open_browser")
+        attach_hint(self._copy_btn, tr("Copy link", "复制链接", "リンクをコピー"), "detail_copy_link")
         for button in (self._play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn):
             actions.addWidget(button)
         self._body.addLayout(actions)
@@ -506,6 +559,11 @@ class DetailView(QWidget):
 
         self._scroll.setWidget(page)
         self._scroll.viewport().installEventFilter(self)
+        self._release_timer = QTimer(self)
+        self._release_timer.setSingleShot(True)
+        self._release_timer.setInterval(250)
+        self._release_timer.timeout.connect(self._release_far_pictures)
+        self._scroll.verticalScrollBar().valueChanged.connect(lambda _v: self._release_timer.start())
         root.addWidget(self._scroll, 1)
         self._reset_content()
 
@@ -513,6 +571,23 @@ class DetailView(QWidget):
         super().resizeEvent(event)
         self._fit_stage()
         self._place_related(self.width() >= SIDE_MIN_PAGE_WIDTH)
+
+    def _release_far_pictures(self):
+        """Free the decoded pictures of an image post that are far from the viewport.
+
+        A post can have dozens of pictures; only those on (or just off) the screen
+        keep their pixels in memory.
+        """
+
+        viewport = self._scroll.viewport()
+        height = viewport.height()
+        for image in self._gallery:
+            if not image.is_decoded():
+                continue
+            top = image.mapTo(viewport, QPoint(0, 0)).y()
+            bottom = top + image.height()
+            if bottom < -height * 1.5 or top > height * 2.5:
+                image.release()
 
     def eventFilter(self, watched, event):
         # The viewport settles after the page itself has been resized.
@@ -720,7 +795,7 @@ class DetailView(QWidget):
         self._build_tags(info.get("tags"))
 
     def _set_avatar(self, path: str):
-        pixmap = QPixmap(path)
+        pixmap = read_pixmap(path, 256)
         if not pixmap.isNull():
             self._avatar.setImage(pixmap)
             self._avatar.show()
@@ -779,7 +854,7 @@ class DetailView(QWidget):
     def _on_cover(self, kind: str, key: str, path: str):
         pixmap = None
         if kind in {"video", "hero"} and self._video is not None and key == self._video.video_id and self._kind == "video":
-            pixmap = QPixmap(path)
+            pixmap = read_pixmap(path, GALLERY_DECODE_WIDTH)
             if kind == "hero" or self._stage._pixmap is None:
                 self._stage.set_pixmap(pixmap)
         elif kind == "avatar":
@@ -789,8 +864,7 @@ class DetailView(QWidget):
         elif kind in {"gallery", "gallery_thumb"}:
             for image in self._gallery:
                 if image.file_id == key:
-                    pixmap = QPixmap(path)
-                    image.set_pixmap(pixmap, final=kind == "gallery")
+                    image.set_source(path, final=kind == "gallery")
 
     # ── comments ─────────────────────────────────────────────────────────────
 
@@ -892,11 +966,13 @@ class DetailView(QWidget):
             if self._liked
             else tr(f"Like · {count}", f"点赞 · {count}", f"いいね · {count}")
         )
-        self._like_btn.setToolTip(
+        text = (
             tr("Click to remove your like", "再次点击取消点赞", "もう一度押すと取り消し")
             if self._liked
             else tr("Like this post with your Iwara account", "用你的 Iwara 账号点赞", "Iwaraアカウントでいいねする")
         )
+        key = shortcut_defs.key_for("detail_like")
+        self._like_btn.setToolTip(f"{text} ({key})" if key else text)
 
     def _toggle_like(self):
         if self._like_busy or self._video is None:

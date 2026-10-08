@@ -6,7 +6,7 @@ from datetime import datetime
 import re
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -473,9 +473,6 @@ class DownloadInterface(QWidget):
         self._submit_btn.clicked.connect(self._submit)
         url_layout.addWidget(self._submit_btn)
         left_layout.addWidget(url_card)
-
-        paste_submit = QShortcut(QKeySequence("Ctrl+Shift+V"), self)
-        paste_submit.activated.connect(lambda: self._paste_from_clipboard(submit=True))
 
         # ── Operation log card ────────────────────────────────────────────────
         log_card = CardWidget(left_panel)

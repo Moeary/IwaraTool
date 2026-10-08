@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QDialog, QListWidgetItem, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QDialog, QListWidgetItem, QTableWidgetItem
 
 from qfluentwidgets import (
     Action,
@@ -1133,8 +1133,9 @@ class SubscriptionActionsMixin:
         if mode == "table":
             self._view_stack.setCurrentWidget(self._table_page)
         else:
+            # The overview reloads itself when it becomes visible; doing it here
+            # as well built every row twice while the page was still hidden.
             self._view_stack.setCurrentWidget(self._overview)
-            self._overview.reload_if_dirty()
         for button in (self._toggle_sources_btn, self._toggle_items_btn):
             button.setVisible(mode == "table")
         if persist:
@@ -1163,6 +1164,43 @@ class SubscriptionActionsMixin:
         self._view_stack.setCurrentWidget(origin)
         if origin is self._overview:
             self._overview.reload_if_dirty()
+
+    def go_back_view(self):
+        """Alt+Left: from an opened subscription / author back to the list."""
+
+        if self._view_stack.currentWidget() in (self._source_view, self._author_view):
+            self._leave_page_view()
+
+    def select_all_in_view(self):
+        if self._view_stack.currentWidget() is self._source_view:
+            self._source_view._grid.select_all(True)
+            return
+        # Elsewhere the key keeps its usual meaning for the focused control.
+        focus = QApplication.focusWidget()
+        if focus is not None and hasattr(focus, "selectAll"):
+            focus.selectAll()
+
+    def clear_selection_in_view(self):
+        if self._view_stack.currentWidget() is self._source_view:
+            self._source_view._grid.clear_selection()
+            return
+        focus = QApplication.focusWidget()
+        if focus is not None and hasattr(focus, "clearSelection"):
+            focus.clearSelection()
+
+    def toggle_view_mode(self):
+        self._set_view_mode("table" if self._view_mode_is_overview() else "overview")
+
+    def focus_filter(self):
+        current = self._view_stack.currentWidget()
+        edit = {
+            self._overview: getattr(self._overview, "_search", None),
+            self._source_view: getattr(self._source_view, "_search", None),
+            self._table_page: getattr(self, "_source_search_edit", None),
+        }.get(current)
+        if edit is not None:
+            edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            edit.selectAll()
 
     def _view_mode_is_overview(self) -> bool:
         return str(app_config.get_ui_value("subscription_view_mode_v1", "overview") or "overview") != "table"
@@ -1224,10 +1262,22 @@ class SubscriptionActionsMixin:
 
     def _recent_items(self, per_source: int) -> dict[int, list[dict[str, Any]]]:
         try:
-            recent = download_manager.get_subscription_recent_items(per_source)
+            try:
+                recent = download_manager.get_subscription_recent_items(per_source, resolve_thumbnails=False)
+            except TypeError:  # a manager without the option
+                recent = download_manager.get_subscription_recent_items(per_source)
         except Exception:
             return {}
         return recent if isinstance(recent, dict) else {}
+
+    def _cover_path(self, video_id: str, thumbnail_url: str = "") -> str:
+        """The video's cover if it is already cached on disk (cheap, one file check)."""
+
+        try:
+            path = download_manager.subscription_cover_path(video_id, thumbnail_url)
+        except Exception:
+            return ""
+        return path if isinstance(path, str) else ""
 
     def _source_items(self, source_id: int) -> list[dict[str, Any]]:
         items = download_manager.get_subscription_items(int(source_id))

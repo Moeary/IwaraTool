@@ -64,11 +64,34 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("nav_history", SCOPE_GLOBAL, "Ctrl+6", tr("Go to History", "前往历史记录", "履歴へ移動")),
         A("nav_rules", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
         A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),
+        A("nav_next", SCOPE_GLOBAL, "Ctrl+Tab", tr("Next page", "下一个页面", "次のページ")),
+        A("nav_prev", SCOPE_GLOBAL, "Ctrl+Shift+Tab", tr("Previous page", "上一个页面", "前のページ")),
+        A("focus_search", SCOPE_GLOBAL, "Ctrl+K", tr("Quick search (go to Search and type)", "快速搜索（跳到搜索页并输入）", "クイック検索（検索ページで入力）")),
+        A("quick_download", SCOPE_GLOBAL, "Ctrl+Alt+V", tr("Paste the clipboard link and download it", "粘贴剪贴板链接并下载", "クリップボードのリンクを貼り付けて保存")),
+        A("open_download_folder", SCOPE_GLOBAL, "Ctrl+Shift+O", tr("Open the download folder", "打开下载文件夹", "保存フォルダーを開く")),
+        A("rating_cycle", SCOPE_GLOBAL, "Ctrl+Shift+R", tr("Cycle the content filter (All / SFW / NSFW)", "切换内容分级（全部 / SFW / NSFW）", "コンテンツ区分を切り替え（すべて/SFW/NSFW）")),
+        A("card_size_up", SCOPE_GLOBAL, "Ctrl+=", tr("Larger covers", "放大封面", "カバーを大きく")),
+        A("card_size_down", SCOPE_GLOBAL, "Ctrl+-", tr("Smaller covers", "缩小封面", "カバーを小さく")),
+        A("card_size_reset", SCOPE_GLOBAL, "Ctrl+0", tr("Default cover size", "恢复默认封面大小", "カバーサイズを初期化")),
+        A("toggle_theme", SCOPE_GLOBAL, "Ctrl+Shift+L", tr("Toggle dark mode", "切换黑夜模式", "ダークモード切替")),
+        A("toggle_fullscreen", SCOPE_GLOBAL, "F11", tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
+        A("shortcut_help", SCOPE_GLOBAL, "F1", tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),
         A("quit_app", SCOPE_GLOBAL, "Ctrl+Q", tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了")),
 
         A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
         A("home_back", SCOPE_HOME, "Alt+Left", tr("Back to the previous view", "返回上一级", "前の画面に戻る")),
         A("home_customize", SCOPE_HOME, "Ctrl+E", tr("Customize the Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ")),
+        A("home_top", SCOPE_HOME, "Ctrl+Home", tr("Scroll to the top", "回到顶部", "先頭へスクロール")),
+        A("home_bottom", SCOPE_HOME, "Ctrl+End", tr("Scroll to the bottom", "滚动到底部", "末尾へスクロール")),
+        A("home_fold_all", SCOPE_HOME, "Ctrl+Shift+Up", tr("Fold every row", "折叠全部栏目", "すべての欄を折りたたむ")),
+        A("home_unfold_all", SCOPE_HOME, "Ctrl+Shift+Down", tr("Unfold every row", "展开全部栏目", "すべての欄を展開")),
+        A("detail_close", SCOPE_HOME, "Esc", tr("Close the open post / list", "关闭打开的详情 / 列表", "開いている投稿・一覧を閉じる")),
+        A("detail_like", SCOPE_HOME, "Ctrl+L", tr("Like / un-like the open post", "给打开的作品点赞 / 取消点赞", "開いている投稿にいいね/取消")),
+        A("detail_play", SCOPE_HOME, "Ctrl+P", tr("Play the open post", "播放打开的作品", "開いている投稿を再生")),
+        A("detail_download", SCOPE_HOME, "Ctrl+D", tr("Download the open post", "下载打开的作品", "開いている投稿を保存")),
+        A("detail_open_browser", SCOPE_HOME, "Ctrl+O", tr("Open the post in the browser", "在浏览器打开作品", "投稿をブラウザーで開く")),
+        A("detail_copy_link", SCOPE_HOME, "Ctrl+Shift+C", tr("Copy the post's link", "复制作品链接", "投稿のリンクをコピー")),
+        A("detail_author_page", SCOPE_HOME, "Ctrl+Shift+A", tr("Open the post's author page", "打开作品的作者页", "投稿の作者ページを開く")),
 
         A("download_submit", SCOPE_DOWNLOAD, "Ctrl+Return", tr("Submit the links", "提交链接下载", "リンクを送信")),
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),
@@ -81,12 +104,22 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("search_queue", SCOPE_SEARCH, "Ctrl+D", tr("Download the selection", "下载选中项", "選択をダウンロード")),
         A("search_preview", SCOPE_SEARCH, "Ctrl+P", tr("Play / preview the selection", "播放 / 预览选中项", "選択を再生 / プレビュー")),
         A("search_open_page", SCOPE_SEARCH, "Ctrl+O", tr("Open the selection in the browser", "在浏览器打开选中项", "選択をブラウザーで開く")),
+        A("search_prev_page", SCOPE_SEARCH, "Alt+Left", tr("Previous page of results", "上一页结果", "前の結果ページ")),
+        A("search_next_page", SCOPE_SEARCH, "Alt+Right", tr("Next page of results", "下一页结果", "次の結果ページ")),
+        A("search_toggle_view", SCOPE_SEARCH, "Ctrl+Shift+G", tr("Switch grid / list view", "切换网格 / 列表视图", "グリッド/リスト表示の切り替え")),
+        A("search_toggle_controls", SCOPE_SEARCH, "Ctrl+Shift+F", tr("Show / hide the search controls", "展开 / 收起搜索区", "検索欄の表示/非表示")),
+        A("search_reset", SCOPE_SEARCH, "Ctrl+Shift+Backspace", tr("Reset the search", "重置搜索", "検索をリセット")),
 
         A("sub_add", SCOPE_SUBSCRIPTIONS, "Ctrl+N", tr("Add a subscription", "添加订阅", "購読を追加")),
         A("sub_refresh", SCOPE_SUBSCRIPTIONS, "F5", tr("Refresh the current source", "刷新当前订阅源", "現在の購読元を更新")),
         A("sub_refresh_all", SCOPE_SUBSCRIPTIONS, "Ctrl+F5", tr("Refresh all sources", "刷新全部订阅源", "すべての購読元を更新")),
         A("sub_download_selected", SCOPE_SUBSCRIPTIONS, "Ctrl+D", tr("Download the selection", "下载选中项", "選択をダウンロード")),
         A("sub_download_new", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+D", tr("Download new videos", "下载新增视频", "新着動画をダウンロード")),
+        A("sub_back", SCOPE_SUBSCRIPTIONS, "Alt+Left", tr("Back to the list of subscriptions", "返回订阅列表", "購読の一覧へ戻る")),
+        A("sub_select_all", SCOPE_SUBSCRIPTIONS, "Ctrl+A", tr("Select every video in the grid", "全选网格中的视频", "グリッドの動画をすべて選択")),
+        A("sub_clear_selection", SCOPE_SUBSCRIPTIONS, "Esc", tr("Clear the selection", "取消选择", "選択を解除")),
+        A("sub_toggle_view", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+T", tr("Switch overview / table view", "切换总览 / 经典表格", "概要/表形式の切り替え")),
+        A("sub_focus_filter", SCOPE_SUBSCRIPTIONS, "Ctrl+F", tr("Focus the filter box", "聚焦筛选框", "絞り込み欄へ移動")),
 
         A("history_focus_search", SCOPE_HISTORY, "Ctrl+F", tr("Focus the filter box", "聚焦搜索框", "検索ボックスへ移動")),
         A("history_open_file", SCOPE_HISTORY, "Ctrl+Return", tr("Open the video file", "打开视频文件", "動画ファイルを開く")),
@@ -146,15 +179,31 @@ def _save_overrides(overrides: dict[str, str]) -> None:
     app_config.shortcut_overrides = json.dumps(overrides, ensure_ascii=False, sort_keys=True)
 
 
+_default_keys_cache: dict[str, str] | None = None
+
+
+def _default_keys() -> dict[str, str]:
+    """``{action id: default key}``; defaults do not depend on the language, so build once.
+
+    ``key_for`` is called for every tooltip hint and every shortcut refresh;
+    rebuilding the translated catalogue each time was needlessly slow.
+    """
+
+    global _default_keys_cache
+    if _default_keys_cache is None:
+        _default_keys_cache = {action.id: action.default for action in all_actions()}
+    return _default_keys_cache
+
+
 def key_for(action_id: str) -> str:
     """Effective shortcut for ``action_id`` (``""`` when unassigned)."""
-    action = actions_by_id().get(action_id)
-    if action is None:
+    default = _default_keys().get(action_id)
+    if default is None:
         return ""
     overrides = load_overrides()
     if action_id in overrides:
         return normalize(overrides[action_id])
-    return normalize(action.default)
+    return normalize(default)
 
 
 def scopes_overlap(first: str, second: str) -> bool:

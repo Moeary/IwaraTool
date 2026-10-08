@@ -7,7 +7,7 @@ import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QPoint, QThread, Qt, QSize, QTimer
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -96,7 +96,8 @@ from .ui_state import (
     restore_table_widths,
     show_fluent_text_input,
 )
-from .media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN, CardSizeControl, saved_card_width
+from .media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN, CardSizeControl, PixmapLRU, read_pixmap, saved_card_width
+from .shortcuts import attach_hint
 from .theme import CARD_MARGINS, PAGE_MARGINS, qcolor, set_secondary_text
 from .worker_lifecycle import stop_qthreads
 
@@ -105,8 +106,6 @@ _VIDEO_ICON_SIZE = QSize(260, 146)
 _DEFAULT_GRID_HEIGHT = 238
 _MAX_GRID_COLUMNS = 12
 _SEARCH_HISTORY_KEY = "search_history_v1"
-# Decoded covers kept for re-scaling; a few pages' worth is plenty.
-_SOURCE_PIXMAP_CACHE_LIMIT = 256
 
 
 class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
@@ -156,7 +155,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._pending_author_actions = {}
         self._item_by_key: dict[str, QListWidgetItem] = {}
         self._image_path_by_key: dict[str, str] = {}
-        self._source_pixmaps: dict[str, QPixmap] = {}
+        self._source_pixmaps = PixmapLRU(64 * 1024 * 1024)
+        self._small_sources: set[str] = set()
         self._search_workers: list[SearchWorker] = []
         self._image_workers: list[SearchImageWorker] = []
         self._image_pending_keys: set[str] = set()
@@ -409,12 +409,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         result_header.addWidget(self._toggle_search_controls_btn)
         root.addLayout(result_header)
 
-        previous_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
-        previous_shortcut.activated.connect(self._go_previous_page_if_enabled)
-        next_shortcut = QShortcut(QKeySequence("Alt+Right"), self)
-        next_shortcut.activated.connect(self._go_next_page_if_enabled)
-        focus_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
-        focus_shortcut.activated.connect(self._focus_keyword)
+        # Paging, focus and the other search keys come from the shortcut catalogue
+        # (see shortcut_bindings), so rebinding them in Settings really takes effect.
+        attach_hint(self._previous_page_btn, tr("Previous page", "上一页", "前のページ"), "search_prev_page")
+        attach_hint(self._next_page_btn, tr("Next page", "下一页", "次のページ"), "search_next_page")
+        attach_hint(self._reset_btn, tr("Reset the search", "重置搜索", "検索をリセット"), "search_reset")
 
         result_card = CardWidget(self)
         result_layout = QVBoxLayout(result_card)
@@ -1191,6 +1190,13 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if self._next_page_btn.isEnabled():
             self._go_next_page()
 
+    def _toggle_view_mode(self):
+        """Switch between the poster grid and the table (when the results allow it)."""
+
+        if not self._view_combo.isEnabled():
+            return
+        self._view_combo.setCurrentIndex(0 if self._is_list_view() else 1)
+
     def _focus_keyword(self):
         if self._search_controls_collapsed:
             self._set_search_controls_collapsed(False)
@@ -1883,24 +1889,39 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._item_by_key[key] = item
 
     def _placeholder_icon(self, kind: str) -> QIcon:
-        pixmap = QPixmap(getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE))
-        pixmap.fill(qcolor("placeholder"))
-        return QIcon(pixmap)
+        # One grey tile per (size, theme colour), shared by every card without a cover yet.
+        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
+        color = qcolor("placeholder")
+        cache = self.__dict__.setdefault("_placeholder_icons", {})
+        key = (size.width(), size.height(), color.name())
+        icon = cache.get(key)
+        if icon is None:
+            if len(cache) > 8:
+                cache.clear()
+            pixmap = QPixmap(size)
+            pixmap.fill(color)
+            icon = cache[key] = QIcon(pixmap)
+        return icon
 
     def _image_icon(self, path: str) -> QIcon:
-        # Keep decoded originals so a resize can rebuild every cover at the
-        # new cell size without reading the cache files again.
+        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
+        # Decode at the size a card shows (plus some headroom), not at the file's
+        # native size: a 1280 x 720 cover is 3.7 MB decoded and a page has
+        # 100 of them.  Decoded covers are kept up to a byte budget so a resize
+        # can rebuild the cards without reading the files; a cover cached
+        # smaller than a bigger card now needs is read again.
+        want = max(240, round(size.width() * 1.25))
         cache = self._source_pixmaps
         pixmap = cache.get(path)
-        if pixmap is None:
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                if len(cache) >= _SOURCE_PIXMAP_CACHE_LIMIT:
-                    cache.pop(next(iter(cache)))
-                cache[path] = pixmap
+        if pixmap is None or (pixmap.width() < want and path not in self._small_sources):
+            pixmap = read_pixmap(path, want)
+            if pixmap.isNull():
+                return QIcon()
+            if pixmap.width() < want:
+                self._small_sources.add(path)  # the file itself is that small
+            cache[path] = pixmap
         if pixmap.isNull():
             return QIcon()
-        size = getattr(self, "_grid_icon_size", _VIDEO_ICON_SIZE)
         scaled = pixmap.scaled(
             size,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,

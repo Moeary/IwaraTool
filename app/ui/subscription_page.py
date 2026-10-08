@@ -77,7 +77,7 @@ from .subscription_helpers import (
 )
 from .author_view import AuthorView
 from .chrome import PageHeader
-from .media_card import CARD_WIDTH_MIN, CardSizeControl, saved_card_width
+from .media_card import CARD_WIDTH_MIN, CardSizeControl, PixmapLRU, read_pixmap, saved_card_width
 from .subscription_components import (
     ResponsiveCoverList,
     SubscriptionAvatarWorker,
@@ -1326,7 +1326,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         title = str(source.get("title", "") or source.get("source_key", "") or "")
         avatar_path = str(source.get("avatar_path", "") or "")
         if avatar_path and os.path.isfile(avatar_path):
-            pixmap = QPixmap(avatar_path)
+            pixmap = read_pixmap(avatar_path, 256)
             if not pixmap.isNull():
                 size = self._source_table.iconSize()
                 scaled = pixmap.scaled(
@@ -1640,18 +1640,21 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         return QIcon(pixmap)
 
     def _thumbnail_icon(self, path: str) -> QIcon:
-        # Decoded covers are kept so a grid resize can re-scale them cheaply.
-        cache = self.__dict__.setdefault("_thumbnail_pixmaps", {})
-        pixmap = cache.get(path)
-        if pixmap is None:
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                if len(cache) >= 512:
-                    cache.pop(next(iter(cache)))
-                cache[path] = pixmap
-        if pixmap.isNull():
-            return self._thumbnail_placeholder_icon()
+        # Decoded covers (at the size shown, not the file's) are kept up to a byte
+        # budget so a grid resize can re-scale them cheaply.
         size = self._thumbnail_list.iconSize()
+        want = max(240, round(size.width() * 1.25))
+        cache = self.__dict__.setdefault("_thumbnail_pixmaps", PixmapLRU(48 * 1024 * 1024))
+        small = self.__dict__.setdefault("_thumbnail_small_sources", set())
+        pixmap = cache.get(path)
+        if pixmap is None or (pixmap.width() < want and path not in small):
+            pixmap = read_pixmap(path, want)
+            if not pixmap.isNull():
+                if pixmap.width() < want:
+                    small.add(path)  # the file itself is that small
+                cache[path] = pixmap
+        if pixmap is None or pixmap.isNull():
+            return self._thumbnail_placeholder_icon()
         scaled = pixmap.scaled(
             size,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,

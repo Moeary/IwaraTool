@@ -60,6 +60,7 @@ from .home_workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows,
 from .media_card import CardSizeControl, MediaGrid, transparent_scroll_area
 from .media_detail import DetailView
 from .rules_page import RulePicker
+from .shortcuts import attach_hint
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 
 RETRY_AFTER_SECONDS = 120  # wait this long before re-trying a failed background check
@@ -218,6 +219,13 @@ class SectionBlock(QWidget):
         self._sync_fold()
         if not self._collapsed:
             self.reload()
+
+    def set_folded(self, folded: bool):
+        """Fold or unfold the row (the keyboard / "fold all" route)."""
+
+        if folded != self._collapsed:
+            self._title_bar.set_collapsed(folded)
+            self._on_fold_toggled(folded)
 
     def _sync_fold(self):
         self._body.setVisible(not self._collapsed)
@@ -409,7 +417,7 @@ class SectionBlock(QWidget):
             except RuntimeError:
                 pass
         self.hide()
-        self.setParent(None)
+        self.deleteLater()  # no setParent(None): re-parenting a styled widget tree is slow
 
 
 class HomeFeedView(QWidget):
@@ -437,11 +445,11 @@ class HomeFeedView(QWidget):
         self._header.tools.addWidget(CardSizeControl(self))
         self._header.tools.addWidget(self._rating_selector())
         self._customize_btn = ToolButton(FluentIcon.EDIT, self)
-        self._customize_btn.setToolTip(tr("Customize Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ"))
+        attach_hint(self._customize_btn, tr("Customize Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ"), "home_customize")
         self._customize_btn.clicked.connect(self.customize_requested)
         self._header.tools.addWidget(self._customize_btn)
         self._refresh_all_btn = PushButton(tr("Refresh all", "全部刷新", "すべて更新"), self, FluentIcon.SYNC)
-        self._refresh_all_btn.setToolTip(tr("Re-check every row now", "立即重新检查所有栏目", "すべての欄を今すぐ再確認"))
+        attach_hint(self._refresh_all_btn, tr("Re-check every row now", "立即重新检查所有栏目", "すべての欄を今すぐ再確認"), "home_refresh")
         self._refresh_all_btn.clicked.connect(lambda: self.reload_all(force=True))
         self._header.tools.addWidget(self._refresh_all_btn)
         root.addWidget(self._header)
@@ -486,25 +494,40 @@ class HomeFeedView(QWidget):
         return holder
 
     def rebuild(self, specs=None):
-        """(Re)create the rows from the saved layout."""
+        """Bring the rows in line with the saved layout.
 
-        for block in self.blocks:
+        Rows whose definition did not change are kept as they are (cards,
+        covers, scroll position and all); only added rows are built and only
+        removed rows are dropped, so adding one row costs one row.
+        """
+
+        sections = home_sections(specs)
+        existing = {block.section: block for block in self.blocks}
+        blocks: list[SectionBlock] = []
+        for section in sections:
+            block = existing.pop(section, None)
+            if block is None:
+                block = SectionBlock(section, self._fetcher, self._page, cache=self._cache)
+                block.set_rating(self._rating_value)
+                block.more_requested.connect(self.more_requested)
+                block.queue_requested.connect(self.queue_requested)
+                block.open_requested.connect(self.open_requested)
+                block.context_requested.connect(self.context_requested)
+                block.settings_requested.connect(self.settings_requested)
+            blocks.append(block)
+        for block in existing.values():
+            self._column.removeWidget(block)
             block.retire()
             self._retired.append(block)
         self._retired = [b for b in self._retired if b._workers]
-        self.blocks = []
-        sections = home_sections(specs)
+        self.blocks = blocks
+        # Rows sit after the empty-state widget (index 0) in layout order.
+        for index, block in enumerate(blocks, start=1):
+            if self._column.indexOf(block) != index:
+                self._column.removeWidget(block)
+                self._column.insertWidget(index, block)
+            block.show()
         self._empty.setVisible(not sections)
-        for section in sections:
-            block = SectionBlock(section, self._fetcher, self._page, cache=self._cache)
-            block.set_rating(self._rating_value)
-            block.more_requested.connect(self.more_requested)
-            block.queue_requested.connect(self.queue_requested)
-            block.open_requested.connect(self.open_requested)
-            block.context_requested.connect(self.context_requested)
-            block.settings_requested.connect(self.settings_requested)
-            self._column.insertWidget(self._column.count() - 1, block)
-            self.blocks.append(block)
 
     def set_rating(self, rating: str):
         rating = normalize_rating(rating)
@@ -913,6 +936,43 @@ class HomeInterface(QWidget):
     def go_back(self):
         if len(self._trail) > 1:
             self._back()
+
+    def close_current(self):
+        """Esc: leave an open post or "More" list, doing nothing on the feed itself."""
+
+        if self._stack.currentIndex() != self._FEED:
+            self.go_back()
+
+    def scroll_to(self, *, bottom: bool):
+        area = {
+            self._FEED: self._feed._scroll,
+            self._BROWSE: self._browse._scroll,
+            self._DETAIL: self._detail._scroll,
+        }.get(self._stack.currentIndex())
+        if area is not None:
+            bar = area.verticalScrollBar()
+            bar.setValue(bar.maximum() if bottom else bar.minimum())
+
+    def fold_all(self, folded: bool):
+        if self._stack.currentIndex() == self._FEED:
+            for block in self._feed.blocks:
+                block.set_folded(folded)
+
+    _DETAIL_ACTIONS = {
+        "like": "_toggle_like",
+        "play": "_play",
+        "download": "_queue",
+        "browser": "_open_in_browser",
+        "copy": "_copy_link",
+        "author": "_author_page",
+    }
+
+    def detail_action(self, name: str):
+        """Run a post action (like, play, …) from the keyboard; only while a post is open."""
+
+        method = self._DETAIL_ACTIONS.get(name)
+        if method and self._stack.currentIndex() == self._DETAIL:
+            getattr(self._detail, method)()
 
     def _back(self):
         if len(self._trail) > 1:

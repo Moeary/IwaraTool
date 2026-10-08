@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget
 
@@ -62,6 +62,28 @@ class ShortcutRegistry:
 
 registry = ShortcutRegistry()
 signal_bus.shortcuts_changed.connect(registry.refresh)
+
+
+class _HintUpdater(QObject):
+    """Keeps one widget's tooltip showing the action's current key."""
+
+    def __init__(self, widget: QWidget, text: str, action_id: str):
+        super().__init__(widget)  # owned by the widget: the connection dies with it
+        self._widget = widget
+        self._text = text
+        self._action_id = action_id
+        signal_bus.shortcuts_changed.connect(self.update_tooltip)
+        self.update_tooltip()
+
+    def update_tooltip(self):
+        key = shortcut_defs.key_for(self._action_id)
+        self._widget.setToolTip(f"{self._text} ({key})" if key else self._text)
+
+
+def attach_hint(widget: QWidget, text: str, action_id: str) -> None:
+    """Tooltip ``text (Key)`` that follows the user's shortcut for ``action_id``."""
+
+    _HintUpdater(widget, text, action_id)
 
 
 def sequence_from_event(event: QKeyEvent) -> str:

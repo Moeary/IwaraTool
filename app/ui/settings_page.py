@@ -74,9 +74,10 @@ class SettingsInterface(QWidget):
         self._worker: LoginWorker | None = None
         self._tag_dictionary_worker: TagDictionaryUpdateWorker | None = None
         self._loading_settings = False
-
-        self._build_ui()
-        self._load_settings()
+        # The page is the heaviest widget tree in the app (about 65 MB) and the one
+        # opened least, so it is built the first time it is shown, not at startup.
+        self._built = False
+        self._login_ui_state: tuple[bool, str] | None = None
         signal_bus.rules_changed.connect(self._reload_auto_enqueue_rules)
 
         # Startup auth: prefer cached token for faster boot; fallback to credential login.
@@ -84,7 +85,23 @@ class SettingsInterface(QWidget):
             self._set_logged_in_ui(True, tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
             signal_bus.login_state_changed.emit(True)
         elif app_config.auth_enabled and app_config.username and app_config.password:
+            self.ensure_built()  # the silent login reads the saved credentials from the form
             self._do_login(silent=True)
+
+    def ensure_built(self):
+        """Create the settings widgets (once)."""
+
+        if self._built:
+            return
+        self._built = True
+        self._build_ui()
+        self._load_settings()
+        if self._login_ui_state is not None:
+            self._set_logged_in_ui(*self._login_ui_state)
+
+    def showEvent(self, event):
+        self.ensure_built()
+        super().showEvent(event)
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
         """Wait for an in-flight login request before destroying its QThread."""
@@ -94,6 +111,12 @@ class SettingsInterface(QWidget):
         )
 
     # ── UI ────────────────────────────────────────────────────────────────────
+
+    def show_shortcut_settings(self):
+        """Jump to Settings → Keyboard Shortcuts (the F1 cheat sheet's button)."""
+
+        self.ensure_built()
+        self._settings_board.select_category("shortcuts")
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1070,6 +1093,9 @@ class SettingsInterface(QWidget):
     # ── Login helpers ─────────────────────────────────────────────────────────
 
     def _set_logged_in_ui(self, logged_in: bool, status_text: str = ""):
+        self._login_ui_state = (logged_in, status_text)
+        if not self._built:
+            return  # applied when the page is built
         if logged_in:
             self._login_status_lbl.setText(status_text or tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
             self._logout_btn.show()
@@ -1233,7 +1259,8 @@ class SettingsInterface(QWidget):
 
     def refresh_theme_styles(self):
         # The navigation toggle stores an explicit mode; mirror it here.
-        self._sync_theme_combo()
+        if self._built:
+            self._sync_theme_combo()
 
     def _open_local_folder(self, path: str):
         path = str(path or "").strip()
@@ -1551,6 +1578,8 @@ class SettingsInterface(QWidget):
         )
 
     def _save_settings(self):
+        if not self._built:
+            return  # nothing has been shown, so nothing can have been edited
         self._on_concurrency_input_finished()
         self._on_stall_timeout_input_finished()
         app_config.auto_restore_stalled_cancelled = self._auto_restore_stalled_switch.isChecked()

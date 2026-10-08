@@ -134,6 +134,10 @@ class HomeSectionSpec:
             return self.value
         if self.mode == MODE_SUBSCRIPTIONS:
             return defaults["subscriptions"]
+        kind = tr("images", "图片", "画像") if self.content == "image" else tr("videos", "视频", "動画")
+        if self.sort:
+            label = sort_label(self.sort)
+            return tr(f"{label} {kind}", f"{label}{kind}", f"{label}{kind}")
         return tr("Hot images", "热门图片", "人気の画像") if self.content == "image" else tr("Hot videos", "热门视频", "人気の動画")
 
 
@@ -141,14 +145,34 @@ BUILTIN_IDS = ("latest", "subscriptions", "hot_videos", "hot_images")
 
 
 def default_specs() -> list[HomeSectionSpec]:
-    """Newest uploads, the account feed, then the hot lists."""
+    """The account feed, then the hot videos and the hot images."""
 
     return [
-        HomeSectionSpec("latest", MODE_BROWSE, "video", sort="date"),
         HomeSectionSpec("subscriptions", MODE_SUBSCRIPTIONS, "video"),
         HomeSectionSpec("hot_videos", MODE_BROWSE, "video"),
         HomeSectionSpec("hot_images", MODE_BROWSE, "image"),
     ]
+
+
+def _drop_retired_default_row(specs: list[HomeSectionSpec]) -> list[HomeSectionSpec]:
+    """Earlier versions shipped an extra "Latest" row first; an untouched one is removed.
+
+    Only the exact old default layout is migrated, so a layout the user arranged
+    on purpose (even one that still contains "latest") is left alone.
+    """
+
+    old = ["latest", "subscriptions", "hot_videos", "hot_images"]
+    if [s.id for s in specs] != old:
+        return specs
+    latest = specs[0]
+    untouched = (latest.mode, latest.content, latest.sort, latest.title, latest.enabled) == (
+        MODE_BROWSE, "video", "date", "", True,
+    )
+    others_default = all(
+        (s.mode, s.content, s.sort, s.title, s.enabled) == (d.mode, d.content, d.sort, d.title, d.enabled)
+        for s, d in zip(specs[1:], default_specs())
+    )
+    return specs[1:] if untouched and others_default else specs
 
 
 def new_section_id() -> str:
@@ -219,7 +243,7 @@ def load_specs(store: Any = None) -> list[HomeSectionSpec]:
         return default_specs()
     if not isinstance(data, list):
         return default_specs()
-    return sanitize_specs(data)
+    return _drop_retired_default_row(sanitize_specs(data))
 
 
 def save_specs(specs: list[HomeSectionSpec], store: Any = None) -> None:

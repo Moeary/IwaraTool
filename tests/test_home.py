@@ -76,10 +76,7 @@ class RatingTests(unittest.TestCase):
 class FeedDefinitionTests(unittest.TestCase):
     def test_sections_cover_subscriptions_and_hot_lists(self):
         sections = {s.id: s for s in home_sections(default_specs())}
-        self.assertEqual(list(sections), ["latest", "subscriptions", "hot_videos", "hot_images"])
-        latest = sections["latest"]
-        self.assertEqual([t.id for t in latest.tabs], ["main"])
-        self.assertEqual(dict(latest.tab("main").params), {"sort": "date"})
+        self.assertEqual(list(sections), ["subscriptions", "hot_videos", "hot_images"])
         subs = sections["subscriptions"]
         self.assertTrue(all(tab.needs_login for tab in subs.tabs))
         self.assertEqual({tab.kind for tab in subs.tabs}, {"video", "image"})

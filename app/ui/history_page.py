@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import os
+import time
 import webbrowser
 from typing import Any
 
@@ -92,6 +93,17 @@ class HistoryInterface(QWidget):
         self._history_refresh_timer.setSingleShot(True)
         self._history_refresh_timer.setInterval(120)
         self._history_refresh_timer.timeout.connect(self._load_history)
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.timeout.connect(self._continue_render)
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(180)
+        self._filter_timer.timeout.connect(self._apply_filters)
+        self._render_records: list[dict[str, Any]] = []
+        self._render_next = 0
+        self._render_deferred = False
+        self._state_memo: dict[int, tuple[str, str, str, bool]] | None = None
 
         self._build_ui()
         self._load_history()
@@ -138,7 +150,7 @@ class HistoryInterface(QWidget):
         )
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.setMinimumWidth(220)
-        self._search_edit.textChanged.connect(self._apply_filters)
+        self._search_edit.textChanged.connect(self._filter_changed)
         filter_row.addWidget(self._search_edit)
 
         self._field_combo = ComboBox(self)
@@ -334,12 +346,27 @@ class HistoryInterface(QWidget):
         if self.isVisible() and not self._history_refresh_timer.isActive():
             self._history_refresh_timer.start()
 
+    def _filter_changed(self, *_args):
+        """Typing in the filter re-renders at most every ~180 ms on big histories."""
+
+        if len(self._all_records) > self.FILTER_DEBOUNCE_ROWS:
+            self._filter_timer.start()
+        else:
+            self._apply_filters()
+
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        if self._render_deferred:
+            self._render_deferred = False
+            self._render_timer.start(0)
         if self._history_dirty and not self._history_refresh_timer.isActive():
             self._history_refresh_timer.start()
 
     def _apply_filters(self, *_args):
+        self._filter_timer.stop()
+        # One disk check per record for the whole pass (filter, sort and render
+        # all ask for each record's state).
+        self._state_memo = {}
         query = self._search_edit.text().strip().lower() if hasattr(self, "_search_edit") else ""
         field_idx = self._field_combo.currentIndex() if hasattr(self, "_field_combo") else 0
         state_idx = self._state_combo.currentIndex() if hasattr(self, "_state_combo") else 0
@@ -375,16 +402,63 @@ class HistoryInterface(QWidget):
             )
         )
 
+    # Thousands of rows are 16 table items each; building them in one go froze the
+    # window for about a second (on every keystroke of the filter, too).  Big
+    # lists are filled in ~12 ms slices, and a hidden page waits until shown.
+    _ACTION_BY_COLUMN = {
+        11: "open_url",  # _COL_OPEN_URL
+        12: "folder",
+        13: "file",
+        14: "rename",
+        15: "remove",
+    }
+    _LONG_COLUMNS = (_COL_TITLE, _COL_AUTHOR, _COL_ID, _COL_PATH)
+    RENDER_SYNC_ROWS = 400
+    RENDER_SLICE_SECONDS = 0.012
+    FILTER_DEBOUNCE_ROWS = 500
+
     def _render_table(self, records: list[dict[str, Any]]):
+        self._render_timer.stop()
+        self._render_records = records
+        self._render_next = 0
+        self._render_deferred = False
         self._table.setUpdatesEnabled(False)
         try:
             self._table.clearContents()
             self._table.setRowCount(len(records))
-            for row_idx, record in enumerate(records):
-                state, state_key, state_detail = self._record_state(record)
+        finally:
+            self._table.setUpdatesEnabled(True)
+        if len(records) > self.RENDER_SYNC_ROWS and not self.isVisible():
+            self._render_deferred = True  # filled in showEvent
+            self._update_action_state()
+            return
+        self._render_rows(sliced=len(records) > self.RENDER_SYNC_ROWS)
+
+    def _render_rows(self, *, sliced: bool):
+        records = self._render_records
+        labels = {
+            "page": tr("Page", "页面", "ページ"),
+            "page_tip": tr("Open video page", "打开视频页", "動画ページを開く"),
+            "folder": tr("Folder", "目录", "フォルダー"),
+            "folder_tip": tr("Open folder", "打开文件夹", "フォルダーを開く"),
+            "file": tr("File", "文件", "ファイル"),
+            "file_tip": tr("Open file", "打开文件", "ファイルを開く"),
+            "rename": tr("Rename", "改名", "名前変更"),
+            "rename_tip": tr("Rename file", "重命名文件", "ファイル名を変更"),
+            "delete": tr("Delete", "删除", "削除"),
+            "delete_tip": tr("Remove DB record", "删除数据库记录", "DB履歴を削除"),
+            "no_url": tr("No video URL", "没有视频链接", "動画URLがありません"),
+        }
+        start = time.perf_counter()
+        self._table.setUpdatesEnabled(False)
+        try:
+            while self._render_next < len(records):
+                row_idx = self._render_next
+                self._render_next += 1
+                record = records[row_idx]
+                state, state_key, state_detail, file_exists = self._record_state_full(record)
                 video_id = str(record.get("video_id", "") or "")
                 file_path = str(record.get("file_path", "") or "")
-                file_exists = bool(file_path and os.path.isfile(file_path))
                 values = [
                     state,
                     str(record.get("title", "") or video_id),
@@ -400,8 +474,10 @@ class HistoryInterface(QWidget):
 
                 for col_idx, value in enumerate(values):
                     item = QTableWidgetItem(value)
-                    item.setData(Qt.ItemDataRole.UserRole, video_id)
-                    item.setToolTip(state_detail if col_idx == self._COL_STATE else value)
+                    if col_idx == self._COL_STATE:
+                        item.setToolTip(state_detail)
+                    elif col_idx in self._LONG_COLUMNS:
+                        item.setToolTip(value)  # short columns need no tooltip (3000 rows x 16 cells add up)
                     if col_idx == self._COL_STATE:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                         item.setForeground(qcolor("success" if state_key == "ok" else "warning"))
@@ -411,58 +487,41 @@ class HistoryInterface(QWidget):
 
                 source_url = str(record.get("source_url", "") or _video_url(video_id))
                 source_item = QTableWidgetItem(source_url)
-                source_item.setData(Qt.ItemDataRole.UserRole, video_id)
-                source_item.setToolTip(source_url or tr("No video URL", "没有视频链接", "動画URLがありません"))
+                source_item.setToolTip(source_url or labels["no_url"])
                 self._table.setItem(row_idx, self._COL_SOURCE_URL, source_item)
                 self._set_action_item(
-                    row_idx,
-                    self._COL_OPEN_URL,
-                    tr("Page", "页面", "ページ"),
-                    tr("Open video page", "打开视频页", "動画ページを開く"),
-                    "open_url",
-                    bool(video_id),
-                    video_id,
-                    action_url=_video_url(video_id),
+                    row_idx, self._COL_OPEN_URL, labels["page"], labels["page_tip"], "open_url",
+                    bool(video_id), video_id, action_url=_video_url(video_id),
                 )
                 self._set_action_item(
-                    row_idx,
-                    self._COL_OPEN_FOLDER,
-                    tr("Folder", "目录", "フォルダー"),
-                    tr("Open folder", "打开文件夹", "フォルダーを開く"),
-                    "folder",
-                    file_exists,
-                    video_id,
+                    row_idx, self._COL_OPEN_FOLDER, labels["folder"], labels["folder_tip"], "folder",
+                    file_exists, video_id,
                 )
                 self._set_action_item(
-                    row_idx,
-                    self._COL_OPEN_FILE,
-                    tr("File", "文件", "ファイル"),
-                    tr("Open file", "打开文件", "ファイルを開く"),
-                    "file",
-                    file_exists,
-                    video_id,
+                    row_idx, self._COL_OPEN_FILE, labels["file"], labels["file_tip"], "file",
+                    file_exists, video_id,
                 )
                 self._set_action_item(
-                    row_idx,
-                    self._COL_RENAME,
-                    tr("Rename", "改名", "名前変更"),
-                    tr("Rename file", "重命名文件", "ファイル名を変更"),
-                    "rename",
-                    file_exists,
-                    video_id,
+                    row_idx, self._COL_RENAME, labels["rename"], labels["rename_tip"], "rename",
+                    file_exists, video_id,
                 )
                 self._set_action_item(
-                    row_idx,
-                    self._COL_REMOVE,
-                    tr("Delete", "删除", "削除"),
-                    tr("Remove DB record", "删除数据库记录", "DB履歴を削除"),
-                    "remove",
-                    bool(video_id),
-                    video_id,
+                    row_idx, self._COL_REMOVE, labels["delete"], labels["delete_tip"], "remove",
+                    bool(video_id), video_id,
                 )
+                if sliced and time.perf_counter() - start > self.RENDER_SLICE_SECONDS:
+                    break
         finally:
             self._table.setUpdatesEnabled(True)
+        if self._render_next < len(records):
+            self._render_timer.start(0)
+        else:
+            self._state_memo = None  # the pass is over; later checks look at the disk again
         self._update_action_state()
+
+    def _continue_render(self):
+        if self._render_next < len(self._render_records):
+            self._render_rows(sliced=True)
 
     def _update_action_state(self):
         if hasattr(self, "_delete_selected_btn"):
@@ -475,24 +534,22 @@ class HistoryInterface(QWidget):
         rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
         video_ids: list[str] = []
         for row in rows:
-            item = self._table.item(row, self._COL_ID) or self._table.item(row, self._COL_STATE)
-            if not item:
-                continue
-            video_id = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
+            video_id = self._video_id_at(row)
             if video_id and video_id not in video_ids:
                 video_ids.append(video_id)
 
         if video_ids:
             return video_ids
 
-        row = self._table.currentRow()
-        if row < 0:
-            return []
-        item = self._table.item(row, self._COL_ID) or self._table.item(row, self._COL_STATE)
-        if not item:
-            return []
-        video_id = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
+        video_id = self._video_id_at(self._table.currentRow())
         return [video_id] if video_id else []
+
+    def _video_id_at(self, row: int) -> str:
+        """The video id behind a table row (read from the record, not stored on 16 cells)."""
+
+        if 0 <= row < len(self._render_records):
+            return str(self._render_records[row].get("video_id", "") or "").strip()
+        return ""
 
     def _show_context_menu(self, position):
         item = self._table.itemAt(position)
@@ -600,15 +657,14 @@ class HistoryInterface(QWidget):
         }:
             return
         item = self._table.item(row, column)
-        if not item:
+        if not item or item.text() == "-":  # "-" marks an action that is not available for this row
             return
-        action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
-        video_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        action = self._ACTION_BY_COLUMN.get(column, "")
+        video_id = self._video_id_at(row)
         if not action or not video_id:
             return
         if action == "open_url":
-            url = str(item.data(Qt.ItemDataRole.UserRole + 2) or "")
-            self._open_video_url(video_id, url=url)
+            self._open_video_url(video_id, url=_video_url(video_id))
         elif action == "folder":
             self._open_record(video_id, open_file=False)
         elif action == "file":
@@ -726,12 +782,9 @@ class HistoryInterface(QWidget):
         action_url: str = "",
     ):
         item = QTableWidgetItem(text if enabled else "-")
-        item.setData(Qt.ItemDataRole.UserRole, video_id)
-        item.setToolTip(tooltip if enabled else "")
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setData(Qt.ItemDataRole.UserRole + 2, action_url if enabled else "")
         if enabled:
-            item.setData(Qt.ItemDataRole.UserRole + 1, action)
+            item.setToolTip(tooltip)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setForeground(link_color(enabled))
         self._table.setItem(row, column, item)
 
@@ -790,12 +843,29 @@ class HistoryInterface(QWidget):
         )
 
     def _record_state(self, record: dict[str, Any]) -> tuple[str, str, str]:
+        return self._record_state_full(record)[:3]
+
+    def _record_state_full(self, record: dict[str, Any]) -> tuple[str, str, str, bool]:
+        """``(label, key, detail, file exists)``, memoised during one filter/render pass."""
+
+        memo = self._state_memo
+        if memo is not None:
+            cached = memo.get(id(record))
+            if cached is not None:
+                return cached
+        result = self._compute_record_state(record)
+        if memo is not None:
+            memo[id(record)] = result
+        return result
+
+    def _compute_record_state(self, record: dict[str, Any]) -> tuple[str, str, str, bool]:
         file_path = str(record.get("file_path", "") or "")
         if not file_path or not os.path.isfile(file_path):
             return (
                 tr("Moved", "已移走", "移動済み"),
                 "moved",
                 tr("The stored file path no longer exists", "数据库中的文件路径已不存在", "保存されたファイルパスが存在しません"),
+                False,
             )
 
         try:
@@ -810,11 +880,13 @@ class HistoryInterface(QWidget):
                 tr("OK", "正常", "正常"),
                 "ok",
                 tr("File exists in the current download folder", "文件位于当前下载文件夹内", "現在の保存先内にファイルがあります"),
+                True,
             )
         return (
             tr("Moved", "已移走", "移動済み"),
             "moved",
             tr("File exists, but is outside the current download folder", "文件存在，但不在当前下载文件夹内", "ファイルは存在しますが現在の保存先外です"),
+            True,
         )
 
     def _record_search_text(self, record: dict[str, Any], field_idx: int) -> str:
