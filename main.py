@@ -6,7 +6,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from app.config import app_config
+from app.core.backup import apply_pending_restore
+
+# A restore staged from the settings page must land before any database or
+# settings file is opened, which happens as soon as app.config is imported.
+apply_pending_restore(str(Path(sys.argv[0]).resolve().parent / "data"))
+
+from app.config import app_config  # noqa: E402
 from app.logging_setup import get_logger, setup_logging
 from app.signal_bus import signal_bus
 from app.core.manager import download_manager
