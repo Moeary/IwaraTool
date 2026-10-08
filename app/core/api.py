@@ -534,6 +534,17 @@ class IwaraAPI:
             params["tags"] = legacy_tag
         return self._get_video_result_page("/videos", params, page=page, limit=limit)
 
+    def get_images_page(
+        self,
+        query_params: dict[str, Any] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Browse image posts by sort, author or rating; this is not text search."""
+
+        return self._get_video_result_page("/images", dict(query_params or {}), page=page, limit=limit)
+
     def search_videos_page(
         self,
         query_params: dict[str, Any],
@@ -654,7 +665,7 @@ class IwaraAPI:
             # publishing it as a total makes the UI invent a growing page
             # count on every navigation.
             count_is_page_sentinel = bool(
-                endpoint == "/videos"
+                endpoint in {"/videos", "/images"}
                 and total is not None
                 and len(results) >= effective_limit
                 and total == (page_number + 1) * effective_limit + 1
@@ -683,6 +694,70 @@ class IwaraAPI:
             return [], None, False, str(exc) or tr(
                 "Search request failed", "搜索请求失败", "検索リクエストに失敗しました",
             )
+
+    # ── Detail pages ────────────────────────────────────────────────────────
+
+    def get_image_info(self, image_id: str) -> tuple[Optional[dict], str]:
+        """Fetch one image post, including its ``files``."""
+
+        image_id = str(image_id or "").strip()
+        if not image_id:
+            return None, tr("Missing image id", "缺少图片 ID", "画像IDがありません")
+        try:
+            data = self._get_json(f"{BASE_API}/image/{image_id}")
+        except Exception as exc:
+            return None, _friendly_request_error(str(exc))
+        if not isinstance(data, dict) or not data.get("id"):
+            return None, _extract_api_message(data) or tr(
+                "Image not found or not visible to the current account.",
+                "图片不存在或当前账号不可见。",
+                "画像が存在しないか、現在のアカウントでは表示できません。",
+            )
+        return data, ""
+
+    def get_related(self, kind: str, item_id: str, *, limit: int = 12) -> tuple[list[dict], str]:
+        """Related videos (``kind="video"``) or images (``kind="image"``)."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        try:
+            data = self._get_json(
+                f"{BASE_API}/{kind}/{str(item_id).strip()}/related",
+                params={"limit": str(max(1, min(50, int(limit))))},
+            )
+        except Exception as exc:
+            return [], _friendly_request_error(str(exc))
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            return [], ""
+        return [item for item in results if isinstance(item, dict)], ""
+
+    def get_comments(
+        self,
+        kind: str,
+        item_id: str,
+        *,
+        page: int = 0,
+        parent: str = "",
+        limit: int = 20,
+    ) -> tuple[list[dict], int | None, str]:
+        """One page of comments, or the replies to ``parent``. Returns ``(rows, total, error)``."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        params = {"page": str(max(0, int(page))), "limit": str(max(1, min(50, int(limit))))}
+        if parent:
+            params["parent"] = str(parent)
+        try:
+            data = self._get_json(f"{BASE_API}/{kind}/{str(item_id).strip()}/comments", params=params)
+        except Exception as exc:
+            return [], None, _friendly_request_error(str(exc))
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            return [], None, ""
+        total = data.get("count")
+        return (
+            [row for row in data["results"] if isinstance(row, dict)],
+            total if isinstance(total, int) and total >= 0 else None,
+            "",
+        )
 
     def get_videos_by_query(
         self,

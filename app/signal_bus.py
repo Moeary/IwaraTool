@@ -66,6 +66,16 @@ class TaskSignalBus(QObject):
     # video id, title, local file path (empty when the video is not on disk)
     video_preview_requested = Signal(str, str, str)
 
+    # SFW/NSFW selection (core.rating value) changed on Home or Search.
+    content_rating_changed = Signal(str)
+
+    # kind ("video" / "image"), id; show that post in the Home detail view.
+    media_detail_requested = Signal(str, str)
+
+    # {"scope", "keyword", "sort", "author": (username, name, id, avatar)};
+    # run an Iwara search on the Search page.
+    search_requested = Signal(dict)
+
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()
 

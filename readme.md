@@ -18,6 +18,7 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
 - Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
 - Subscriptions: followed accounts, authors, and playlists with refresh tracking, new-item counts, and list/cover views.
 - Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
+- Home: like iwara.tv, shows your subscriptions, hot videos and hot images with in-app detail pages and bulk download; a SFW / NSFW content filter applies to Home and Search.
 - Repair Center: batch-rename existing videos in place or organize them into an output folder, with destination conflict checks.
 - Runtime switching between zh/en/ja and light/dark themes; table columns are configurable and persistent.
 - Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.

@@ -382,11 +382,29 @@ class SearchActionsMixin:
         if target:
             webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
 
+    @staticmethod
+    def _detail_target(video: SearchVideo) -> tuple[str, str] | None:
+        """``(kind, id)`` for the Home detail view, or ``None`` for bridge cards."""
+
+        if video.source_kind == IWARA_IMAGE_SOURCE_KIND:
+            return "image", video.video_id
+        if video.source_kind == "iwara":
+            return "video", video.video_id
+        return None
+
+    def _show_media_detail(self, video: SearchVideo):
+        target = self._detail_target(video)
+        if target:
+            signal_bus.media_detail_requested.emit(*target)
+
     def _open_item(self, item: QListWidgetItem):
         value = item.data(self._DATA_ROLE)
         if isinstance(value, dict):
             data = value.get("data")
-            if isinstance(data, SearchVideo):
+            if isinstance(data, SearchVideo) and data.source_kind == IWARA_IMAGE_SOURCE_KIND:
+                # Image posts have nothing to play; read them in the app.
+                self._show_media_detail(data)
+            elif isinstance(data, SearchVideo):
                 self._preview_video(data)
             elif isinstance(data, SearchPlaylist):
                 self._open_playlist_videos(data)
@@ -395,7 +413,9 @@ class SearchActionsMixin:
         value = item.data(self._DATA_ROLE)
         if isinstance(value, dict):
             data = value.get("data")
-            if isinstance(data, SearchVideo):
+            if isinstance(data, SearchVideo) and data.source_kind == IWARA_IMAGE_SOURCE_KIND:
+                self._show_media_detail(data)
+            elif isinstance(data, SearchVideo):
                 self._preview_video(data)
 
     def _show_context_menu(self, position):
@@ -428,6 +448,17 @@ class SearchActionsMixin:
                     triggered=self._preview_selected,
                 )
             )
+        if len(video_values) == 1 and len(values) == 1:
+            detail_video = video_values[0].get("data")
+            if isinstance(detail_video, SearchVideo) and self._detail_target(detail_video):
+                menu.addAction(
+                    Action(
+                        FluentIcon.VIEW,
+                        tr("View details", "查看详情", "詳細を表示"),
+                        self,
+                        triggered=lambda _checked=False, video=detail_video: self._show_media_detail(video),
+                    )
+                )
         if any(self._is_queueable(value) for value in values):
             menu.addAction(
                 Action(

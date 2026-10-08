@@ -1,0 +1,469 @@
+"""Poster-style cards and the responsive grid used by the Home page.
+
+A card is painted by hand (one widget instead of five), which keeps a page of
+dozens of covers cheap to build and lets the badges sit on the cover the way
+they do on iwara.tv: duration bottom-right, an R-18 chip top-left and a
+selection tick top-right.
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
+from PySide6.QtWidgets import QSizePolicy, QWidget
+
+from ..core.rating import is_adult
+from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, small_cover_url
+from ..i18n import tr
+from .search_widgets import _format_count, _format_duration
+from .theme import palette, to_qcolor
+
+COVER_RATIO = 9 / 16
+CARD_RADIUS = 8
+CARD_PAD = 8
+
+
+def wrap_lines(text: str, metrics: QFontMetrics, width: int, max_lines: int) -> list[str]:
+    """Greedy wrap that works for CJK and Latin text, eliding the last line."""
+
+    text = " ".join(str(text or "").split())
+    lines: list[str] = []
+    while text and len(lines) < max_lines:
+        if len(lines) == max_lines - 1:
+            lines.append(metrics.elidedText(text, Qt.TextElideMode.ElideRight, width))
+            break
+        if metrics.horizontalAdvance(text) <= width:
+            lines.append(text)
+            break
+        cut = len(text)
+        while cut > 1 and metrics.horizontalAdvance(text[:cut]) > width:
+            cut -= 1
+        space = text.rfind(" ", 0, cut)
+        if space > cut * 0.55:  # break at a word boundary when it costs little
+            cut = space
+        lines.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    return lines
+
+
+class MediaCard(QWidget):
+    """One video or image post."""
+
+    activated = Signal(object)  # SearchVideo
+    context_requested = Signal(object, QPoint)  # SearchVideo, global position
+    toggled = Signal(object, bool)  # SearchVideo, selected
+
+    def __init__(self, video: SearchVideo, parent: QWidget | None = None, *, selectable: bool = True):
+        super().__init__(parent)
+        self.video = video
+        self._selectable = selectable
+        self._selected = False
+        self._hover = False
+        self._pixmap: QPixmap | None = None
+        self._scaled: QPixmap | None = None
+        self._scaled_size = QSize()
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(
+            lambda pos: self.context_requested.emit(self.video, self.mapToGlobal(pos))
+        )
+        self.setToolTip(self._tooltip())
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    # ── model ────────────────────────────────────────────────────────────────
+
+    @property
+    def is_image(self) -> bool:
+        return self.video.source_kind == IWARA_IMAGE_SOURCE_KIND
+
+    def _tooltip(self) -> str:
+        video = self.video
+        author = video.author_name or video.author_username
+        return "\n".join(part for part in (video.title, f"@{video.author_username} · {author}" if author else "") if part)
+
+    def is_selected(self) -> bool:
+        return self._selected
+
+    def set_selected(self, selected: bool, *, emit: bool = False):
+        selected = bool(selected) and self._selectable
+        if selected == self._selected:
+            return
+        self._selected = selected
+        self.update()
+        if emit:
+            self.toggled.emit(self.video, selected)
+
+    def set_cover(self, pixmap: QPixmap | None):
+        self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self._scaled = None
+        self.update()
+
+    # ── geometry ─────────────────────────────────────────────────────────────
+
+    def _fonts(self) -> tuple[QFont, QFont]:
+        title = QFont(self.font())
+        title.setPointSizeF(max(8.5, self.font().pointSizeF() or 9.5))
+        title.setWeight(QFont.Weight.DemiBold)
+        small = QFont(self.font())
+        small.setPointSizeF(max(7.5, (self.font().pointSizeF() or 9.5) - 1))
+        return title, small
+
+    def cover_rect(self) -> QRect:
+        return QRect(0, 0, self.width(), round(self.width() * COVER_RATIO))
+
+    def height_for_width(self, width: int) -> int:
+        title, small = self._fonts()
+        title_h = QFontMetrics(title).lineSpacing() * 2
+        small_h = QFontMetrics(small).lineSpacing()
+        return round(width * COVER_RATIO) + CARD_PAD + title_h + 2 + small_h * 2 + CARD_PAD
+
+    def set_card_width(self, width: int):
+        width = max(120, int(width))
+        self.setFixedSize(width, self.height_for_width(width))
+
+    def _check_rect(self) -> QRect:
+        return QRect(self.width() - 32, 6, 26, 26)
+
+    # ── events ───────────────────────────────────────────────────────────────
+
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        # A plain QWidget ignores presses, which would route the release to
+        # the parent instead of completing the click here.
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            pos = event.position().toPoint()
+            if self._selectable and self._check_rect().contains(pos):
+                self.set_selected(not self._selected, emit=True)
+            elif (
+                self._selectable
+                and event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+            ):
+                self.set_selected(not self._selected, emit=True)
+            else:
+                self.activated.emit(self.video)
+        super().mouseReleaseEvent(event)
+
+    # ── painting ─────────────────────────────────────────────────────────────
+
+    def _scaled_cover(self, size: QSize) -> QPixmap | None:
+        if self._pixmap is None:
+            return None
+        ratio = self.devicePixelRatioF()
+        target = QSize(round(size.width() * ratio), round(size.height() * ratio))
+        if self._scaled is None or self._scaled_size != target:
+            scaled = self._pixmap.scaled(
+                target,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = max(0, (scaled.width() - target.width()) // 2)
+            y = max(0, (scaled.height() - target.height()) // 2)
+            scaled = scaled.copy(x, y, target.width(), target.height())
+            scaled.setDevicePixelRatio(ratio)
+            self._scaled, self._scaled_size = scaled, target
+        return self._scaled
+
+    def _draw_badge(self, painter: QPainter, text: str, anchor: QPointF, *, right: bool, fill: QColor, fg: QColor, font: QFont):
+        painter.save()
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        width = metrics.horizontalAdvance(text) + 12
+        height = metrics.height() + 4
+        left = anchor.x() - width if right else anchor.x()
+        rect = QRectF(left, anchor.y() - height if right else anchor.y(), width, height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(fill)
+        painter.drawRoundedRect(rect, 4, 4)
+        painter.setPen(fg)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
+
+    def paintEvent(self, _event):
+        p = palette()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        title_font, small_font = self._fonts()
+        accent = to_qcolor(p.accent)
+
+        outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        shape = QPainterPath()
+        shape.addRoundedRect(outer, CARD_RADIUS, CARD_RADIUS)
+        painter.fillPath(shape, to_qcolor(p.selected if self._selected else p.surface))
+
+        cover = self.cover_rect()
+        painter.save()
+        painter.setClipPath(shape)
+        painter.fillRect(cover, to_qcolor(p.placeholder))
+        scaled = self._scaled_cover(cover.size())
+        if scaled is not None:
+            painter.drawPixmap(cover.topLeft(), scaled)
+        if self._hover or self._selected:
+            painter.fillRect(cover, QColor(0, 0, 0, 38))
+        painter.restore()
+
+        # Badges on the cover.
+        badge_font = QFont(small_font)
+        badge_font.setWeight(QFont.Weight.DemiBold)
+        dark = QColor(0, 0, 0, 170)
+        white = QColor("#ffffff")
+        video = self.video
+        if self.is_image:
+            count = int(video.raw.get("numImages") or 0) if isinstance(video.raw, dict) else 0
+            if count > 1:
+                self._draw_badge(
+                    painter, tr(f"{count} images", f"{count} 张", f"{count} 枚"),
+                    QPointF(cover.right() - 6, cover.bottom() - 6), right=True, fill=dark, fg=white, font=badge_font,
+                )
+        elif video.duration:
+            self._draw_badge(
+                painter, _format_duration(video.duration),
+                QPointF(cover.right() - 6, cover.bottom() - 6), right=True, fill=dark, fg=white, font=badge_font,
+            )
+        if is_adult(video.rating):
+            self._draw_badge(
+                painter, "R-18", QPointF(cover.left() + 6, cover.top() + 6),
+                right=False, fill=QColor(196, 43, 28, 225), fg=white, font=badge_font,
+            )
+
+        if self._selectable and (self._hover or self._selected):
+            box = self._check_rect()
+            painter.save()
+            painter.setPen(QPen(white, 1.6))
+            painter.setBrush(accent if self._selected else QColor(0, 0, 0, 120))
+            painter.drawEllipse(QRectF(box).adjusted(2, 2, -2, -2))
+            if self._selected:
+                painter.setPen(QPen(white, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                cx, cy = box.center().x(), box.center().y()
+                painter.drawPolyline([QPointF(cx - 5, cy), QPointF(cx - 1.5, cy + 4), QPointF(cx + 5, cy - 4)])
+            painter.restore()
+
+        # Text.
+        x = CARD_PAD
+        text_width = self.width() - 2 * CARD_PAD
+        y = cover.bottom() + CARD_PAD
+        painter.setPen(to_qcolor(p.selected_text if self._selected else p.text))
+        painter.setFont(title_font)
+        title_metrics = QFontMetrics(title_font)
+        for line in wrap_lines(video.title or video.video_id, title_metrics, text_width, 2):
+            painter.drawText(x, y + title_metrics.ascent(), line)
+            y += title_metrics.lineSpacing()
+        # Reserve the second title line even for one-line titles.
+        y = cover.bottom() + CARD_PAD + title_metrics.lineSpacing() * 2 + 2
+
+        small_metrics = QFontMetrics(small_font)
+        painter.setFont(small_font)
+        painter.setPen(to_qcolor(p.text_secondary))
+        author = video.author_name or video.author_username
+        painter.drawText(
+            x, y + small_metrics.ascent(),
+            small_metrics.elidedText(author or tr("Unknown author", "未知作者", "作者不明"), Qt.TextElideMode.ElideRight, text_width),
+        )
+        y += small_metrics.lineSpacing()
+        stats = tr(
+            f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
+            f"{_format_count(video.views)} 观看 · {_format_count(video.likes)} 喜欢",
+            f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
+        )
+        date = video.published_at[:10] if video.published_at else ""
+        if date and small_metrics.horizontalAdvance(f"{stats} · {date}") <= text_width:
+            stats = f"{stats} · {date}"
+        painter.drawText(x, y + small_metrics.ascent(), small_metrics.elidedText(stats, Qt.TextElideMode.ElideRight, text_width))
+
+        border = QPen(accent if (self._hover or self._selected) else to_qcolor(p.border), 2 if self._selected else 1)
+        painter.setPen(border)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(shape)
+
+
+class MediaGrid(QWidget):
+    """Cards in equal-width columns that follow the available width."""
+
+    card_activated = Signal(object)
+    card_context_requested = Signal(object, QPoint)
+    selection_changed = Signal()
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        min_card_width: int = 224,
+        gap: int = 14,
+        selectable: bool = True,
+        max_rows: int = 0,
+    ):
+        super().__init__(parent)
+        self._min_card_width = min_card_width
+        self._gap = gap
+        self._selectable = selectable
+        self._max_rows = max(0, int(max_rows))
+        self._videos: list[SearchVideo] = []
+        self._cards: list[MediaCard] = []
+        self._covers: dict[str, QPixmap] = {}
+        self._columns = 1
+        self._fetcher = None
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def bind_fetcher(self, fetcher):
+        """Let the grid request its own covers from a shared ``CoverFetcher``."""
+
+        self._fetcher = fetcher
+        fetcher.cover_ready.connect(self._on_fetched_cover)
+        self._request_covers()
+
+    def _request_covers(self):
+        if self._fetcher is None:
+            return
+        self._fetcher.request([
+            ("video", card.video.video_id, small_cover_url(card.video.thumbnail_url))
+            for card in self._cards
+            if card.video.thumbnail_url
+        ])
+
+    def _on_fetched_cover(self, kind: str, key: str, path: str):
+        if kind != "video" or not any(card.video.video_id == key for card in self._cards):
+            return
+        pixmap = QPixmap(path)
+        if not pixmap.isNull():
+            self.set_cover(key, pixmap)
+
+    # ── content ──────────────────────────────────────────────────────────────
+
+    def columns_for_width(self, width: int) -> int:
+        return max(1, (max(1, width) + self._gap) // (self._min_card_width + self._gap))
+
+    def visible_capacity(self) -> int:
+        """How many items fit when ``max_rows`` is set (0 = unlimited)."""
+
+        if not self._max_rows:
+            return 0
+        return self.columns_for_width(self.width() or self._min_card_width * 4) * self._max_rows
+
+    def set_videos(self, videos: list[SearchVideo]):
+        self._videos = list(videos)
+        self._rebuild()
+
+    def videos(self) -> list[SearchVideo]:
+        return list(self._videos)
+
+    def shown_videos(self) -> list[SearchVideo]:
+        return [card.video for card in self._cards]
+
+    def _rebuild(self):
+        for card in self._cards:
+            card.hide()
+            card.setParent(None)
+            card.deleteLater()
+        self._cards = []
+        shown = self._videos
+        capacity = self.visible_capacity()
+        if capacity:
+            shown = shown[:capacity]
+        for video in shown:
+            card = MediaCard(video, self, selectable=self._selectable)
+            card.activated.connect(self.card_activated)
+            card.context_requested.connect(self.card_context_requested)
+            card.toggled.connect(lambda *_: self.selection_changed.emit())
+            pixmap = self._covers.get(video.video_id)
+            if pixmap is not None:
+                card.set_cover(pixmap)
+            card.show()
+            self._cards.append(card)
+        self._layout_cards()
+        self._request_covers()
+        self.selection_changed.emit()
+
+    def set_cover(self, video_id: str, pixmap: QPixmap | None):
+        if pixmap is None or pixmap.isNull():
+            return
+        self._covers[video_id] = pixmap
+        for card in self._cards:
+            if card.video.video_id == video_id:
+                card.set_cover(pixmap)
+
+    def selected_videos(self) -> list[SearchVideo]:
+        return [card.video for card in self._cards if card.is_selected()]
+
+    def select_all(self, selected: bool = True):
+        for card in self._cards:
+            card.set_selected(selected)
+        self.selection_changed.emit()
+
+    def clear_selection(self):
+        self.select_all(False)
+
+    # ── layout ───────────────────────────────────────────────────────────────
+
+    def _layout_cards(self):
+        width = self.width()
+        if width <= 0:
+            return
+        columns = self.columns_for_width(width)
+        if self._max_rows and columns != self._columns and len(self._cards) != min(len(self._videos), columns * self._max_rows):
+            # The window width changed enough to fit more or fewer cards.
+            self._columns = columns
+            self._rebuild()
+            return
+        self._columns = columns
+        card_width = (width - self._gap * (columns - 1)) // columns
+        y = 0
+        row_height = 0
+        for index, card in enumerate(self._cards):
+            card.set_card_width(card_width)
+            col = index % columns
+            if col == 0 and index:
+                y += row_height + self._gap
+                row_height = 0
+            card.move(col * (card_width + self._gap), y)
+            row_height = max(row_height, card.height())
+        total = y + row_height if self._cards else 0
+        if self.height() != total:
+            self.setFixedHeight(total)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_cards()
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._min_card_width, self.height())
+
+
+def transparent_scroll_area(name: str, parent: QWidget | None = None):
+    """A vertically scrolling Fluent area whose content sits on the page background."""
+
+    from PySide6.QtWidgets import QFrame
+    from qfluentwidgets import ScrollArea
+
+    area = ScrollArea(parent)
+    area.setObjectName(name)
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area.setStyleSheet(
+        f"QScrollArea#{name} {{ background: transparent; border: none; }}"
+        f"QScrollArea#{name} > QWidget > QWidget {{ background: transparent; }}"
+    )
+    return area

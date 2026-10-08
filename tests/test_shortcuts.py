@@ -85,7 +85,7 @@ class OverrideTests(_OverridesMixin, unittest.TestCase):
         self.assertEqual(defs.key_for("search_queue"), "Ctrl+D")
 
     def test_global_conflicts_with_pages_but_pages_may_share(self):
-        self.assertEqual(defs.set_key("search_queue", "Ctrl+1").id, "nav_download")
+        self.assertEqual(defs.set_key("search_queue", "Ctrl+1").id, "nav_home")
         self.assertIsNone(defs.set_key("history_reload", "Ctrl+D"))  # search and subscriptions use it too
 
     def test_reset_is_refused_when_the_default_is_now_taken(self):
@@ -210,6 +210,9 @@ class MainWindowBindingTests(_OverridesMixin, unittest.TestCase):
         patcher = mock.patch.object(HistoryInterface, "_load_history")
         reload = patcher.start()
         self.addCleanup(patcher.stop)
+        feed_patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        feed_patcher.start()
+        self.addCleanup(feed_patcher.stop)
         window = MainWindow()
         self.addCleanup(window.deleteLater)
         reload.reset_mock()

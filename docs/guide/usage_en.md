@@ -4,6 +4,12 @@
 
 This guide expands on the Quick Start section of the README.
 
+## Home and Content Rating
+
+Home is the first page and, like iwara.tv, shows "My subscriptions" (sign-in required; videos or images), "Hot videos" and "Hot images", each switchable between Trending, Popular and Newest. A click opens the post inside the app: cover and playback, stats, the uploader (view their works or subscribe), description, clickable tags, related posts and comments; image posts show all their pictures. "More" beside a row opens a paginated list whose cards can be ticked and queued in bulk with the chosen download rule; each video row also has "Download shown". Right-click a card to play, download, open in the browser, view the author's works or subscribe.
+
+"Content" (All / SFW / NSFW) at the top applies to Home and Iwara search and is remembered. `/videos` and `/images` are filtered by the server with `rating=general|ecchi`; the text `/search` endpoint ignores that parameter, so with SFW / NSFW it requests 100 results at a time and filters them locally, reading further pages (up to 4) until about 24 rows match; Next continues after the last page read. Oreno3D results carry no rating, so the selector is hidden there. The Search page's Images scope can now browse with an empty keyword, and "View details" in a result's menu opens it on the Home detail page. The sidebar order is Home, Search, Download Hub, Repair, Subscriptions, History, matching Ctrl+1 to Ctrl+6 (configurable in Settings).
+
 ## Repair Center
 
 To rename existing videos in bulk, select a folder and naming rule in Repair Center, then scan it. The default in-place mode keeps each video's parent folder and uses only the filename part of the rule. Choose the output-folder mode to move files using directory patterns such as `{author}/`; a blank output uses the scan root. Review the full source and destination paths before applying. Conflicting items are skipped without overwriting existing targets. To import download history only, turn off renaming, covers, and NFO generation and keep the history option enabled.

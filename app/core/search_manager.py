@@ -39,6 +39,62 @@ class SearchManagerMixin:
             limit=limit,
         )
 
+    def get_home_page(
+        self,
+        kind: str,
+        query_params: dict[str, str] | None = None,
+        *,
+        page: int = 0,
+        limit: int = 12,
+        api_client: IwaraAPI | None = None,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Browse ``/videos`` or ``/images`` for the Home page.
+
+        Home sections run concurrently, so each worker passes its own API
+        client; without one the call is serialized on the shared session.
+        """
+
+        method = "get_images_page" if str(kind).strip().lower().startswith("image") else "get_videos_page"
+        if api_client is not None:
+            return getattr(api_client, method)(dict(query_params or {}), page=page, limit=limit)
+        return self._api_call(method, dict(query_params or {}), page=page, limit=limit)
+
+    def is_logged_in(self) -> bool:
+        """Whether the shared API session carries an account token."""
+
+        return bool(self._current_token())
+
+    def get_image_info(self, image_id: str, *, api_client: IwaraAPI | None = None) -> tuple[dict | None, str]:
+        """Fetch one image post (with its files) for the detail view."""
+
+        if api_client is not None:
+            return api_client.get_image_info(image_id)
+        return self._api_call("get_image_info", str(image_id or "").strip())
+
+    def get_related_items(
+        self, kind: str, item_id: str, *, limit: int = 12, api_client: IwaraAPI | None = None,
+    ) -> tuple[list[dict], str]:
+        """Related videos/images shown under a detail view."""
+
+        if api_client is not None:
+            return api_client.get_related(kind, item_id, limit=limit)
+        return self._api_call("get_related", kind, item_id, limit=limit)
+
+    def get_item_comments(
+        self,
+        kind: str,
+        item_id: str,
+        *,
+        page: int = 0,
+        parent: str = "",
+        api_client: IwaraAPI | None = None,
+    ) -> tuple[list[dict], int | None, str]:
+        """One page of comments (or replies when ``parent`` is set)."""
+
+        if api_client is not None:
+            return api_client.get_comments(kind, item_id, page=page, parent=parent)
+        return self._api_call("get_comments", kind, item_id, page=page, parent=parent)
+
     def get_search_keyword_page(
         self,
         query_params: dict[str, str],

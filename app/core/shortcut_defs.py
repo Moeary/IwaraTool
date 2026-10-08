@@ -18,6 +18,7 @@ from ..logging_setup import get_logger
 logger = get_logger(__name__)
 
 SCOPE_GLOBAL = "global"
+SCOPE_HOME = "home"
 SCOPE_DOWNLOAD = "download"
 SCOPE_SEARCH = "search"
 SCOPE_SUBSCRIPTIONS = "subscriptions"
@@ -39,6 +40,7 @@ class ShortcutAction:
 def scope_titles() -> dict[str, str]:
     return {
         SCOPE_GLOBAL: tr("Anywhere in the app", "全局（任何页面）", "どこでも（グローバル）"),
+        SCOPE_HOME: tr("Home", "首页", "ホーム"),
         SCOPE_DOWNLOAD: tr("Download Hub", "下载工作台", "ダウンロードハブ"),
         SCOPE_SEARCH: tr("Search", "搜索", "検索"),
         SCOPE_SUBSCRIPTIONS: tr("Subscriptions", "订阅页", "購読"),
@@ -54,14 +56,18 @@ def all_actions() -> tuple[ShortcutAction, ...]:
     """The catalogue, built on demand so labels follow the UI language."""
     A = ShortcutAction
     return (
-        A("nav_download", SCOPE_GLOBAL, "Ctrl+1", tr("Go to Download Hub", "前往下载工作台", "ダウンロードハブへ移動")),
+        A("nav_home", SCOPE_GLOBAL, "Ctrl+1", tr("Go to Home", "前往首页", "ホームへ移動")),
         A("nav_search", SCOPE_GLOBAL, "Ctrl+2", tr("Go to Search", "前往搜索", "検索へ移動")),
-        A("nav_subscriptions", SCOPE_GLOBAL, "Ctrl+3", tr("Go to Subscriptions", "前往订阅页", "購読へ移動")),
-        A("nav_history", SCOPE_GLOBAL, "Ctrl+4", tr("Go to History", "前往历史记录", "履歴へ移動")),
-        A("nav_repair", SCOPE_GLOBAL, "Ctrl+5", tr("Go to Repair Center", "前往修复中心", "修復センターへ移動")),
-        A("nav_rules", SCOPE_GLOBAL, "Ctrl+6", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
-        A("nav_settings", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Settings", "前往应用设置", "設定へ移動")),
+        A("nav_download", SCOPE_GLOBAL, "Ctrl+3", tr("Go to Download Hub", "前往下载工作台", "ダウンロードハブへ移動")),
+        A("nav_repair", SCOPE_GLOBAL, "Ctrl+4", tr("Go to Repair Center", "前往修复中心", "修復センターへ移動")),
+        A("nav_subscriptions", SCOPE_GLOBAL, "Ctrl+5", tr("Go to Subscriptions", "前往订阅页", "購読へ移動")),
+        A("nav_history", SCOPE_GLOBAL, "Ctrl+6", tr("Go to History", "前往历史记录", "履歴へ移動")),
+        A("nav_rules", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
+        A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),
         A("quit_app", SCOPE_GLOBAL, "Ctrl+Q", tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了")),
+
+        A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
+        A("home_back", SCOPE_HOME, "Alt+Left", tr("Back to the previous view", "返回上一级", "前の画面に戻る")),
 
         A("download_submit", SCOPE_DOWNLOAD, "Ctrl+Return", tr("Submit the links", "提交链接下载", "リンクを送信")),
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),

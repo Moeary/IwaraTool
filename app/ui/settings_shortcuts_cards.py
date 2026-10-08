@@ -25,6 +25,7 @@ GENERAL_CARD = "shortcuts_general"
 # Display order of the per-area cards.
 SCOPE_ORDER = (
     shortcut_defs.SCOPE_GLOBAL,
+    shortcut_defs.SCOPE_HOME,
     shortcut_defs.SCOPE_DOWNLOAD,
     shortcut_defs.SCOPE_SEARCH,
     shortcut_defs.SCOPE_SUBSCRIPTIONS,

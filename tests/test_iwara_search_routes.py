@@ -291,7 +291,11 @@ class SearchModeInterfaceTests(unittest.TestCase):
         page = self.page
         sorts = lambda: [page._sort_combo.itemData(i) for i in range(page._sort_combo.count())]
         page._set_combo_data(page._scope_combo, "images")
+        # Without a keyword images are browsed (/images), which also has trending/popularity.
+        self.assertEqual(sorts(), ["date", "trending", "popularity", "views", "likes"])
+        page._keyword_edit.setText("miku")
         self.assertEqual(sorts(), ["date", "relevance", "views", "likes"])
+        page._keyword_edit.setText("")
         for scope in ("authors", "playlists"):
             with self.subTest(scope=scope):
                 page._set_combo_data(page._scope_combo, scope)

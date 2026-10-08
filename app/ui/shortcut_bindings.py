@@ -12,6 +12,7 @@ def _focus(edit) -> None:
 def install_shortcuts(window) -> None:
     """Bind every page-level action; called once the pages exist."""
     pages = [
+        ("nav_home", window._home_page),
         ("nav_download", window._download_page),
         ("nav_search", window._search_page),
         ("nav_subscriptions", window._subscription_page),
@@ -25,6 +26,15 @@ def install_shortcuts(window) -> None:
     }
     handlers["quit_app"] = window._quit_from_tray
     registry.bind(window, handlers)
+
+    home = window._home_page
+    registry.bind(
+        home,
+        {
+            "home_refresh": lambda: home.refresh(),
+            "home_back": home.go_back,
+        },
+    )
 
     download = window._download_page
     tasks = download._task_center

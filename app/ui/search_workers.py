@@ -22,6 +22,7 @@ from ..core.search import (
     SearchPageResult,
     SearchScope,
     SearchVideo,
+    build_image_query_params,
     build_keyword_query_params,
     build_native_query_params,
     build_video_query_params,
@@ -35,6 +36,7 @@ from ..core.search import (
     profile_reference,
     sort_videos,
 )
+from ..core.rating import filter_by_rating
 from ..i18n import tr
 
 
@@ -49,6 +51,11 @@ class _SearchManagerProxy:
 
 download_manager = _SearchManagerProxy()
 
+
+# ``/search`` ignores the SFW/NSFW rating, so with a rating chosen the worker
+# reads consecutive server pages until enough rows survive the local filter.
+RATING_SCAN_MAX_PAGES = 4
+RATING_SCAN_TARGET = 24
 
 DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
 MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
@@ -192,9 +199,49 @@ class SearchWorker(QThread):
             )
         )
 
+    def _scan_rated(self, scope: str, fetch_page, parse):
+        """Collect rating-filtered rows from consecutive ``/search`` pages and emit them.
+
+        ``fetch_page(page)`` returns ``(raw, total, has_more, error)`` and
+        ``parse(raw)`` the already normalized and rating-filtered cards.  The
+        next page continues after the last server page that was read, so no
+        rows are skipped or repeated when Next is used.
+        """
+
+        videos: list[SearchVideo] = []
+        error = ""
+        has_more = False
+        page = self.page
+        fetched = self.page
+        for _ in range(RATING_SCAN_MAX_PAGES):
+            if self.isInterruptionRequested():
+                break
+            raw, _total, has_more, error = fetch_page(page)
+            fetched = page
+            videos.extend(parse(raw))
+            if error or not has_more or len(videos) >= RATING_SCAN_TARGET:
+                break
+            page += 1
+        self.result_ready.emit(
+            SearchPageResult(
+                scope=scope,
+                videos=videos,
+                total=None,
+                has_more=has_more,
+                next_page=fetched + 1 if has_more else None,
+                scanned_pages=fetched - self.page + 1,
+                error=error,
+                current_page=self.page,
+                last_page=None if has_more else fetched,
+            )
+        )
+
     def _run_native_search(self, scope: str):
         """Read one page of Iwara's ``/search`` for images, users or playlists."""
 
+        if scope == "images" and not self.filters.keyword.strip():
+            self._run_image_browse()
+            return
         if not self.filters.keyword.strip():
             messages = {
                 "images": tr("Enter image keywords first", "请先输入图片关键词", "画像のキーワードを入力してください"),
@@ -202,6 +249,22 @@ class SearchWorker(QThread):
                 "playlists": tr("Enter playlist keywords first", "请先输入播放列表关键词", "プレイリストのキーワードを入力してください"),
             }
             self.result_ready.emit(SearchPageResult(scope=scope, error=messages.get(scope, "")))
+            return
+        if scope == "images" and self.filters.rating:
+            def fetch_images(page: int):
+                params = build_native_query_params(self.filters, scope, page)
+                return download_manager.get_search_native_page(
+                    params["type"], params, page=page, limit=self.filters.page_size,
+                )
+
+            self._scan_rated(
+                scope,
+                fetch_images,
+                lambda raw: filter_by_rating(
+                    [video for video in map(normalize_image, raw) if video is not None],
+                    self.filters.rating,
+                ),
+            )
             return
         params = build_native_query_params(self.filters, scope, self.page)
         raw_page, total, has_more, error = download_manager.get_search_native_page(
@@ -227,12 +290,44 @@ class SearchWorker(QThread):
             ),
         )
         if scope == "images":
-            result.videos = [video for video in map(normalize_image, raw_page) if video is not None]
+            # /search ignores ``rating``; apply the SFW/NSFW choice here.
+            result.videos = filter_by_rating(
+                [video for video in map(normalize_image, raw_page) if video is not None],
+                self.filters.rating,
+            )
         elif scope == "authors":
             result.authors = [author for author in map(normalize_author, raw_page) if author is not None]
         else:
             result.playlists = [item for item in map(normalize_playlist, raw_page) if item is not None]
         self.result_ready.emit(result)
+
+    def _run_image_browse(self):
+        """List image posts without a keyword, like the site's Images tab."""
+
+        params = build_image_query_params(self.filters, self.page)
+        raw_page, total, has_more, error = download_manager.get_home_page(
+            "image", params, page=self.page, limit=self.filters.page_size,
+        )
+        images = [video for video in map(normalize_image, raw_page) if video is not None]
+        self.result_ready.emit(
+            SearchPageResult(
+                scope="images",
+                videos=filter_by_rating(images, self.filters.rating),
+                total=total,
+                has_more=has_more,
+                next_page=self.page + 1 if has_more else None,
+                scanned_pages=1,
+                error=error,
+                current_page=self.page,
+                last_page=(
+                    max(0, (total - 1) // self.filters.page_size)
+                    if total is not None and total > 0
+                    else self.page
+                    if not has_more
+                    else None
+                ),
+            )
+        )
 
     def _run_author_search(self):
         keyword = (self.filters.keyword or self.filters.author).strip()
@@ -282,6 +377,25 @@ class SearchWorker(QThread):
                 keyword="",
                 include_tags=(*self.filters.include_tags, self.filters.keyword),
             )
+        if keyword_search and query_filters.rating:
+            keyword_filters = replace(query_filters, keyword="")
+
+            def fetch_keyword(page: int):
+                return download_manager.get_search_keyword_page(
+                    build_keyword_query_params(query_filters, page),
+                    page=page,
+                    limit=query_filters.page_size,
+                )
+
+            self._scan_rated(
+                self.scope,
+                fetch_keyword,
+                lambda raw: filter_videos(
+                    [video for video in map(normalize_video, raw) if video is not None],
+                    keyword_filters,
+                ),
+            )
+            return
         fetch = (
             download_manager.get_search_keyword_page
             if keyword_search else download_manager.get_search_video_page

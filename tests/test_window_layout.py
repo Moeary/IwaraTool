@@ -4,6 +4,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from unittest import mock
+
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
@@ -16,6 +18,10 @@ class WindowLayoutTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        # Home loads its feeds on first show; keep the test off the network.
+        patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.previous_window = MainWindow._window_ref
         self.window = MainWindow()
         self.window.stackedWidget.setAnimationEnabled(False)

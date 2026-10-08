@@ -28,6 +28,7 @@ from ..core.manager import download_manager
 from ..logging_setup import get_logger
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
+from .home_page import HomeInterface
 from .notification_dispatcher import (
     PreparedTaskNotifications,
     TaskNotificationBatch,
@@ -94,6 +95,8 @@ class MainWindow(FluentWindow):
         signal_bus.video_preview_requested.connect(self._on_video_preview_requested)
         signal_bus.task_status_changed.connect(self._on_task_status_notification)
         signal_bus.subscription_source_requested.connect(self._on_subscription_source_requested)
+        signal_bus.media_detail_requested.connect(self._on_media_detail_requested)
+        signal_bus.search_requested.connect(self._on_search_requested)
         qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 
@@ -107,6 +110,7 @@ class MainWindow(FluentWindow):
 
     def _init_navigation(self):
         # Create sub-interfaces
+        self._home_page = HomeInterface(self)
         self._download_page = DownloadInterface(self)
         self._search_page = SearchInterface(self)
         self._subscription_page = SubscriptionInterface(self)
@@ -114,17 +118,30 @@ class MainWindow(FluentWindow):
         self._repair_page = RepairInterface(self)
         self._rules_page = RulesInterface(self)
         self._settings_page = SettingsInterface(self)
+        self._home_page.open_settings_requested.connect(
+            lambda: self.switchTo(self._settings_page)
+        )
 
-        # Add items with Fluent icons
+        # Sidebar order: Home, Search, Download Hub, Repair, Subscriptions, History.
+        self.addSubInterface(
+            self._home_page,
+            icon=FluentIcon.HOME,
+            text=tr("Home", "首页", "ホーム"),
+        )
+        self.addSubInterface(
+            self._search_page,
+            icon=FluentIcon.SEARCH,
+            text=tr("Search", "搜索", "検索"),
+        )
         self.addSubInterface(
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
             text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),
         )
         self.addSubInterface(
-            self._search_page,
-            icon=FluentIcon.SEARCH,
-            text=tr("Search", "搜索", "検索"),
+            self._repair_page,
+            icon=FluentIcon.FOLDER,
+            text=tr("Repair", "修复", "修復"),
         )
         self.addSubInterface(
             self._subscription_page,
@@ -135,11 +152,6 @@ class MainWindow(FluentWindow):
             self._history_page,
             icon=FluentIcon.HISTORY,
             text=tr("History", "历史记录", "履歴"),
-        )
-        self.addSubInterface(
-            self._repair_page,
-            icon=FluentIcon.FOLDER,
-            text=tr("Repair", "修复", "修復"),
         )
         # Bottom quick actions (shown above settings)
 
@@ -181,8 +193,8 @@ class MainWindow(FluentWindow):
             position=NavigationItemPosition.BOTTOM,
         )
 
-        # Default to download page
-        self.switchTo(self._download_page)
+        # Land on Home
+        self.switchTo(self._home_page)
 
     def _splash_finish(self):
         # If you have a splash screen, call finish here.
@@ -197,6 +209,18 @@ class MainWindow(FluentWindow):
             return
         self._subscription_page._select_source_id(source_id)
         self.switchTo(self._subscription_page)
+
+    def _on_media_detail_requested(self, kind: str, item_id: str):
+        """Show a post in the Home detail view (e.g. from a search result)."""
+
+        self._home_page.show_detail(kind, item_id)
+        self.switchTo(self._home_page)
+
+    def _on_search_requested(self, request: dict):
+        """Run an Iwara search on the Search page for another page."""
+
+        self.switchTo(self._search_page)
+        self._search_page.apply_external_query(request)
 
     def _init_desktop_notifications(self):
         self._tray_icon: QSystemTrayIcon | None = None
@@ -528,6 +552,7 @@ class MainWindow(FluentWindow):
     def _refresh_theme_styles(self):
         refresh_splitters(self)
         for page in (
+            getattr(self, "_home_page", None),
             getattr(self, "_download_page", None),
             getattr(self, "_search_page", None),
             getattr(self, "_subscription_page", None),
@@ -640,6 +665,7 @@ class MainWindow(FluentWindow):
 
     def _shutdown_page_workers(self) -> bool:
         for page in (
+            getattr(self, "_home_page", None),
             getattr(self, "_search_page", None),
             getattr(self, "_subscription_page", None),
             getattr(self, "_repair_page", None),

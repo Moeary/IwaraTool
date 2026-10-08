@@ -54,6 +54,7 @@ from ..core.search import (
     playlist_reference,
     profile_reference,
 )
+from ..core.rating import RATING_ALL, UI_RATING_KEY, api_rating, normalize_rating, rating_options
 from ..core.tag_dictionary import complete_tag_query, tag_query_fragment
 from ..i18n import tr
 from ..signal_bus import signal_bus
@@ -272,6 +273,30 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._sort_combo.setMinimumWidth(132)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         query_row.addWidget(self._sort_combo)
+
+        # SFW / NSFW, shared with the Home page. Oreno3D cards carry no
+        # rating, so the selector is only offered for the Iwara source.
+        self._rating_group = QWidget(query_card)
+        rating_layout = QHBoxLayout(self._rating_group)
+        rating_layout.setContentsMargins(0, 0, 0, 0)
+        rating_layout.setSpacing(8)
+        rating_layout.addWidget(self._labelled(tr("Content", "内容分级", "コンテンツ"), self._rating_group))
+        self._rating_combo = self._make_combo(rating_options(), self._rating_group)
+        self._rating_combo.setMinimumWidth(104)
+        self._rating_combo.setToolTip(
+            tr(
+                "SFW shows general-rated posts only, NSFW shows R-18 (ecchi) posts only.",
+                "SFW 仅显示全年龄作品，NSFW 仅显示 R-18（ecchi）作品。",
+                "SFWは全年齢向けのみ、NSFWはR-18（ecchi）のみを表示します。",
+            )
+        )
+        self._set_combo_data(
+            self._rating_combo, normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
+        )
+        self._rating_combo.currentIndexChanged.connect(self._on_rating_changed)
+        rating_layout.addWidget(self._rating_combo)
+        query_row.addWidget(self._rating_group)
+        signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
 
         # The download rule used to occupy its own card; keeping it in the
         # query card saves a full row of vertical space for results.
@@ -811,12 +836,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             )
         elif scope == "images":
             hint = tr(
-                "Searches Iwara image posts. Images can be browsed and opened, but not queued for download.",
-                "搜索 Iwara 图片作品；图片结果可浏览和打开，但不能加入下载队列。",
-                "Iwaraの画像投稿を検索します。閲覧・表示はできますが、ダウンロードキューには追加できません。",
+                "Searches Iwara image posts; leave blank to browse them. Images can be viewed, but not queued for download.",
+                "搜索 Iwara 图片作品，留空则浏览图片列表；图片可查看，但不能加入下载队列。",
+                "Iwaraの画像投稿を検索します。空欄なら一覧を表示します。閲覧はできますが、ダウンロードキューには追加できません。",
             )
             self._keyword_edit.setPlaceholderText(
-                tr("Image keywords…", "输入图片关键词…", "画像のキーワード…")
+                tr("Image keywords (blank to browse)…", "输入图片关键词（留空浏览）…", "画像のキーワード（空欄で一覧）…")
             )
         elif scope == "tags":
             if str(self._source_combo.currentData() or "oreno3d") == "oreno3d":
@@ -917,7 +942,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         relevance = (tr("Relevance", "相关度", "関連度"), "relevance")
         views = (tr("Most viewed", "最多人观看", "再生数最多"), "views")
         likes = (tr("Most liked", "喜欢最多", "いいね順"), "likes")
-        if iwara and (scope == "images" or (scope == "videos" and keyword)):
+        if iwara and scope in {"images", "videos"} and keyword:
             # Native /search for videos and images accepts four orders.
             items = [newest, relevance, views, likes]
         elif iwara and (
@@ -977,12 +1002,33 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._clear_author_navigation()
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
+        self._rating_group.setVisible(source == "iwara")
         self._source_status_label.clear()
         self._on_scope_changed(trigger_search=False)
         if trigger_search:
             self._schedule_auto_search()
 
     def _on_sort_changed(self, *_args):
+        self._schedule_auto_search()
+
+    def _selected_rating(self) -> str:
+        return normalize_rating(self._rating_combo.currentData())
+
+    def _on_rating_changed(self, *_args):
+        rating = self._selected_rating()
+        app_config.set_ui_value(UI_RATING_KEY, rating)
+        signal_bus.content_rating_changed.emit(rating)
+        self._schedule_auto_search()
+
+    def _on_rating_broadcast(self, rating: str):
+        """Follow a change made on the Home page without echoing it back."""
+
+        rating = normalize_rating(rating)
+        if rating == self._selected_rating():
+            return
+        self._rating_combo.blockSignals(True)
+        self._set_combo_data(self._rating_combo, rating)
+        self._rating_combo.blockSignals(False)
         self._schedule_auto_search()
 
     def _schedule_auto_search(self):
@@ -993,7 +1039,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if not self._auto_search_ready or not app_config.search_auto_search_enabled:
             return
         scope = str(self._scope_combo.currentData() or "videos")
-        if scope in {"images", "authors", "tags", "playlists"} and not self._keyword_edit.text().strip():
+        if scope in {"authors", "tags", "playlists"} and not self._keyword_edit.text().strip():
             return
         self._auto_search_timer.start()
 
@@ -1062,11 +1108,20 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             and str(self._scope_combo.currentData() or "videos") == "videos"
             else ""
         )
+        iwara = str(self._source_combo.currentData() or "oreno3d") == "iwara"
+        keyword = self._keyword_edit.text().strip()
+        rating = api_rating(self._selected_rating()) if iwara else ""
+        page_size = 32 if iwara else 36
+        if rating and keyword:
+            # /search ignores the rating, so the page is filtered locally;
+            # ask for the largest page so a filtered page is not nearly empty.
+            page_size = 100
         return SearchFilters(
-            keyword=self._keyword_edit.text().strip(),
+            keyword=keyword,
             author_id=author_id,
             sort=str(self._sort_combo.currentData() or "date"),
-            page_size=36 if str(self._source_combo.currentData() or "oreno3d") == "oreno3d" else 32,
+            rating=rating,
+            page_size=page_size,
         )
 
     def _start_search(self, *_args):
@@ -1087,9 +1142,6 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                     "Oreno3Dオンライン検索は現在動画カードを返します。画像・作者・プレイリストはIwaraライブAPIへ切り替えてください。",
                 )
             )
-            return
-        if scope == "images" and not filters.keyword:
-            self._show_error(tr("Enter image keywords first", "请先输入图片关键词", "画像のキーワードを入力してください"))
             return
         if scope == "authors" and not filters.keyword:
             self._show_error(tr("Enter an author name first", "请先输入作者名称", "作者名を入力してください"))
@@ -2078,6 +2130,28 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             item.setForeground(qcolor("text"))
             if key not in self._image_path_by_key:
                 item.setIcon(self._placeholder_icon(key.split(":", 1)[0]))
+
+    def apply_external_query(self, request: dict):
+        """Run an Iwara search asked for by another page (tag click, author, etc.)."""
+
+        scope = str(request.get("scope") or "videos")
+        keyword = str(request.get("keyword") or "").strip()
+        sort = str(request.get("sort") or "")
+        author = request.get("author")
+        self._auto_search_timer.stop()
+        self._set_combo_data(self._source_combo, "iwara")
+        if isinstance(author, (tuple, list)) and len(author) == 4:
+            self._show_author_works_target(tuple(author))
+            return
+        self._clear_author_navigation()
+        self._set_combo_data(self._scope_combo, scope)
+        self._keyword_edit.setText(keyword)
+        self._sync_sort_options()
+        if sort:
+            self._sort_combo.blockSignals(True)
+            self._set_combo_data(self._sort_combo, sort)
+            self._sort_combo.blockSignals(False)
+        self._start_search()
 
     def _show_error(self, message: str):
         InfoBar.error(

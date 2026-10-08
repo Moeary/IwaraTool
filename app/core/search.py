@@ -13,6 +13,8 @@ from datetime import date, datetime
 from typing import Any, Literal, Mapping
 from urllib.parse import quote, urlparse
 
+from .rating import filter_by_rating
+
 
 SearchScope = Literal["videos", "images", "authors", "tags", "playlists"]
 
@@ -292,6 +294,25 @@ def _video_thumbnail(video: Mapping[str, Any]) -> str:
     return f"https://{host}/image/original/{quote(file_id)}/thumbnail-{index:02d}.jpg"
 
 
+def small_cover_url(url: str) -> str:
+    """Swap a video's full-size ``thumbnail-NN.jpg`` for the ~10 KB rendition.
+
+    Home cards show dozens of covers at once, so the small file keeps the page
+    quick.  Anything that is not a generated video thumbnail is returned as is.
+    """
+
+    text = str(url or "")
+    if "/image/original/" in text and re.search(r"/thumbnail-\d+\.jpg$", text):
+        return text.replace("/image/original/", "/image/thumbnail/", 1)
+    return text
+
+
+def avatar_url(user: Any) -> str:
+    """Avatar image URL of an Iwara ``user`` object, or ``""``."""
+
+    return _iwara_image_url(_mapping(user).get("avatar"), variant="avatar")
+
+
 def normalize_video(value: Mapping[str, Any] | Any) -> SearchVideo | None:
     """Normalize a video stub or detail response into :class:`SearchVideo`."""
 
@@ -549,6 +570,14 @@ def build_video_query_params(filters: SearchFilters, page: int = 0) -> dict[str,
 IWARA_KEYWORD_SORTS = ("relevance", "date", "views", "likes")
 
 
+def build_image_query_params(filters: SearchFilters, page: int = 0) -> dict[str, str]:
+    """Build ``/images`` browse parameters (no text query)."""
+
+    params = build_video_query_params(filters, page)
+    params.pop("tags", None)  # image browsing has no tag filter in this app
+    return params
+
+
 def build_keyword_query_params(filters: SearchFilters, page: int = 0) -> dict[str, str]:
     """Build /search parameters without converting text into tags."""
 
@@ -612,7 +641,7 @@ def filter_videos(videos: list[SearchVideo], filters: SearchFilters) -> list[Sea
     character_any = {term.casefold() for term in filters.character_any if term}
     character_not = {term.casefold() for term in filters.character_not if term}
     result: list[SearchVideo] = []
-    for video in videos:
+    for video in filter_by_rating(videos, filters.rating):
         video_tags = {tag.casefold() for tag in video.tags}
         origins = {value.casefold() for value in video.origins}
         characters = {value.casefold() for value in video.characters}
