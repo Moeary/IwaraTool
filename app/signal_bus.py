@@ -60,6 +60,9 @@ class TaskSignalBus(QObject):
     # GitHub Release payload
     release_update_available = Signal(dict)
 
+    # video id, title, local file path (empty when the video is not on disk)
+    video_preview_requested = Signal(str, str, str)
+
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()
 

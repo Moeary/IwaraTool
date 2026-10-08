@@ -113,6 +113,9 @@ class AppConfig:
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
+        "preview_player_mode": "system",  # system / builtin / custom
+        "preview_player_command": "",  # custom player, "{file}" is the video path
+        "preview_quality": "540",  # Source / 540 / 360 for streamed previews
     }
 
     # Never copied out of the old registry-based store.
@@ -466,6 +469,9 @@ class AppConfig:
     request_max_retries = _Setting()
     x_version_salts = _Setting()
     minimize_to_tray = _Setting()
+    preview_player_mode = _Setting()
+    preview_player_command = _Setting()
+    preview_quality = _Setting()
 
     @property
     def theme_mode(self) -> str:
