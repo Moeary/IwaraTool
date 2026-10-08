@@ -50,6 +50,20 @@ class SearchManagerMixin:
 
         return self._api_call("search_videos_page", query_params, page=page, limit=limit)
 
+    def get_search_native_page(
+        self,
+        search_type: str,
+        query_params: dict[str, str],
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Search Iwara's native index for images, users or playlists."""
+
+        return self._api_call(
+            "search_page", search_type, query_params, page=page, limit=limit,
+        )
+
     def get_search_user_profile(self, username: str) -> tuple[dict | None, str]:
         """Fetch one author profile for the search interface."""
 

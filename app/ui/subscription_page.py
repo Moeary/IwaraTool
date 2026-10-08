@@ -1087,7 +1087,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         updates_enabled = self._thumbnail_list.updatesEnabled()
         self._thumbnail_list.setUpdatesEnabled(False)
         try:
-            self._thumbnail_list.setIconSize(QSize(image_width, image_height))
+            icon_size = QSize(image_width, image_height)
+            size_changed = self._thumbnail_list.iconSize() != icon_size
+            self._thumbnail_list.setIconSize(icon_size)
+            if size_changed:
+                # QIcon never scales a pixmap up, so covers rendered for a
+                # narrower cell must be rebuilt or they stay small and centered.
+                self._refresh_thumbnail_icons()
             self._thumbnail_list.setGridSize(grid_size)
             self._thumbnail_list.setSpacing(spacing)
             for index in range(self._thumbnail_list.count()):
@@ -1602,13 +1608,35 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._schedule_thumbnail_grid_update()
         self._start_thumbnail_worker_for_visible_items()
 
+    def _refresh_thumbnail_icons(self):
+        """Re-render every loaded cover at the list's current icon size."""
+
+        paths = {
+            str(entry.get("video_id", "")): str(entry.get("thumbnail_path", "") or "")
+            for entry in self._visible_items
+        }
+        placeholder = self._thumbnail_placeholder_icon()
+        for video_id, list_items in self._thumbnail_items_by_video_id.items():
+            path = paths.get(video_id, "")
+            icon = self._thumbnail_icon(path) if path and os.path.isfile(path) else placeholder
+            for list_item in list_items:
+                list_item.setIcon(icon)
+
     def _thumbnail_placeholder_icon(self) -> QIcon:
         pixmap = QPixmap(self._thumbnail_list.iconSize())
         pixmap.fill(qcolor("placeholder"))
         return QIcon(pixmap)
 
     def _thumbnail_icon(self, path: str) -> QIcon:
-        pixmap = QPixmap(path)
+        # Decoded covers are kept so a grid resize can re-scale them cheaply.
+        cache = self.__dict__.setdefault("_thumbnail_pixmaps", {})
+        pixmap = cache.get(path)
+        if pixmap is None:
+            pixmap = QPixmap(path)
+            if not pixmap.isNull():
+                if len(cache) >= 512:
+                    cache.pop(next(iter(cache)))
+                cache[path] = pixmap
         if pixmap.isNull():
             return self._thumbnail_placeholder_icon()
         size = self._thumbnail_list.iconSize()

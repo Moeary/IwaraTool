@@ -23,6 +23,14 @@ _X_VERSION_SALTS = (
     "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
     "5nFp9kmbNnHdAFhaqMvt",
 )
+# Orders accepted by ``/search`` per type (verified against the live API:
+# users/playlists answer ``errors.badRequest`` for views and likes).
+IWARA_SEARCH_SORTS: dict[str, tuple[str, ...]] = {
+    "videos": ("relevance", "date", "views", "likes"),
+    "images": ("relevance", "date", "views", "likes"),
+    "users": ("relevance", "date"),
+    "playlists": ("relevance", "date"),
+}
 
 
 class IwaraAPI:
@@ -488,12 +496,43 @@ class IwaraAPI:
     ) -> tuple[list[dict], int | None, bool, str]:
         """Search Iwara's text index with its own query and sort parameters."""
 
-        params = {key: query_params[key] for key in ("query", "sort") if key in query_params}
-        params["type"] = "videos"
-        if not str(params.get("query") or "").strip():
+        return self.search_page(
+            "videos",
+            query_params,
+            page=page,
+            limit=limit,
+        )
+
+    def search_page(
+        self,
+        search_type: str,
+        query_params: dict[str, Any],
+        *,
+        page: int = 0,
+        limit: int = 32,
+    ) -> tuple[list[dict], int | None, bool, str]:
+        """Read one page of Iwara's native ``/search`` for any supported type.
+
+        ``users`` and ``playlists`` reject ``views``/``likes`` with HTTP 400,
+        so unsupported orders fall back to relevance before reaching the server.
+        """
+
+        search_type = str(search_type or "").strip().lower()
+        if search_type not in IWARA_SEARCH_SORTS:
+            return [], None, False, tr(
+                f"Unsupported search type: {search_type}",
+                f"不支持的搜索类型：{search_type}",
+                f"未対応の検索タイプ: {search_type}",
+            )
+        query = str(query_params.get("query") or "").strip()
+        if not query:
             return [], None, False, tr(
                 "Enter a keyword first", "请先输入关键词", "キーワードを入力してください",
             )
+        sort = str(query_params.get("sort") or "").strip().lower()
+        if sort not in IWARA_SEARCH_SORTS[search_type]:
+            sort = "relevance"
+        params = {"type": search_type, "query": query, "sort": sort}
         return self._get_video_result_page("/search", params, page=page, limit=limit)
 
     def _get_video_result_page(

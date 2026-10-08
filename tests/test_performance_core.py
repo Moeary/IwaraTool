@@ -1387,7 +1387,8 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_search_history_click_restores_fields_and_runs_search(self):
         page = SearchInterface()
-        entry = {"keyword": "test history", "source": "iwara", "scope": "authors", "sort": "views"}
+        # Iwara's user search only accepts relevance/date ordering.
+        entry = {"keyword": "test history", "source": "iwara", "scope": "authors", "sort": "relevance"}
         try:
             page._search_history_popup.set_history([entry], page._search_history_label)
             with patch.object(page, "_start_search") as start:

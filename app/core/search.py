@@ -14,7 +14,28 @@ from typing import Any, Literal, Mapping
 from urllib.parse import quote, urlparse
 
 
-SearchScope = Literal["videos", "authors", "tags", "playlists"]
+SearchScope = Literal["videos", "images", "authors", "tags", "playlists"]
+
+# Iwara's native ``/search`` type for each scope that has a text index.
+IWARA_NATIVE_SEARCH_TYPES: dict[str, str] = {
+    "videos": "videos",
+    "images": "images",
+    "authors": "users",
+    "playlists": "playlists",
+}
+# Orders accepted by ``/search``; users and playlists reject views/likes.
+IWARA_NATIVE_SEARCH_SORTS: dict[str, tuple[str, ...]] = {
+    "videos": ("relevance", "date", "views", "likes"),
+    "images": ("relevance", "date", "views", "likes"),
+    "authors": ("relevance", "date"),
+    "playlists": ("relevance", "date"),
+}
+IWARA_IMAGE_SOURCE_KIND = "iwara_image"
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -92,6 +113,21 @@ class SearchAuthor:
     bio: str = ""
     video_count: int = 0
     source_url: str = ""
+    joined_at: str = ""
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
+class SearchPlaylist:
+    """Stable playlist shape returned by Iwara's native playlist search."""
+
+    playlist_id: str
+    title: str
+    video_count: int = 0
+    author_username: str = ""
+    author_name: str = ""
+    thumbnail_url: str = ""
+    source_url: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -102,6 +138,7 @@ class SearchPageResult:
     scope: SearchScope
     videos: list[SearchVideo] = field(default_factory=list)
     authors: list[SearchAuthor] = field(default_factory=list)
+    playlists: list[SearchPlaylist] = field(default_factory=list)
     total: int | None = None
     has_more: bool = False
     next_page: int | None = None
@@ -398,8 +435,95 @@ def normalize_author(value: Mapping[str, Any] | Any) -> SearchAuthor | None:
         bio=bio,
         video_count=video_count,
         source_url=source_url,
+        joined_at=_first_text(user, "createdAt"),
         raw=raw,
     )
+
+
+def _iwara_file_thumbnail(value: Any) -> str:
+    """Use the small ``thumbnail`` rendition of an uploaded image file."""
+
+    image = _mapping(value)
+    image_id = _first_text(image, "id", "fileId")
+    if not image_id:
+        return _iwara_image_url(value)
+    return f"https://i.iwara.tv/image/thumbnail/{quote(image_id)}/{quote(image_id)}.jpg"
+
+
+def normalize_image(value: Mapping[str, Any] | Any) -> SearchVideo | None:
+    """Normalize an Iwara image post into a browse-only search card.
+
+    Image posts share the video card layout but have no video file, so they
+    are never queueable; the card opens the post on iwara.tv instead.
+    """
+
+    image = dict(value) if isinstance(value, Mapping) else {}
+    normalized = normalize_video(image)
+    if normalized is None:
+        return None
+    image_id = normalized.video_id
+    normalized.source_url = f"https://www.iwara.tv/image/{quote(image_id)}"
+    normalized.iwara_url = ""
+    normalized.source_kind = IWARA_IMAGE_SOURCE_KIND
+    normalized.downloadable = False
+    normalized.duration = 0.0
+    normalized.thumbnail_url = _iwara_file_thumbnail(image.get("thumbnail"))
+    return normalized
+
+
+def normalize_playlist(value: Mapping[str, Any] | Any) -> SearchPlaylist | None:
+    """Normalize one ``/search?type=playlists`` row."""
+
+    raw = dict(value) if isinstance(value, Mapping) else {}
+    playlist_id = _first_text(raw, "id", "playlistId")
+    if not playlist_id:
+        return None
+    user = _mapping(raw.get("user"))
+    thumbnail = _mapping(raw.get("thumbnail"))
+    file_info = _mapping(thumbnail.get("file"))
+    file_id = _first_text(file_info, "id")
+    thumbnail_url = ""
+    if file_id:
+        index = max(0, _as_int(thumbnail.get("thumbnail"), 0))
+        thumbnail_url = (
+            f"https://i.iwara.tv/image/thumbnail/{quote(file_id)}/thumbnail-{index:02d}.jpg"
+        )
+    return SearchPlaylist(
+        playlist_id=playlist_id,
+        title=_first_text(raw, "title", "name") or playlist_id,
+        video_count=_as_int(raw.get("numVideos", raw.get("videoCount", 0))),
+        author_username=_first_text(user, "username"),
+        author_name=_first_text(user, "name", "username"),
+        thumbnail_url=thumbnail_url,
+        source_url=f"https://www.iwara.tv/playlist/{quote(playlist_id)}",
+        raw=raw,
+    )
+
+
+def playlist_reference(value: str) -> str:
+    """Return a playlist ID for a playlist URL or bare UUID, else ``""``.
+
+    Free text in the playlist scope is a native search query; only explicit
+    references open a playlist's videos directly.
+    """
+
+    text = str(value or "").strip()
+    match = re.search(r"/playlist/([A-Za-z0-9_-]+)", text)
+    if match:
+        return match.group(1)
+    return text if _UUID_RE.match(text) else ""
+
+
+def profile_reference(value: str) -> str:
+    """Return a username for ``@name`` or an iwara.tv profile URL, else ``""``."""
+
+    text = str(value or "").strip()
+    match = re.search(r"iwara\.tv/profile/([^/?#\s]+)", text)
+    if match:
+        return match.group(1)
+    if text.startswith("@") and len(text) > 1 and not re.search(r"\s", text):
+        return text[1:]
+    return ""
 
 
 def build_video_query_params(filters: SearchFilters, page: int = 0) -> dict[str, str]:
@@ -432,6 +556,21 @@ def build_keyword_query_params(filters: SearchFilters, page: int = 0) -> dict[st
         "type": "videos",
         "query": str(filters.keyword or "").strip(),
         "sort": filters.sort if filters.sort in IWARA_KEYWORD_SORTS else "relevance",
+        "page": str(max(0, int(page))),
+        "limit": str(max(1, min(100, int(filters.page_size or 32)))),
+    }
+
+
+def build_native_query_params(
+    filters: SearchFilters, scope: str, page: int = 0,
+) -> dict[str, str]:
+    """Build native ``/search`` parameters for images, users or playlists."""
+
+    sorts = IWARA_NATIVE_SEARCH_SORTS.get(scope, ("relevance",))
+    return {
+        "type": IWARA_NATIVE_SEARCH_TYPES.get(scope, "videos"),
+        "query": str(filters.keyword or "").strip(),
+        "sort": filters.sort if filters.sort in sorts else "relevance",
         "page": str(max(0, int(page))),
         "limit": str(max(1, min(100, int(filters.page_size or 32)))),
     }

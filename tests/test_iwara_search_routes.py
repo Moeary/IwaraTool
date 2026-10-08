@@ -158,6 +158,77 @@ class SearchRouteTests(unittest.TestCase):
         self.assertEqual(result.last_page, 1)
         self.assertTrue(result.has_more)
 
+    def test_native_image_search_supports_four_orders_and_is_browse_only(self):
+        self.api._get_json.return_value = {
+            "results": [{
+                "id": "img1", "title": "Miku~", "numViews": 5,
+                "thumbnail": {"id": "file-1", "name": "file-1.png"},
+                "user": {"username": "maker"},
+            }],
+            "count": 40,
+        }
+        for sort in ("relevance", "date", "views", "likes"):
+            with self.subTest(sort=sort):
+                result = self.search("miku", scope="images", sort=sort, page=1)
+                self.assertTrue(self.api._get_json.call_args.args[0].endswith("/search"))
+                self.assertEqual(self.api._get_json.call_args.kwargs["params"], {
+                    "type": "images", "query": "miku", "sort": sort, "page": "1", "limit": "32",
+                })
+                image = result.videos[0]
+                self.assertEqual(image.source_kind, "iwara_image")
+                self.assertFalse(image.downloadable)
+                self.assertEqual(image.source_url, "https://www.iwara.tv/image/img1")
+                self.assertEqual(image.thumbnail_url, "https://i.iwara.tv/image/thumbnail/file-1/file-1.jpg")
+                self.assertEqual(result.last_page, 1)
+
+    def test_author_names_use_native_user_search_with_two_orders(self):
+        self.api._get_json.return_value = {
+            "results": [{"id": "u1", "username": "siu39", "name": "miku", "createdAt": "2026-09-26T14:23:45Z"}],
+            "count": 164,
+        }
+        for sort, sent in (("relevance", "relevance"), ("date", "date"), ("views", "relevance")):
+            with self.subTest(sort=sort):
+                result = self.search("miku", scope="authors", sort=sort)
+                self.assertEqual(self.api._get_json.call_args.kwargs["params"]["type"], "users")
+                self.assertEqual(self.api._get_json.call_args.kwargs["params"]["sort"], sent)
+                self.assertEqual([a.username for a in result.authors], ["siu39"])
+                self.assertEqual(result.authors[0].joined_at[:10], "2026-09-26")
+                self.assertEqual(result.last_page, 5)
+
+    def test_exact_author_reference_still_reads_the_profile(self):
+        self.api._get_json.return_value = {"user": {"id": "u1", "username": "creator"}}
+        for keyword in ("@creator", "https://www.iwara.tv/profile/creator/videos"):
+            with self.subTest(keyword=keyword):
+                result = self.search(keyword, scope="authors")
+                self.assertTrue(self.api._get_json.call_args.args[0].endswith("/profile/creator"))
+                self.assertEqual([a.username for a in result.authors], ["creator"])
+
+    def test_playlist_text_searches_playlists_and_references_list_videos(self):
+        self.api._get_json.return_value = {
+            "results": [{
+                "id": "9612529c-ba2a-4d63-8eb2-89ef44adf0b2", "title": "miku", "numVideos": 27,
+                "thumbnail": {"file": {"id": "f1"}, "thumbnail": 2},
+                "user": {"username": "kan"},
+            }],
+            "count": 1,
+        }
+        result = self.search("miku", scope="playlists", sort="likes")
+        params = self.api._get_json.call_args.kwargs["params"]
+        self.assertEqual((params["type"], params["sort"]), ("playlists", "relevance"))
+        playlist = result.playlists[0]
+        self.assertEqual((playlist.title, playlist.video_count, playlist.author_username), ("miku", 27, "kan"))
+        self.assertEqual(playlist.thumbnail_url, "https://i.iwara.tv/image/thumbnail/f1/thumbnail-02.jpg")
+        self.assertEqual(playlist.source_url, "https://www.iwara.tv/playlist/9612529c-ba2a-4d63-8eb2-89ef44adf0b2")
+
+        self.api._get_json.return_value = {"results": [{"id": "v1", "title": "Video"}]}
+        for keyword in (playlist.source_url, playlist.playlist_id):
+            with self.subTest(keyword=keyword):
+                self.api._get_json.side_effect = [{"results": [{"id": "v1", "title": "Video"}]}, {"results": []}]
+                result = self.search(keyword, scope="playlists")
+                self.assertIn("/playlist/9612529c-ba2a-4d63-8eb2-89ef44adf0b2", self.api._get_json.call_args.args[0])
+                self.assertEqual([v.video_id for v in result.videos], ["v1"])
+                self.assertFalse(result.playlists)
+
     def test_server_page_size_is_used_for_next_page_without_inventing_last_page(self):
         self.api._get_json.return_value = {"results": [{"id": str(i)} for i in range(20)], "count": 45, "limit": 20}
         result = self.search("dance", page=1)
@@ -215,6 +286,43 @@ class SearchModeInterfaceTests(unittest.TestCase):
         page._set_combo_data(page._scope_combo, "tags")
         self.assertEqual(page._keyword_edit.text(), "初音未来, 原神")
         self.assertEqual(page._sort_combo.currentData(), "likes")
+
+    def test_native_scopes_offer_only_orders_the_api_accepts(self):
+        page = self.page
+        sorts = lambda: [page._sort_combo.itemData(i) for i in range(page._sort_combo.count())]
+        page._set_combo_data(page._scope_combo, "images")
+        self.assertEqual(sorts(), ["date", "relevance", "views", "likes"])
+        for scope in ("authors", "playlists"):
+            with self.subTest(scope=scope):
+                page._set_combo_data(page._scope_combo, scope)
+                page._keyword_edit.setText("miku")
+                self.assertEqual(sorts(), ["date", "relevance"])
+        page._keyword_edit.setText("https://www.iwara.tv/playlist/9612529c-ba2a-4d63-8eb2-89ef44adf0b2")
+        self.assertIn("trending", sorts())
+
+    def test_loaded_covers_grow_with_the_grid(self):
+        from PySide6.QtGui import QColor, QPixmap
+        from app.core.search import SearchVideo
+
+        path = os.path.join(tempfile.mkdtemp(), "cover.png")
+        source = QPixmap(640, 360)
+        source.fill(QColor("#336699"))
+        source.save(path)
+        page = self.page
+        video = SearchVideo(video_id="v1", title="Cover")
+        page._all_videos = [video]
+        page._image_path_by_key["video:v1"] = path
+        page._set_combo_data(page._grid_columns_combo, 4)
+        page.resize(1200, 900)
+        page._render_results()
+        page._resize_grid()
+        small = page._grid_icon_size
+        page._set_combo_data(page._grid_columns_combo, 1)
+        page._resize_grid()
+        large = page._grid_icon_size
+        self.assertGreater(large.width(), small.width())
+        icon = page._item_by_key["video:v1"].icon()
+        self.assertEqual(icon.availableSizes()[0], large)
 
     def test_paging_keeps_query_and_sort_and_restarts_after_edits(self):
         self.page._keyword_edit.setText("dance")

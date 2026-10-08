@@ -23,11 +23,16 @@ from ..core.search import (
     SearchScope,
     SearchVideo,
     build_keyword_query_params,
+    build_native_query_params,
     build_video_query_params,
     filter_videos,
     normalize_author,
+    normalize_image,
     normalize_oreno3d_listing,
+    normalize_playlist,
     normalize_video,
+    playlist_reference,
+    profile_reference,
     sort_videos,
 )
 from ..i18n import tr
@@ -49,12 +54,6 @@ DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
 MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
 DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
 MAX_COVER_DOWNLOAD_CONCURRENCY = 16
-
-
-def _extract_playlist_id(value: str) -> str:
-    text = str(value or "").strip()
-    match = re.search(r"/playlist/([A-Za-z0-9_-]+)", text)
-    return match.group(1) if match else text
 
 
 def _extract_iwara_video_id(value: str) -> str:
@@ -131,6 +130,8 @@ class SearchWorker(QThread):
                 self._run_author_search()
             elif self.scope == "playlists":
                 self._run_playlist_search()
+            elif self.scope == "images":
+                self._run_native_search("images")
             else:
                 self._run_video_search()
         except Exception as exc:
@@ -191,19 +192,55 @@ class SearchWorker(QThread):
             )
         )
 
+    def _run_native_search(self, scope: str):
+        """Read one page of Iwara's ``/search`` for images, users or playlists."""
+
+        if not self.filters.keyword.strip():
+            messages = {
+                "images": tr("Enter image keywords first", "请先输入图片关键词", "画像のキーワードを入力してください"),
+                "authors": tr("Enter an author name first", "请先输入作者名称", "作者名を入力してください"),
+                "playlists": tr("Enter playlist keywords first", "请先输入播放列表关键词", "プレイリストのキーワードを入力してください"),
+            }
+            self.result_ready.emit(SearchPageResult(scope=scope, error=messages.get(scope, "")))
+            return
+        params = build_native_query_params(self.filters, scope, self.page)
+        raw_page, total, has_more, error = download_manager.get_search_native_page(
+            params["type"],
+            params,
+            page=self.page,
+            limit=self.filters.page_size,
+        )
+        result = SearchPageResult(
+            scope=scope,
+            total=total,
+            has_more=has_more,
+            next_page=self.page + 1 if has_more else None,
+            scanned_pages=1,
+            error=error,
+            current_page=self.page,
+            last_page=(
+                max(0, (total - 1) // self.filters.page_size)
+                if total is not None and total > 0
+                else self.page
+                if not has_more
+                else None
+            ),
+        )
+        if scope == "images":
+            result.videos = [video for video in map(normalize_image, raw_page) if video is not None]
+        elif scope == "authors":
+            result.authors = [author for author in map(normalize_author, raw_page) if author is not None]
+        else:
+            result.playlists = [item for item in map(normalize_playlist, raw_page) if item is not None]
+        self.result_ready.emit(result)
+
     def _run_author_search(self):
-        username = (self.filters.keyword or self.filters.author).strip()
+        keyword = (self.filters.keyword or self.filters.author).strip()
+        username = profile_reference(keyword)
         if not username:
-            self.result_ready.emit(
-                SearchPageResult(
-                    scope="authors",
-                    error=tr(
-                        "Enter an author username first",
-                        "请先输入作者用户名",
-                        "作者ユーザー名を入力してください",
-                    ),
-                )
-            )
+            # Free text uses Iwara's user index; /profile/<text> answers 404
+            # for anything except an exact username.
+            self._run_native_search("authors")
             return
         profile, error = download_manager.get_search_user_profile(username)
         author = normalize_author(profile) if profile else None
@@ -217,18 +254,9 @@ class SearchWorker(QThread):
         )
 
     def _run_playlist_search(self):
-        playlist_id = _extract_playlist_id(self.filters.keyword)
+        playlist_id = playlist_reference(self.filters.keyword)
         if not playlist_id:
-            self.result_ready.emit(
-                SearchPageResult(
-                    scope="playlists",
-                    error=tr(
-                        "Enter a playlist ID or playlist URL first",
-                        "请先输入播放列表 ID 或链接",
-                        "プレイリストIDまたはURLを入力してください",
-                    ),
-                )
-            )
+            self._run_native_search("playlists")
             return
         raw_videos = download_manager.get_search_playlist_videos(playlist_id)
         videos = [normalize_video(raw) for raw in raw_videos]

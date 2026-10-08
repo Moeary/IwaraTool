@@ -38,7 +38,7 @@ def _normalize_search_history_entry(value: object) -> dict[str, str] | None:
     }
     if entry["source"] not in {"oreno3d", "iwara"}:
         entry["source"] = "oreno3d"
-    if entry["scope"] not in {"videos", "authors", "tags", "playlists"}:
+    if entry["scope"] not in {"videos", "images", "authors", "tags", "playlists"}:
         entry["scope"] = "videos"
     if not entry["keyword"] and entry["scope"] != "videos":
         return None

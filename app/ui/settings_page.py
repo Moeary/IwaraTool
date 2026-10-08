@@ -4,14 +4,15 @@ from __future__ import annotations
 import json
 import os
 
-from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QDrag, QIntValidator
+from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIntValidator
 from PySide6.QtWidgets import (
-    QApplication,
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QListWidgetItem,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +26,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     LineEdit,
+    ListWidget,
     PasswordLineEdit,
     PrimaryPushButton,
     PushButton,
@@ -64,140 +66,181 @@ class LoginWorker(QThread):
         self.finished.emit(ok, msg)
 
 
-class DraggableSettingsCard(CardWidget):
-    """A settings card that can be reordered inside the settings board."""
+def _settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, ...]], ...]:
+    """Settings grouped by what they control: (key, icon, title, summary, cards).
 
-    def __init__(self, card_key: str, board: "SettingsCardBoard"):
-        super().__init__(board)
-        self.card_key = str(card_key)
-        self._board = board
-        self._drag_start_pos = QPoint()
-        self._drag_start_global = QPoint()
-        self.setProperty("settingsCardKey", self.card_key)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setToolTip(
-            tr(
-                "Drag this card to reorder settings",
-                "拖动此卡片可调整设置顺序",
-                "このカードをドラッグして設定順を変更",
-            )
-        )
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_pos = event.position().toPoint()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (
-            event.buttons() & Qt.MouseButton.LeftButton
-            and (event.position().toPoint() - self._drag_start_pos).manhattanLength()
-            >= QApplication.startDragDistance()
-        ):
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setText(self.card_key)
-            drag.setMimeData(mime_data)
-            drag.exec(Qt.DropAction.MoveAction)
-            return
-        super().mouseMoveEvent(event)
-
-    def enable_drag_sources(self):
-        # Inputs keep their normal mouse behavior.  Text labels provide a
-        # reliable drag surface even when a compact card has no empty padding.
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (BodyLabel, SubtitleLabel, TitleLabel)):
-                child.installEventFilter(self)
-
-    def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_global = event.globalPosition().toPoint()
-        elif (
-            event.type() == QEvent.Type.MouseMove
-            and event.buttons() & Qt.MouseButton.LeftButton
-            and (event.globalPosition().toPoint() - self._drag_start_global).manhattanLength()
-            >= QApplication.startDragDistance()
-        ):
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setText(self.card_key)
-            drag.setMimeData(mime_data)
-            drag.exec(Qt.DropAction.MoveAction)
-            return True
-        return super().eventFilter(watched, event)
-
-
-class SettingsCardBoard(QWidget):
-    """Responsive masonry board (one or two columns) with persisted drag ordering.
-
-    Cards stack independently in each column so a short card is never
-    stretched to the height of a tall neighbour, which a grid row would do.
+    Built on demand so the labels follow the language chosen at startup.
     """
 
-    _ORDER_KEY = "settings_card_order_v1"
-    _TWO_COLUMN_MIN_WIDTH = 860
-    _DEFAULT_ORDER = (
-        "account",
-        "download_dir",
-        "quality",
-        "concurrency",
-        "cover_performance",
-        "subscription_automation",
-        "download_policy",
-        "updates",
-        "search_bridge",
-        "behavior",
-        "proxy",
-        "search_limit",
-        "search_history",
-        "subscription_prompt",
-        "appearance",
-        "language",
-        "data_paths",
-        "aria2",
+    return (
+        (
+            "general",
+            FluentIcon.SETTING,
+            tr("General", "通用", "一般"),
+            tr(
+                "Appearance, language, updates and where local data is stored.",
+                "外观、语言、更新检查与本地数据位置。",
+                "外観、言語、更新確認、ローカルデータの保存先。",
+            ),
+            ("appearance", "language", "updates", "data_paths"),
+        ),
+        (
+            "network",
+            FluentIcon.GLOBE,
+            tr("Account & Network", "账号与网络", "アカウントとネットワーク"),
+            tr(
+                "Iwara sign-in and the proxies used for API requests and downloads.",
+                "Iwara 账号登录，以及 API 请求与下载使用的代理。",
+                "Iwaraへのログインと、API・ダウンロードに使うプロキシ。",
+            ),
+            ("account", "proxy"),
+        ),
+        (
+            "downloads",
+            FluentIcon.DOWNLOAD,
+            tr("Downloads", "下载", "ダウンロード"),
+            tr(
+                "Save location, quality, concurrency, speed and schedule, and aria2.",
+                "保存位置、画质、并发、限速与分时，以及 aria2。",
+                "保存先、画質、同時実行数、速度と時間帯、aria2。",
+            ),
+            ("download_dir", "quality", "behavior", "concurrency", "download_policy", "aria2"),
+        ),
+        (
+            "search",
+            FluentIcon.SEARCH,
+            tr("Search", "搜索", "検索"),
+            tr(
+                "Search history, download limits, tag dictionary and Oreno3D resolution.",
+                "搜索历史、搜索下载上限、标签词典与 Oreno3D 解析。",
+                "検索履歴、ダウンロード上限、タグ辞書、Oreno3D の解決。",
+            ),
+            ("search_history", "search_limit", "search_bridge"),
+        ),
+        (
+            "subscriptions",
+            FluentIcon.SYNC,
+            tr("Subscriptions & Refresh", "订阅与刷新", "購読と更新"),
+            tr(
+                "Automatic subscription refresh, subscribe prompts and cover loading.",
+                "订阅自动刷新、下载时的订阅提示与封面加载性能。",
+                "購読の自動更新、ダウンロード時の購読確認、カバー読み込み性能。",
+            ),
+            ("subscription_automation", "subscription_prompt", "cover_performance"),
+        ),
     )
+
+
+class SettingsSections(QWidget):
+    """Category navigation on the left, one scrollable card page per category."""
+
+    _CATEGORY_KEY = "settings_category_v1"
+    _NAV_WIDTH = 216
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setObjectName("settingsCardBoard")
-        self.setAcceptDrops(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(16)
-        self._columns: list[QVBoxLayout] = []
-        for _ in range(2):
-            column = QVBoxLayout()
-            column.setContentsMargins(0, 0, 0, 0)
-            column.setSpacing(16)
-            self._row.addLayout(column, 1)
-            self._columns.append(column)
-        self._cards: dict[str, DraggableSettingsCard] = {}
-        self._saved_order = self._read_saved_order()
-        self._layout_signature: tuple = ()
+        self.setObjectName("settingsSections")
+        self._categories = _settings_categories()
+        self._category_by_card = {
+            card_key: category[0]
+            for category in self._categories
+            for card_key in category[4]
+        }
+        self._category_index = {category[0]: index for index, category in enumerate(self._categories)}
+        self._page_layouts: dict[str, QVBoxLayout] = {}
+        self._page_contents: dict[str, QWidget] = {}
+        self._added_cards: dict[str, list[str]] = {}
 
-    @staticmethod
-    def _read_saved_order() -> list[str]:
-        raw = app_config.get_ui_value(SettingsCardBoard._ORDER_KEY, "")
-        try:
-            value = json.loads(str(raw or ""))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return []
-        if not isinstance(value, list):
-            return []
-        return [str(item).strip() for item in value if str(item).strip()]
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(20)
 
-    def create_card(self, card_key: str) -> DraggableSettingsCard:
-        return DraggableSettingsCard(card_key, self)
+        self.nav_column = QVBoxLayout()
+        self.nav_column.setContentsMargins(0, 0, 0, 0)
+        self.nav_column.setSpacing(12)
+        self._nav = ListWidget(self)
+        self._nav.setObjectName("settingsCategoryNav")
+        self._nav.setFixedWidth(self._NAV_WIDTH)
+        self._nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._nav.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.nav_column.addWidget(self._nav, 1)
+        row.addLayout(self.nav_column)
 
-    def add_card(self, card_key: str, card: DraggableSettingsCard):
+        self._stack = QStackedWidget(self)
+        row.addWidget(self._stack, 1)
+
+        for key, icon, title, summary, _cards in self._categories:
+            item = QListWidgetItem(icon.icon(), title)
+            item.setSizeHint(QSize(self._NAV_WIDTH - 8, 44))
+            item.setToolTip(summary)
+            self._nav.addItem(item)
+            self._stack.addWidget(self._build_page(key, title, summary))
+
+        self._nav.currentRowChanged.connect(self._on_category_changed)
+        saved = str(app_config.get_ui_value(self._CATEGORY_KEY, "general") or "general")
+        self._nav.setCurrentRow(self._category_index.get(saved, 0))
+
+    def _build_page(self, key: str, title: str, summary: str) -> ScrollArea:
+        scroll = ScrollArea(self._stack)
+        scroll.setObjectName(f"settingsPage_{key}")
+        # A native QScrollArea viewport otherwise keeps its light palette and
+        # paints an opaque white page over FluentWindow's Mica/dark background.
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            f"QScrollArea#settingsPage_{key} {{ background: transparent; border: none; }}"
+            f"QScrollArea#settingsPage_{key} > QWidget > QWidget {{ background: transparent; }}"
+        )
+        scroll.viewport().setAutoFillBackground(False)
+        content = QWidget(scroll)
+        content.setAutoFillBackground(False)
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
+        # Room on the right keeps cards clear of the overlay scrollbar.
+        layout.setContentsMargins(0, 0, 12, 12)
+        layout.setSpacing(16)
+        layout.addWidget(SubtitleLabel(title, content))
+        summary_label = CaptionLabel(summary, content)
+        summary_label.setWordWrap(True)
+        set_secondary_text(summary_label)
+        layout.addWidget(summary_label)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        self._page_layouts[key] = layout
+        self._page_contents[key] = content
+        return scroll
+
+    def _on_category_changed(self, row: int):
+        if not 0 <= row < len(self._categories):
+            return
+        self._stack.setCurrentIndex(row)
+        app_config.set_ui_value(self._CATEGORY_KEY, self._categories[row][0])
+
+    def current_category(self) -> str:
+        row = self._nav.currentRow()
+        return self._categories[row][0] if 0 <= row < len(self._categories) else ""
+
+    def select_category(self, key: str):
+        index = self._category_index.get(str(key or ""))
+        if index is not None:
+            self._nav.setCurrentRow(index)
+
+    def _category_for(self, card_key: str) -> str:
+        # Unknown cards land in General rather than disappearing.
+        return self._category_by_card.get(card_key, self._categories[0][0])
+
+    def create_card(self, card_key: str) -> CardWidget:
+        card = CardWidget(self._page_contents[self._category_for(card_key)])
+        card.setProperty("settingsCardKey", str(card_key))
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        return card
+
+    def add_card(self, card_key: str, card: CardWidget):
         card_key = str(card_key).strip()
         if not card_key:
             return
-        self._cards[card_key] = card
-        card.setParent(self)
-        # Unwrapped descriptions used to become the card's minimum width and
-        # pushed the second column outside the window.
+        # Long descriptions must wrap instead of widening the page.
         for label in card.findChildren(BodyLabel):
             label.setWordWrap(True)
             label.setMinimumWidth(0)
@@ -210,141 +253,53 @@ class SettingsCardBoard(QWidget):
                 if type(widget) is BodyLabel:
                     set_secondary_text(widget)
             self._let_row_labels_grow(card_layout)
-        card.enable_drag_sources()
-        self._reflow(force=True)
+        category = self._category_for(card_key)
+        order = self._categories[self._category_index[category]][4]
+        rank = order.index(card_key) if card_key in order else len(order)
+        added = self._added_cards.setdefault(category, [])
+        # Cards follow the category's declared order, after the page title and
+        # summary and before the trailing stretch that keeps them top-aligned.
+        position = 2 + sum(
+            1 for key in added if (order.index(key) if key in order else len(order)) <= rank
+        )
+        added.append(card_key)
+        self._page_layouts[category].insertWidget(position, card)
 
     @classmethod
     def _let_row_labels_grow(cls, layout):
-        """Give row labels the row's spare width so they wrap only when needed.
+        """Give a row's leading name label the spare width; controls go right.
 
         A wrapped label's size hint is deliberately narrow; without a stretch
-        factor the trailing addStretch() spacer took the space instead.
+        factor the trailing addStretch() spacer took the space instead. Only
+        the first label is stretched: unit or separator labels after a control
+        ("1-100", "—") would otherwise split the controls across the middle.
         """
         for index in range(layout.count()):
             item = layout.itemAt(index)
             child_layout = item.layout()
             if child_layout is not None:
                 if isinstance(child_layout, QHBoxLayout):
-                    for child_index in range(child_layout.count()):
-                        widget = child_layout.itemAt(child_index).widget()
-                        if type(widget) is BodyLabel:
-                            child_layout.setStretch(child_index, 1)
+                    first = child_layout.itemAt(0).widget() if child_layout.count() else None
+                    if type(first) is BodyLabel:
+                        for child_index in range(child_layout.count()):
+                            child_layout.setStretch(child_index, 1 if child_index == 0 else 0)
                 cls._let_row_labels_grow(child_layout)
             elif item.widget() is not None and item.widget().layout() is not None:
                 cls._let_row_labels_grow(item.widget().layout())
 
-    def _ordered_keys(self) -> list[str]:
-        known = set(self._cards)
-        order: list[str] = []
-        for key in (*self._saved_order, *self._DEFAULT_ORDER, *self._cards.keys()):
-            if key in known and key not in order:
-                order.append(key)
-        return order
-
-    def _column_count(self) -> int:
-        return 2 if self.width() >= self._TWO_COLUMN_MIN_WIDTH else 1
-
-    def _reflow(self, *, force: bool = False):
-        columns = self._column_count()
-        order = self._ordered_keys()
-        signature = (columns, tuple(order))
-        if not force and signature == self._layout_signature:
-            return
-        self._layout_signature = signature
-        self._row.setSpacing(16 if columns > 1 else 0)
-        for column in self._columns:
-            while column.count():
-                column.takeAt(0)
-        column_width = max(1, (self.width() - self._row.spacing() * (columns - 1)) // columns)
-        heights = [0] * columns
-        for card_key in order:
-            card = self._cards[card_key]
-            # Greedy masonry: always append to the currently shortest column,
-            # keeping the saved order readable left-to-right, top-to-bottom.
-            target = heights.index(min(heights))
-            self._columns[target].addWidget(card)
-            hint = card.heightForWidth(column_width) if card.hasHeightForWidth() else -1
-            heights[target] += (hint if hint > 0 else card.sizeHint().height()) + 16
-            card.show()
-        for index, column in enumerate(self._columns):
-            column.addStretch(1)
-            self._row.setStretch(index, 1 if index < columns else 0)
-        self.updateGeometry()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._reflow()
-
-    def _card_from_position(self, position: QPoint) -> DraggableSettingsCard | None:
-        widget = self.childAt(position)
-        while widget is not None and widget is not self:
-            if isinstance(widget, DraggableSettingsCard):
-                return widget
-            widget = widget.parentWidget()
-        return None
-
-    def _persist_order(self, order: list[str]):
-        self._saved_order = list(order)
-        app_config.set_ui_value(self._ORDER_KEY, json.dumps(order, ensure_ascii=False))
-
-    def dropEvent(self, event):
-        source_key = str(event.mimeData().text() or "").strip()
-        order = self._ordered_keys()
-        if source_key not in order:
-            event.ignore()
-            return
-        target = self._card_from_position(event.position().toPoint())
-        target_key = target.card_key if target else ""
-        order.remove(source_key)
-        if target_key and target_key != source_key:
-            target_index = order.index(target_key)
-            if event.position().toPoint().y() > target.geometry().center().y():
-                target_index += 1
-            order.insert(target_index, source_key)
-        else:
-            order.append(source_key)
-        self._persist_order(order)
-        self._reflow(force=True)
-        event.acceptProposedAction()
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasText() and event.mimeData().text() in self._cards:
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dragMoveEvent(self, event):
-        self.dragEnterEvent(event)
-
 
 # ── Settings Interface ────────────────────────────────────────────────────────
 
-class SettingsInterface(ScrollArea):
+class SettingsInterface(QWidget):
     """Page for configuring application-level settings (including login)."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SettingsInterface")
-        # A native QScrollArea viewport otherwise keeps its light palette and
-        # paints an opaque white page over FluentWindow's Mica/dark background.
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setStyleSheet(
-            "QScrollArea#SettingsInterface { background: transparent; border: none; }"
-            "QScrollArea#SettingsInterface > QWidget > QWidget { background: transparent; }"
-            "QWidget#settingsContent { background: transparent; }"
-        )
-        self.viewport().setAutoFillBackground(False)
 
         self._worker: LoginWorker | None = None
         self._tag_dictionary_worker: TagDictionaryUpdateWorker | None = None
         self._loading_settings = False
-
-        self._content = QWidget(self)
-        self._content.setObjectName("settingsContent")
-        self._content.setAutoFillBackground(False)
-        self.setWidget(self._content)
-        self.setWidgetResizable(True)
 
         self._build_ui()
         self._load_settings()
@@ -367,26 +322,13 @@ class SettingsInterface(ScrollArea):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        layout = QVBoxLayout(self._content)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(*PAGE_MARGINS)
         layout.setSpacing(16)
 
-        title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self._content))
-        title_row.addStretch()
-        drag_hint = CaptionLabel(
-            tr(
-                "Drag a card's title to reorder",
-                "拖动卡片标题可调整顺序",
-                "カードのタイトルをドラッグして並べ替え",
-            ),
-            self._content,
-        )
-        set_secondary_text(drag_hint)
-        title_row.addWidget(drag_hint)
-        layout.addLayout(title_row)
-        self._settings_board = SettingsCardBoard(self._content)
-        layout.addWidget(self._settings_board)
+        layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self))
+        self._settings_board = SettingsSections(self)
+        layout.addWidget(self._settings_board, 1)
 
         # ── Appearance ───────────────────────────────────────────────────────
         appearance_card = self._settings_board.create_card("appearance")
@@ -1233,11 +1175,10 @@ class SettingsInterface(ScrollArea):
         self._settings_board.add_card("updates", update_card)
 
         # ── Save button ───────────────────────────────────────────────────────
-        save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self._content, FluentIcon.SAVE)
+        # Kept under the category list so it is reachable from every page.
+        save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self, FluentIcon.SAVE)
         save_btn.clicked.connect(self._save_settings)
-        layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        layout.addStretch()
+        self._settings_board.nav_column.addWidget(save_btn)
 
     # ── Load / save ───────────────────────────────────────────────────────────
 

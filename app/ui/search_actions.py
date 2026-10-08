@@ -17,7 +17,13 @@ from qfluentwidgets import (
 )
 
 from ..core.manager import download_manager as _default_download_manager
-from ..core.search import SearchAuthor, SearchVideo, normalize_video
+from ..core.search import (
+    IWARA_IMAGE_SOURCE_KIND,
+    SearchAuthor,
+    SearchPlaylist,
+    SearchVideo,
+    normalize_video,
+)
 from ..i18n import tr
 from ..signal_bus import signal_bus as _default_signal_bus
 from .search_widgets import (
@@ -55,18 +61,21 @@ class SearchActionsMixin:
     def _sync_selection_buttons(self):
         selected_values = self._selected_data()
         selected = bool(selected_values)
-        queueable = any(
-            isinstance(value.get("data"), SearchVideo)
-            and (
-                value["data"].source_kind == "iwara"
-                or value["data"].source_kind == "oreno3d"
-                or bool(value["data"].download_video_id)
-            )
-            for value in selected_values
-        )
+        queueable = any(self._is_queueable(value) for value in selected_values)
         resolving = self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning()
         self._queue_selected_btn.setEnabled(selected and queueable and not resolving)
         self._open_selected_btn.setEnabled(selected)
+
+    @staticmethod
+    def _is_queueable(value: dict[str, Any]) -> bool:
+        """Videos and whole playlists can be queued; image posts cannot."""
+
+        data = value.get("data")
+        if isinstance(data, SearchPlaylist):
+            return True
+        return isinstance(data, SearchVideo) and (
+            data.source_kind in {"iwara", "oreno3d"} or bool(data.download_video_id)
+        )
 
     def _selected_data(self) -> list[dict[str, Any]]:
         data: list[dict[str, Any]] = []
@@ -85,17 +94,52 @@ class SearchActionsMixin:
 
     def _queue_selected(self):
         videos: list[SearchVideo] = []
+        playlists: list[SearchPlaylist] = []
         for value in self._selected_data():
-            video = value.get("data")
-            if value.get("kind") != "video" or not isinstance(video, SearchVideo):
+            data = value.get("data")
+            if not self._is_queueable(value):
                 continue
-            videos.append(video)
-        if not videos:
+            if isinstance(data, SearchPlaylist):
+                playlists.append(data)
+            elif value.get("kind") == "video" and isinstance(data, SearchVideo):
+                videos.append(data)
+        if not videos and not playlists:
+            if any(
+                isinstance(value.get("data"), SearchVideo)
+                and value["data"].source_kind == IWARA_IMAGE_SOURCE_KIND
+                for value in self._selected_data()
+            ):
+                self._show_warning(tr(
+                    "Image posts cannot be downloaded; open them in the browser instead.",
+                    "图片作品暂不支持下载，请在浏览器中打开查看。",
+                    "画像投稿はダウンロードできません。ブラウザーで開いてください。",
+                ))
+                return
             self._show_warning(tr("Select at least one video", "请至少选择一个视频", "動画を1件以上選択してください"))
             return
 
         rule_id = self._rule_picker.selected_rule_id()
         self._rule_picker.apply_selected(show_notice=False)
+        if playlists:
+            # The manager expands each playlist URL into its videos, exactly
+            # as when the URL is pasted on the download page.
+            for playlist in playlists:
+                download_manager.add_url(playlist.source_url, rule_id=rule_id)
+            InfoBar.success(
+                title=tr("Added to queue", "已加入队列", "キューに追加"),
+                content=tr(
+                    f"Fetching videos from {len(playlists)} playlist(s)",
+                    f"正在获取 {len(playlists)} 个播放列表中的视频",
+                    f"{len(playlists)} 件のプレイリストから動画を取得中",
+                ),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self,
+            )
+            if not videos:
+                return
 
         if any(video.source_kind == "oreno3d" for video in videos):
             if self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning():
@@ -196,10 +240,18 @@ class SearchActionsMixin:
             data = value.get("data")
             if isinstance(data, SearchVideo):
                 self._open_video(data)
-            elif isinstance(data, SearchAuthor):
+            elif isinstance(data, (SearchAuthor, SearchPlaylist)):
                 url = str(data.source_url or "").strip()
                 if url:
                     webbrowser.open(url)
+
+    def _open_playlist_videos(self, playlist: SearchPlaylist):
+        """List one playlist's videos in place of the playlist search results."""
+
+        self._clear_author_navigation()
+        self._set_combo_data(self._scope_combo, "playlists")
+        self._keyword_edit.setText(playlist.source_url)
+        self._start_search()
 
     def _open_video(self, video: SearchVideo):
         """Open the final Iwara page; Oreno3D is never used as a fallback URL."""
@@ -300,6 +352,8 @@ class SearchActionsMixin:
             data = value.get("data")
             if isinstance(data, SearchVideo):
                 self._open_video(data)
+            elif isinstance(data, SearchPlaylist):
+                self._open_playlist_videos(data)
 
     def _open_table_item(self, item: QTableWidgetItem):
         value = item.data(self._DATA_ROLE)
@@ -328,7 +382,8 @@ class SearchActionsMixin:
         menu = RoundMenu(parent=self)
         video_values = [value for value in values if value.get("kind") == "video"]
         author_values = [value for value in values if value.get("kind") == "author"]
-        if video_values:
+        playlist_values = [value for value in values if value.get("kind") == "playlist"]
+        if any(self._is_queueable(value) for value in values):
             menu.addAction(
                 Action(
                     FluentIcon.DOWNLOAD,
@@ -337,6 +392,17 @@ class SearchActionsMixin:
                     triggered=self._queue_selected,
                 )
             )
+        if len(values) == 1 and len(playlist_values) == 1:
+            playlist = playlist_values[0].get("data")
+            if isinstance(playlist, SearchPlaylist):
+                menu.addAction(
+                    Action(
+                        FluentIcon.VIDEO,
+                        tr("View playlist videos", "查看播放列表视频", "プレイリストの動画を表示"),
+                        self,
+                        triggered=lambda _checked=False, playlist=playlist: self._open_playlist_videos(playlist),
+                    )
+                )
         if len(values) == 1 and len(video_values) == 1 and not author_values:
             selected_video = video_values[0].get("data")
             if isinstance(selected_video, SearchVideo) and _oreno3d_video_url(selected_video):
@@ -1029,6 +1095,7 @@ class SearchActionsMixin:
         self._total = None
         self._all_videos.clear()
         self._all_authors.clear()
+        self._all_playlists.clear()
         self._image_path_by_key.clear()
         self._image_pending_keys.clear()
         self._render_results()
