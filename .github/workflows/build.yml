@@ -79,7 +79,6 @@ jobs:
             --assume-yes-for-downloads \
             --standalone \
             --onefile \
-            --static-libpython=yes \
             --enable-plugin=pyside6 \
             --include-qt-plugins=multimedia \
             --include-package-data=cloudscraper \
