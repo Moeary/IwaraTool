@@ -111,7 +111,12 @@ class WindowTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def setUp(self):
+        from app.config import app_config
+
+        saved_volume = app_config.get_ui_value("preview_volume_v1", None)
+        self.addCleanup(lambda: app_config.set_ui_value("preview_volume_v1", saved_volume if saved_volume is not None else 0.8))
         self.window = VideoPreviewWindow(backend_factory=fake_backend)
+        self.window._audio.setVolume(0.5)
         self.player = self.window._player
         self.addCleanup(self._close)
 
@@ -157,7 +162,10 @@ class WindowTests(unittest.TestCase):
         self.window.set_speed(1.0)
         self.window._hold_timer.setInterval(5)
         QTest.mousePress(self.window._video, Qt.MouseButton.LeftButton)
-        QTest.qWait(40)
+        for _ in range(50):
+            QTest.qWait(20)
+            if self.window._boosted:
+                break
         self.assertEqual(self.player.playbackRate(), vpw.HOLD_BOOST_RATE)
         self.assertTrue(self.window._boosted)
         QTest.mouseRelease(self.window._video, Qt.MouseButton.LeftButton)

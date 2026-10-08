@@ -15,13 +15,14 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from qfluentwidgets import ComboBox, FluentIcon, Slider, ToolButton
+from qfluentwidgets import ComboBox, FluentIcon, FluentWidget, Slider, ToolButton, isDarkTheme, qconfig
 
 from ..config import app_config
 from ..core import preview_stream
 from ..i18n import tr
 from ..logging_setup import get_logger
 from ..qt_runtime import ensure_multimedia_plugins
+from .shortcuts import action_for_event
 
 logger = get_logger(__name__)
 
@@ -66,17 +67,17 @@ def create_backend(parent: QWidget) -> Backend:
     return Backend(player, audio, video)
 
 
-class VideoPreviewWindow(QWidget):
-    """One reusable top-level player window."""
+class VideoPreviewWindow(FluentWidget):
+    """One reusable Fluent window (themed title bar, Mica) around a black video surface."""
 
     _stream_ready = Signal(object, str, int)  # PreviewStream | None, error, request id
 
     def __init__(self, backend_factory: Callable[[QWidget], Backend] = create_backend, parent: QWidget | None = None):
-        super().__init__(parent, Qt.WindowType.Window)
+        super().__init__(parent)
         self.setWindowTitle(tr("Video preview", "视频预览", "動画プレビュー"))
-        self.resize(1000, 620)
-        self.setMinimumSize(560, 360)
-        self.setStyleSheet("VideoPreviewWindow { background: #000; }")
+        self.setWindowIcon(QApplication.windowIcon())
+        self.resize(1000, 660)
+        self.setMinimumSize(560, 400)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._backend = backend_factory(self)
@@ -84,6 +85,8 @@ class VideoPreviewWindow(QWidget):
         self._audio = self._backend.audio
         self._video = self._backend.video_widget
         self._video.setMouseTracking(True)
+        self._video.setAutoFillBackground(True)
+        self._video.setStyleSheet("background-color: #000000;")
         self._video.installEventFilter(self)
 
         self._video_id = ""
@@ -94,7 +97,7 @@ class VideoPreviewWindow(QWidget):
         self._rate_before_boost = 1.0
         self._pending_error = ""
         self._remote = False
-        self._right_key_down = False
+        self._forward_key: int | None = None
 
         self._build_ui()
         self._wire_player()
@@ -120,7 +123,8 @@ class VideoPreviewWindow(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        self._root_layout = root
+        root.setContentsMargins(0, self.titleBar.height(), 0, 0)  # leave room for the title bar
         root.setSpacing(0)
         root.addWidget(self._video, 1)
 
@@ -134,7 +138,6 @@ class VideoPreviewWindow(QWidget):
         self._overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._controls = QWidget(self)
-        self._controls.setStyleSheet("QWidget#previewControls { background: #1b1b1b; }")
         self._controls.setObjectName("previewControls")
         bar = QHBoxLayout(self._controls)
         bar.setContentsMargins(12, 8, 12, 8)
@@ -145,7 +148,6 @@ class VideoPreviewWindow(QWidget):
         bar.addWidget(self._play_btn)
 
         self._time_label = QLabel("00:00", self._controls)
-        self._time_label.setStyleSheet("color: #ddd;")
         bar.addWidget(self._time_label)
 
         self._seek = Slider(Qt.Orientation.Horizontal, self._controls)
@@ -158,7 +160,6 @@ class VideoPreviewWindow(QWidget):
         bar.addWidget(self._seek, 1)
 
         self._duration_label = QLabel("00:00", self._controls)
-        self._duration_label.setStyleSheet("color: #ddd;")
         bar.addWidget(self._duration_label)
 
         self._speed = ComboBox(self._controls)
@@ -191,6 +192,17 @@ class VideoPreviewWindow(QWidget):
         # Keyboard shortcuts belong to the window; a focused button would eat Space.
         for child in self._controls.findChildren(QWidget):
             child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.refresh_theme_styles()
+        qconfig.themeChanged.connect(self.refresh_theme_styles)
+
+    def refresh_theme_styles(self, *_args):
+        """The picture stays black; the control bar follows the app's light/dark theme."""
+        dark = isDarkTheme()
+        background, text = ("#202020", "#e6e6e6") if dark else ("#f3f3f3", "#202020")
+        self._controls.setStyleSheet(
+            f"QWidget#previewControls {{ background: {background}; }}"
+            f"QLabel {{ color: {text}; background: transparent; }}"
+        )
 
     def _wire_player(self):
         player = self._player
@@ -286,10 +298,14 @@ class VideoPreviewWindow(QWidget):
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
+            self.titleBar.show()
+            self._root_layout.setContentsMargins(0, self.titleBar.height(), 0, 0)
             self._controls.show()
             self._video.unsetCursor()
             self._fullscreen_btn.setIcon(FluentIcon.FULL_SCREEN)
         else:
+            self.titleBar.hide()
+            self._root_layout.setContentsMargins(0, 0, 0, 0)
             self.showFullScreen()
             self._fullscreen_btn.setIcon(FluentIcon.BACK_TO_WINDOW)
             self._hide_controls_timer.start()
@@ -317,7 +333,7 @@ class VideoPreviewWindow(QWidget):
     # ── Event handling ───────────────────────────────────────────────────────
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if obj is self._video:
+        if obj is getattr(self, "_video", None):
             kind = event.type()
             if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self.setFocus()
@@ -343,29 +359,29 @@ class VideoPreviewWindow(QWidget):
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event: QKeyEvent):
-        key = event.key()
-        if key == Qt.Key.Key_Space:
-            self.toggle_play()
-        elif key == Qt.Key.Key_Left:
-            self.seek_by(-SEEK_STEP_MS)
-        elif key == Qt.Key.Key_Right:
+        action = action_for_event("player", event)
+        if action == "player_seek_forward":
             if event.isAutoRepeat():
-                self._begin_boost()  # hold the key for double speed
+                self._begin_boost()  # holding the key plays at double speed
             else:
-                self._right_key_down = True
-        elif key == Qt.Key.Key_Up:
+                self._forward_key = event.key()
+        elif action == "player_play_pause":
+            self.toggle_play()
+        elif action == "player_seek_back":
+            self.seek_by(-SEEK_STEP_MS)
+        elif action == "player_volume_up":
             self.change_volume(VOLUME_STEP)
-        elif key == Qt.Key.Key_Down:
+        elif action == "player_volume_down":
             self.change_volume(-VOLUME_STEP)
-        elif key == Qt.Key.Key_M:
+        elif action == "player_mute":
             self.toggle_mute()
-        elif key == Qt.Key.Key_F:
+        elif action == "player_fullscreen":
             self.toggle_fullscreen()
-        elif key == Qt.Key.Key_Escape and self.isFullScreen():
+        elif action == "player_exit_fullscreen" and self.isFullScreen():
             self.toggle_fullscreen()
-        elif key == Qt.Key.Key_BracketRight:
+        elif action == "player_speed_up":
             self.step_speed(+1)
-        elif key == Qt.Key.Key_BracketLeft:
+        elif action == "player_speed_down":
             self.step_speed(-1)
         else:
             super().keyPressEvent(event)
@@ -373,12 +389,12 @@ class VideoPreviewWindow(QWidget):
         event.accept()
 
     def keyReleaseEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key.Key_Right and not event.isAutoRepeat():
+        if self._forward_key is not None and event.key() == self._forward_key and not event.isAutoRepeat():
             if self._boosted:
                 self._end_boost()
-            elif self._right_key_down:
+            else:
                 self.seek_by(SEEK_STEP_MS)
-            self._right_key_down = False
+            self._forward_key = None
             event.accept()
             return
         super().keyReleaseEvent(event)
@@ -394,7 +410,7 @@ class VideoPreviewWindow(QWidget):
         self._player.setSource(QUrl())
         preview_stream.get_proxy().unregister_all()
         if self.isFullScreen():
-            self.showNormal()
+            self.toggle_fullscreen()
         self._save_volume()
         super().closeEvent(event)
 
