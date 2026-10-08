@@ -27,6 +27,23 @@ def _app_data_dir() -> str:
     return str(data_dir)
 
 
+class _Setting:
+    """Plain persisted setting: the attribute name is the QSettings key."""
+
+    def __set_name__(self, owner, name):
+        self._key = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj._get(self._key)
+
+    def __set__(self, obj, value):
+        if isinstance(AppConfig._DEFAULTS.get(self._key), bool):
+            value = bool(value)
+        obj._set(self._key, value)
+
+
 class AppConfig:
     """Persistent application settings wrapper."""
 
@@ -92,7 +109,14 @@ class AppConfig:
         "update_check_enabled": True,
         "update_last_prompted_version": "",
         "theme_mode": "auto",  # auto / light / dark
+        "request_min_interval_ms": 200,  # spacing between API requests per host
+        "request_max_retries": 2,  # retries for 429/5xx and transient network errors
+        "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
+        "minimize_to_tray": False,
     }
+
+    # Never copied out of the old registry-based store.
+    _LEGACY_UNMIGRATED_KEYS = frozenset({"auth_enabled", "username", "password"})
 
     def __init__(self):
         self._data_dir = _app_data_dir()
@@ -121,65 +145,7 @@ class AppConfig:
         if os.path.exists(self._config_path):
             return
         legacy = QSettings("IwaraTool", "IwaraTool")
-        safe_keys = {
-            "download_dir",
-            "max_concurrent",
-            "task_stall_timeout_seconds",
-            "auto_restore_stalled_cancelled",
-            "api_proxy_enabled",
-            "api_proxy_url",
-            "download_proxy_enabled",
-            "download_proxy_url",
-            "proxy_enabled",
-            "proxy_url",
-            "preferred_quality",
-            "auto_login",
-            "skip_existing_files",
-            "filename_template",
-            "ui_language",
-            "auth_token",
-            "auth_token_saved_at",
-            "filter_enabled",
-            "filter_min_likes_enabled",
-            "filter_min_likes",
-            "filter_min_views_enabled",
-            "filter_min_views",
-            "filter_date_enabled",
-            "filter_start_date",
-            "filter_end_date",
-            "filter_include_tags_enabled",
-            "filter_include_tags",
-            "filter_exclude_tags_enabled",
-            "filter_exclude_tags",
-            "filter_title_include",
-            "filter_title_exclude",
-            "search_limit_enabled",
-            "search_limit_count",
-            "search_history_limit",
-            "search_auto_search_enabled",
-            "aria2_rpc_enabled",
-            "aria2_rpc_url",
-            "aria2_rpc_token",
-            "download_video_file",
-            "download_thumbnail",
-            "collect_nfo_info",
-            "mark_submitted_as_downloaded",
-            "record_to_history",
-            "subscription_prompt_mode",
-            "completed_task_click_action",
-            "subscription_auto_refresh_enabled",
-            "subscription_refresh_interval_minutes",
-            "desktop_notifications_enabled",
-            "subscription_auto_enqueue_enabled",
-            "subscription_auto_enqueue_rule_id",
-            "global_speed_limit_enabled",
-            "global_speed_limit_kib",
-            "download_schedule_enabled",
-            "download_schedule_start",
-            "download_schedule_end",
-            "update_check_enabled",
-            "update_last_prompted_version",
-        }
+        safe_keys = set(self._DEFAULTS) - self._LEGACY_UNMIGRATED_KEYS
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
                 continue
@@ -298,21 +264,9 @@ class AppConfig:
 
     # ── properties ───────────────────────────────────────────────────────────
 
-    @property
-    def download_dir(self) -> str:
-        return self._get("download_dir")
+    download_dir = _Setting()
 
-    @download_dir.setter
-    def download_dir(self, v: str):
-        self._set("download_dir", v)
-
-    @property
-    def max_concurrent(self) -> int:
-        return self._get("max_concurrent")
-
-    @max_concurrent.setter
-    def max_concurrent(self, v: int):
-        self._set("max_concurrent", v)
+    max_concurrent = _Setting()
 
     @property
     def task_stall_timeout_seconds(self) -> int:
@@ -322,133 +276,37 @@ class AppConfig:
     def task_stall_timeout_seconds(self, v: int):
         self._set("task_stall_timeout_seconds", max(0, min(3600, int(v))))
 
-    @property
-    def auto_restore_stalled_cancelled(self) -> bool:
-        return self._get("auto_restore_stalled_cancelled")
+    auto_restore_stalled_cancelled = _Setting()
 
-    @auto_restore_stalled_cancelled.setter
-    def auto_restore_stalled_cancelled(self, v: bool):
-        self._set("auto_restore_stalled_cancelled", bool(v))
+    api_proxy_enabled = _Setting()
 
-    @property
-    def api_proxy_enabled(self) -> bool:
-        return self._get("api_proxy_enabled")
+    api_proxy_url = _Setting()
 
-    @api_proxy_enabled.setter
-    def api_proxy_enabled(self, v: bool):
-        self._set("api_proxy_enabled", v)
+    download_proxy_enabled = _Setting()
 
-    @property
-    def api_proxy_url(self) -> str:
-        return self._get("api_proxy_url")
+    download_proxy_url = _Setting()
 
-    @api_proxy_url.setter
-    def api_proxy_url(self, v: str):
-        self._set("api_proxy_url", v)
+    proxy_enabled = _Setting()
 
-    @property
-    def download_proxy_enabled(self) -> bool:
-        return self._get("download_proxy_enabled")
+    proxy_url = _Setting()
 
-    @download_proxy_enabled.setter
-    def download_proxy_enabled(self, v: bool):
-        self._set("download_proxy_enabled", v)
+    auth_enabled = _Setting()
 
-    @property
-    def download_proxy_url(self) -> str:
-        return self._get("download_proxy_url")
+    username = _Setting()
 
-    @download_proxy_url.setter
-    def download_proxy_url(self, v: str):
-        self._set("download_proxy_url", v)
+    password = _Setting()
 
-    @property
-    def proxy_enabled(self) -> bool:
-        return self._get("proxy_enabled")
+    auth_token = _Setting()
 
-    @proxy_enabled.setter
-    def proxy_enabled(self, v: bool):
-        self._set("proxy_enabled", v)
+    auth_token_saved_at = _Setting()
 
-    @property
-    def proxy_url(self) -> str:
-        return self._get("proxy_url")
+    preferred_quality = _Setting()
 
-    @proxy_url.setter
-    def proxy_url(self, v: str):
-        self._set("proxy_url", v)
+    auto_login = _Setting()
 
-    @property
-    def auth_enabled(self) -> bool:
-        return self._get("auth_enabled")
+    skip_existing_files = _Setting()
 
-    @auth_enabled.setter
-    def auth_enabled(self, v: bool):
-        self._set("auth_enabled", v)
-
-    @property
-    def username(self) -> str:
-        return self._get("username")
-
-    @username.setter
-    def username(self, v: str):
-        self._set("username", v)
-
-    @property
-    def password(self) -> str:
-        return self._get("password")
-
-    @password.setter
-    def password(self, v: str):
-        self._set("password", v)
-
-    @property
-    def auth_token(self) -> str:
-        return self._get("auth_token")
-
-    @auth_token.setter
-    def auth_token(self, v: str):
-        self._set("auth_token", v)
-
-    @property
-    def auth_token_saved_at(self) -> str:
-        return self._get("auth_token_saved_at")
-
-    @auth_token_saved_at.setter
-    def auth_token_saved_at(self, v: str):
-        self._set("auth_token_saved_at", v)
-
-    @property
-    def preferred_quality(self) -> str:
-        return self._get("preferred_quality")
-
-    @preferred_quality.setter
-    def preferred_quality(self, v: str):
-        self._set("preferred_quality", v)
-
-    @property
-    def auto_login(self) -> bool:
-        return self._get("auto_login")
-
-    @auto_login.setter
-    def auto_login(self, v: bool):
-        self._set("auto_login", v)
-
-    @property
-    def skip_existing_files(self) -> bool:
-        return self._get("skip_existing_files")
-
-    @skip_existing_files.setter
-    def skip_existing_files(self, v: bool):
-        self._set("skip_existing_files", v)
-
-    @property
-    def filename_template(self) -> str:
-        return self._get("filename_template")
-
-    @filename_template.setter
-    def filename_template(self, v: str):
-        self._set("filename_template", v)
+    filename_template = _Setting()
 
     @property
     def app_data_dir(self) -> str:
@@ -462,141 +320,39 @@ class AppConfig:
     def history_db_path(self) -> str:
         return self._history_db_path
 
-    @property
-    def ui_language(self) -> str:
-        return self._get("ui_language")
+    ui_language = _Setting()
 
-    @ui_language.setter
-    def ui_language(self, v: str):
-        self._set("ui_language", v)
+    filter_enabled = _Setting()
 
-    @property
-    def filter_enabled(self) -> bool:
-        return self._get("filter_enabled")
+    filter_min_likes_enabled = _Setting()
 
-    @filter_enabled.setter
-    def filter_enabled(self, v: bool):
-        self._set("filter_enabled", v)
+    filter_min_likes = _Setting()
 
-    @property
-    def filter_min_likes_enabled(self) -> bool:
-        return self._get("filter_min_likes_enabled")
+    filter_min_views_enabled = _Setting()
 
-    @filter_min_likes_enabled.setter
-    def filter_min_likes_enabled(self, v: bool):
-        self._set("filter_min_likes_enabled", v)
+    filter_min_views = _Setting()
 
-    @property
-    def filter_min_likes(self) -> int:
-        return self._get("filter_min_likes")
+    filter_date_enabled = _Setting()
 
-    @filter_min_likes.setter
-    def filter_min_likes(self, v: int):
-        self._set("filter_min_likes", v)
+    filter_start_date = _Setting()
 
-    @property
-    def filter_min_views_enabled(self) -> bool:
-        return self._get("filter_min_views_enabled")
+    filter_end_date = _Setting()
 
-    @filter_min_views_enabled.setter
-    def filter_min_views_enabled(self, v: bool):
-        self._set("filter_min_views_enabled", v)
+    filter_include_tags_enabled = _Setting()
 
-    @property
-    def filter_min_views(self) -> int:
-        return self._get("filter_min_views")
+    filter_include_tags = _Setting()
 
-    @filter_min_views.setter
-    def filter_min_views(self, v: int):
-        self._set("filter_min_views", v)
+    filter_exclude_tags_enabled = _Setting()
 
-    @property
-    def filter_date_enabled(self) -> bool:
-        return self._get("filter_date_enabled")
+    filter_exclude_tags = _Setting()
 
-    @filter_date_enabled.setter
-    def filter_date_enabled(self, v: bool):
-        self._set("filter_date_enabled", v)
+    filter_title_include = _Setting()
 
-    @property
-    def filter_start_date(self) -> str:
-        return self._get("filter_start_date")
+    filter_title_exclude = _Setting()
 
-    @filter_start_date.setter
-    def filter_start_date(self, v: str):
-        self._set("filter_start_date", v)
+    search_limit_enabled = _Setting()
 
-    @property
-    def filter_end_date(self) -> str:
-        return self._get("filter_end_date")
-
-    @filter_end_date.setter
-    def filter_end_date(self, v: str):
-        self._set("filter_end_date", v)
-
-    @property
-    def filter_include_tags_enabled(self) -> bool:
-        return self._get("filter_include_tags_enabled")
-
-    @filter_include_tags_enabled.setter
-    def filter_include_tags_enabled(self, v: bool):
-        self._set("filter_include_tags_enabled", v)
-
-    @property
-    def filter_include_tags(self) -> str:
-        return self._get("filter_include_tags")
-
-    @filter_include_tags.setter
-    def filter_include_tags(self, v: str):
-        self._set("filter_include_tags", v)
-
-    @property
-    def filter_exclude_tags_enabled(self) -> bool:
-        return self._get("filter_exclude_tags_enabled")
-
-    @filter_exclude_tags_enabled.setter
-    def filter_exclude_tags_enabled(self, v: bool):
-        self._set("filter_exclude_tags_enabled", v)
-
-    @property
-    def filter_exclude_tags(self) -> str:
-        return self._get("filter_exclude_tags")
-
-    @filter_exclude_tags.setter
-    def filter_exclude_tags(self, v: str):
-        self._set("filter_exclude_tags", v)
-
-    @property
-    def filter_title_include(self) -> str:
-        return self._get("filter_title_include")
-
-    @filter_title_include.setter
-    def filter_title_include(self, v: str):
-        self._set("filter_title_include", v)
-
-    @property
-    def filter_title_exclude(self) -> str:
-        return self._get("filter_title_exclude")
-
-    @filter_title_exclude.setter
-    def filter_title_exclude(self, v: str):
-        self._set("filter_title_exclude", v)
-
-    @property
-    def search_limit_enabled(self) -> bool:
-        return self._get("search_limit_enabled")
-
-    @search_limit_enabled.setter
-    def search_limit_enabled(self, v: bool):
-        self._set("search_limit_enabled", v)
-
-    @property
-    def search_limit_count(self) -> int:
-        return self._get("search_limit_count")
-
-    @search_limit_count.setter
-    def search_limit_count(self, v: int):
-        self._set("search_limit_count", v)
+    search_limit_count = _Setting()
 
     @property
     def search_history_limit(self) -> int:
@@ -616,77 +372,23 @@ class AppConfig:
             value = 20
         self._set("search_history_limit", max(1, min(100, value)))
 
-    @property
-    def search_auto_search_enabled(self) -> bool:
-        return self._get("search_auto_search_enabled")
+    search_auto_search_enabled = _Setting()
 
-    @search_auto_search_enabled.setter
-    def search_auto_search_enabled(self, v: bool):
-        self._set("search_auto_search_enabled", bool(v))
+    aria2_rpc_enabled = _Setting()
 
-    @property
-    def aria2_rpc_enabled(self) -> bool:
-        return self._get("aria2_rpc_enabled")
+    aria2_rpc_url = _Setting()
 
-    @aria2_rpc_enabled.setter
-    def aria2_rpc_enabled(self, v: bool):
-        self._set("aria2_rpc_enabled", v)
+    aria2_rpc_token = _Setting()
 
-    @property
-    def aria2_rpc_url(self) -> str:
-        return self._get("aria2_rpc_url")
+    download_video_file = _Setting()
 
-    @aria2_rpc_url.setter
-    def aria2_rpc_url(self, v: str):
-        self._set("aria2_rpc_url", v)
+    download_thumbnail = _Setting()
 
-    @property
-    def aria2_rpc_token(self) -> str:
-        return self._get("aria2_rpc_token")
+    collect_nfo_info = _Setting()
 
-    @aria2_rpc_token.setter
-    def aria2_rpc_token(self, v: str):
-        self._set("aria2_rpc_token", v)
+    mark_submitted_as_downloaded = _Setting()
 
-    @property
-    def download_video_file(self) -> bool:
-        return self._get("download_video_file")
-
-    @download_video_file.setter
-    def download_video_file(self, v: bool):
-        self._set("download_video_file", v)
-
-    @property
-    def download_thumbnail(self) -> bool:
-        return self._get("download_thumbnail")
-
-    @download_thumbnail.setter
-    def download_thumbnail(self, v: bool):
-        self._set("download_thumbnail", v)
-
-    @property
-    def collect_nfo_info(self) -> bool:
-        return self._get("collect_nfo_info")
-
-    @collect_nfo_info.setter
-    def collect_nfo_info(self, v: bool):
-        self._set("collect_nfo_info", v)
-
-    @property
-    def mark_submitted_as_downloaded(self) -> bool:
-        return self._get("mark_submitted_as_downloaded")
-
-    @mark_submitted_as_downloaded.setter
-    def mark_submitted_as_downloaded(self, v: bool):
-        self._set("mark_submitted_as_downloaded", v)
-
-    @property
-    def record_to_history(self) -> bool:
-        return self._get("record_to_history")
-
-    @record_to_history.setter
-    def record_to_history(self, v: bool):
-        self._set("record_to_history", bool(v))
+    record_to_history = _Setting()
 
     @property
     def subscription_prompt_mode(self) -> str:
@@ -698,21 +400,9 @@ class AppConfig:
         mode = str(v or "ask").lower()
         self._set("subscription_prompt_mode", mode if mode in ("ask", "always", "never") else "ask")
 
-    @property
-    def completed_task_click_action(self) -> str:
-        return self._get("completed_task_click_action")
+    completed_task_click_action = _Setting()
 
-    @completed_task_click_action.setter
-    def completed_task_click_action(self, v: str):
-        self._set("completed_task_click_action", v)
-
-    @property
-    def subscription_auto_refresh_enabled(self) -> bool:
-        return self._get("subscription_auto_refresh_enabled")
-
-    @subscription_auto_refresh_enabled.setter
-    def subscription_auto_refresh_enabled(self, v: bool):
-        self._set("subscription_auto_refresh_enabled", bool(v))
+    subscription_auto_refresh_enabled = _Setting()
 
     @property
     def subscription_refresh_interval_minutes(self) -> int:
@@ -722,21 +412,9 @@ class AppConfig:
     def subscription_refresh_interval_minutes(self, v: int):
         self._set("subscription_refresh_interval_minutes", max(1, min(24 * 60, int(v))))
 
-    @property
-    def desktop_notifications_enabled(self) -> bool:
-        return self._get("desktop_notifications_enabled")
+    desktop_notifications_enabled = _Setting()
 
-    @desktop_notifications_enabled.setter
-    def desktop_notifications_enabled(self, v: bool):
-        self._set("desktop_notifications_enabled", bool(v))
-
-    @property
-    def subscription_auto_enqueue_enabled(self) -> bool:
-        return self._get("subscription_auto_enqueue_enabled")
-
-    @subscription_auto_enqueue_enabled.setter
-    def subscription_auto_enqueue_enabled(self, v: bool):
-        self._set("subscription_auto_enqueue_enabled", bool(v))
+    subscription_auto_enqueue_enabled = _Setting()
 
     @property
     def subscription_auto_enqueue_rule_id(self) -> str:
@@ -746,13 +424,7 @@ class AppConfig:
     def subscription_auto_enqueue_rule_id(self, v: str):
         self._set("subscription_auto_enqueue_rule_id", str(v or "__builtin_default__"))
 
-    @property
-    def global_speed_limit_enabled(self) -> bool:
-        return self._get("global_speed_limit_enabled")
-
-    @global_speed_limit_enabled.setter
-    def global_speed_limit_enabled(self, v: bool):
-        self._set("global_speed_limit_enabled", bool(v))
+    global_speed_limit_enabled = _Setting()
 
     @property
     def global_speed_limit_kib(self) -> int:
@@ -762,13 +434,7 @@ class AppConfig:
     def global_speed_limit_kib(self, v: int):
         self._set("global_speed_limit_kib", max(0, min(10 * 1024 * 1024, int(v))))
 
-    @property
-    def download_schedule_enabled(self) -> bool:
-        return self._get("download_schedule_enabled")
-
-    @download_schedule_enabled.setter
-    def download_schedule_enabled(self, v: bool):
-        self._set("download_schedule_enabled", bool(v))
+    download_schedule_enabled = _Setting()
 
     @property
     def download_schedule_start(self) -> str:
@@ -786,13 +452,7 @@ class AppConfig:
     def download_schedule_end(self, v: str):
         self._set("download_schedule_end", str(v or "00:00"))
 
-    @property
-    def update_check_enabled(self) -> bool:
-        return self._get("update_check_enabled")
-
-    @update_check_enabled.setter
-    def update_check_enabled(self, v: bool):
-        self._set("update_check_enabled", bool(v))
+    update_check_enabled = _Setting()
 
     @property
     def update_last_prompted_version(self) -> str:
@@ -801,6 +461,11 @@ class AppConfig:
     @update_last_prompted_version.setter
     def update_last_prompted_version(self, v: str):
         self._set("update_last_prompted_version", str(v or ""))
+
+    request_min_interval_ms = _Setting()
+    request_max_retries = _Setting()
+    x_version_salts = _Setting()
+    minimize_to_tray = _Setting()
 
     @property
     def theme_mode(self) -> str:

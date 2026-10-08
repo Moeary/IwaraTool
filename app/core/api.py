@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 import cloudscraper
 
+from ..config import app_config
 from ..i18n import tr
+from ..logging_setup import get_logger
+from . import net_policy
+
+logger = get_logger(__name__)
 
 BASE_API = "https://api.iwara.tv"
 ALT_BASE_API = "https://apiq.iwara.tv"
@@ -23,6 +30,41 @@ _X_VERSION_SALTS = (
     "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
     "5nFp9kmbNnHdAFhaqMvt",
 )
+SALTS_OVERRIDE_FILE = "x_version_salts.json"
+
+
+def x_version_salts() -> tuple[str, ...]:
+    """Salts to try, user overrides first.
+
+    The site rotates its shared secret from time to time; this lets a user
+    recover without waiting for a new release by either filling the
+    ``x_version_salts`` setting (comma separated) or dropping a JSON list
+    into ``data/x_version_salts.json``.
+    """
+    extra: list[str] = []
+    try:
+        extra.extend(
+            part.strip()
+            for part in str(app_config.x_version_salts or "").replace(";", ",").split(",")
+            if part.strip()
+        )
+        path = os.path.join(app_config.app_data_dir, SALTS_OVERRIDE_FILE)
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            if isinstance(payload, dict):
+                payload = payload.get("salts", [])
+            if isinstance(payload, list):
+                extra.extend(str(item).strip() for item in payload if str(item).strip())
+    except Exception:
+        logger.warning("Ignoring unreadable X-Version salt override", exc_info=True)
+    merged: list[str] = []
+    for salt in (*extra, *_X_VERSION_SALTS):
+        if salt not in merged:
+            merged.append(salt)
+    return tuple(merged)
+
+
 # Orders accepted by ``/search`` per type (verified against the live API:
 # users/playlists answer ``errors.badRequest`` for views and likes).
 IWARA_SEARCH_SORTS: dict[str, tuple[str, ...]] = {
@@ -42,6 +84,11 @@ class IwaraAPI:
     def __init__(self):
         self.scraper = cloudscraper.create_scraper(
             browser={"browser": "chrome", "platform": "windows", "mobile": False}
+        )
+        net_policy.install(
+            self.scraper,
+            min_interval=lambda: max(0, app_config.request_min_interval_ms) / 1000.0,
+            max_retries=lambda: app_config.request_max_retries,
         )
         self.token: Optional[str] = None
 
@@ -232,7 +279,7 @@ class IwaraAPI:
 
         sources: Optional[list[dict]] = None
         last_error = ""
-        for idx, salt in enumerate(_X_VERSION_SALTS, start=1):
+        for idx, salt in enumerate(x_version_salts(), start=1):
             x_version = self.compute_x_version(file_url, salt)
             _log(f"  X-Version[{idx}]: {x_version}")
             resp = None
