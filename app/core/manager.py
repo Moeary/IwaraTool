@@ -32,6 +32,8 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI
 from .download_paths import DownloadPathMixin
+from .download_aria2 import Aria2DownloadMixin
+from .download_artifacts import DownloadArtifactsMixin
 from .download_runtime import DownloadRuntimeMixin
 from .repair_manager import RepairManagerMixin
 from .rules import active_rule_id, current_rule_payload, normalize_rule_payload, rule_store
@@ -61,7 +63,7 @@ if TYPE_CHECKING:
     pass
 
 
-class DownloadManager(DownloadRuntimeMixin, SubscriptionManagerMixin, SearchManagerMixin, RepairManagerMixin, DownloadPathMixin):
+class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifactsMixin, SubscriptionManagerMixin, SearchManagerMixin, RepairManagerMixin, DownloadPathMixin):
     """Central manager for all download tasks.
 
     Thread-safe: all internal state mutations are protected by self._lock.
