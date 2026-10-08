@@ -429,8 +429,12 @@ class RepairInterfaceModeTests(RepairTestFixture):
         families = QFontDatabase.families()
         if not families:
             self.skipTest("Real fonts are unavailable for the layout regression")
-        family = "Microsoft YaHei UI" if "Microsoft YaHei UI" in families else self.app.font().family()
-        self.app.setFont(QFont(family, 9))
+        if "Microsoft YaHei UI" not in families:
+            # The pixel thresholds in this regression are calibrated against
+            # Microsoft YaHei UI; other fonts (e.g. CI's Linux fallbacks) wrap
+            # the hints differently without indicating a layout bug.
+            self.skipTest("Microsoft YaHei UI is required for the layout regression")
+        self.app.setFont(QFont("Microsoft YaHei UI", 9))
 
     def test_control_hints_wrap_and_all_controls_fit_in_narrow_panes(self):
         self.use_real_layout_font()
