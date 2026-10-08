@@ -24,6 +24,7 @@ from ..config import app_config
 from ..core.manager import download_manager as _default_download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus as _default_signal_bus
+from .author_view import clean_username
 from .download_page import FilterDialog, option_button_style
 from .subscription_components import (
     SubscriptionEnqueueWorker,
@@ -485,6 +486,12 @@ class SubscriptionActionsMixin:
         self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=source_id)
         self._start_refresh(source_id)
+
+    def _on_sources_changed_elsewhere(self):
+        """Another page (author status bar, detail page) removed a subscription."""
+
+        if not self._shutting_down:
+            self._load_sources()
 
     def _import_followed_authors(self):
         if self._import_worker and self._import_worker.isRunning():
@@ -1140,9 +1147,31 @@ class SubscriptionActionsMixin:
         self._source_view.open_source(source)
         self._view_stack.setCurrentWidget(self._source_view)
 
+    def _leave_page_view(self):
+        """Back from a source/author page: to the caller, or to the overview."""
+
+        if self._external_return:
+            self._external_return = False
+            origin, self._page_origin = self._page_origin, None
+            # Park on the list view so returning here later is not stuck on the author.
+            self._view_stack.setCurrentWidget(self._overview if self._view_mode_is_overview() else self._table_page)
+            self.return_requested.emit()
+            return
+        origin, self._page_origin = self._page_origin, None
+        if origin is None or origin is self._author_view or origin is self._source_view:
+            origin = self._overview if self._view_mode_is_overview() else self._table_page
+        self._view_stack.setCurrentWidget(origin)
+        if origin is self._overview:
+            self._overview.reload_if_dirty()
+
+    def _view_mode_is_overview(self) -> bool:
+        return str(app_config.get_ui_value("subscription_view_mode_v1", "overview") or "overview") != "table"
+
     def _close_source_grid(self):
-        self._view_stack.setCurrentWidget(self._overview)
-        self._overview.reload_if_dirty()
+        self._leave_page_view()
+
+    def _close_author_view(self):
+        self._leave_page_view()
 
     def show_source(self, source_id: int):
         """Bring one source to the front (after subscribing from another page)."""
@@ -1150,6 +1179,27 @@ class SubscriptionActionsMixin:
         self._select_source_id(source_id)
         if self._view_stack.currentWidget() is not self._table_page:
             self._open_source_grid(source_id)
+
+    def show_author(self, target, *, external: bool = False):
+        """Open an author inside the app.
+
+        A local subscription opens on its poster grid; anyone else gets a live
+        author page with the subscribe/follow controls.  ``external`` means
+        another page asked, so Back returns there.
+        """
+
+        username = clean_username(target[0]) if target else ""
+        if not username:
+            return
+        self._external_return = bool(external)
+        self._page_origin = None if external else self._view_stack.currentWidget()
+        source = download_manager.find_author_subscription(username)
+        source_id = int((source or {}).get("id", 0) or 0)
+        if source_id and any(int(s.get("id", 0) or 0) == source_id for s in self._all_sources):
+            self._open_source_grid(source_id)
+            return
+        self._author_view.open_author(tuple(target))
+        self._view_stack.setCurrentWidget(self._author_view)
 
     def _schedule_views_refresh(self, *_args):
         self._overview.mark_dirty()
@@ -1160,6 +1210,13 @@ class SubscriptionActionsMixin:
         if self._shutting_down:
             return
         current = self._view_stack.currentWidget()
+        self._author_view.refresh_status()
+        self._source_view.refresh_status()
+        if current is self._source_view and self._source_view.source_id and not any(
+            int(s.get("id", 0) or 0) == self._source_view.source_id for s in self._all_sources
+        ):
+            self._leave_page_view()  # the subscription being viewed was deleted
+            return
         if current is self._source_view:
             self._source_view.reload_if_visible()
         elif current is self._overview and self.isVisible():
@@ -1242,5 +1299,6 @@ class SubscriptionActionsMixin:
         )
         if video.author_username:
             author = (video.author_username, video.author_name or video.author_username, "", "")
+            menu.addAction(Action(FluentIcon.PEOPLE, tr("Open Author Page", "打开作者页", "作者ページを開く"), self, triggered=lambda: signal_bus.author_page_requested.emit(author)))
             menu.addAction(Action(FluentIcon.SEARCH, tr("Search Author's Works", "查看作者作品", "作者の作品を表示"), self, triggered=lambda: signal_bus.search_requested.emit({"author": author})))
         menu.exec(global_pos)

@@ -33,6 +33,7 @@ def install_shortcuts(window) -> None:
         {
             "home_refresh": lambda: home.refresh(),
             "home_back": home.go_back,
+            "home_customize": home.customize,
         },
     )
 

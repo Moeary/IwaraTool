@@ -334,6 +334,32 @@ class SearchActionsMixin:
         webbrowser.open(url)
 
     def _open_author_page_for_result(self):
+        """Open the author inside the app when an Iwara account can be identified.
+
+        The in-app page shows whether the author is a local subscription or
+        followed on the website and lets you subscribe.  Without a usable
+        Iwara account this falls back to the source's own author page.
+        """
+
+        values = self._selected_data()
+        if len(values) == 1:
+            data = values[0].get("data")
+            if isinstance(data, (SearchAuthor, SearchVideo)):
+                target = self._author_navigation_target(data)
+                if target:
+                    signal_bus.author_page_requested.emit(target)
+                    return
+        self._open_source_author_page_for_result(prefer_app=True)
+
+    def _open_source_author_page_for_result(self, *, prefer_app: bool = False):
+        """Open the result's author page on its source site in the browser.
+
+        ``prefer_app``: if resolving the source turns up an Iwara account, show
+        the in-app author page instead of the website.
+        """
+
+        self._open_author_prefers_app = prefer_app
+
         values = self._selected_data()
         if len(values) != 1:
             self._show_warning(
@@ -505,6 +531,14 @@ class SearchActionsMixin:
                     tr("Open author page", "打开作者页", "作者ページを開く"),
                     self,
                     triggered=lambda _checked=False: self._open_author_page_for_result(),
+                )
+            )
+            menu.addAction(
+                Action(
+                    FluentIcon.GLOBE,
+                    tr("Open author page in browser", "在浏览器打开作者页", "作者ページをブラウザーで開く"),
+                    self,
+                    triggered=lambda _checked=False: self._open_source_author_page_for_result(),
                 )
             )
             menu.addAction(
@@ -744,9 +778,9 @@ class SearchActionsMixin:
         )
         if source_url:
             message += tr(
-                " You can still use ‘Open author page’ to browse the Oreno3D source.",
-                " 仍可使用右键菜单“打开作者页”浏览 Oreno3D 来源。",
-                " 右クリックメニューの「作者ページを開く」からOreno3Dの元ページを閲覧できます。",
+                " You can still use ‘Open author page in browser’ to browse the Oreno3D source.",
+                " 仍可使用右键菜单“在浏览器打开作者页”浏览 Oreno3D 来源。",
+                " 右クリックメニューの「作者ページをブラウザーで開く」からOreno3Dの元ページを閲覧できます。",
             )
         reason = str(video.raw.get("oreno3d_author_error") or "")
         if reason:
@@ -948,7 +982,9 @@ class SearchActionsMixin:
         if video.video_id in self._pending_open_author_video_ids:
             self._pending_open_author_video_ids.discard(video.video_id)
             source_url, _source_origin = _author_source_info(video)
-            if source_url:
+            if target and getattr(self, "_open_author_prefers_app", False):
+                signal_bus.author_page_requested.emit(target)  # found an Iwara account: stay in the app
+            elif source_url:
                 webbrowser.open(source_url)
         if result.get("error") and not raw.get("oreno3d_author_url"):
             self._status_label.setText(str(result.get("error")))

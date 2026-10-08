@@ -68,6 +68,7 @@ def all_actions() -> tuple[ShortcutAction, ...]:
 
         A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
         A("home_back", SCOPE_HOME, "Alt+Left", tr("Back to the previous view", "返回上一级", "前の画面に戻る")),
+        A("home_customize", SCOPE_HOME, "Ctrl+E", tr("Customize the Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ")),
 
         A("download_submit", SCOPE_DOWNLOAD, "Ctrl+Return", tr("Submit the links", "提交链接下载", "リンクを送信")),
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),

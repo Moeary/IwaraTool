@@ -37,6 +37,7 @@ from ..core.download_policy import normalize_hhmm
 from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .settings_home_cards import HomeSettingsCards
 from .settings_sections import SettingsSections
 from .settings_shortcuts_cards import ShortcutSettingsCards
 from .settings_system_cards import SystemSettingsCards
@@ -949,6 +950,7 @@ class SettingsInterface(QWidget):
 
         # ── Window, request pacing and maintenance (self-applying) ───────────
         self._system_cards = SystemSettingsCards(self._settings_board, self)
+        self._home_cards = HomeSettingsCards(self._settings_board, self)
         self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
 
         # ── Save button ───────────────────────────────────────────────────────

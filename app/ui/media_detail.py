@@ -32,6 +32,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
+    ToggleButton,
 )
 
 from ..config import app_config
@@ -47,7 +48,8 @@ from ..core.search import (
 )
 from ..i18n import current_language, tr
 from ..signal_bus import signal_bus
-from .home_workers import CommentsWorker, CoverFetcher, DetailWorker, stop_workers
+from .author_status import AuthorStatusBar
+from .home_workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
 from .media_card import MediaGrid, transparent_scroll_area
 from .search_widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
@@ -334,6 +336,9 @@ class DetailView(QWidget):
         self._comment_page = 0
         self._comment_total: int | None = None
         self._comment_count = 0
+        self._liked = False
+        self._like_busy = False
+        self._like_workers: list[ApiCallWorker] = []
         self._detail_worker: DetailWorker | None = None
         self._detail_workers: list[DetailWorker] = []  # includes superseded, still-running loads
         self._comment_workers: list[CommentsWorker] = []
@@ -414,14 +419,19 @@ class DetailView(QWidget):
         self._browser_btn.clicked.connect(self._open_in_browser)
         self._copy_btn = PushButton(tr("Copy link", "复制链接", "リンクをコピー"), content, FluentIcon.COPY)
         self._copy_btn.clicked.connect(self._copy_link)
-        for button in (self._play_btn, self._download_btn, self._browser_btn, self._copy_btn):
+        self._like_btn = ToggleButton(tr("Like", "点赞", "いいね"), content, FluentIcon.HEART)
+        self._like_btn.clicked.connect(self._toggle_like)
+        for button in (self._play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn):
             actions.addWidget(button)
         self._body.addLayout(actions)
 
         self._author_card = QWidget(content)
-        author_row = QHBoxLayout(self._author_card)
-        author_row.setContentsMargins(0, 4, 0, 4)
+        author_column = QVBoxLayout(self._author_card)
+        author_column.setContentsMargins(0, 4, 0, 4)
+        author_column.setSpacing(8)
+        author_row = QHBoxLayout()
         author_row.setSpacing(12)
+        author_column.addLayout(author_row)
         self._avatar = AvatarWidget(self._author_card)
         self._avatar.setRadius(24)
         author_row.addWidget(self._avatar)
@@ -437,12 +447,19 @@ class DetailView(QWidget):
         names.addWidget(self._author_user)
         author_row.addLayout(names)
         author_row.addStretch(1)
+        self._page_btn = PushButton(tr("Author page", "作者页", "作者ページ"), self._author_card, FluentIcon.PEOPLE)
+        self._page_btn.setToolTip(tr("Open this author inside the app", "在程序内打开该作者", "このアプリ内で作者を開く"))
+        self._page_btn.clicked.connect(self._author_page)
         self._works_btn = PushButton(tr("Their works", "查看作品", "作品を見る"), self._author_card, FluentIcon.SEARCH)
         self._works_btn.clicked.connect(self._author_works)
-        self._subscribe_btn = PushButton(tr("Subscribe", "加入订阅", "購読"), self._author_card, FluentIcon.PEOPLE)
-        self._subscribe_btn.clicked.connect(self._subscribe_author)
+        author_row.addWidget(self._page_btn)
         author_row.addWidget(self._works_btn)
-        author_row.addWidget(self._subscribe_btn)
+        # Subscribed here? Followed on Iwara? — and the buttons to change either.
+        self._author_status = AuthorStatusBar(self._author_card)
+        self._author_status.open_subscription_requested.connect(
+            lambda source_id: signal_bus.subscription_source_requested.emit(source_id)
+        )
+        author_column.addWidget(self._author_status)
         self._body.addWidget(self._author_card)
 
         self._description = BodyLabel("", content)
@@ -555,8 +572,10 @@ class DetailView(QWidget):
         self._comments_title.hide()
         self._comments_hint.setText("")
         self._more_comments_btn.hide()
-        for button in (self._play_btn, self._download_btn, self._browser_btn, self._copy_btn):
+        for button in (self._play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn):
             button.setEnabled(False)
+        self._liked = False
+        self._sync_like()
         self._play_btn.setVisible(True)
         self._download_btn.setVisible(True)
         self._info = None
@@ -567,7 +586,10 @@ class DetailView(QWidget):
         self._pending_replies.clear()
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
-        return stop_workers([*self._detail_workers, *self._comment_workers], timeout_ms)
+        return all([
+            stop_workers([*self._detail_workers, *self._comment_workers, *self._like_workers], timeout_ms),
+            self._author_status.shutdown(timeout_ms),
+        ])
 
     def load(self, kind: str, item_id: str, preview: SearchVideo | None = None):
         """Show a post; ``preview`` (the clicked card) fills the page immediately."""
@@ -612,6 +634,8 @@ class DetailView(QWidget):
             self._author_user.setText(f"@{video.author_username}" if video.author_username else "")
         self._browser_btn.setEnabled(True)
         self._copy_btn.setEnabled(True)
+        self._like_btn.setEnabled(True)
+        self._sync_like()
 
     def _meta_text(self, video: SearchVideo) -> str:
         parts = [
@@ -649,6 +673,7 @@ class DetailView(QWidget):
         video = normalize(info)
         if video is None:
             return
+        self._liked = bool(info.get("liked"))
         if self._video is not None and not video.thumbnail_url:
             video.thumbnail_url = self._video.thumbnail_url
         self._video = video
@@ -681,6 +706,7 @@ class DetailView(QWidget):
             self._author_name.setText(name)
             self._author_user.setText(f"@{username}")
             self._author_target = (username, name, str(user.get("id") or ""), avatar_url(user))
+            self._author_status.set_author(username, name, str(user.get("id") or ""), avatar_url(user))
             avatar = avatar_url(user)
             if avatar:
                 self._fetcher.request([("avatar", str(user.get("id") or username), avatar)])
@@ -853,6 +879,70 @@ class DetailView(QWidget):
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self.window(),
         )
 
+    # ── like ─────────────────────────────────────────────────────────────────
+
+    def _sync_like(self):
+        likes = self._video.likes if self._video is not None else 0
+        count = _format_count(likes)
+        self._like_btn.blockSignals(True)
+        self._like_btn.setChecked(self._liked)
+        self._like_btn.blockSignals(False)
+        self._like_btn.setText(
+            tr(f"Liked · {count}", f"已点赞 · {count}", f"いいね済み · {count}")
+            if self._liked
+            else tr(f"Like · {count}", f"点赞 · {count}", f"いいね · {count}")
+        )
+        self._like_btn.setToolTip(
+            tr("Click to remove your like", "再次点击取消点赞", "もう一度押すと取り消し")
+            if self._liked
+            else tr("Like this post with your Iwara account", "用你的 Iwara 账号点赞", "Iwaraアカウントでいいねする")
+        )
+
+    def _toggle_like(self):
+        if self._like_busy or self._video is None:
+            self._sync_like()
+            return
+        if not download_manager.is_logged_in():
+            self._sync_like()
+            InfoBar.warning(
+                title=tr("Sign in to like", "登录后才能点赞", "いいねにはログインが必要です"),
+                content=tr("Sign in to Iwara in Settings first.", "请先在设置中登录 Iwara 账号。", "先に設定でIwaraにログインしてください。"),
+                orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
+            )
+            return
+        wanted = not self._liked
+        kind, item_id, token = self._kind, self._item_id, self._token
+        self._like_busy = True
+        self._like_btn.setEnabled(False)
+        worker = ApiCallWorker(lambda client: client.set_liked(kind, item_id, wanted), self)
+        worker.done.connect(lambda result, error, wanted=wanted, token=token: self._on_like_done(token, wanted, result, error))
+        worker.finished.connect(lambda worker=worker: self._discard_like_worker(worker))
+        self._like_workers.append(worker)
+        worker.start()
+
+    def _discard_like_worker(self, worker: ApiCallWorker):
+        if worker in self._like_workers:
+            self._like_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_like_done(self, token: int, wanted: bool, result: object, error: str):
+        self._like_busy = False
+        if token != self._token:
+            return  # the user moved on to another post
+        ok, message = result if isinstance(result, tuple) and len(result) == 2 else (False, error)
+        self._like_btn.setEnabled(True)
+        if ok:
+            self._liked = wanted
+            if self._video is not None:
+                self._video.likes = max(0, self._video.likes + (1 if wanted else -1))
+                self._meta.setText(self._meta_text(self._video))
+        else:
+            InfoBar.error(
+                title=tr("Could not change the like", "点赞操作失败", "いいねを変更できません"), content=str(message or error),
+                orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=4500, parent=self.window(),
+            )
+        self._sync_like()
+
     def _search_tag(self, tag_id: str):
         scope = "images" if self._kind == "image" else "tags"
         signal_bus.search_requested.emit({"scope": scope, "keyword": tag_id})
@@ -861,27 +951,9 @@ class DetailView(QWidget):
         if self._author_target:
             signal_bus.search_requested.emit({"author": self._author_target})
 
-    def _subscribe_author(self):
-        if not self._author_target:
-            return
-        username, title, remote_id, avatar = self._author_target
-        try:
-            source_id = int(download_manager.add_author_subscription(
-                username, title=title, remote_id=remote_id, avatar_url=avatar,
-            ) or 0)
-        except Exception as exc:
-            InfoBar.error(
-                title=tr("Subscription failed", "订阅失败", "購読に失敗"), content=str(exc),
-                orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self.window(),
-            )
-            return
-        if source_id:
-            signal_bus.subscription_source_added.emit(source_id)
-            InfoBar.success(
-                title=tr("Author added", "作者已加入订阅", "作者を購読に追加しました"),
-                content=tr(f"@{username} is now in your local subscriptions", f"@{username} 已加入本地订阅", f"@{username} をローカル購読に追加しました"),
-                orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
-            )
+    def _author_page(self):
+        if self._author_target:
+            signal_bus.author_page_requested.emit(self._author_target)
 
     def refresh_theme_styles(self):
         self._related_grid.update()

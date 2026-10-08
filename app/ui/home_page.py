@@ -30,14 +30,22 @@ from qfluentwidgets import (
     RoundMenu,
     SegmentedWidget,
     SubtitleLabel,
-    TitleLabel,
     ToolButton,
 )
 
 from ..config import app_config
+from ..core.home_cache import (
+    DEFAULT_CACHE_MINUTES,
+    HOME_CACHE_MINUTES_KEY,
+    HomeFeedCache,
+    cache_key,
+    rows_signature,
+    shared_cache,
+)
 from ..core.home_feed import (
     BROWSE_PAGE_LIMIT,
     HOME_PAGE_LIMIT,
+    MODE_AUTHOR,
     FeedSection,
     home_sections,
 )
@@ -47,13 +55,15 @@ from ..core.rules import active_rule_id
 from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .home_workers import CoverFetcher, FeedResult, FeedWorker, stop_workers
+from .chrome import EmptyState, PageHeader, SectionTitle, format_age
+from .home_workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows, stop_workers
 from .media_card import CardSizeControl, MediaGrid, transparent_scroll_area
 from .media_detail import DetailView
 from .rules_page import RulePicker
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 
-STALE_AFTER_SECONDS = 10 * 60
+RETRY_AFTER_SECONDS = 120  # wait this long before re-trying a failed background check
+AGE_TICK_MS = 60_000  # how often visible rows re-check their age
 
 
 def queueable_ids(videos: list[SearchVideo]) -> list[str]:
@@ -68,8 +78,22 @@ def queueable_ids(videos: list[SearchVideo]) -> list[str]:
     return ids
 
 
+def cache_ttl_seconds() -> float:
+    """How long a cached row counts as fresh; 0 means "only refresh when asked"."""
+
+    try:
+        return max(0, int(app_config.get_ui_value(HOME_CACHE_MINUTES_KEY, DEFAULT_CACHE_MINUTES))) * 60.0
+    except (TypeError, ValueError):
+        return DEFAULT_CACHE_MINUTES * 60.0
+
+
 class SectionBlock(QWidget):
-    """One titled row of cards on the feed."""
+    """One titled row of cards on the feed.
+
+    The row paints from the on-disk cache first.  A background re-check runs
+    only when the cached copy is older than the "refresh after" setting (or the
+    user presses refresh) and the grid is rebuilt only if the posts changed.
+    """
 
     more_requested = Signal(str, str)  # section id, tab id
     queue_requested = Signal(list, str)
@@ -77,64 +101,92 @@ class SectionBlock(QWidget):
     context_requested = Signal(object, QPoint)
     settings_requested = Signal()
 
-    def __init__(self, section: FeedSection, fetcher: CoverFetcher, parent: QWidget | None = None):
+    def __init__(
+        self,
+        section: FeedSection,
+        fetcher: CoverFetcher,
+        parent: QWidget | None = None,
+        *,
+        cache: HomeFeedCache | None = None,
+    ):
         super().__init__(parent)
         self.section = section
+        self._cache = cache if cache is not None else shared_cache()
         self._rating = RATING_ALL
         self._token = 0
         self._worker: FeedWorker | None = None
         self._workers: list[FeedWorker] = []  # includes superseded, still-running loads
-        self._loaded_at = 0.0
+        self._shown_key = ""
+        self._shown_signature: tuple[str, ...] | None = None
+        self._saved_at = 0.0  # epoch seconds of the data on screen
+        self._last_attempt = 0.0  # monotonic, throttles failed background checks
+        self._pending: FeedResult | None = None  # newer rows held back while cards are selected
+        self._busy = False
         saved = str(app_config.get_ui_value(f"home_tab_{section.id}_v1", "") or "")
         self._tab_id = section.tab(saved).id
+        self._collapsed = str(app_config.get_ui_value(f"home_collapsed_{section.id}_v1", "0")) in {"1", "true", "True"}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
         header = QHBoxLayout()
-        header.setSpacing(12)
-        header.addWidget(SubtitleLabel(section.title, self))
+        header.setSpacing(10)
+        self._title_bar = SectionTitle(section.title, self, collapsible=True)
+        self._title_bar.toggled.connect(self._on_fold_toggled)
+        header.addWidget(self._title_bar)
         self._tabs = SegmentedWidget(self)
         for tab in section.tabs:
             self._tabs.addItem(tab.id, tab.label, lambda _=False, tab_id=tab.id: self._select_tab(tab_id))
         self._tabs.setCurrentItem(self._tab_id)
         self._tabs.setVisible(len(section.tabs) > 1)
         header.addWidget(self._tabs)
+        self._age = CaptionLabel("", self)
+        set_secondary_text(self._age)
+        header.addWidget(self._age)
+        self._update_btn = HyperlinkButton("", tr("New posts — show", "有新内容，点击显示", "新着あり — 表示"), self)
+        self._update_btn.clicked.connect(self._apply_pending)
+        self._update_btn.hide()
+        header.addWidget(self._update_btn)
         header.addStretch(1)
         self._queue_btn = PushButton(tr("Download shown", "下载当前展示", "表示中をダウンロード"), self, FluentIcon.DOWNLOAD)
         self._queue_btn.setToolTip(tr("Queue every video shown in this row", "把这一行展示的视频全部加入下载队列", "この行の動画をすべてキューに追加"))
         self._queue_btn.clicked.connect(self._queue_shown)
         header.addWidget(self._queue_btn)
         self._refresh_btn = ToolButton(FluentIcon.SYNC, self)
-        self._refresh_btn.setToolTip(tr("Refresh", "刷新", "更新"))
+        self._refresh_btn.setToolTip(tr("Refresh this row now", "立即刷新这一行", "この行を今すぐ更新"))
         self._refresh_btn.clicked.connect(lambda: self.reload(force=True))
         header.addWidget(self._refresh_btn)
-        # Public rankings open in the Search page; only the account feed has a page of its own.
-        public = not section.tabs[0].needs_login
-        self._more_btn = HyperlinkButton(
-            "",
-            tr("More in Search ›", "在搜索页查看更多 ›", "検索ページで見る ›") if public else tr("More ›", "查看更多 ›", "もっと見る ›"),
-            self,
-        )
+        self._more_btn = HyperlinkButton("", "", self)
         self._more_btn.clicked.connect(lambda: self.more_requested.emit(self.section.id, self._tab_id))
         header.addWidget(self._more_btn)
         root.addLayout(header)
 
-        self._state = BodyLabel("", self)
+        self._body = QWidget(self)
+        body = QVBoxLayout(self._body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(8)
+        self._state = BodyLabel("", self._body)
         self._state.setWordWrap(True)
         set_secondary_text(self._state)
-        root.addWidget(self._state)
-        self._login_btn = PrimaryPushButton(tr("Open Settings to sign in", "前往设置登录", "設定でログイン"), self, FluentIcon.SETTING)
+        body.addWidget(self._state)
+        self._login_btn = PrimaryPushButton(tr("Open Settings to sign in", "前往设置登录", "設定でログイン"), self._body, FluentIcon.SETTING)
         self._login_btn.clicked.connect(self.settings_requested)
-        root.addWidget(self._login_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        body.addWidget(self._login_btn, 0, Qt.AlignmentFlag.AlignLeft)
         self._login_btn.hide()
+        self._retry_btn = PushButton(tr("Try again", "重试", "再試行"), self._body, FluentIcon.SYNC)
+        self._retry_btn.clicked.connect(lambda: self.reload(force=True))
+        body.addWidget(self._retry_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        self._retry_btn.hide()
 
-        self._grid = MediaGrid(self, selectable=True, max_rows=2, resizable=True)
+        self._grid = MediaGrid(self._body, selectable=True, max_rows=2, resizable=True)
         self._grid.bind_fetcher(fetcher)
         self._grid.card_activated.connect(self.open_requested)
         self._grid.card_context_requested.connect(self.context_requested)
         self._grid.selection_changed.connect(self._sync_buttons)
-        root.addWidget(self._grid)
+        body.addWidget(self._grid)
+        root.addWidget(self._body)
+        self._sync_more()
+        self._sync_fold()
         self._sync_buttons()
 
     # ── state ────────────────────────────────────────────────────────────────
@@ -148,16 +200,57 @@ class SectionBlock(QWidget):
             return
         self._tab_id = tab_id
         app_config.set_ui_value(f"home_tab_{self.section.id}_v1", tab_id)
-        self.reload(force=True)
+        self._shown_key = ""
+        self._sync_more()
+        self.reload()
+
+    def _sync_more(self):
+        tab = self.tab
+        self._more_btn.setText(
+            tr("More in Search ›", "在搜索页查看更多 ›", "検索ページで見る ›")
+            if tab.opens_in_search
+            else tr("More ›", "查看更多 ›", "もっと見る ›")
+        )
+
+    def _on_fold_toggled(self, collapsed: bool):
+        self._collapsed = collapsed
+        app_config.set_ui_value(f"home_collapsed_{self.section.id}_v1", "1" if self._collapsed else "0")
+        self._sync_fold()
+        if not self._collapsed:
+            self.reload()
+
+    def _sync_fold(self):
+        self._body.setVisible(not self._collapsed)
+        self._title_bar.set_collapsed(self._collapsed)
+        self._title_bar.setToolTip(
+            tr("Click to expand this row", "点击展开这一行", "クリックで展開") if self._collapsed else tr("Click to fold this row", "点击折叠这一行", "クリックで折りたたむ")
+        )
 
     def set_rating(self, rating: str):
         self._rating = normalize_rating(rating)
 
     def invalidate(self):
-        self._loaded_at = 0.0
+        """Forget what is on screen so the next show re-reads cache/network."""
+
+        self._last_attempt = 0.0
+
+    def cache_key(self) -> str:
+        return cache_key(self.section.id, self.tab.id, self._rating, account=self.tab.needs_login)
 
     def is_stale(self) -> bool:
-        return not self._loaded_at or time.monotonic() - self._loaded_at > STALE_AFTER_SECONDS
+        """Whether the data on screen is older than the freshness setting."""
+
+        ttl = cache_ttl_seconds()
+        if ttl <= 0:
+            return not self._saved_at
+        return not self._saved_at or time.time() - self._saved_at > ttl
+
+    def refresh_age(self):
+        if not self._saved_at:
+            self._age.setText("")
+            return
+        text = format_age(time.time() - self._saved_at)
+        self._age.setText(tr(f"Updated {text}", f"更新于{text}", f"{text}に更新"))
 
     def _sync_buttons(self):
         selected = self._grid.selected_videos()
@@ -170,19 +263,34 @@ class SectionBlock(QWidget):
         else:
             self._queue_btn.setText(tr("Download shown", "下载当前展示", "表示中をダウンロード"))
         self._queue_btn.setVisible(self.tab.kind == "video")
+        if not selected and self._pending is not None:
+            self._apply_pending()
 
     def _queue_shown(self):
         videos = self._grid.selected_videos() or self._grid.shown_videos()
         self.queue_requested.emit(videos, "")
 
+    def _set_busy(self, busy: bool):
+        self._busy = busy
+        self._refresh_btn.setEnabled(not busy)
+        self._refresh_btn.setToolTip(
+            tr("Refreshing…", "正在刷新…", "更新中…") if busy else tr("Refresh this row now", "立即刷新这一行", "この行を今すぐ更新")
+        )
+
     # ── loading ──────────────────────────────────────────────────────────────
 
     def reload(self, *, force: bool = False):
+        """Show the row, hitting the network only when it is stale (or ``force``)."""
+
         tab = self.tab
         self._sync_buttons()
-        self._grid.set_videos([])
-        self._login_btn.hide()
+        self._retry_btn.hide()
         if tab.needs_login and not download_manager.is_logged_in():
+            if self._login_btn.isVisibleTo(self):
+                return  # already asking the user to sign in
+            self._grid.set_videos([])
+            self._shown_key, self._shown_signature, self._saved_at = "", None, 0.0
+            self.refresh_age()
             self._state.setText(tr(
                 "Sign in to see the newest uploads from the creators you follow on Iwara.",
                 "登录 Iwara 账号后，这里会显示你关注作者的最新作品。",
@@ -190,14 +298,57 @@ class SectionBlock(QWidget):
             ))
             self._state.show()
             self._login_btn.show()
-            self._loaded_at = 0.0
             return
+        self._login_btn.hide()
+        if self._collapsed:
+            return  # nothing to show or fetch until it is expanded
+        key = self.cache_key()
+        entry = self._cache.get(key)
+        if entry is not None and (key != self._shown_key or not self._grid.videos()):
+            self._show_rows(entry.rows, entry.saved_at, key)
+        elif entry is not None:
+            self._saved_at = entry.saved_at
+            self.refresh_age()
+        if entry is not None and not force:
+            ttl = cache_ttl_seconds()
+            if ttl <= 0 or entry.is_fresh(ttl):
+                return
+            if self._last_attempt and time.monotonic() - self._last_attempt < RETRY_AFTER_SECONDS:
+                return
+        self._fetch(have_items=entry is not None or bool(self._grid.videos()))
+
+    def _show_rows(self, rows: list[dict], saved_at: float, key: str):
+        items = items_from_rows(self.tab.kind, rows, self.tab.mode, self._rating)
+        self._pending = None
+        self._update_btn.hide()
+        self._shown_key = key
+        self._shown_signature = rows_signature(rows)
+        self._saved_at = saved_at
+        self._grid.set_videos(items)
+        if items:
+            self._state.hide()
+        else:
+            self._state.setText(tr("Nothing here yet.", "这里暂时没有内容。", "まだ何もありません。"))
+            self._state.show()
+        self.refresh_age()
+        self._sync_buttons()
+
+    def _fetch(self, *, have_items: bool):
+        tab = self.tab
         self._token += 1
+        self._last_attempt = time.monotonic()
         if self._worker is not None:
             self._worker.requestInterruption()
-        self._state.setText(tr("Loading…", "加载中…", "読み込み中…"))
-        self._state.show()
-        worker = FeedWorker(self._token, tab.kind, tab.request_params(self._rating), 0, HOME_PAGE_LIMIT)
+        if have_items:
+            self._set_busy(True)  # keep the cards; just disable the refresh button
+        else:
+            self._grid.set_loading(True)
+            self._state.setText(tr("Loading…", "加载中…", "読み込み中…"))
+            self._state.show()
+        worker = FeedWorker(
+            self._token, tab.kind, tab.request_params(self._rating), 0, HOME_PAGE_LIMIT,
+            mode=tab.mode, value=tab.value, rating=self._rating,
+        )
         worker.result_ready.connect(self._on_result)
         worker.finished.connect(lambda worker=worker: self._on_finished(worker))
         self._worker = worker
@@ -214,19 +365,51 @@ class SectionBlock(QWidget):
     def _on_result(self, result: FeedResult):
         if result.token != self._token:
             return
-        self._loaded_at = time.monotonic()
+        self._set_busy(False)
+        self._grid.set_loading(False)
+        key = self.cache_key()
         if result.error and not result.items:
-            self._state.setText(tr(f"Could not load: {result.error}", f"加载失败：{result.error}", f"読み込めませんでした: {result.error}"))
-            self._loaded_at = 0.0
-        elif not result.items:
-            self._state.setText(tr("Nothing here yet.", "这里暂时没有内容。", "まだ何もありません。"))
-        else:
-            self._state.hide()
-        self._grid.set_videos(result.items)
-        self._sync_buttons()
+            if self._grid.videos():
+                # Keep what is on screen; just say the check failed.
+                self._age.setText(tr("Couldn't refresh", "刷新失败", "更新に失敗"))
+                self._age.setToolTip(result.error)
+            else:
+                self._state.setText(tr(f"Could not load: {result.error}", f"加载失败：{result.error}", f"読み込めませんでした: {result.error}"))
+                self._state.show()
+                self._retry_btn.show()
+            return
+        self._age.setToolTip("")
+        changed = self._cache.put(key, result.rows)
+        if key == self._shown_key and not changed and self._grid.videos():
+            self._saved_at = time.time()  # same posts: leave the grid alone
+            self.refresh_age()
+            return
+        if changed and self._grid.videos() and self._grid.selected_videos():
+            # Do not pull cards out from under a selection in progress.
+            self._pending = result
+            self._update_btn.show()
+            return
+        self._show_rows(result.rows, time.time(), key)
+
+    def _apply_pending(self):
+        pending, self._pending = self._pending, None
+        self._update_btn.hide()
+        if pending is not None:
+            self._show_rows(pending.rows, time.time(), self.cache_key())
 
     def shutdown(self, timeout_ms: int) -> bool:
         return stop_workers(list(self._workers), timeout_ms)
+
+    def retire(self):
+        """Stop showing this row; its in-flight loads finish in the background."""
+
+        for worker in list(self._workers):
+            try:
+                worker.requestInterruption()
+            except RuntimeError:
+                pass
+        self.hide()
+        self.setParent(None)
 
 
 class HomeFeedView(QWidget):
@@ -238,72 +421,137 @@ class HomeFeedView(QWidget):
     context_requested = Signal(object, QPoint)
     settings_requested = Signal()
     rating_selected = Signal(str)
+    customize_requested = Signal()
 
-    def __init__(self, fetcher: CoverFetcher, parent: QWidget | None = None):
+    def __init__(self, fetcher: CoverFetcher, parent: QWidget | None = None, *, cache: HomeFeedCache | None = None):
         super().__init__(parent)
+        self._fetcher = fetcher
+        self._cache = cache if cache is not None else shared_cache()
+        self._rating_value = RATING_ALL
+        self._retired: list[SectionBlock] = []
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(PAGE_SPACING)
 
-        header = QHBoxLayout()
-        header.setSpacing(14)
-        header.addWidget(TitleLabel(tr("Home", "首页", "ホーム"), self))
-        header.addStretch(1)
-        header.addWidget(CardSizeControl(self))
-        header.addWidget(BodyLabel(tr("Content", "内容分级", "コンテンツ"), self))
-        self._rating = SegmentedWidget(self)
-        for label, value in rating_options():
-            self._rating.addItem(value, label, lambda _=False, value=value: self.rating_selected.emit(value))
-        header.addWidget(self._rating)
+        self._header = PageHeader(tr("Home", "首页", "ホーム"), self)
+        self._header.tools.addWidget(CardSizeControl(self))
+        self._header.tools.addWidget(self._rating_selector())
+        self._customize_btn = ToolButton(FluentIcon.EDIT, self)
+        self._customize_btn.setToolTip(tr("Customize Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ"))
+        self._customize_btn.clicked.connect(self.customize_requested)
+        self._header.tools.addWidget(self._customize_btn)
         self._refresh_all_btn = PushButton(tr("Refresh all", "全部刷新", "すべて更新"), self, FluentIcon.SYNC)
+        self._refresh_all_btn.setToolTip(tr("Re-check every row now", "立即重新检查所有栏目", "すべての欄を今すぐ再確認"))
         self._refresh_all_btn.clicked.connect(lambda: self.reload_all(force=True))
-        header.addWidget(self._refresh_all_btn)
-        root.addLayout(header)
+        self._header.tools.addWidget(self._refresh_all_btn)
+        root.addWidget(self._header)
 
         self._scroll = transparent_scroll_area("HomeFeedScroll", self)
         page = QWidget()
-        column = QVBoxLayout(page)
-        column.setContentsMargins(0, 0, 8, 24)
-        column.setSpacing(22)
+        self._column = QVBoxLayout(page)
+        self._column.setContentsMargins(0, 0, 8, 24)
+        self._column.setSpacing(24)
+        self._column.addStretch(1)
+        self._scroll.setWidget(page)
+        self._page = page
+        self._empty = EmptyState(
+            FluentIcon.HOME,
+            tr("Nothing on your Home page", "首页还没有栏目", "ホームに欄がありません"),
+            tr("Add rows such as a tag search, an author or the newest uploads.", "添加标签搜索、作者作品或最新上传等栏目。", "タグ検索・作者・新着などの欄を追加できます。"),
+            page,
+            action_text=tr("Customize Home", "自定义首页", "ホームをカスタマイズ"),
+        )
+        self._empty.action_clicked.connect(self.customize_requested)
+        self._column.insertWidget(0, self._empty)
+        root.addWidget(self._scroll, 1)
+
+        self._age_timer = QTimer(self)
+        self._age_timer.setInterval(AGE_TICK_MS)
+        self._age_timer.timeout.connect(self._on_tick)
         self.blocks: list[SectionBlock] = []
-        for section in home_sections():
-            block = SectionBlock(section, fetcher, page)
+        self.rebuild()
+
+    def _rating_selector(self) -> QWidget:
+        holder = QWidget(self)
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        label = BodyLabel(tr("Content", "内容分级", "コンテンツ"), holder)
+        set_secondary_text(label)
+        row.addWidget(label)
+        self._rating = SegmentedWidget(holder)
+        for text, value in rating_options():
+            self._rating.addItem(value, text, lambda _=False, value=value: self.rating_selected.emit(value))
+        row.addWidget(self._rating)
+        return holder
+
+    def rebuild(self, specs=None):
+        """(Re)create the rows from the saved layout."""
+
+        for block in self.blocks:
+            block.retire()
+            self._retired.append(block)
+        self._retired = [b for b in self._retired if b._workers]
+        self.blocks = []
+        sections = home_sections(specs)
+        self._empty.setVisible(not sections)
+        for section in sections:
+            block = SectionBlock(section, self._fetcher, self._page, cache=self._cache)
+            block.set_rating(self._rating_value)
             block.more_requested.connect(self.more_requested)
             block.queue_requested.connect(self.queue_requested)
             block.open_requested.connect(self.open_requested)
             block.context_requested.connect(self.context_requested)
             block.settings_requested.connect(self.settings_requested)
-            column.addWidget(block)
+            self._column.insertWidget(self._column.count() - 1, block)
             self.blocks.append(block)
-        column.addStretch(1)
-        self._scroll.setWidget(page)
-        root.addWidget(self._scroll, 1)
 
     def set_rating(self, rating: str):
         rating = normalize_rating(rating)
+        self._rating_value = rating
         self._rating.setCurrentItem(rating)
         for block in self.blocks:
             block.set_rating(rating)
 
     def reload_all(self, *, force: bool = False):
         for block in self.blocks:
-            if force or block.is_stale():
-                block.reload(force=force)
+            block.reload(force=force)
 
     def reload_subscriptions(self):
+        """The account changed: its cached rows belong to someone else."""
+
+        self._cache.clear(account_only=True)
         for block in self.blocks:
             if block.tab.needs_login:
+                block.invalidate()
                 block.reload(force=True)
 
     def invalidate(self, *, subscriptions_only: bool = False):
         """Mark rows stale so the next time Home is shown they reload."""
 
+        if subscriptions_only:
+            self._cache.clear(account_only=True)
         for block in self.blocks:
             if not subscriptions_only or block.tab.needs_login:
                 block.invalidate()
 
+    def _on_tick(self):
+        for block in self.blocks:
+            block.refresh_age()
+        if self.isVisible():
+            self.reload_all()  # only rows that went stale hit the network
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._age_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._age_timer.stop()
+
     def shutdown(self, timeout_ms: int) -> bool:
-        return all([block.shutdown(timeout_ms) for block in self.blocks])
+        self._age_timer.stop()
+        return all([block.shutdown(timeout_ms) for block in [*self.blocks, *self._retired]])
 
 
 class BrowseView(QWidget):
@@ -326,15 +574,16 @@ class BrowseView(QWidget):
         self._workers: list[FeedWorker] = []
 
         root = QVBoxLayout(self)
+        self._root = root
         root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(PAGE_SPACING)
 
         bar = QHBoxLayout()
         self._bar = bar
         bar.setSpacing(12)
-        back = PushButton(tr("Back", "返回", "戻る"), self, FluentIcon.LEFT_ARROW)
-        back.clicked.connect(self.back_requested)
-        bar.addWidget(back)
+        self._back_btn = PushButton(tr("Back", "返回", "戻る"), self, FluentIcon.LEFT_ARROW)
+        self._back_btn.clicked.connect(self.back_requested)
+        bar.addWidget(self._back_btn)
         self._title = SubtitleLabel("", self)
         bar.addWidget(self._title)
         self._tabs = SegmentedWidget(self)
@@ -401,6 +650,14 @@ class BrowseView(QWidget):
         self._scroll.setWidget(page)
         root.addWidget(self._scroll, 1)
         self._sync_selection()
+
+    def set_embedded(self, embedded: bool):
+        """Hide the back button and title when a host page supplies its own."""
+
+        self._back_btn.setVisible(not embedded)
+        self._title.setVisible(not embedded)
+        if embedded:
+            self._root.setContentsMargins(0, 0, 0, 0)  # the host page supplies the margins
 
     def open(self, section: FeedSection, tab_id: str, rating: str):
         self._section = section
@@ -519,7 +776,6 @@ class HomeInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("HomeInterface")
         self._fetcher = CoverFetcher(self)
-        self._sections = {section.id: section for section in home_sections()}
         self._trail: list[tuple] = [("feed",)]
         self._loaded_once = False
         self._rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
@@ -539,6 +795,7 @@ class HomeInterface(QWidget):
 
         self._feed.rating_selected.connect(self._choose_rating)
         self._feed.more_requested.connect(self._open_browse)
+        self._feed.customize_requested.connect(self.customize)
         self._feed.settings_requested.connect(self.open_settings_requested)
         for view in (self._feed, self._browse):
             view.open_requested.connect(self._open_video)
@@ -551,14 +808,17 @@ class HomeInterface(QWidget):
 
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_changed)
+        signal_bus.home_layout_changed.connect(self._on_layout_changed)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
     def showEvent(self, event):
         super().showEvent(event)
+        # Rows paint from the cache and only re-check the site once stale, so
+        # coming back to Home costs nothing.
         if not self._loaded_once:
             self._loaded_once = True
-            QTimer.singleShot(0, lambda: self._feed.reload_all(force=True))
+            QTimer.singleShot(0, self._feed.reload_all)
         else:
             self._feed.reload_all()
 
@@ -597,7 +857,7 @@ class HomeInterface(QWidget):
         self._browse.set_rating(rating)
         if self._loaded_once:
             if self.isVisible():
-                self._feed.reload_all(force=True)
+                self._feed.reload_all()
             else:
                 self._feed.invalidate()
 
@@ -608,6 +868,22 @@ class HomeInterface(QWidget):
             self._feed.reload_subscriptions()
         else:
             self._feed.invalidate(subscriptions_only=True)
+
+    # ── layout ───────────────────────────────────────────────────────────────
+
+    def customize(self):
+        """Open the editor for which rows Home shows."""
+
+        from .home_layout_dialog import HomeLayoutDialog
+
+        HomeLayoutDialog.edit(self.window())
+
+    def _on_layout_changed(self):
+        self._feed.rebuild()
+        self._feed.set_rating(self._rating)
+        self._browse.set_rating(self._rating)
+        if self._loaded_once and self.isVisible():
+            self._feed.reload_all()
 
     # ── navigation ───────────────────────────────────────────────────────────
 
@@ -644,17 +920,18 @@ class HomeInterface(QWidget):
         self._show(self._trail[-1])
 
     def _open_browse(self, section_id: str, tab_id: str):
-        section = self._sections.get(section_id)
+        section = next((b.section for b in self._feed.blocks if b.section.id == section_id), None)
         if section is None:
             return
         tab = section.tab(tab_id)
-        if not tab.needs_login:
+        if tab.mode == MODE_AUTHOR:
+            target = (tab.value, tab.value, "", "")
+            signal_bus.author_page_requested.emit(target)
+            return
+        if tab.opens_in_search:
             # Public rankings are the search page's job: it already pages,
             # sorts, switches view and queues downloads.
-            sort = dict(tab.params).get("sort", "")
-            signal_bus.search_requested.emit(
-                {"scope": "images" if tab.kind == "image" else "videos", "sort": sort}
-            )
+            signal_bus.search_requested.emit(tab.search_request())
             return
         self._trail = [("feed",), ("browse",)]
         self._browse.open(section, tab_id, self._rating)
@@ -737,6 +1014,10 @@ class HomeInterface(QWidget):
         target = self._author_target(video)
         if target:
             menu.addSeparator()
+            menu.addAction(Action(
+                FluentIcon.PEOPLE, tr("Open author page", "打开作者页", "作者ページを開く"), self,
+                triggered=lambda: signal_bus.author_page_requested.emit(target),
+            ))
             menu.addAction(Action(
                 FluentIcon.SEARCH, tr("View author's works", "查看作者作品", "作者の作品を表示"), self,
                 triggered=lambda: signal_bus.search_requested.emit({"author": target}),

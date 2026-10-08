@@ -11,7 +11,9 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from ..core.home_feed import MODE_AUTHOR, MODE_BROWSE, MODE_KEYWORD, MODE_TAGS
 from ..core.manager import download_manager
+from ..core.rating import filter_by_rating
 from ..core.search import SearchVideo, normalize_image, normalize_video
 from .search_workers import SearchImageWorker
 from .worker_lifecycle import stop_qthreads
@@ -21,6 +23,7 @@ from .worker_lifecycle import stop_qthreads
 class FeedResult:
     token: int
     items: list[SearchVideo] = field(default_factory=list)
+    rows: list[dict] = field(default_factory=list)  # raw API rows, kept for the cache
     total: int | None = None
     has_more: bool = False
     page: int = 0
@@ -40,28 +43,86 @@ def normalize_items(kind: str, rows: list[dict]) -> list[SearchVideo]:
     return [item for item in map(normalize, rows) if item is not None]
 
 
+def items_from_rows(kind: str, rows: list[dict], mode: str = MODE_BROWSE, rating: str = "") -> list[SearchVideo]:
+    """Cards for cached or fresh rows; text search results are rated locally."""
+
+    items = normalize_items(kind, rows)
+    if mode == MODE_KEYWORD:
+        items = filter_by_rating(items, rating)  # /search ignores the rating parameter
+    return items
+
+
+_AUTHOR_IDS: dict[str, str] = {}  # lower-case username -> user id, for this session
+
+
+def author_user_id(username: str, client) -> tuple[str, str]:
+    """``(user id, error)`` for an author's username, remembered per session."""
+
+    key = str(username or "").strip().lstrip("@").casefold()
+    if key in _AUTHOR_IDS:
+        return _AUTHOR_IDS[key], ""
+    user_id, error = client.get_user_id(key)
+    if user_id:
+        _AUTHOR_IDS[key] = user_id
+        return user_id, ""
+    return "", error or "author not found"
+
+
 class FeedWorker(QThread):
-    """Load one page of ``/videos`` or ``/images``."""
+    """Load one page of a Home row: ``/videos``, ``/images`` or ``/search``."""
 
     result_ready = Signal(object)  # FeedResult
 
-    def __init__(self, token: int, kind: str, params: dict[str, str], page: int, limit: int):
+    def __init__(
+        self,
+        token: int,
+        kind: str,
+        params: dict[str, str],
+        page: int,
+        limit: int,
+        *,
+        mode: str = MODE_BROWSE,
+        value: str = "",
+        rating: str = "",
+    ):
         super().__init__()
         self.token = token
         self.kind = "image" if kind == "image" else "video"
         self.params = dict(params)
         self.page = max(0, int(page))
         self.limit = int(limit)
+        self.mode = mode
+        self.value = value
+        self.rating = rating
+
+    def _fetch(self, client):
+        params = dict(self.params)
+        if self.mode == MODE_TAGS:
+            tags = download_manager.tag_dictionary.resolve_query(params.get("tags", ""))
+            if not tags:
+                return [], None, False, "no tags"
+            params["tags"] = ",".join(tags)
+        elif self.mode == MODE_KEYWORD:
+            return client.search_page(
+                "images" if self.kind == "image" else "videos", params, page=self.page, limit=self.limit,
+            )
+        elif self.mode == MODE_AUTHOR:
+            user_id, error = author_user_id(self.value, client)
+            if not user_id:
+                return [], None, False, error
+            params["user"] = user_id
+        return download_manager.get_home_page(
+            self.kind, params, page=self.page, limit=self.limit, api_client=client,
+        )
 
     def run(self):
         client = None
         result = FeedResult(token=self.token, page=self.page)
         try:
             client = download_manager.create_worker_api_client()
-            rows, total, has_more, error = download_manager.get_home_page(
-                self.kind, self.params, page=self.page, limit=self.limit, api_client=client,
-            )
-            result.items = normalize_items(self.kind, rows)
+            rows, total, has_more, error = self._fetch(client)
+            result.rows = list(rows) if not error else []
+            result.items = items_from_rows(self.kind, rows, self.mode, self.rating)
             result.total, result.has_more, result.error = total, has_more, error
         except Exception as exc:
             result.error = str(exc)
@@ -142,6 +203,35 @@ class CommentsWorker(QThread):
             download_manager.close_worker_api_client(client)
         if not self.isInterruptionRequested():
             self.comments_ready.emit(self.token, rows, total, error, self.parent, self.page)
+
+
+class ApiCallWorker(QThread):
+    """Run one call against a private API client off the GUI thread.
+
+    ``call(client)`` returns anything; it is delivered through ``done`` (an
+    exception becomes ``(None, "message")``-style handling by the caller, so the
+    worker reports it as ``error``).
+    """
+
+    done = Signal(object, str)  # result, error
+
+    def __init__(self, call, parent: QObject | None = None):
+        super().__init__(parent)
+        self._call = call
+
+    def run(self):
+        client = None
+        result: Any = None
+        error = ""
+        try:
+            client = download_manager.create_worker_api_client()
+            result = self._call(client)
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            download_manager.close_worker_api_client(client)
+        if not self.isInterruptionRequested():
+            self.done.emit(result, error)
 
 
 class CoverFetcher(QObject):

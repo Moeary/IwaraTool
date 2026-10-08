@@ -125,6 +125,48 @@ class SearchManagerMixin:
 
         return self._api_call("get_user_profile", str(username or "").strip())
 
+    def set_item_liked(
+        self, kind: str, item_id: str, liked: bool, *, api_client: IwaraAPI | None = None,
+    ) -> tuple[bool, str]:
+        """Like or un-like a post with the signed-in account."""
+
+        if api_client is not None:
+            return api_client.set_liked(kind, item_id, liked)
+        return self._api_call("set_liked", kind, item_id, liked)
+
+    def set_user_following(
+        self, user_id: str, following: bool, *, api_client: IwaraAPI | None = None,
+    ) -> tuple[bool, str]:
+        """Follow or unfollow an author on the Iwara website."""
+
+        if api_client is not None:
+            return api_client.set_following(user_id, following)
+        return self._api_call("set_following", user_id, following)
+
+    def get_author_profile(
+        self, username: str, *, api_client: IwaraAPI | None = None,
+    ) -> tuple[dict | None, str]:
+        """An author's profile; carries ``following``/``friend`` when signed in."""
+
+        username = str(username or "").strip().lstrip("@")
+        if api_client is not None:
+            return api_client.get_user_profile(username)
+        return self._api_call("get_user_profile", username)
+
+    def find_author_subscription(self, username: str) -> dict | None:
+        """The local author subscription for ``username`` (any case), if any."""
+
+        wanted = str(username or "").strip().lstrip("@").casefold()
+        if not wanted:
+            return None
+        for source in self.subscriptions.list_sources():
+            if (
+                str(source.get("source_type", "") or "") == "author"
+                and str(source.get("source_key", "") or "").strip().casefold() == wanted
+            ):
+                return source
+        return None
+
     def get_search_playlist_videos(self, playlist_id: str, *, max_pages: int = 4) -> list[dict]:
         """Fetch a bounded playlist result set for the search interface."""
 

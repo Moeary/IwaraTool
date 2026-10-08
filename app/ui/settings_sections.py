@@ -47,6 +47,17 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
             ("appearance", "language", "updates", "data_paths"),
         ),
         (
+            "home",
+            FluentIcon.HOME,
+            tr("Home", "首页", "ホーム"),
+            tr(
+                "Choose which rows the Home page shows and how often they re-check the site.",
+                "选择首页显示哪些栏目，以及各栏目多久向网站重新检查一次。",
+                "ホームに表示する欄と、サイトを再確認する間隔を設定します。",
+            ),
+            ("home_layout", "home_cache"),
+        ),
+        (
             "network",
             FluentIcon.GLOBE,
             tr("Account & Network", "账号与网络", "アカウントとネットワーク"),

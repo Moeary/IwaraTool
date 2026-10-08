@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 from unittest.mock import Mock
@@ -14,7 +15,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.core import rating
 from app.core.api import IwaraAPI
-from app.core.home_feed import home_sections
+from app.core.home_cache import HomeFeedCache
+from app.core.home_feed import default_specs, home_sections
 from app.core.search import (
     SearchFilters,
     SearchVideo,
@@ -73,8 +75,11 @@ class RatingTests(unittest.TestCase):
 
 class FeedDefinitionTests(unittest.TestCase):
     def test_sections_cover_subscriptions_and_hot_lists(self):
-        sections = {s.id: s for s in home_sections()}
-        self.assertEqual(list(sections), ["subscriptions", "hot_videos", "hot_images"])
+        sections = {s.id: s for s in home_sections(default_specs())}
+        self.assertEqual(list(sections), ["latest", "subscriptions", "hot_videos", "hot_images"])
+        latest = sections["latest"]
+        self.assertEqual([t.id for t in latest.tabs], ["main"])
+        self.assertEqual(dict(latest.tab("main").params), {"sort": "date"})
         subs = sections["subscriptions"]
         self.assertTrue(all(tab.needs_login for tab in subs.tabs))
         self.assertEqual({tab.kind for tab in subs.tabs}, {"video", "image"})
@@ -83,13 +88,13 @@ class FeedDefinitionTests(unittest.TestCase):
         self.assertTrue(all(t.kind == "image" for t in sections["hot_images"].tabs))
 
     def test_request_params_add_the_rating_only_when_filtering(self):
-        tab = {s.id: s for s in home_sections()}["hot_videos"].tab("trending")
+        tab = {s.id: s for s in home_sections(default_specs())}["hot_videos"].tab("trending")
         self.assertEqual(tab.request_params("all"), {"sort": "trending"})
         self.assertEqual(tab.request_params("nsfw"), {"sort": "trending", "rating": "ecchi"})
         self.assertEqual(tab.request_params("sfw"), {"sort": "trending", "rating": "general"})
 
     def test_unknown_tab_falls_back_to_the_first(self):
-        section = home_sections()[1]
+        section = {s.id: s for s in home_sections(default_specs())}["hot_videos"]
         self.assertEqual(section.tab("nope").id, section.tabs[0].id)
 
 
@@ -237,6 +242,16 @@ class HomeInterfaceTests(unittest.TestCase):
         from app.ui import home_page
 
         self.home_page = home_page
+        # Never read (or write) the developer's real layout and cache.
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        for target, value in (
+            ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
+            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self._tmp.name, "cache.json"))),
+        ):
+            patch = mock.patch(target, value)
+            patch.start()
+            self.addCleanup(patch.stop)
         patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -327,7 +342,7 @@ class HomeInterfaceTests(unittest.TestCase):
             self.assertEqual(manager.enqueue_video_ids.call_count, 1)
 
     def test_subscription_row_asks_to_sign_in_when_logged_out(self):
-        block = self.home._feed.blocks[0]
+        block = next(b for b in self.home._feed.blocks if b.section.id == "subscriptions")
         with mock.patch.object(self.home_page, "download_manager") as manager:
             manager.is_logged_in.return_value = False
             block.reload(force=True)
@@ -408,6 +423,39 @@ class DetailViewTests(unittest.TestCase):
         self.assertIn("&lt;b&gt;", text)
         self.assertIn("<br>", text)
         self.assertIn('<a href="https://example.com/a?b=1&amp;c=2">', text)
+
+
+class AuthorRoutingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def test_author_pages_open_in_the_subscription_page_and_back_returns(self):
+        from app.signal_bus import signal_bus
+        from app.ui.main_window import MainWindow
+
+        with mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None):
+            previous = MainWindow._window_ref
+            window = MainWindow()
+            try:
+                window.switchTo(window._search_page)
+                with mock.patch.object(window._subscription_page, "show_author") as show:
+                    signal_bus.author_page_requested.emit(("alice", "Alice", "u1", ""))
+                show.assert_called_once_with(("alice", "Alice", "u1", ""), external=True)
+                self.assertIs(window.stackedWidget.currentWidget(), window._subscription_page)
+                window._subscription_page.return_requested.emit()
+                self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
+                # asked from the subscription page itself: nothing to return to
+                window.switchTo(window._subscription_page)
+                with mock.patch.object(window._subscription_page, "show_author") as show:
+                    signal_bus.author_page_requested.emit(("bob", "Bob", "", ""))
+                show.assert_called_once_with(("bob", "Bob", "", ""), external=False)
+            finally:
+                window._reloading_language = True
+                window.close()
+                window.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                MainWindow._window_ref = previous
 
 
 class NavigationOrderTests(unittest.TestCase):

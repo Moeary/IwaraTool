@@ -33,6 +33,8 @@ from ..config import app_config
 from ..core.search import SearchVideo
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .author_status import AuthorStatusBar
+from .chrome import EmptyState, StatusChip
 from .media_card import (
     CardSizeControl,
     MediaCard,
@@ -52,7 +54,7 @@ from .subscription_helpers import (
     _source_type_label,
     _title_matcher,
 )
-from .theme import PAGE_SPACING, palette, set_secondary_text, summary_text
+from .theme import PAGE_SPACING, set_secondary_text, summary_text
 from .ui_state import ResponsiveFlowLayout
 from .worker_lifecycle import stop_qthreads
 
@@ -169,42 +171,98 @@ def load_pixmap(path: str, max_width: int = 360) -> QPixmap | None:
 
 
 class CoverLoader(QObject):
-    """Resolves and caches subscription covers, one small batch at a time."""
+    """Resolves and caches subscription covers, one small batch at a time.
+
+    Requests made for what the user is looking at *now* (``urgent``: the grid of
+    the opened subscription) jump ahead of the background ones (the overview's
+    cover strips), so opening a subscription never waits behind hundreds of
+    covers for other rows.  A cover that failed to download is forgotten and is
+    asked for again the next time something requests it.
+    """
 
     cover_ready = Signal(str, str)  # video id, local path
+    queue_changed = Signal()  # something was queued, finished or dropped
 
     BATCH = 16
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._worker: SubscriptionThumbnailWorker | None = None
-        self._queue: list[tuple[str, str]] = []
+        self._queue: list[tuple[str, str, bool]] = []  # video id, url, urgent
         self._requested: set[str] = set()
+        self._batch: list[str] = []
+        self._delivered: set[str] = set()
 
-    def request(self, requests: list[tuple[str, str]]):
-        fresh = [(v, u) for v, u in requests if v and v not in self._requested]
-        self._requested.update(v for v, _ in fresh)
-        self._queue.extend(fresh)
+    def request(self, requests: list[tuple[str, str]], *, urgent: bool = False):
+        fresh: list[tuple[str, str, bool]] = []
+        for video_id, url in requests:
+            if not video_id:
+                continue
+            if video_id in self._requested:
+                if urgent:
+                    # Already waiting behind background work: move it up.
+                    for index, (queued_id, queued_url, queued_urgent) in enumerate(self._queue):
+                        if queued_id == video_id and not queued_urgent:
+                            self._queue[index] = (queued_id, queued_url, True)
+                            fresh.append(self._queue.pop(index))
+                            break
+                continue
+            self._requested.add(video_id)
+            fresh.append((video_id, url, urgent))
+        if urgent:
+            self._queue = fresh + self._queue
+        else:
+            self._queue.extend(fresh)
         self._pump()
+        self.queue_changed.emit()
 
     def _make_worker(self, batch: list[tuple[str, str]]) -> SubscriptionThumbnailWorker:
-        return SubscriptionThumbnailWorker(batch, concurrency=4)
+        try:
+            concurrency = max(1, min(8, int(app_config.get_ui_value("cover_download_workers_v1", 6) or 6)))
+        except (TypeError, ValueError):
+            concurrency = 6
+        return SubscriptionThumbnailWorker(batch, concurrency=concurrency)
 
     def _pump(self):
         if self._worker is not None or not self._queue:
             return
         batch, self._queue = self._queue[: self.BATCH], self._queue[self.BATCH:]
-        worker = self._make_worker(batch)
+        self._batch = [video_id for video_id, _url, _urgent in batch]
+        self._delivered = set()
+        worker = self._make_worker([(video_id, url) for video_id, url, _urgent in batch])
         self._worker = worker
-        worker.thumbnail_ready.connect(self.cover_ready)
+        worker.thumbnail_ready.connect(self._on_ready)
         worker.finished.connect(lambda worker=worker: self._on_finished(worker))
         worker.start()
+
+    def _on_ready(self, video_id: str, path: str):
+        self._delivered.add(video_id)
+        self.cover_ready.emit(video_id, path)
 
     def _on_finished(self, worker):
         if self._worker is worker:
             self._worker = None
+            # Failures are forgotten so a later look at the same covers retries.
+            self._requested.difference_update(v for v in self._batch if v not in self._delivered)
+            self._batch = []
         worker.deleteLater()
         self._pump()
+        self.queue_changed.emit()
+
+    def pending(self) -> int:
+        """Covers queued or downloading right now."""
+
+        return len(self._queue) + len(self._batch)
+
+    def drop_background(self):
+        """Forget queued non-urgent requests (the overview was left)."""
+
+        kept = [entry for entry in self._queue if entry[2]]
+        dropped = [video_id for video_id, _url, urgent in self._queue if not urgent]
+        self._queue = kept
+        self._requested.difference_update(dropped)
+        if dropped:
+            self.queue_changed.emit()
 
     def forget(self, video_ids: list[str]):
         """Allow these covers to be requested again (e.g. after a manual refresh)."""
@@ -330,9 +388,9 @@ class SourceRow(CardWidget):
 
         new_count = int(source.get("new_count", 0) or 0)
         if new_count:
-            badge = BodyLabel(tr(f"{new_count} new", f"{new_count} 个新增", f"新着 {new_count}"), self)
-            badge.setStyleSheet(f"color: {palette().accent}; font-weight: 600;")
-            head.addWidget(badge)
+            head.addWidget(StatusChip(tr(f"{new_count} new", f"{new_count} 个新增", f"新着 {new_count}"), "accent", self))
+        if not enabled:
+            head.addWidget(StatusChip(tr("Paused", "已停用", "停止中"), "warning", self))
 
         refresh = ToolButton(FluentIcon.SYNC, self)
         refresh.setToolTip(tr("Refresh this source", "刷新此订阅源", "この購読元を更新"))
@@ -471,13 +529,10 @@ class SubscriptionOverview(QWidget):
         self._scroll.setWidget(holder)
         root.addWidget(self._scroll, 1)
 
-        self._empty = QWidget(self)
-        empty_layout = QVBoxLayout(self._empty)
-        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label = BodyLabel("", self._empty)
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        set_secondary_text(self._empty_label)
-        empty_layout.addWidget(self._empty_label)
+        self._empty = EmptyState(
+            FluentIcon.PEOPLE, "", "", self, action_text=tr("Add author / playlist", "添加作者 / 播放列表", "作者/リストを追加"),
+        )
+        self._empty.action_clicked.connect(page._add_source)
         root.addWidget(self._empty, 1)
         self._empty.hide()
 
@@ -550,15 +605,19 @@ class SubscriptionOverview(QWidget):
         self._scroll.setVisible(bool(sources))
         self._empty.setVisible(not sources)
         if not sources:
-            self._empty_label.setText(
-                tr("No match.", "没有符合条件的订阅源。", "該当する購読元がありません。")
-                if has_any
-                else tr(
-                    "No subscriptions yet. Add an author or playlist, or subscribe from a video's page.",
-                    "还没有订阅。添加作者或播放列表，或在视频详情页里订阅作者。",
-                    "購読はまだありません。作者やプレイリストを追加してください。",
+            if has_any:
+                self._empty.set_text(tr("No match", "没有符合条件的订阅源", "該当する購読元がありません"))
+            else:
+                self._empty.set_text(
+                    tr("No subscriptions yet", "还没有订阅", "購読はまだありません"),
+                    tr(
+                        "Add an author or playlist, or subscribe from a video's page or an author page.",
+                        "添加作者或播放列表，也可以在视频详情页或作者页里订阅作者。",
+                        "作者やプレイリストを追加するか、動画ページ・作者ページから購読できます。",
+                    ),
                 )
-            )
+            if self._empty.button is not None:
+                self._empty.button.setVisible(not has_any)
         QTimer.singleShot(0, lambda: self._restore_scroll(scroll_value))
         self._cover_timer.start()
 
@@ -645,6 +704,11 @@ class SubscriptionOverview(QWidget):
         self.reload_if_dirty()
         self._cover_timer.start()
 
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # Whatever the user opens next matters more than these strips.
+        self._covers.drop_background()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._cover_timer.start()
@@ -700,6 +764,11 @@ class SourceItemsView(QWidget):
         more.clicked.connect(lambda: page._show_source_menu(self.source_id, more.mapToGlobal(more.rect().bottomLeft())))
         head.addWidget(more)
         root.addLayout(head)
+
+        # Whether this author is subscribed here / followed on Iwara, with the buttons to change it.
+        self.status_bar = AuthorStatusBar(self, show_open=False)
+        self.status_bar.hide()
+        root.addWidget(self.status_bar)
 
         filters = ResponsiveFlowLayout(spacing=8)
         self._search = SearchLineEdit(self)
@@ -796,6 +865,7 @@ class SourceItemsView(QWidget):
         self._filter_timer.setInterval(180)
         self._filter_timer.timeout.connect(lambda: self._apply(reset_page=True))
         covers.cover_ready.connect(self._on_cover_ready)
+        covers.queue_changed.connect(self._sync_status)
         self._sync_buttons()
 
     # ── data ─────────────────────────────────────────────────────────────────
@@ -817,6 +887,11 @@ class SourceItemsView(QWidget):
         pixmap = load_pixmap(str(source.get("avatar_path", "") or ""), 120)
         if pixmap is not None:
             self._avatar.setImage(pixmap)
+        self.status_bar.setVisible(is_author)
+        if is_author:
+            self.status_bar.set_author(
+                key, title, str(source.get("remote_id", "") or ""), str(source.get("avatar_url", "") or ""),
+            )
         self._search.blockSignals(True)
         self._search.clear()
         self._search.blockSignals(False)
@@ -838,6 +913,12 @@ class SourceItemsView(QWidget):
             return
         self._items = self._page._source_items(self.source_id)
         self._apply(reset_page=False)
+
+    def refresh_status(self):
+        """Re-read whether the author is still a local subscription."""
+
+        if self.status_bar.isVisibleTo(self):
+            self.status_bar.refresh_local()
 
     def reload_if_visible(self):
         if self.isVisible():
@@ -885,15 +966,33 @@ class SourceItemsView(QWidget):
                 f"{self._page_index + 1} / {self._page_count()} ページ",
             )
         )
-        new_count = sum(1 for item in self._items if item_state(item) == "new")
-        self._status.setText(
-            tr(
-                f"{len(self._filtered)} of {len(self._items)} videos · {new_count} new",
-                f"显示 {len(self._filtered)} / {len(self._items)} 个视频 · {new_count} 个新增",
-                f"{len(self._filtered)} / {len(self._items)} 本 · 新規 {new_count}",
-            )
-        )
+        self._page_video_ids = [v.video_id for v in videos]
+        self._sync_status()
         self._sync_buttons()
+
+    def _sync_status(self):
+        """Counts, plus how many covers of this page are still on their way."""
+
+        new_count = sum(1 for item in self._items if item_state(item) == "new")
+        text = tr(
+            f"{len(self._filtered)} of {len(self._items)} videos · {new_count} new",
+            f"显示 {len(self._filtered)} / {len(self._items)} 个视频 · {new_count} 个新增",
+            f"{len(self._filtered)} / {len(self._items)} 本 · 新規 {new_count}",
+        )
+        missing = sum(1 for video_id in getattr(self, "_page_video_ids", []) if video_id not in self._pixmaps)
+        if missing and self._covers.pending():
+            text += tr(
+                f" · loading covers ({missing} left)",
+                f" · 正在加载封面（还剩 {missing} 个）",
+                f" · カバー読み込み中（残り {missing}）",
+            )
+        elif missing:
+            text += tr(
+                f" · {missing} cover(s) unavailable — Refresh to retry",
+                f" · {missing} 个封面暂未取到，点“刷新”重试",
+                f" · カバー {missing} 件が未取得です。更新で再試行できます",
+            )
+        self._status.setText(text)
 
     def _request_covers(self, videos: list[SearchVideo]):
         requests = [
@@ -902,13 +1001,15 @@ class SourceItemsView(QWidget):
             if v.video_id not in self._pixmaps
         ]
         if requests:
-            self._covers.request(requests)
+            # What is on screen now goes first, ahead of the overview's strips.
+            self._covers.request(requests, urgent=True)
 
     def _on_cover_ready(self, video_id: str, path: str):
         pixmap = load_pixmap(path)
         if pixmap is not None:
             self._pixmaps[video_id] = pixmap
             self._grid.set_cover(video_id, pixmap)
+            self._sync_status()
 
     # ── actions ──────────────────────────────────────────────────────────────
 

@@ -42,6 +42,9 @@ class TaskSignalBus(QObject):
     # source_id
     subscription_source_added = Signal(int)
 
+    # A local subscription was removed outside the Subscriptions page.
+    subscription_sources_changed = Signal()
+
     # source_id; explicitly navigate to an existing subscription source.
     subscription_source_requested = Signal(int)
 
@@ -78,6 +81,12 @@ class TaskSignalBus(QObject):
     # {"scope", "keyword", "sort", "author": (username, name, id, avatar)};
     # run an Iwara search on the Search page.
     search_requested = Signal(dict)
+
+    # (username, name, user id, avatar url); open that author's in-app page.
+    author_page_requested = Signal(object)
+
+    # The set or order of Home rows was edited (Settings or Home).
+    home_layout_changed = Signal()
 
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()

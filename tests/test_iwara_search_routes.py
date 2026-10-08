@@ -23,6 +23,15 @@ from app.core.tag_dictionary import TagDictionary
 from app.ui.search_page import SearchInterface, SearchWorker
 
 
+def _set_columns(page, columns: int):
+    """Pick the cover size that makes the grid lay out exactly ``columns`` per row."""
+
+    spacing = 12
+    available = max(1, page._results.viewport().width() - 16)
+    page._card_min_width = max(40, (available + spacing) // columns - spacing)
+    page._resize_grid()
+
+
 class SearchRouteTests(unittest.TestCase):
     def setUp(self):
         self.context = ExitStack()
@@ -316,17 +325,51 @@ class SearchModeInterfaceTests(unittest.TestCase):
         video = SearchVideo(video_id="v1", title="Cover")
         page._all_videos = [video]
         page._image_path_by_key["video:v1"] = path
-        page._set_combo_data(page._grid_columns_combo, 4)
         page.resize(1200, 900)
+        page.show()
+        QApplication.processEvents()
+        _set_columns(page, 4)
         page._render_results()
         page._resize_grid()
         small = page._grid_icon_size
-        page._set_combo_data(page._grid_columns_combo, 1)
+        _set_columns(page, 1)
         page._resize_grid()
         large = page._grid_icon_size
         self.assertGreater(large.width(), small.width())
         icon = page._item_by_key["video:v1"].icon()
         self.assertEqual(icon.availableSizes()[0], large)
+
+    def test_grid_density_uses_the_shared_cover_size_slider(self):
+        from app.ui.media_card import CardSizeControl
+
+        page = self.page
+        self.assertFalse(hasattr(page, "_grid_columns_combo"))
+        self.assertIsInstance(page._card_size_control, CardSizeControl)
+        page._card_min_width = 140
+        small = page._grid_columns_for(1200, 12)
+        page._card_min_width = 440
+        large = page._grid_columns_for(1200, 12)
+        self.assertGreater(small, large)
+        self.assertEqual(page._grid_columns_for(100, 12), 1)  # never below one column
+
+    def test_moving_the_slider_regrids_the_results(self):
+        page = self.page
+        page.resize(1200, 900)
+        page.show()
+        QApplication.processEvents()
+        page._card_size_control.size_changed.emit(300)
+        self.assertEqual(page._card_min_width, 300)
+        wide = page._grid_item_size.width()
+        page._card_size_control.size_changed.emit(140)
+        self.assertLess(page._grid_item_size.width(), wide)
+
+    def test_the_slider_is_only_offered_in_grid_view(self):
+        page = self.page
+        page.show()
+        QApplication.processEvents()
+        self.assertFalse(page._card_size_control.isHidden())
+        page._set_combo_data(page._view_combo, "list")
+        self.assertTrue(page._card_size_control.isHidden())
 
     def test_paging_keeps_query_and_sort_and_restarts_after_edits(self):
         self.page._keyword_edit.setText("dance")

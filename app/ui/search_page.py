@@ -96,14 +96,14 @@ from .ui_state import (
     restore_table_widths,
     show_fluent_text_input,
 )
+from .media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN, CardSizeControl, saved_card_width
 from .theme import CARD_MARGINS, PAGE_MARGINS, qcolor, set_secondary_text
 from .worker_lifecycle import stop_qthreads
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)
 _DEFAULT_GRID_HEIGHT = 238
-_DEFAULT_GRID_COLUMNS = 4
-_MAX_GRID_COLUMNS = 8
+_MAX_GRID_COLUMNS = 12
 _SEARCH_HISTORY_KEY = "search_history_v1"
 # Decoded covers kept for re-scaling; a few pages' worth is plenty.
 _SOURCE_PIXMAP_CACHE_LIMIT = 256
@@ -302,21 +302,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
         self._view_combo.currentIndexChanged.connect(self._on_view_changed)
         options_row.addWidget(self._view_combo)
-        self._grid_columns_label = BodyLabel(tr("Columns", "列数", "列数"), query_card)
-        set_secondary_text(self._grid_columns_label)
-        options_row.addWidget(self._grid_columns_label)
-        self._grid_columns_combo = ComboBox(query_card)
-        for columns in range(1, _MAX_GRID_COLUMNS + 1):
-            self._add_combo_item(self._grid_columns_combo, str(columns), str(columns))
-        try:
-            saved_columns = int(app_config.get_ui_value("search_grid_columns_v1", _DEFAULT_GRID_COLUMNS) or _DEFAULT_GRID_COLUMNS)
-        except (TypeError, ValueError):
-            saved_columns = _DEFAULT_GRID_COLUMNS
-        self._grid_columns_combo.setCurrentIndex(max(1, min(_MAX_GRID_COLUMNS, saved_columns)) - 1)
-        self._grid_columns_combo.setFixedWidth(72)
-        self._grid_columns_combo.setToolTip(tr("Cards per row", "每行列数", "1行の列数"))
-        self._grid_columns_combo.currentIndexChanged.connect(self._on_grid_columns_changed)
-        options_row.addWidget(self._grid_columns_combo)
+        # The same cover-size slider as Home and Subscriptions: one control,
+        # one saved size, instead of a separate "columns" number here.
+        self._card_size_control = CardSizeControl(query_card)
+        options_row.addWidget(self._card_size_control)
+        self._card_min_width = saved_card_width()
+        self._card_size_control.size_changed.connect(self._on_card_size_changed)
         self._result_fields_btn = ToolButton(FluentIcon.SETTING, query_card)
         self._result_fields_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         self._result_fields_btn.clicked.connect(self._configure_result_columns)
@@ -749,8 +740,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._view_combo.setEnabled(not grid_only)
         list_mode = self._is_list_view()
         grid_mode = not list_mode
-        self._grid_columns_label.setVisible(grid_mode)
-        self._grid_columns_combo.setVisible(grid_mode)
+        self._card_size_control.setVisible(grid_mode)
         self._result_fields_btn.setVisible(list_mode)
         if hasattr(self, "_results_stack"):
             self._results_stack.setCurrentIndex(1 if list_mode else 0)
@@ -765,15 +755,15 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if not self._is_list_view():
             self._start_image_loading()
 
-    def _on_grid_columns_changed(self, _index: int):
-        try:
-            value = int(self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS)
-        except (TypeError, ValueError):
-            value = _DEFAULT_GRID_COLUMNS
-        value = max(1, min(_MAX_GRID_COLUMNS, value))
-        app_config.set_ui_value("search_grid_columns_v1", value)
+    def _on_card_size_changed(self, width: int):
+        self._card_min_width = max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, int(width)))
         self._resize_grid()
         self._schedule_grid_resize()
+
+    def _grid_columns_for(self, available_width: int, spacing: int) -> int:
+        """Cards per row for the chosen cover size: as many as fit at least that wide."""
+
+        return max(1, min(_MAX_GRID_COLUMNS, (available_width + spacing) // (self._card_min_width + spacing)))
 
     def _configure_result_columns(self):
         open_table_column_dialog(
@@ -1936,12 +1926,6 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         width = self._results.viewport().width()
         if width <= 0:
             return
-        try:
-            requested_columns = int(
-                self._grid_columns_combo.currentData() or _DEFAULT_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            requested_columns = _DEFAULT_GRID_COLUMNS
         spacing = 12
         # Keep a small fixed reserve for the vertical scrollbar and Qt's list
         # layout rounding.  Without it a 1208px viewport calculates 301px
@@ -1952,10 +1936,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             int(self._results.verticalScrollBar().sizeHint().width()) - 1,
         )
         available_width = max(1, width - scrollbar_reserve)
-        # The selector is an explicit user preference.  Keep that exact
-        # column count even on compact panes and calculate a smaller cell
-        # instead of silently reducing 8 columns to 4.
-        columns = max(1, min(_MAX_GRID_COLUMNS, requested_columns))
+        columns = self._grid_columns_for(available_width, spacing)
         cell_width = max(
             40,
             (available_width - spacing * (columns - 1)) // columns,

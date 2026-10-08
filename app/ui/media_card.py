@@ -7,7 +7,7 @@ selection tick top-right.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -95,6 +95,10 @@ class MediaCard(QWidget):
         self._pixmap: QPixmap | None = None
         self._scaled: QPixmap | None = None
         self._scaled_size = QSize()
+        self._hover_t = 0.0  # 0..1, eased in and out so hovering feels alive
+        self._cover_alpha = 1.0  # a freshly arrived cover fades in
+        self._anim: QVariantAnimation | None = None
+        self._fade: QVariantAnimation | None = None
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -141,8 +145,42 @@ class MediaCard(QWidget):
             self.toggled.emit(self.video, selected)
 
     def set_cover(self, pixmap: QPixmap | None):
+        first = self._pixmap is None
         self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
         self._scaled = None
+        if first and self._pixmap is not None and self.isVisible() and self.width() > 0:
+            self._start_fade()
+        else:
+            self._cover_alpha = 1.0
+        self.update()
+
+    def _start_fade(self):
+        if self._fade is None:
+            self._fade = QVariantAnimation(self)
+            self._fade.setDuration(220)
+            self._fade.setStartValue(0.0)
+            self._fade.setEndValue(1.0)
+            self._fade.valueChanged.connect(self._on_fade)
+        self._fade.stop()
+        self._cover_alpha = 0.0
+        self._fade.start()
+
+    def _on_fade(self, value):
+        self._cover_alpha = float(value)
+        self.update()
+
+    def _animate_hover(self, target: float):
+        if self._anim is None:
+            self._anim = QVariantAnimation(self)
+            self._anim.setDuration(150)
+            self._anim.valueChanged.connect(self._on_hover_value)
+        self._anim.stop()
+        self._anim.setStartValue(self._hover_t)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def _on_hover_value(self, value):
+        self._hover_t = float(value)
         self.update()
 
     # ── geometry ─────────────────────────────────────────────────────────────
@@ -175,12 +213,12 @@ class MediaCard(QWidget):
 
     def enterEvent(self, event):
         self._hover = True
-        self.update()
+        self._animate_hover(1.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._hover = False
-        self.update()
+        self._animate_hover(0.0)
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -259,9 +297,19 @@ class MediaCard(QWidget):
         painter.fillRect(cover, to_qcolor(p.placeholder))
         scaled = self._scaled_cover(cover.size())
         if scaled is not None:
-            painter.drawPixmap(cover.topLeft(), scaled)
-        if self._hover or self._selected:
+            painter.setOpacity(self._cover_alpha)
+            grow = round(cover.width() * 0.035 * self._hover_t)
+            if grow:
+                # A slow zoom on hover; the card's rounded clip keeps it tidy.
+                target = cover.adjusted(-grow, -round(grow * COVER_RATIO), grow, round(grow * COVER_RATIO))
+                painter.drawPixmap(target, scaled)
+            else:
+                painter.drawPixmap(cover.topLeft(), scaled)
+            painter.setOpacity(1.0)
+        if self._selected:
             painter.fillRect(cover, QColor(0, 0, 0, 38))
+        elif self._hover_t > 0:
+            painter.fillRect(cover, QColor(0, 0, 0, round(30 * self._hover_t)))
         painter.restore()
 
         # Badges on the cover.
@@ -384,6 +432,12 @@ class MediaGrid(QWidget):
         self._covers: dict[str, QPixmap] = {}
         self._columns = 1
         self._fetcher = None
+        self._loading = False
+        self._skeleton_phase = 0.0
+        self._skeleton_timer = QTimer(self)
+        self._skeleton_timer.setInterval(60)
+        self._skeleton_timer.timeout.connect(self._tick_skeleton)
+        self._probe: MediaCard | None = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def bind_fetcher(self, fetcher):
@@ -439,7 +493,76 @@ class MediaGrid(QWidget):
 
     def set_videos(self, videos: list[SearchVideo]):
         self._videos = list(videos)
+        if videos:
+            self._set_loading_state(False)
         self._rebuild()
+
+    # ── loading placeholder ──────────────────────────────────────────────────
+
+    def is_loading(self) -> bool:
+        return self._loading
+
+    def set_loading(self, loading: bool):
+        """Show pulsing placeholder cards while an empty grid waits for data."""
+
+        loading = bool(loading) and not self._cards
+        if loading == self._loading:
+            return
+        self._set_loading_state(loading)
+        self._layout_cards()
+        self.update()
+
+    def _set_loading_state(self, loading: bool):
+        self._loading = loading
+        if loading:
+            self._skeleton_timer.start()
+        else:
+            self._skeleton_timer.stop()
+
+    def _tick_skeleton(self):
+        self._skeleton_phase = (self._skeleton_phase + 0.06) % 1.0
+        self.update()
+
+    def _placeholder_count(self, columns: int) -> int:
+        return columns * (self._max_rows or 2)
+
+    def _card_height(self, width: int) -> int:
+        if self._probe is None:
+            self._probe = MediaCard(SearchVideo(video_id="", title=""), self, selectable=False, compact=self._compact)
+            self._probe.hide()
+        return self._probe.height_for_width(width)
+
+    def paintEvent(self, event):
+        if not (self._loading and not self._cards and self.width() > 0):
+            super().paintEvent(event)
+            return
+        import math
+
+        p = palette()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        columns = self.columns_for_width(self.width())
+        card_width = (self.width() - self._gap * (columns - 1)) // columns
+        card_height = self._card_height(card_width)
+        pulse = 0.5 + 0.5 * math.sin(self._skeleton_phase * 2 * math.pi)
+        fill = to_qcolor(p.placeholder)
+        fill.setAlphaF(0.55 + 0.45 * pulse)
+        surface = to_qcolor(p.surface)
+        border = to_qcolor(p.border)
+        for index in range(self._placeholder_count(columns)):
+            x = (index % columns) * (card_width + self._gap)
+            y = (index // columns) * (card_height + self._gap)
+            outer = QRectF(x + 0.5, y + 0.5, card_width - 1, card_height - 1)
+            painter.setPen(QPen(border, 1))
+            painter.setBrush(surface)
+            painter.drawRoundedRect(outer, CARD_RADIUS, CARD_RADIUS)
+            cover = QRectF(x + 1, y + 1, card_width - 2, round(card_width * COVER_RATIO) - 1)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(cover, CARD_RADIUS - 1, CARD_RADIUS - 1)
+            bar_y = cover.bottom() + CARD_PAD + 2
+            painter.drawRoundedRect(QRectF(x + CARD_PAD, bar_y, card_width * 0.78, 9), 4, 4)
+            painter.drawRoundedRect(QRectF(x + CARD_PAD, bar_y + 17, card_width * 0.5, 8), 4, 4)
 
     def videos(self) -> list[SearchVideo]:
         return list(self._videos)
@@ -515,6 +638,10 @@ class MediaGrid(QWidget):
             card.move(col * (card_width + self._gap), y)
             row_height = max(row_height, card.height())
         total = y + row_height if self._cards else 0
+        if self._loading and not self._cards:
+            card_height = self._card_height(card_width)
+            rows = self._placeholder_count(columns) // columns
+            total = rows * card_height + (rows - 1) * self._gap
         if self.height() != total:
             self.setFixedHeight(total)
 
@@ -528,6 +655,8 @@ class MediaGrid(QWidget):
 
 class CardSizeControl(QWidget):
     """Zoom slider for the poster grids; every grid follows it."""
+
+    size_changed = Signal(int)  # the shared size changed (from this or any other slider)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -567,6 +696,7 @@ class CardSizeControl(QWidget):
             self._slider.blockSignals(True)
             self._slider.setValue(int(value))
             self._slider.blockSignals(False)
+        self.size_changed.emit(int(value))
 
 
 def transparent_scroll_area(name: str, parent: QWidget | None = None):

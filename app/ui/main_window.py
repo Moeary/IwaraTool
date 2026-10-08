@@ -97,6 +97,7 @@ class MainWindow(FluentWindow):
         signal_bus.subscription_source_requested.connect(self._on_subscription_source_requested)
         signal_bus.media_detail_requested.connect(self._on_media_detail_requested)
         signal_bus.search_requested.connect(self._on_search_requested)
+        signal_bus.author_page_requested.connect(self._on_author_page_requested)
         qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 
@@ -123,6 +124,8 @@ class MainWindow(FluentWindow):
         )
         self._home_page.return_requested.connect(self._return_from_detail)
         self._detail_origin = None
+        self._author_origin = None
+        self._subscription_page.return_requested.connect(self._return_from_author)
 
         # Sidebar order: Home, Subscriptions, Search, Download Hub, Repair, History.
         self.addSubInterface(
@@ -239,6 +242,20 @@ class MainWindow(FluentWindow):
         """Back from a detail page that was opened from another page."""
 
         origin, self._detail_origin = self._detail_origin, None
+        if origin is not None:
+            self.switchTo(origin)
+
+    def _on_author_page_requested(self, target):
+        """Open an author's in-app page (subscribed or not); Back returns to the caller."""
+
+        origin = self.stackedWidget.currentWidget()
+        external = origin is not None and origin is not self._subscription_page
+        self._author_origin = origin if external else None
+        self._subscription_page.show_author(tuple(target), external=external)
+        self.switchTo(self._subscription_page)
+
+    def _return_from_author(self):
+        origin, self._author_origin = self._author_origin, None
         if origin is not None:
             self.switchTo(origin)
 

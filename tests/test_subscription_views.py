@@ -243,6 +243,81 @@ class SubscriptionPageViewTests(_QtCase):
     def test_account_feed_button_is_gone(self):
         self.assertFalse(hasattr(self.page, "_add_following_feed"))
 
+    def _quiet_author_page(self):
+        """Keep the author page off the network and its status bar on the test manager."""
+
+        for target, value in (
+            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
+            ("app.ui.author_status.download_manager", self.manager),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_subscribed_author_opens_on_its_grid_with_the_status_bar(self):
+        self._quiet_author_page()
+        self.page.show_author(("creator", "Creator", "", ""))
+        self.assertIs(self.page._view_stack.currentWidget(), self.page._source_view)
+        self.assertFalse(self.page._source_view.status_bar.isHidden())
+        self.assertEqual(self.page._source_view.status_bar.username, "creator")
+        self.assertEqual(self.page._source_view.status_bar.source_id, self.author)
+        self.page._open_source_grid(self.playlist)
+        self.assertTrue(self.page._source_view.status_bar.isHidden())  # playlists have no author state
+
+    def test_an_unknown_author_gets_the_live_author_page(self):
+        self._quiet_author_page()
+        self.page.show_author(("stranger", "Stranger", "u9", ""))
+        self.assertIs(self.page._view_stack.currentWidget(), self.page._author_view)
+        self.assertEqual(self.page._author_view.username, "stranger")
+        self.assertEqual(self.page._author_view.status.source_id, 0)
+        tab = self.page._author_view._browse._section.tab("videos")
+        self.assertEqual((tab.mode, tab.value), ("author", "stranger"))
+
+    def test_back_from_an_author_opened_here_returns_to_the_overview(self):
+        self._quiet_author_page()
+        returned = []
+        self.page.return_requested.connect(lambda: returned.append(True))
+        self.page.show_author(("stranger", "Stranger", "u9", ""))
+        self.page._author_view.back_requested.emit()
+        self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
+        self.assertEqual(returned, [])
+
+    def test_back_from_an_author_opened_by_another_page_leaves_this_page(self):
+        self._quiet_author_page()
+        returned = []
+        self.page.return_requested.connect(lambda: returned.append(True))
+        self.page.show_author(("stranger", "Stranger", "u9", ""), external=True)
+        self.page._author_view.back_requested.emit()
+        self.assertEqual(returned, [True])
+        self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
+
+    def test_removing_the_viewed_subscription_elsewhere_closes_its_grid(self):
+        from app.signal_bus import signal_bus
+
+        self._quiet_author_page()
+        self.page.show_author(("creator", "Creator", "", ""))
+        self.manager.subscriptions.remove_sources([self.author])
+        signal_bus.subscription_sources_changed.emit()
+        self.page._refresh_views()
+        self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
+        self.assertNotIn(self.author, self.page._overview._rows)
+
+    def test_source_grid_asks_for_its_covers_urgently_and_reports_progress(self):
+        view = self.page._source_view
+        with patch("app.ui.subscription_views.CoverLoader.request") as request, \
+                patch("app.ui.subscription_views.CoverLoader.pending", return_value=3):
+            view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+            view._sync_status()
+        self.assertTrue(request.call_args.kwargs.get("urgent"))
+        self.assertIn("10", view._status.text())
+
+    def test_leaving_the_overview_drops_its_background_covers(self):
+        with patch("app.ui.subscription_views.CoverLoader.drop_background") as drop:
+            self.page._open_source_grid(self.author)
+            self.app.processEvents()
+        drop.assert_called()
+
     def test_card_activation_requests_the_detail_page(self):
         from app.signal_bus import signal_bus
 

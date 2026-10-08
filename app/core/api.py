@@ -418,6 +418,56 @@ class IwaraAPI:
         except Exception as exc:
             return None, str(exc)
 
+    # ── Account actions (need a logged-in token) ─────────────────────────────
+
+    def _mutate(self, method: str, url: str, *, action: str) -> tuple[bool, str]:
+        """POST/DELETE an account action; any 2xx counts as success."""
+
+        if not self.token:
+            return False, tr(
+                "Sign in to Iwara first (Settings → Account).",
+                "请先在设置中登录 Iwara 账号。",
+                "先にIwaraへログインしてください（設定 → アカウント）。",
+            )
+        resp = None
+        try:
+            resp = self.scraper.request(method, url, headers=self._headers(), timeout=30)
+            if 200 <= resp.status_code < 300:
+                return True, ""
+            ok, data, parse_error = _try_response_json(resp, action=action)
+            message = _extract_api_message(data) if ok else ""
+            return False, f"HTTP {resp.status_code}: {message}" if message else (parse_error or _friendly_http_response(resp))
+        except Exception as exc:
+            return False, _friendly_network_error(str(exc), action=action)
+        finally:
+            if resp is not None:
+                resp.close()
+
+    def set_liked(self, kind: str, item_id: str, liked: bool) -> tuple[bool, str]:
+        """Like (``POST``) or un-like (``DELETE``) a video or image post."""
+
+        kind = "image" if str(kind).strip().lower().startswith("image") else "video"
+        item_id = str(item_id or "").strip()
+        if not item_id:
+            return False, tr("Missing post id", "缺少作品 ID", "投稿IDがありません")
+        return self._mutate(
+            "POST" if liked else "DELETE",
+            f"{BASE_API}/{kind}/{item_id}/like",
+            action=tr("like request", "点赞请求", "いいねリクエスト"),
+        )
+
+    def set_following(self, user_id: str, following: bool) -> tuple[bool, str]:
+        """Follow (``POST``) or unfollow (``DELETE``) a user on the website."""
+
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            return False, tr("Missing user id", "缺少用户 ID", "ユーザーIDがありません")
+        return self._mutate(
+            "POST" if following else "DELETE",
+            f"{BASE_API}/user/{user_id}/followers",
+            action=tr("follow request", "关注请求", "フォローリクエスト"),
+        )
+
     def get_user_videos(
         self,
         user_id: str,

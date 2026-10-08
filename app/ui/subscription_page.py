@@ -40,7 +40,6 @@ from qfluentwidgets import (
     SegmentedWidget,
     SubtitleLabel,
     TableWidget,
-    TitleLabel,
     ToolButton,
     isDarkTheme,  # noqa: F401 - patched by tests; read by subscription_actions
 )
@@ -76,6 +75,9 @@ from .subscription_helpers import (
     _video_url,
     _split_title_keywords,
 )
+from .author_view import AuthorView
+from .chrome import PageHeader
+from .media_card import CARD_WIDTH_MIN, CardSizeControl, saved_card_width
 from .subscription_components import (
     ResponsiveCoverList,
     SubscriptionAvatarWorker,
@@ -85,7 +87,6 @@ from .subscription_components import (
     SubscriptionThumbnailWorker,
     _CONTROL_HEIGHT,
     _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-    _DEFAULT_SUBSCRIPTION_GRID_COLUMNS,
     _FluentContentSplitter,
     _MAX_COVER_DOWNLOAD_CONCURRENCY,
     _MAX_SUBSCRIPTION_GRID_COLUMNS,
@@ -151,6 +152,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
     # Emitted whenever the source list was re-read (refresh, add, delete, ...).
     sources_changed = Signal()
+    # An author/source page that another page opened was closed with Back.
+    return_requested = Signal()
 
     _RENDER_BATCH_SIZE = 80
     _MIN_ITEM_TABLE_HEIGHT = 140
@@ -214,6 +217,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         signal_bus.task_removed.connect(self._on_task_changed)
         signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
         signal_bus.subscription_source_added.connect(self._on_subscription_source_added)
+        signal_bus.subscription_sources_changed.connect(self._on_sources_changed_elsewhere)
         self._sync_download_option_buttons()
 
     def _build_ui(self):
@@ -221,15 +225,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(12)
 
-        title_row = QHBoxLayout()
-        title_row.setSpacing(16)
-        title_row.addWidget(TitleLabel(tr("Subscriptions", "订阅页", "購読"), self))
+        # Same header as Home: title on the left, the page's switches on the right.
+        self._page_header = PageHeader(tr("Subscriptions", "订阅页", "購読"), self)
         self._view_switch = SegmentedWidget(self)
         self._view_switch.addItem("overview", tr("Overview", "总览", "概要"), lambda: self._set_view_mode("overview"))
         self._view_switch.addItem("table", tr("Table", "经典表格", "表形式"), lambda: self._set_view_mode("table"))
-        title_row.addWidget(self._view_switch)
-        title_row.addStretch()
-        root.addLayout(title_row)
+        self._page_header.tools.addWidget(self._view_switch)
+        root.addWidget(self._page_header)
 
         splitter = _FluentContentSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
@@ -251,10 +253,16 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._overview = SubscriptionOverview(self, self._covers, self._view_stack)
         self._source_view = SourceItemsView(self, self._covers, self._view_stack)
         self._view_stack.addWidget(self._overview)
+        self._author_view = AuthorView(self._view_stack)
         self._view_stack.addWidget(self._source_view)
+        self._view_stack.addWidget(self._author_view)
         self._view_stack.addWidget(self._table_page)
         self._overview.source_opened.connect(self._open_source_grid)
         self._source_view.back_requested.connect(self._close_source_grid)
+        self._author_view.back_requested.connect(self._close_author_view)
+        self._author_view.open_subscription_requested.connect(self._open_source_grid)
+        self._external_return = False  # Back from the open author/source page leaves this page
+        self._page_origin = None
         root.addWidget(self._view_stack, stretch=1)
 
         left_panel = CardWidget(self)
@@ -332,8 +340,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             button.setFixedSize(40, _CONTROL_HEIGHT)
         self._toggle_sources_btn.clicked.connect(self._toggle_source_panel)
         self._toggle_items_btn.clicked.connect(self._toggle_item_panel)
-        title_row.addWidget(self._toggle_sources_btn)
-        title_row.addWidget(self._toggle_items_btn)
+        self._page_header.tools.addWidget(self._toggle_sources_btn)
+        self._page_header.tools.addWidget(self._toggle_items_btn)
         self._update_panel_toggle_buttons()
 
         source_header = QHBoxLayout()
@@ -692,36 +700,11 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._item_view_combo.currentIndexChanged.connect(self._on_item_view_changed)
         item_filter_row.addWidget(self._item_view_combo)
 
-        self._item_grid_columns_label = BodyLabel(
-            tr("Columns", "每行列数", "1行の列数"), self
-        )
-        _style_inline_label(self._item_grid_columns_label)
-        item_filter_row.addWidget(self._item_grid_columns_label)
-        self._item_grid_columns_combo = ComboBox(self)
-        for columns in range(1, _MAX_SUBSCRIPTION_GRID_COLUMNS + 1):
-            self._item_grid_columns_combo.addItem(str(columns))
-            self._item_grid_columns_combo.setItemData(
-                self._item_grid_columns_combo.count() - 1,
-                str(columns),
-            )
-        try:
-            saved_grid_columns = int(
-                app_config.get_ui_value(
-                    "subscription_grid_columns_v1",
-                    _DEFAULT_SUBSCRIPTION_GRID_COLUMNS,
-                )
-                or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            saved_grid_columns = _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        self._item_grid_columns_combo.setCurrentIndex(
-            max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, saved_grid_columns)) - 1
-        )
-        self._item_grid_columns_combo.setFixedWidth(84)
-        self._item_grid_columns_combo.currentIndexChanged.connect(
-            self._on_item_grid_columns_changed
-        )
-        item_filter_row.addWidget(self._item_grid_columns_combo)
+        # Same cover-size slider as Home, Search and the overview.
+        self._item_card_size = CardSizeControl(self)
+        self._item_card_size.size_changed.connect(self._on_item_card_size_changed)
+        self._item_card_min_width = max(CARD_WIDTH_MIN, int(saved_card_width() * 0.8))
+        item_filter_row.addWidget(self._item_card_size)
 
         self._item_columns_btn = ToolButton(FluentIcon.SETTING, self)
         self._item_columns_btn.setFixedSize(36, _CONTROL_HEIGHT)
@@ -1090,17 +1073,14 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             int(self._thumbnail_list.verticalScrollBar().sizeHint().width()) - 1,
         )
         available_width = max(1, viewport_width - scrollbar_reserve)
-        try:
-            requested_columns = int(
-                self._item_grid_columns_combo.currentData()
-                or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-            )
-        except (TypeError, ValueError):
-            requested_columns = _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        # The selector is an explicit user preference.  Preserve the exact
-        # number of columns and shrink each card on compact split panes rather
-        # than silently reducing (for example) 8 columns to 4.
-        columns = max(1, min(_MAX_SUBSCRIPTION_GRID_COLUMNS, requested_columns))
+        # As many columns as fit at the chosen cover size.
+        columns = max(
+            1,
+            min(
+                _MAX_SUBSCRIPTION_GRID_COLUMNS,
+                (available_width + spacing) // (self._item_card_min_width + spacing),
+            ),
+        )
         card_width = max(
             40,
             (available_width - spacing * (columns - 1)) // columns,
@@ -1578,21 +1558,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             hasattr(self, "_item_view_combo")
             and self._item_view_combo.currentIndex() == 1
         )
-        if hasattr(self, "_item_grid_columns_label"):
-            self._item_grid_columns_label.setVisible(cover_mode)
-        if hasattr(self, "_item_grid_columns_combo"):
-            self._item_grid_columns_combo.setVisible(cover_mode)
+        if hasattr(self, "_item_card_size"):
+            self._item_card_size.setVisible(cover_mode)
         if hasattr(self, "_item_columns_btn"):
             self._item_columns_btn.setVisible(not cover_mode)
 
-    def _on_item_grid_columns_changed(self, _index: int):
-        if not hasattr(self, "_item_grid_columns_combo"):
-            return
-        value = str(
-            self._item_grid_columns_combo.currentData()
-            or _DEFAULT_SUBSCRIPTION_GRID_COLUMNS
-        )
-        app_config.set_ui_value("subscription_grid_columns_v1", value)
+    def _on_item_card_size_changed(self, width: int):
+        self._item_card_min_width = max(CARD_WIDTH_MIN, int(int(width) * 0.8))
         self._update_thumbnail_grid()
         self._schedule_thumbnail_grid_update()
 
@@ -1889,7 +1861,11 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_render_timer.stop()
         self._item_render_timer.stop()
         self._views_timer.stop()
-        covers_stopped = self._covers.shutdown(timeout_ms)
+        covers_stopped = all([
+            self._covers.shutdown(timeout_ms),
+            self._author_view.shutdown(timeout_ms),
+            self._source_view.status_bar.shutdown(timeout_ms),
+        ])
         workers: list[QThread | None] = [
             self._worker,
             self._import_worker,
