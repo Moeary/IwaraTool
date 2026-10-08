@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from ..i18n import tr
 from .rating import api_rating
 
-HOME_PAGE_LIMIT = 12  # items fetched per section on the Home page
+HOME_PAGE_LIMIT = 24  # items fetched per section on the Home page
 BROWSE_PAGE_LIMIT = 32  # items per page in the full "More" view
 
 

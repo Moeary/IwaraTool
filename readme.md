@@ -16,7 +16,7 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
 - Local dedup and a SQLite history center with search, filters, sorting, and cleanup.
 - Search: live Iwara video/author/playlist search, Oreno3D online video search, and trilingual tag suggestions; results show local download status.
 - Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
-- Subscriptions: followed accounts, authors, and playlists with refresh tracking, new-item counts, and list/cover views.
+- Subscriptions: authors and playlists with refresh tracking and new-item counts; the default overview lists each one with its avatar and latest videos, opens into a poster grid, and the classic table is one click away.
 - Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
 - Home: like iwara.tv, shows your subscriptions, hot videos and hot images with in-app detail pages and bulk download; a SFW / NSFW content filter applies to Home and Search.
 - Repair Center: batch-rename existing videos in place or organize them into an output folder, with destination conflict checks.
@@ -30,7 +30,7 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
    - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
 2. Open the app. Sign in when downloading private videos or importing followed authors.
 3. Paste a URL in `Download Workbench`, choose a rule if needed, and submit it.
-4. Use `Subscriptions` to track account feeds, authors, or playlists and batch-download new items.
+4. Use `Subscriptions` to track authors or playlists (your account feed is "My subscriptions" on Home) and batch-download new items.
 
 For more detail (Repair Center, search download status, Oreno3D author fallback, keyword/tag search, subscription cover cache), see the [Usage Guide](./docs/guide/usage_en.md). For local data and caches, see [Local Data and Caches](./docs/guide/data_en.md).
 

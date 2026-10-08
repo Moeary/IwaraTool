@@ -95,7 +95,32 @@ class SystemSettingsCards:
             self._autostart_switch,
             card,
         )
+        self._startup_combo = ComboBox(card)
+        for key, label in self._startup_pages():
+            self._startup_combo.addItem(label)
+            self._startup_combo.setItemData(self._startup_combo.count() - 1, key)
+        self._startup_combo.setFixedWidth(200)
+        self._startup_combo.currentIndexChanged.connect(self._on_startup_page_changed)
+        self._row(
+            layout,
+            tr("Page shown at launch", "启动时进入的页面", "起動時に表示するページ"),
+            self._startup_combo,
+            card,
+        )
         board.add_card("window", card)
+
+    @staticmethod
+    def _startup_pages() -> list[tuple[str, str]]:
+        return [
+            ("home", tr("Home", "首页", "ホーム")),
+            ("subscriptions", tr("Subscriptions", "订阅页", "購読")),
+            ("search", tr("Search", "搜索", "検索")),
+            ("download", tr("Download Hub", "下载工作台", "ダウンロードハブ")),
+            ("repair", tr("Repair", "修复", "修復")),
+            ("history", tr("History", "历史记录", "履歴")),
+            ("rules", tr("Rules", "下载规则", "ルール")),
+            ("settings", tr("Settings", "应用设置", "設定")),
+        ]
 
     _PLAYER_MODES = (video_player.MODE_SYSTEM, video_player.MODE_BUILTIN, video_player.MODE_CUSTOM)
     _PREVIEW_QUALITIES = ("Source", "540", "360")
@@ -262,6 +287,8 @@ class SystemSettingsCards:
         self._loading = True
         self._tray_switch.setChecked(app_config.minimize_to_tray)
         self._autostart_switch.setChecked(autostart.is_enabled())
+        startup = str(app_config.startup_page or "home")
+        self._startup_combo.setCurrentIndex(max(0, self._startup_combo.findData(startup)))
         mode = video_player.player_mode()
         self._player_combo.setCurrentIndex(self._PLAYER_MODES.index(mode))
         self._player_command_edit.setText(app_config.preview_player_command)
@@ -281,6 +308,9 @@ class SystemSettingsCards:
 
     def _on_tray_toggle(self, checked: bool):
         self._set("minimize_to_tray", bool(checked))
+
+    def _on_startup_page_changed(self, index: int):
+        self._set("startup_page", str(self._startup_combo.itemData(index) or "home"))
 
     def _on_autostart_toggle(self, checked: bool):
         if self._loading:

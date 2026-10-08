@@ -57,10 +57,10 @@ def all_actions() -> tuple[ShortcutAction, ...]:
     A = ShortcutAction
     return (
         A("nav_home", SCOPE_GLOBAL, "Ctrl+1", tr("Go to Home", "前往首页", "ホームへ移動")),
-        A("nav_search", SCOPE_GLOBAL, "Ctrl+2", tr("Go to Search", "前往搜索", "検索へ移動")),
-        A("nav_download", SCOPE_GLOBAL, "Ctrl+3", tr("Go to Download Hub", "前往下载工作台", "ダウンロードハブへ移動")),
-        A("nav_repair", SCOPE_GLOBAL, "Ctrl+4", tr("Go to Repair Center", "前往修复中心", "修復センターへ移動")),
-        A("nav_subscriptions", SCOPE_GLOBAL, "Ctrl+5", tr("Go to Subscriptions", "前往订阅页", "購読へ移動")),
+        A("nav_subscriptions", SCOPE_GLOBAL, "Ctrl+2", tr("Go to Subscriptions", "前往订阅页", "購読へ移動")),
+        A("nav_search", SCOPE_GLOBAL, "Ctrl+3", tr("Go to Search", "前往搜索", "検索へ移動")),
+        A("nav_download", SCOPE_GLOBAL, "Ctrl+4", tr("Go to Download Hub", "前往下载工作台", "ダウンロードハブへ移動")),
+        A("nav_repair", SCOPE_GLOBAL, "Ctrl+5", tr("Go to Repair Center", "前往修复中心", "修復センターへ移動")),
         A("nav_history", SCOPE_GLOBAL, "Ctrl+6", tr("Go to History", "前往历史记录", "履歴へ移動")),
         A("nav_rules", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
         A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),

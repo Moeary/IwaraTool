@@ -7,7 +7,7 @@ selection tick top-right.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -17,17 +17,35 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
 )
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
+from qfluentwidgets import FluentIcon, IconWidget, Slider
+
+from ..config import app_config
 from ..core.rating import is_adult
 from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, small_cover_url
 from ..i18n import tr
+from ..signal_bus import signal_bus
 from .search_widgets import _format_count, _format_duration
 from .theme import palette, to_qcolor
 
 COVER_RATIO = 9 / 16
 CARD_RADIUS = 8
 CARD_PAD = 8
+
+# One poster size shared by every grid (Home, "More", subscriptions, ...).
+CARD_WIDTH_KEY = "media_card_width_v1"
+CARD_WIDTH_MIN = 140
+CARD_WIDTH_MAX = 440
+CARD_WIDTH_DEFAULT = 224
+
+
+def saved_card_width() -> int:
+    try:
+        value = int(app_config.get_ui_value(CARD_WIDTH_KEY, CARD_WIDTH_DEFAULT) or CARD_WIDTH_DEFAULT)
+    except (TypeError, ValueError):
+        value = CARD_WIDTH_DEFAULT
+    return max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, value))
 
 
 def wrap_lines(text: str, metrics: QFontMetrics, width: int, max_lines: int) -> list[str]:
@@ -60,9 +78,17 @@ class MediaCard(QWidget):
     context_requested = Signal(object, QPoint)  # SearchVideo, global position
     toggled = Signal(object, bool)  # SearchVideo, selected
 
-    def __init__(self, video: SearchVideo, parent: QWidget | None = None, *, selectable: bool = True):
+    def __init__(
+        self,
+        video: SearchVideo,
+        parent: QWidget | None = None,
+        *,
+        selectable: bool = True,
+        compact: bool = False,
+    ):
         super().__init__(parent)
         self.video = video
+        self._compact = compact  # no author line: every card shares one author
         self._selectable = selectable
         self._selected = False
         self._hover = False
@@ -91,6 +117,19 @@ class MediaCard(QWidget):
 
     def is_selected(self) -> bool:
         return self._selected
+
+    def state_mark(self) -> tuple[str, QColor] | None:
+        """Chip for a local state carried in ``video.raw["_state"]`` (subscriptions)."""
+
+        state = str(self.video.raw.get("_state") or "") if isinstance(self.video.raw, dict) else ""
+        marks = {
+            "new": (tr("NEW", "新增", "新着"), QColor(0, 120, 212, 225)),
+            "downloaded": (tr("Downloaded", "已下载", "保存済み"), QColor(16, 124, 16, 225)),
+            "moved": (tr("Moved", "已移走", "移動済み"), QColor(120, 120, 120, 225)),
+            "queued": (tr("Queued", "已入队", "キュー内"), QColor(202, 120, 0, 225)),
+            "unavailable": (tr("Unavailable", "不可下载", "保存不可"), QColor(150, 60, 60, 225)),
+        }
+        return marks.get(state)
 
     def set_selected(self, selected: bool, *, emit: bool = False):
         selected = bool(selected) and self._selectable
@@ -123,7 +162,7 @@ class MediaCard(QWidget):
         title, small = self._fonts()
         title_h = QFontMetrics(title).lineSpacing() * 2
         small_h = QFontMetrics(small).lineSpacing()
-        return round(width * COVER_RATIO) + CARD_PAD + title_h + 2 + small_h * 2 + CARD_PAD
+        return round(width * COVER_RATIO) + CARD_PAD + title_h + 2 + small_h * (1 if self._compact else 2) + CARD_PAD
 
     def set_card_width(self, width: int):
         width = max(120, int(width))
@@ -248,6 +287,14 @@ class MediaCard(QWidget):
                 painter, "R-18", QPointF(cover.left() + 6, cover.top() + 6),
                 right=False, fill=QColor(196, 43, 28, 225), fg=white, font=badge_font,
             )
+        mark = self.state_mark()
+        if mark is not None:
+            text, color = mark
+            metrics = QFontMetrics(badge_font)
+            self._draw_badge(
+                painter, text, QPointF(cover.left() + 6, cover.bottom() - 6 - metrics.height() - 4),
+                right=False, fill=color, fg=white, font=badge_font,
+            )
 
         if self._selectable and (self._hover or self._selected):
             box = self._check_rect()
@@ -277,20 +324,25 @@ class MediaCard(QWidget):
         small_metrics = QFontMetrics(small_font)
         painter.setFont(small_font)
         painter.setPen(to_qcolor(p.text_secondary))
-        author = video.author_name or video.author_username
-        painter.drawText(
-            x, y + small_metrics.ascent(),
-            small_metrics.elidedText(author or tr("Unknown author", "未知作者", "作者不明"), Qt.TextElideMode.ElideRight, text_width),
-        )
-        y += small_metrics.lineSpacing()
-        stats = tr(
-            f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
-            f"{_format_count(video.views)} 观看 · {_format_count(video.likes)} 喜欢",
-            f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
-        )
+        if not self._compact:
+            author = video.author_name or video.author_username
+            painter.drawText(
+                x, y + small_metrics.ascent(),
+                small_metrics.elidedText(author or tr("Unknown author", "未知作者", "作者不明"), Qt.TextElideMode.ElideRight, text_width),
+            )
+            y += small_metrics.lineSpacing()
         date = video.published_at[:10] if video.published_at else ""
-        if date and small_metrics.horizontalAdvance(f"{stats} · {date}") <= text_width:
-            stats = f"{stats} · {date}"
+        if not video.views and not video.likes:
+            # Local records (subscriptions) know no counters; show the date alone.
+            stats = date
+        else:
+            stats = tr(
+                f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
+                f"{_format_count(video.views)} 观看 · {_format_count(video.likes)} 喜欢",
+                f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
+            )
+            if date and small_metrics.horizontalAdvance(f"{stats} · {date}") <= text_width:
+                stats = f"{stats} · {date}"
         painter.drawText(x, y + small_metrics.ascent(), small_metrics.elidedText(stats, Qt.TextElideMode.ElideRight, text_width))
 
         border = QPen(accent if (self._hover or self._selected) else to_qcolor(p.border), 2 if self._selected else 1)
@@ -314,12 +366,19 @@ class MediaGrid(QWidget):
         gap: int = 14,
         selectable: bool = True,
         max_rows: int = 0,
+        resizable: bool = False,
+        compact: bool = False,
     ):
         super().__init__(parent)
+        if resizable:
+            # Follows the shared "card size" slider instead of a fixed width.
+            min_card_width = saved_card_width()
+            signal_bus.media_card_size_changed.connect(self.set_min_card_width)
         self._min_card_width = min_card_width
         self._gap = gap
         self._selectable = selectable
         self._max_rows = max(0, int(max_rows))
+        self._compact = compact
         self._videos: list[SearchVideo] = []
         self._cards: list[MediaCard] = []
         self._covers: dict[str, QPixmap] = {}
@@ -352,6 +411,22 @@ class MediaGrid(QWidget):
 
     # ── content ──────────────────────────────────────────────────────────────
 
+    def set_max_rows(self, rows: int):
+        rows = max(0, int(rows))
+        if rows != self._max_rows:
+            self._max_rows = rows
+            self._rebuild()
+
+    def set_min_card_width(self, width: int):
+        width = max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, int(width)))
+        if width == self._min_card_width:
+            return
+        self._min_card_width = width
+        if self._max_rows:
+            self._rebuild()  # the number of cards that fit changes
+        else:
+            self._layout_cards()
+
     def columns_for_width(self, width: int) -> int:
         return max(1, (max(1, width) + self._gap) // (self._min_card_width + self._gap))
 
@@ -383,7 +458,7 @@ class MediaGrid(QWidget):
         if capacity:
             shown = shown[:capacity]
         for video in shown:
-            card = MediaCard(video, self, selectable=self._selectable)
+            card = MediaCard(video, self, selectable=self._selectable, compact=self._compact)
             card.activated.connect(self.card_activated)
             card.context_requested.connect(self.card_context_requested)
             card.toggled.connect(lambda *_: self.selection_changed.emit())
@@ -449,6 +524,49 @@ class MediaGrid(QWidget):
 
     def sizeHint(self) -> QSize:
         return QSize(self._min_card_width, self.height())
+
+
+class CardSizeControl(QWidget):
+    """Zoom slider for the poster grids; every grid follows it."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        small = IconWidget(FluentIcon.ZOOM_OUT, self)
+        small.setFixedSize(14, 14)
+        big = IconWidget(FluentIcon.ZOOM_IN, self)
+        big.setFixedSize(14, 14)
+        self._slider = Slider(Qt.Orientation.Horizontal, self)
+        self._slider.setRange(CARD_WIDTH_MIN, CARD_WIDTH_MAX)
+        self._slider.setSingleStep(8)
+        self._slider.setPageStep(24)
+        self._slider.setFixedWidth(130)
+        self._slider.setValue(saved_card_width())
+        # Re-laying out dozens of cards on every pixel of a drag is wasted work.
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(50)
+        self._apply_timer.timeout.connect(self._apply)
+        self._slider.valueChanged.connect(lambda _v: self._apply_timer.start())
+        self._slider.sliderReleased.connect(app_config.sync)
+        self.setToolTip(tr("Cover size", "封面大小", "カバーサイズ"))
+        row.addWidget(small)
+        row.addWidget(self._slider)
+        row.addWidget(big)
+        signal_bus.media_card_size_changed.connect(self._on_broadcast)
+
+    def _apply(self):
+        value = int(self._slider.value())
+        app_config.set_ui_value(CARD_WIDTH_KEY, value, sync=False)
+        signal_bus.media_card_size_changed.emit(value)
+
+    def _on_broadcast(self, value: int):
+        if self._slider.value() != value:
+            self._slider.blockSignals(True)
+            self._slider.setValue(int(value))
+            self._slider.blockSignals(False)
 
 
 def transparent_scroll_area(name: str, parent: QWidget | None = None):

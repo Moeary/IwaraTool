@@ -121,12 +121,19 @@ class MainWindow(FluentWindow):
         self._home_page.open_settings_requested.connect(
             lambda: self.switchTo(self._settings_page)
         )
+        self._home_page.return_requested.connect(self._return_from_detail)
+        self._detail_origin = None
 
-        # Sidebar order: Home, Search, Download Hub, Repair, Subscriptions, History.
+        # Sidebar order: Home, Subscriptions, Search, Download Hub, Repair, History.
         self.addSubInterface(
             self._home_page,
             icon=FluentIcon.HOME,
             text=tr("Home", "首页", "ホーム"),
+        )
+        self.addSubInterface(
+            self._subscription_page,
+            icon=FluentIcon.PEOPLE,
+            text=tr("Subscriptions", "订阅页", "購読"),
         )
         self.addSubInterface(
             self._search_page,
@@ -142,11 +149,6 @@ class MainWindow(FluentWindow):
             self._repair_page,
             icon=FluentIcon.FOLDER,
             text=tr("Repair", "修复", "修復"),
-        )
-        self.addSubInterface(
-            self._subscription_page,
-            icon=FluentIcon.PEOPLE,
-            text=tr("Subscriptions", "订阅页", "購読"),
         )
         self.addSubInterface(
             self._history_page,
@@ -193,8 +195,22 @@ class MainWindow(FluentWindow):
             position=NavigationItemPosition.BOTTOM,
         )
 
-        # Land on Home
-        self.switchTo(self._home_page)
+        self.switchTo(self._startup_page())
+
+    def _startup_page(self):
+        """The page chosen in Settings → Window & Startup (Home by default)."""
+
+        pages = {
+            "home": self._home_page,
+            "subscriptions": self._subscription_page,
+            "search": self._search_page,
+            "download": self._download_page,
+            "repair": self._repair_page,
+            "history": self._history_page,
+            "rules": self._rules_page,
+            "settings": self._settings_page,
+        }
+        return pages.get(str(app_config.startup_page or "").strip().lower(), self._home_page)
 
     def _splash_finish(self):
         # If you have a splash screen, call finish here.
@@ -207,14 +223,24 @@ class MainWindow(FluentWindow):
         source_id = int(source_id or 0)
         if not source_id:
             return
-        self._subscription_page._select_source_id(source_id)
+        self._subscription_page.show_source(source_id)
         self.switchTo(self._subscription_page)
 
     def _on_media_detail_requested(self, kind: str, item_id: str):
         """Show a post in the Home detail view (e.g. from a search result)."""
 
-        self._home_page.show_detail(kind, item_id)
+        origin = self.stackedWidget.currentWidget()
+        external = origin is not None and origin is not self._home_page
+        self._detail_origin = origin if external else None
+        self._home_page.show_detail(kind, item_id, external=external)
         self.switchTo(self._home_page)
+
+    def _return_from_detail(self):
+        """Back from a detail page that was opened from another page."""
+
+        origin, self._detail_origin = self._detail_origin, None
+        if origin is not None:
+            self.switchTo(origin)
 
     def _on_search_requested(self, request: dict):
         """Run an Iwara search on the Search page for another page."""

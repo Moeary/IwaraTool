@@ -69,6 +69,9 @@ class TaskSignalBus(QObject):
     # SFW/NSFW selection (core.rating value) changed on Home or Search.
     content_rating_changed = Signal(str)
 
+    # Preferred minimum card width (px) of the poster grids changed.
+    media_card_size_changed = Signal(int)
+
     # kind ("video" / "image"), id; show that post in the Home detail view.
     media_detail_requested = Signal(str, str)
 

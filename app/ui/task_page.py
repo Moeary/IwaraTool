@@ -17,14 +17,17 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     Action,
+    BodyLabel,
     CaptionLabel,
     ComboBox,
     FluentIcon,
+    IconWidget,
     InfoBar,
     InfoBarPosition,
     PushButton,
     RoundMenu,
     SearchLineEdit,
+    StrongBodyLabel,
     SubtitleLabel,
     SwitchButton,
     TableWidget,
@@ -32,6 +35,7 @@ from qfluentwidgets import (
     ToolButton,
 )
 
+from ..core.download_runtime import format_speed, parse_speed
 from ..core.manager import download_manager
 from ..core.models import DownloadTask, TaskStatus, status_label
 from ..i18n import tr
@@ -266,6 +270,21 @@ class TaskCenterInterface(QWidget):
 
         root.addLayout(filter_row)
 
+        speed_row = QHBoxLayout()
+        speed_row.setSpacing(8)
+        self._speed_icon = IconWidget(FluentIcon.SPEED_HIGH, self)
+        self._speed_icon.setFixedSize(18, 18)
+        speed_row.addWidget(self._speed_icon)
+        speed_row.addWidget(BodyLabel(tr("Total speed", "总下载速度", "合計速度"), self))
+        self._total_speed_label = StrongBodyLabel(format_speed(0), self)
+        self._total_speed_label.setMinimumWidth(96)
+        speed_row.addWidget(self._total_speed_label)
+        self._speed_hint = CaptionLabel("", self)
+        set_secondary_text(self._speed_hint)
+        speed_row.addWidget(self._speed_hint)
+        speed_row.addStretch(1)
+        root.addLayout(speed_row)
+
         self._summary_label = CaptionLabel("", self)
         self._summary_label.setWordWrap(True)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -495,6 +514,7 @@ class TaskCenterInterface(QWidget):
         item.setForeground(link_color(enabled))
 
     def _update_summary(self, tasks: list[DownloadTask], visible: list[DownloadTask]):
+        self._update_total_speed()
         active = sum(1 for task in tasks if task.status in _ACTIVE_STATUSES)
         queued = sum(1 for task in tasks if task.status in (TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD))
         failed = sum(1 for task in tasks if task.status == TaskStatus.FAILED)
@@ -1316,10 +1336,32 @@ class TaskCenterInterface(QWidget):
         if changed:
             self._remove_visible_task_ids(clean_ids)
 
+    def _update_total_speed(self):
+        """Sum the live speed of every task that is actually downloading."""
+
+        total = 0.0
+        downloading = 0
+        for task in self._tasks_by_id.values():
+            if task.status != TaskStatus.DOWNLOADING:
+                continue
+            downloading += 1
+            total += parse_speed(task.speed_str)
+        self._total_speed_label.setText(format_speed(total))
+        self._speed_hint.setText(
+            tr(
+                f"{downloading} downloading",
+                f"{downloading} 个任务正在下载",
+                f"{downloading} 件ダウンロード中",
+            )
+            if downloading
+            else tr("Idle", "当前空闲", "待機中")
+        )
+
     def _flush_progress_updates(self):
         self._progress_flush_pending = False
         ids = list(self._pending_progress_ids)
         self._pending_progress_ids.clear()
+        self._update_total_speed()
         if self._sort_column in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
             self._schedule_refresh(120)
             return

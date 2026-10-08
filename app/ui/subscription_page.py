@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from PySide6.QtCore import QSize, QTimer, Qt, QThread
+from PySide6.QtCore import QSize, QTimer, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -37,6 +37,7 @@ from qfluentwidgets import (
     PushButton,
     ProgressBar,
     RoundMenu,
+    SegmentedWidget,
     SubtitleLabel,
     TableWidget,
     TitleLabel,
@@ -99,6 +100,12 @@ from .subscription_components import (
     _thumbnail_list_style,
 )
 from .rules_page import RulePicker
+from .subscription_views import (
+    CoverLoader,
+    SourceItemsView,
+    SubscriptionOverview,
+    is_feed_source,
+)
 from .theme import PAGE_MARGINS, qcolor, set_secondary_text, summary_text
 from .ui_state import (
     ResponsiveFlowLayout,
@@ -141,6 +148,9 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
     _ITEM_URL = 8
     _ITEM_FOLDER = 9
     _ITEM_FILE = 10
+
+    # Emitted whenever the source list was re-read (refresh, add, delete, ...).
+    sources_changed = Signal()
 
     _RENDER_BATCH_SIZE = 80
     _MIN_ITEM_TABLE_HEIGHT = 140
@@ -189,7 +199,13 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._item_render_timer = QTimer(self)
         self._item_render_timer.setInterval(0)
         self._item_render_timer.timeout.connect(self._render_item_batch)
+        self._covers = CoverLoader(self)
+        self._views_timer = QTimer(self)
+        self._views_timer.setSingleShot(True)
+        self._views_timer.setInterval(350)
+        self._views_timer.timeout.connect(self._refresh_views)
         self._build_ui()
+        self.sources_changed.connect(self._schedule_views_refresh)
         self._load_sources()
         signal_bus.tasks_added.connect(self._on_tasks_changed)
         signal_bus.task_added.connect(self._on_task_changed)
@@ -206,7 +222,12 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         root.setSpacing(12)
 
         title_row = QHBoxLayout()
+        title_row.setSpacing(16)
         title_row.addWidget(TitleLabel(tr("Subscriptions", "订阅页", "購読"), self))
+        self._view_switch = SegmentedWidget(self)
+        self._view_switch.addItem("overview", tr("Overview", "总览", "概要"), lambda: self._set_view_mode("overview"))
+        self._view_switch.addItem("table", tr("Table", "经典表格", "表形式"), lambda: self._set_view_mode("table"))
+        title_row.addWidget(self._view_switch)
         title_row.addStretch()
         root.addLayout(title_row)
 
@@ -220,7 +241,21 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(10)
         _style_content_splitter(splitter)
-        root.addWidget(splitter, stretch=1)
+        # The table view is one page of a stack next to the overview and the
+        # per-source grid; its widgets and logic are unchanged.
+        self._view_stack = QStackedWidget(self)
+        self._table_page = QWidget(self._view_stack)
+        table_layout = QVBoxLayout(self._table_page)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(splitter, stretch=1)
+        self._overview = SubscriptionOverview(self, self._covers, self._view_stack)
+        self._source_view = SourceItemsView(self, self._covers, self._view_stack)
+        self._view_stack.addWidget(self._overview)
+        self._view_stack.addWidget(self._source_view)
+        self._view_stack.addWidget(self._table_page)
+        self._overview.source_opened.connect(self._open_source_grid)
+        self._source_view.back_requested.connect(self._close_source_grid)
+        root.addWidget(self._view_stack, stretch=1)
 
         left_panel = CardWidget(self)
         self._source_panel = left_panel
@@ -313,11 +348,6 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         _style_action_button(import_authors_btn)
         import_authors_btn.clicked.connect(self._import_followed_authors)
         source_actions.addWidget(import_authors_btn)
-
-        add_feed_btn = PushButton(tr("Account Feed", "账号订阅流", "購読フィード"), self, FluentIcon.HISTORY)
-        _style_action_button(add_feed_btn)
-        add_feed_btn.clicked.connect(self._add_following_feed)
-        source_actions.addWidget(add_feed_btn)
 
         add_source_btn = PrimaryPushButton(tr("Add Author / Playlist", "添加作者/播放列表", "作者/リストを追加"), self, FluentIcon.PEOPLE)
         _style_action_button(add_source_btn)
@@ -788,6 +818,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._sync_item_grid_controls()
         self._update_thumbnail_grid()
         fit_table_last_column(self._item_table)
+        mode = str(app_config.get_ui_value("subscription_view_mode_v1", "overview") or "overview")
+        self._set_view_mode("table" if mode == "table" else "overview", persist=False)
 
     def refresh_theme_styles(self):
         """Refresh custom styles that qfluentwidgets cannot recolor automatically."""
@@ -1168,14 +1200,19 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             )
         )
 
+    def _fetch_sources(self) -> list[dict[str, Any]]:
+        """Authors and playlists; the old account-feed source lives on Home now."""
+
+        return [s for s in download_manager.get_subscription_sources() if not is_feed_source(s)]
+
     def _load_sources(self):
         previous_source_id = self._selected_source_id()
-        self._all_sources = download_manager.get_subscription_sources()
+        self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=previous_source_id)
 
     def _refresh_sources_keep_current_items(self):
         source_id = self._current_source_id
-        self._all_sources = download_manager.get_subscription_sources()
+        self._all_sources = self._fetch_sources()
         self._apply_source_filters(preferred_source_id=source_id)
 
     def _apply_source_filters(self, *_args, preferred_source_id: int | None = None):
@@ -1193,6 +1230,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             sources = [source for source in sources if query in _source_search_text(source)]
         self._sources = sources
         self._render_sources()
+        self.sources_changed.emit()
         if selected_source_id is not None and self._select_source_id(selected_source_id):
             self._load_items(selected_source_id)
             return
@@ -1354,6 +1392,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._avatar_worker.start()
 
     def _on_avatar_ready(self, source_id: int, avatar_url: str, avatar_path: str):
+        self._overview.set_avatar(source_id, avatar_path)
+        self._source_view.set_avatar(source_id, avatar_path)
         for collection in (self._all_sources, self._sources):
             for source in collection:
                 if int(source.get("id", 0) or 0) == int(source_id):
@@ -1848,6 +1888,8 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._shutting_down = True
         self._source_render_timer.stop()
         self._item_render_timer.stop()
+        self._views_timer.stop()
+        covers_stopped = self._covers.shutdown(timeout_ms)
         workers: list[QThread | None] = [
             self._worker,
             self._import_worker,
@@ -1856,7 +1898,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
             self._thumbnail_worker,
             self._cover_cache_worker,
         ]
-        return stop_qthreads(workers, timeout_ms=timeout_ms)
+        return stop_qthreads(workers, timeout_ms=timeout_ms) and covers_stopped
 
     def _show_error(self, msg: str):
         InfoBar.error(
@@ -1879,6 +1921,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._schedule_items_refresh_after_task_change()
 
     def _schedule_items_refresh_after_task_change(self):
+        self._schedule_views_refresh()
         if self._items_refresh_pending:
             return
         self._items_refresh_pending = True

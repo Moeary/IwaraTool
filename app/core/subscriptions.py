@@ -478,6 +478,28 @@ class SubscriptionStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def list_recent_items(self, per_source: int = 8) -> dict[int, list[dict[str, Any]]]:
+        """The newest ``per_source`` items of every source, newest first."""
+
+        per_source = max(1, int(per_source))
+        with self._lock, closing(_sqlite_connect(self._db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM ("
+                "SELECT i.*, ROW_NUMBER() OVER ("
+                "PARTITION BY i.source_id "
+                "ORDER BY i.published_at DESC, i.discovered_at DESC) AS rank_in_source "
+                "FROM items i JOIN sources s ON s.id=i.source_id"
+                ") WHERE rank_in_source <= ? "
+                "ORDER BY source_id, rank_in_source",
+                (per_source,),
+            ).fetchall()
+        recent: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            data = dict(row)
+            recent.setdefault(int(data.get("source_id", 0) or 0), []).append(data)
+        return recent
+
     def get_items_by_video_ids(self, video_ids: list[str]) -> list[dict[str, Any]]:
         ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
         if not ids:

@@ -272,12 +272,43 @@ class HomeInterfaceTests(unittest.TestCase):
         home.go_back()  # nothing left to pop
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_more_opens_browse_and_back_returns_to_feed(self):
+    def test_more_on_a_ranking_jumps_to_the_search_page(self):
+        from app.signal_bus import signal_bus
+
+        requests = []
+
+        def collect(request):
+            requests.append(request)
+
+        signal_bus.search_requested.connect(collect)
+        self.addCleanup(signal_bus.search_requested.disconnect, collect)
+        self.home._open_browse("hot_videos", "popularity")
+        self.home._open_browse("hot_images", "date")
+        self.assertEqual(
+            requests,
+            [{"scope": "videos", "sort": "popularity"}, {"scope": "images", "sort": "date"}],
+        )
+        self.assertEqual(self.home._stack.currentIndex(), self.home._FEED)
+
+    def test_more_on_subscriptions_opens_browse_and_back_returns_to_feed(self):
         home = self.home
-        home._open_browse("hot_videos", "popularity")
+        home._open_browse("subscriptions", "images")
         self.assertEqual(home._stack.currentIndex(), home._BROWSE)
-        self.assertEqual(home._browse._tab_id, "popularity")
+        self.assertEqual(home._browse._tab_id, "images")
         home.go_back()
+        self.assertEqual(home._stack.currentIndex(), home._FEED)
+
+    def test_detail_opened_elsewhere_returns_to_the_caller(self):
+        home = self.home
+        returned = []
+        home.return_requested.connect(lambda: returned.append(True))
+        home.show_detail("video", "a", external=True)
+        self.assertEqual(home._stack.currentIndex(), home._DETAIL)
+        home.show_detail("video", "b")  # a related post
+        home.go_back()
+        self.assertEqual(returned, [])
+        home.go_back()
+        self.assertEqual(returned, [True])
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
     def test_queue_uses_the_given_rule_and_ignores_images(self):
@@ -397,10 +428,10 @@ class NavigationOrderTests(unittest.TestCase):
                 ]
                 top = [
                     window._home_page,
+                    window._subscription_page,
                     window._search_page,
                     window._download_page,
                     window._repair_page,
-                    window._subscription_page,
                     window._history_page,
                 ]
                 self.assertEqual([w for w in order if w in top], top)

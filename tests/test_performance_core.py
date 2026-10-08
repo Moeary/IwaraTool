@@ -1250,7 +1250,7 @@ class UiPerformanceTests(unittest.TestCase):
 
     def test_subscription_pending_items_survive_title_filter_changes(self):
         mgr = make_manager()
-        source_id = mgr.subscriptions.add_source("feed", "feed01", "Feed 01")
+        source_id = mgr.subscriptions.add_source("author", "author01", "Author 01")
         mgr.subscriptions.upsert_items(
             source_id,
             [
@@ -1322,7 +1322,7 @@ class UiPerformanceTests(unittest.TestCase):
     def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):
         mgr = make_manager()
         source_ids = [
-            mgr.subscriptions.add_source("feed", f"select-feed-{index}", f"Feed {index}")
+            mgr.subscriptions.add_source("author", f"select-author-{index}", f"Author {index}")
             for index in range(3)
         ]
 

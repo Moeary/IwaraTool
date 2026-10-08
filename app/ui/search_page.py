@@ -34,7 +34,6 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     TableWidget,
-    TitleLabel,
     ToolButton,
 )
 
@@ -90,7 +89,6 @@ from .search_workers import (
     SearchWorker,
 )
 from .ui_state import (
-    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     open_table_column_dialog,
@@ -98,7 +96,7 @@ from .ui_state import (
     restore_table_widths,
     show_fluent_text_input,
 )
-from .theme import CARD_MARGINS, PAGE_MARGINS, PAGE_SPACING, qcolor, set_secondary_text
+from .theme import CARD_MARGINS, PAGE_MARGINS, qcolor, set_secondary_text
 from .worker_lifecycle import stop_qthreads
 
 
@@ -181,28 +179,33 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
-        root.setSpacing(PAGE_SPACING)
-
-        title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Search", "搜索", "検索"), self))
-        title_row.addStretch()
-        self._source_status_label = BodyLabel("", self)
-        set_secondary_text(self._source_status_label)
-        title_row.addWidget(self._source_status_label)
-        self._toggle_search_controls_btn = PushButton(self)
-        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
-        title_row.addWidget(self._toggle_search_controls_btn)
-        root.addLayout(title_row)
+        root.setSpacing(10)
 
         query_card = CardWidget(self)
         query_layout = QVBoxLayout(query_card)
         query_layout.setContentsMargins(*CARD_MARGINS)
         query_layout.setSpacing(10)
 
-        # The keyword box is the primary control, so it gets a full row
-        # instead of being squeezed between three combo boxes.
+        # Row 1: where to search, what to search for, go.  The combo boxes
+        # show their current value, so they carry no separate captions.
         keyword_row = QHBoxLayout()
         keyword_row.setSpacing(8)
+        self._source_combo = ComboBox(query_card)
+        self._add_combo_item(
+            self._source_combo,
+            tr("Oreno3D online search", "Oreno3D 在线搜索", "Oreno3Dオンライン検索"),
+            "oreno3d",
+        )
+        self._add_combo_item(
+            self._source_combo,
+            tr("Iwara live API", "Iwara 实时 API", "IwaraライブAPI"),
+            "iwara",
+        )
+        self._source_combo.setMinimumWidth(168)
+        self._source_combo.setToolTip(tr("Search source", "数据源", "検索ソース"))
+        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        keyword_row.addWidget(self._source_combo)
+
         self._keyword_edit = SearchKeywordEdit(query_card)
         self._keyword_edit.setClearButtonEnabled(True)
         self._keyword_edit.setPlaceholderText(
@@ -218,33 +221,19 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         keyword_row.addWidget(self._keyword_edit, 1)
 
         self._search_btn = PrimaryPushButton(tr("Search", "搜索", "検索"), query_card, FluentIcon.SEARCH)
-        self._search_btn.setMinimumWidth(112)
+        self._search_btn.setMinimumWidth(104)
         self._search_btn.clicked.connect(self._start_search)
         keyword_row.addWidget(self._search_btn)
 
-        self._reset_btn = PushButton(tr("Reset", "重置", "リセット"), query_card)
+        self._reset_btn = ToolButton(FluentIcon.CANCEL, query_card)
+        self._reset_btn.setToolTip(tr("Reset the search", "重置搜索", "検索をリセット"))
         self._reset_btn.clicked.connect(self._reset_filters)
         keyword_row.addWidget(self._reset_btn)
         query_layout.addLayout(keyword_row)
 
-        query_row = ResponsiveFlowLayout()
-        query_row.setSpacing(8)
-        query_row.addWidget(self._labelled(tr("Source", "数据源", "ソース"), query_card))
-        self._source_combo = ComboBox(query_card)
-        self._add_combo_item(
-            self._source_combo,
-            tr("Oreno3D online search", "Oreno3D 在线搜索", "Oreno3Dオンライン検索"),
-            "oreno3d",
-        )
-        self._add_combo_item(
-            self._source_combo,
-            tr("Iwara live API", "Iwara 实时 API", "IwaraライブAPI"),
-            "iwara",
-        )
-        self._source_combo.setMinimumWidth(178)
-        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
-        query_row.addWidget(self._source_combo)
-        query_row.addWidget(self._labelled(tr("Scope", "搜索类型", "検索対象"), query_card))
+        # Row 2: scope / sort / rating on the left, the view switch on the right.
+        options_row = QHBoxLayout()
+        options_row.setSpacing(8)
         self._scope_combo = ComboBox(query_card)
         self._scope_items = [
             (tr("Videos", "视频", "動画"), "videos"),
@@ -255,11 +244,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         ]
         for text, data in self._scope_items:
             self._add_combo_item(self._scope_combo, text, data)
-        self._scope_combo.setMinimumWidth(132)
+        self._scope_combo.setMinimumWidth(120)
+        self._scope_combo.setToolTip(tr("What to search", "搜索类型", "検索対象"))
         self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
-        query_row.addWidget(self._scope_combo)
+        options_row.addWidget(self._scope_combo)
 
-        query_row.addWidget(self._labelled(tr("Sort", "排序", "並び順"), query_card))
         self._sort_combo = self._make_combo(
             [
                 (tr("Newest", "最新", "新着"), "date"),
@@ -270,24 +259,24 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             ],
             query_card,
         )
-        self._sort_combo.setMinimumWidth(132)
+        self._sort_combo.setMinimumWidth(120)
+        self._sort_combo.setToolTip(tr("Sort order", "排序", "並び順"))
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-        query_row.addWidget(self._sort_combo)
+        options_row.addWidget(self._sort_combo)
 
         # SFW / NSFW, shared with the Home page. Oreno3D cards carry no
         # rating, so the selector is only offered for the Iwara source.
         self._rating_group = QWidget(query_card)
         rating_layout = QHBoxLayout(self._rating_group)
         rating_layout.setContentsMargins(0, 0, 0, 0)
-        rating_layout.setSpacing(8)
-        rating_layout.addWidget(self._labelled(tr("Content", "内容分级", "コンテンツ"), self._rating_group))
+        rating_layout.setSpacing(0)
         self._rating_combo = self._make_combo(rating_options(), self._rating_group)
         self._rating_combo.setMinimumWidth(104)
         self._rating_combo.setToolTip(
             tr(
-                "SFW shows general-rated posts only, NSFW shows R-18 (ecchi) posts only.",
-                "SFW 仅显示全年龄作品，NSFW 仅显示 R-18（ecchi）作品。",
-                "SFWは全年齢向けのみ、NSFWはR-18（ecchi）のみを表示します。",
+                "Content rating. SFW shows general-rated posts only, NSFW shows R-18 (ecchi) posts only.",
+                "内容分级。SFW 仅显示全年龄作品，NSFW 仅显示 R-18（ecchi）作品。",
+                "コンテンツ区分。SFWは全年齢向けのみ、NSFWはR-18（ecchi）のみを表示します。",
             )
         )
         self._set_combo_data(
@@ -295,34 +284,53 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._rating_combo.currentIndexChanged.connect(self._on_rating_changed)
         rating_layout.addWidget(self._rating_combo)
-        query_row.addWidget(self._rating_group)
+        options_row.addWidget(self._rating_group)
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
 
-        # The download rule used to occupy its own card; keeping it in the
-        # query card saves a full row of vertical space for results.
-        rule_group = QWidget(query_card)
-        rule_group_layout = QHBoxLayout(rule_group)
-        rule_group_layout.setContentsMargins(0, 0, 0, 0)
-        rule_group_layout.setSpacing(8)
-        rule_group_layout.addWidget(self._labelled(tr("Download rule", "下载规则", "ダウンロードルール"), rule_group))
-        self._rule_picker = RulePicker(rule_group)
-        self._rule_picker.setToolTip(
-            tr(
-                "The selected rule controls filtering, naming and download behavior.",
-                "所选规则统一控制筛选、命名和下载行为。",
-                "選択したルールがフィルター・命名・保存動作を統一します。",
-            )
-        )
-        rule_group_layout.addWidget(self._rule_picker)
-        query_row.addWidget(rule_group)
-        query_layout.addLayout(query_row)
+        options_row.addStretch(1)
 
+        self._view_combo = self._make_combo(
+            [
+                (tr("Grid", "网格", "グリッド"), "grid"),
+                (tr("List", "列表", "リスト"), "list"),
+            ],
+            query_card,
+        )
+        self._view_combo.setFixedWidth(92)
+        self._view_combo.setToolTip(tr("Result view", "结果视图", "表示"))
+        saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
+        self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
+        self._view_combo.currentIndexChanged.connect(self._on_view_changed)
+        options_row.addWidget(self._view_combo)
+        self._grid_columns_label = BodyLabel(tr("Columns", "列数", "列数"), query_card)
+        set_secondary_text(self._grid_columns_label)
+        options_row.addWidget(self._grid_columns_label)
+        self._grid_columns_combo = ComboBox(query_card)
+        for columns in range(1, _MAX_GRID_COLUMNS + 1):
+            self._add_combo_item(self._grid_columns_combo, str(columns), str(columns))
+        try:
+            saved_columns = int(app_config.get_ui_value("search_grid_columns_v1", _DEFAULT_GRID_COLUMNS) or _DEFAULT_GRID_COLUMNS)
+        except (TypeError, ValueError):
+            saved_columns = _DEFAULT_GRID_COLUMNS
+        self._grid_columns_combo.setCurrentIndex(max(1, min(_MAX_GRID_COLUMNS, saved_columns)) - 1)
+        self._grid_columns_combo.setFixedWidth(72)
+        self._grid_columns_combo.setToolTip(tr("Cards per row", "每行列数", "1行の列数"))
+        self._grid_columns_combo.currentIndexChanged.connect(self._on_grid_columns_changed)
+        options_row.addWidget(self._grid_columns_combo)
+        self._result_fields_btn = ToolButton(FluentIcon.SETTING, query_card)
+        self._result_fields_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
+        self._result_fields_btn.clicked.connect(self._configure_result_columns)
+        options_row.addWidget(self._result_fields_btn)
+        query_layout.addLayout(options_row)
+
+        # Only shown while browsing one author's works; the generic per-scope
+        # explanations live in the keyword box's tooltip instead.
         self._scope_hint = CaptionLabel("", query_card)
         self._scope_hint.setWordWrap(True)
+        self._scope_hint.hide()
         set_secondary_text(self._scope_hint)
         query_layout.addWidget(self._scope_hint)
         self._query_card = query_card
-        self._rule_card = rule_group
         root.addWidget(query_card)
 
         self._tag_popup = TagSuggestionPopup(self)
@@ -338,12 +346,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._keyword_edit.deactivated.connect(self._hide_search_history_popup)
         self._refresh_search_history_popup()
 
-        result_header = ResponsiveFlowLayout()
+        # Result bar: pager and status on the left, what to do with the
+        # selection on the right.
+        result_header = QHBoxLayout()
         result_header.setSpacing(8)
         pagination = QWidget(self)
         pagination_layout = QHBoxLayout(pagination)
         pagination_layout.setContentsMargins(0, 0, 0, 0)
-        pagination_layout.setSpacing(6)
+        pagination_layout.setSpacing(4)
         self._previous_page_btn = ToolButton(pagination)
         self._previous_page_btn.setIcon(FluentIcon.LEFT_ARROW)
         self._previous_page_btn.setToolTip(
@@ -352,7 +362,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._previous_page_btn.clicked.connect(self._go_previous_page)
         pagination_layout.addWidget(self._previous_page_btn)
         self._page_label = BodyLabel("", pagination)
-        self._page_label.setMinimumWidth(88)
+        self._page_label.setMinimumWidth(84)
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pagination_layout.addWidget(self._page_label)
         self._next_page_btn = ToolButton(pagination)
@@ -362,7 +372,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._next_page_btn.clicked.connect(self._go_next_page)
         pagination_layout.addWidget(self._next_page_btn)
-        self._jump_page_btn = PushButton(tr("Jump", "跳页", "ページ移動"), pagination)
+        self._jump_page_btn = ToolButton(FluentIcon.SEND, pagination)
         self._jump_page_btn.setToolTip(
             tr("Jump to a page", "输入页码并跳转", "ページ番号を入力して移動")
         )
@@ -370,67 +380,43 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         pagination_layout.addWidget(self._jump_page_btn)
         result_header.addWidget(pagination)
 
-        view_group = QWidget(self)
-        view_layout = QHBoxLayout(view_group)
-        view_layout.setContentsMargins(0, 0, 0, 0)
-        view_layout.setSpacing(6)
-        view_layout.addWidget(self._labelled(tr("View", "视图", "表示"), view_group))
-        self._view_combo = self._make_combo(
-            [
-                (tr("Grid", "网格", "グリッド"), "grid"),
-                (tr("List", "列表", "リスト"), "list"),
-            ],
-            view_group,
-        )
-        self._view_combo.setFixedWidth(96)
-        saved_view = str(app_config.get_ui_value("search_view_mode_v1", "grid") or "grid")
-        self._view_combo.setCurrentIndex(1 if saved_view == "list" else 0)
-        self._view_combo.currentIndexChanged.connect(self._on_view_changed)
-        view_layout.addWidget(self._view_combo)
-        self._grid_columns_label = self._labelled(tr("Columns", "每行列数", "1行の列数"), view_group)
-        view_layout.addWidget(self._grid_columns_label)
-        self._grid_columns_combo = ComboBox(view_group)
-        for columns in range(1, _MAX_GRID_COLUMNS + 1):
-            self._add_combo_item(self._grid_columns_combo, str(columns), str(columns))
-        try:
-            saved_columns = int(app_config.get_ui_value("search_grid_columns_v1", _DEFAULT_GRID_COLUMNS) or _DEFAULT_GRID_COLUMNS)
-        except (TypeError, ValueError):
-            saved_columns = _DEFAULT_GRID_COLUMNS
-        self._grid_columns_combo.setCurrentIndex(max(1, min(_MAX_GRID_COLUMNS, saved_columns)) - 1)
-        self._grid_columns_combo.setFixedWidth(84)
-        self._grid_columns_combo.currentIndexChanged.connect(self._on_grid_columns_changed)
-        view_layout.addWidget(self._grid_columns_combo)
-        self._result_fields_btn = ToolButton(FluentIcon.SETTING, view_group)
-        self._result_fields_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
-        self._result_fields_btn.clicked.connect(self._configure_result_columns)
-        view_layout.addWidget(self._result_fields_btn)
-        result_header.addWidget(view_group)
+        self._status_label = CaptionLabel("", self)
+        self._status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        set_secondary_text(self._status_label)
+        result_header.addWidget(self._status_label, 1)
 
-        selection_group = QWidget(self)
-        selection_layout = QHBoxLayout(selection_group)
-        selection_layout.setContentsMargins(0, 0, 0, 0)
-        selection_layout.setSpacing(6)
+        # The rule decides naming and filtering of whatever is added, so it
+        # sits right next to the buttons that add.
+        rule_group = QWidget(self)
+        rule_group_layout = QHBoxLayout(rule_group)
+        rule_group_layout.setContentsMargins(0, 0, 0, 0)
+        rule_group_layout.setSpacing(0)
+        self._rule_picker = RulePicker(rule_group)
+        self._rule_picker.setToolTip(
+            tr(
+                "Download rule: controls filtering, naming and download behavior.",
+                "下载规则：统一控制筛选、命名和下载行为。",
+                "ダウンロードルール：フィルター・命名・保存動作を統一します。",
+            )
+        )
+        rule_group_layout.addWidget(self._rule_picker)
+        self._rule_card = rule_group
+        result_header.addWidget(rule_group)
+
         self._queue_selected_btn = PrimaryPushButton(
-            tr("Add selected", "加入选中项", "選択を追加"), selection_group, FluentIcon.DOWNLOAD
+            tr("Add selected", "加入选中项", "選択を追加"), self, FluentIcon.DOWNLOAD
         )
         self._queue_selected_btn.setEnabled(False)
         self._queue_selected_btn.clicked.connect(self._queue_selected)
-        selection_layout.addWidget(self._queue_selected_btn)
-        self._open_selected_btn = PushButton(tr("Open selected", "打开选中项", "選択を開く"), selection_group)
+        result_header.addWidget(self._queue_selected_btn)
+        self._open_selected_btn = PushButton(tr("Open selected", "打开选中项", "選択を開く"), self)
         self._open_selected_btn.setEnabled(False)
         self._open_selected_btn.clicked.connect(self._open_selected)
-        selection_layout.addWidget(self._open_selected_btn)
-        result_header.addWidget(selection_group)
+        result_header.addWidget(self._open_selected_btn)
+        self._toggle_search_controls_btn = ToolButton(self)
+        self._toggle_search_controls_btn.clicked.connect(self._toggle_search_controls)
+        result_header.addWidget(self._toggle_search_controls_btn)
         root.addLayout(result_header)
-
-        self._status_label = CaptionLabel(
-            tr("Enter a query or search the latest videos", "输入条件后开始搜索，也可以直接查看最新视频", "条件を入力して検索してください"),
-            self,
-        )
-        self._status_label.setWordWrap(True)
-        self._status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        set_secondary_text(self._status_label)
-        root.addWidget(self._status_label)
 
         previous_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
         previous_shortcut.activated.connect(self._go_previous_page_if_enabled)
@@ -578,18 +564,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._hide_search_history_popup()
             if self._tag_popup is not None:
                 self._tag_popup.hide()
-            self._toggle_search_controls_btn.setText(
+            self._toggle_search_controls_btn.setIcon(FluentIcon.DOWN)
+            self._toggle_search_controls_btn.setToolTip(
                 tr("Show search controls", "展开搜索区", "検索欄を展開")
             )
-            self._toggle_search_controls_btn.setToolTip(
-                tr("Show search and download rule controls", "显示搜索与下载规则", "検索・保存ルール欄を表示")
-            )
         else:
-            self._toggle_search_controls_btn.setText(
-                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
-            )
+            self._toggle_search_controls_btn.setIcon(FluentIcon.UP)
             self._toggle_search_controls_btn.setToolTip(
-                tr("Hide search and download rule controls", "隐藏搜索与下载规则", "検索・保存ルール欄を隠す")
+                tr("Hide search controls", "收起搜索区", "検索欄を折りたたむ")
             )
         if persist:
             app_config.set_ui_value(
@@ -889,7 +871,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
                     "キーワードまたはタイトル…",
                 )
             )
-        self._scope_hint.setText(hint)
+        self._keyword_edit.setToolTip(hint)
         if scope != "tags" and self._tag_popup is not None:
             self._tag_popup.hide()
         self._sync_view_controls()
@@ -1003,7 +985,6 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         source = str(self._source_combo.currentData() or "oreno3d")
         self._sync_scope_options_for_source(source)
         self._rating_group.setVisible(source == "iwara")
-        self._source_status_label.clear()
         self._on_scope_changed(trigger_search=False)
         if trigger_search:
             self._schedule_auto_search()
@@ -1226,12 +1207,11 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._keyword_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self._keyword_edit.selectAll()
 
-    @staticmethod
-    def _labelled(text: str, parent: QWidget) -> BodyLabel:
-        """Inline field caption in the shared secondary text color."""
-        label = BodyLabel(text, parent)
-        set_secondary_text(label)
-        return label
+    def _set_scope_hint(self, text: str):
+        """Context line under the query box; hidden whenever it has nothing to say."""
+
+        self._scope_hint.setText(text)
+        self._scope_hint.setVisible(bool(text))
 
     def _go_previous_page(self):
         if self._current_page <= 0:

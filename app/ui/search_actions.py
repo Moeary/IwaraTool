@@ -663,13 +663,7 @@ class SearchActionsMixin:
             self._keyword_edit.setPlaceholderText(
                 tr("Keywords or titles…", "输入关键词或标题…", "キーワードまたはタイトル…")
             )
-            self._scope_hint.setText(
-                tr(
-                    "Enter keywords to search videos.",
-                    "输入关键词搜索视频。",
-                    "キーワードを入力して動画を検索します。",
-                )
-            )
+            self._set_scope_hint("")
 
     def _cancel_pending_author_navigation(self):
         self._author_action_generation = getattr(self, "_author_action_generation", 0) + 1
@@ -813,7 +807,7 @@ class SearchActionsMixin:
         self._keyword_edit.setPlaceholderText(
             tr(f"@{target[0]}’s works; type keywords for a new search…", f"@{target[0]} 的作品；输入关键词开始新搜索…", f"@{target[0]} の作品。キーワード入力で新しい検索…")
         )
-        self._scope_hint.setText(
+        self._set_scope_hint(
             tr(
                 f"Showing @{target[0]}’s works. Enter keywords or change the source or scope to return to general search.",
                 f"正在查看 @{target[0]} 的作品。输入关键词或切换数据源、搜索类型可返回普通搜索。",

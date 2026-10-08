@@ -48,7 +48,7 @@ from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .home_workers import CoverFetcher, FeedResult, FeedWorker, stop_workers
-from .media_card import MediaGrid, transparent_scroll_area
+from .media_card import CardSizeControl, MediaGrid, transparent_scroll_area
 from .media_detail import DetailView
 from .rules_page import RulePicker
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
@@ -109,7 +109,13 @@ class SectionBlock(QWidget):
         self._refresh_btn.setToolTip(tr("Refresh", "刷新", "更新"))
         self._refresh_btn.clicked.connect(lambda: self.reload(force=True))
         header.addWidget(self._refresh_btn)
-        self._more_btn = HyperlinkButton("", tr("More ›", "查看更多 ›", "もっと見る ›"), self)
+        # Public rankings open in the Search page; only the account feed has a page of its own.
+        public = not section.tabs[0].needs_login
+        self._more_btn = HyperlinkButton(
+            "",
+            tr("More in Search ›", "在搜索页查看更多 ›", "検索ページで見る ›") if public else tr("More ›", "查看更多 ›", "もっと見る ›"),
+            self,
+        )
         self._more_btn.clicked.connect(lambda: self.more_requested.emit(self.section.id, self._tab_id))
         header.addWidget(self._more_btn)
         root.addLayout(header)
@@ -123,7 +129,7 @@ class SectionBlock(QWidget):
         root.addWidget(self._login_btn, 0, Qt.AlignmentFlag.AlignLeft)
         self._login_btn.hide()
 
-        self._grid = MediaGrid(self, min_card_width=224, selectable=True, max_rows=2)
+        self._grid = MediaGrid(self, selectable=True, max_rows=2, resizable=True)
         self._grid.bind_fetcher(fetcher)
         self._grid.card_activated.connect(self.open_requested)
         self._grid.card_context_requested.connect(self.context_requested)
@@ -243,6 +249,7 @@ class HomeFeedView(QWidget):
         header.setSpacing(14)
         header.addWidget(TitleLabel(tr("Home", "首页", "ホーム"), self))
         header.addStretch(1)
+        header.addWidget(CardSizeControl(self))
         header.addWidget(BodyLabel(tr("Content", "内容分级", "コンテンツ"), self))
         self._rating = SegmentedWidget(self)
         for label, value in rating_options():
@@ -356,6 +363,7 @@ class BrowseView(QWidget):
         set_secondary_text(self._selected_label)
         tools.addWidget(self._selected_label)
         tools.addStretch(1)
+        tools.addWidget(CardSizeControl(self))
         tools.addWidget(CaptionLabel(tr("Download rule", "下载规则", "ダウンロードルール"), self))
         self._rule_picker = RulePicker(self)
         tools.addWidget(self._rule_picker)
@@ -373,7 +381,7 @@ class BrowseView(QWidget):
         column = QVBoxLayout(page)
         column.setContentsMargins(0, 0, 8, 24)
         column.setSpacing(12)
-        self._grid = MediaGrid(page, min_card_width=224, selectable=True)
+        self._grid = MediaGrid(page, selectable=True, resizable=True)
         self._grid.bind_fetcher(fetcher)
         self._grid.card_activated.connect(self.open_requested)
         self._grid.card_context_requested.connect(self.context_requested)
@@ -503,6 +511,7 @@ class HomeInterface(QWidget):
     """The Home page: feed → browse → detail, with a back trail."""
 
     open_settings_requested = Signal()
+    return_requested = Signal()  # back out of a detail page opened from another page
 
     _FEED, _BROWSE, _DETAIL = 0, 1, 2
 
@@ -603,7 +612,12 @@ class HomeInterface(QWidget):
     # ── navigation ───────────────────────────────────────────────────────────
 
     def _show(self, entry: tuple):
-        if entry[0] == "feed":
+        if entry[0] == "origin":
+            # The first detail page was opened from another page: go back there.
+            self._trail = [("feed",)]
+            self._stack.setCurrentIndex(self._FEED)
+            self.return_requested.emit()
+        elif entry[0] == "feed":
             self._stack.setCurrentIndex(self._FEED)
         elif entry[0] == "browse":
             self._stack.setCurrentIndex(self._BROWSE)
@@ -633,6 +647,15 @@ class HomeInterface(QWidget):
         section = self._sections.get(section_id)
         if section is None:
             return
+        tab = section.tab(tab_id)
+        if not tab.needs_login:
+            # Public rankings are the search page's job: it already pages,
+            # sorts, switches view and queues downloads.
+            sort = dict(tab.params).get("sort", "")
+            signal_bus.search_requested.emit(
+                {"scope": "images" if tab.kind == "image" else "videos", "sort": sort}
+            )
+            return
         self._trail = [("feed",), ("browse",)]
         self._browse.open(section, tab_id, self._rating)
         self._stack.setCurrentIndex(self._BROWSE)
@@ -641,10 +664,25 @@ class HomeInterface(QWidget):
         kind = "image" if video.source_kind == IWARA_IMAGE_SOURCE_KIND else "video"
         self.show_detail(kind, video.video_id, video)
 
-    def show_detail(self, kind: str, item_id: str, preview: SearchVideo | None = None):
-        """Open a post's detail page (also used by other pages)."""
+    def show_detail(
+        self,
+        kind: str,
+        item_id: str,
+        preview: SearchVideo | None = None,
+        *,
+        external: bool = False,
+    ):
+        """Open a post's detail page (also used by other pages).
+
+        ``external`` means another page asked for it; Back then returns there
+        instead of to the Home feed.
+        """
 
         kind = "image" if kind == "image" else "video"
+        if external:
+            self._trail = [("origin",)]
+        elif self._trail[0] == ("origin",) and self._stack.currentIndex() != self._DETAIL:
+            self._trail = [("feed",)]
         entry = ("detail", kind, str(item_id))
         if self._trail[-1] != entry:
             self._trail.append(entry)

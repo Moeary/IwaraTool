@@ -11,7 +11,7 @@ import re
 import webbrowser
 from typing import Any
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,7 +53,10 @@ from .search_widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
 from .ui_state import ResponsiveFlowLayout
 
-CONTENT_MAX_WIDTH = 1040
+CONTENT_MAX_WIDTH = 1840
+SIDE_WIDTH = 360
+SIDE_MIN_PAGE_WIDTH = 1180  # below this the related list drops under the post
+GALLERY_MAX_WIDTH = 1280
 _URL_RE = re.compile(r"(https?://[^\s<>\"']+)")
 
 
@@ -77,14 +80,34 @@ class MediaStage(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._pixmap: QPixmap | None = None
+        self._backdrop: QPixmap | None = None
         self._playable = False
         self._badge = ""
+        self._max_height = 640
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(180)
 
     def set_pixmap(self, pixmap: QPixmap | None):
         self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        # A tiny copy stretched over the stage reads as a blurred backdrop, so a
+        # 16:9 cover on a very wide window is not flanked by empty black bars.
+        self._backdrop = (
+            self._pixmap.scaledToWidth(40, Qt.TransformationMode.SmoothTransformation)
+            if self._pixmap is not None
+            else None
+        )
         self.update()
+
+    def set_max_height(self, height: int):
+        height = max(240, int(height))
+        if height != self._max_height:
+            self._max_height = height
+            self._fit_height()
+
+    def _fit_height(self):
+        height = max(180, min(self._max_height, round(self.width() * 9 / 16)))
+        if height != self.height():
+            self.setFixedHeight(height)
 
     def set_playable(self, playable: bool, badge: str = ""):
         self._playable = playable
@@ -93,7 +116,7 @@ class MediaStage(QWidget):
         self.update()
 
     def resizeEvent(self, event):
-        self.setFixedHeight(max(180, min(560, round(self.width() * 9 / 16))))
+        self._fit_height()
         super().resizeEvent(event)
 
     def mousePressEvent(self, event):
@@ -116,6 +139,9 @@ class MediaStage(QWidget):
         shape.addRoundedRect(QRectF(self.rect()), 10, 10)
         painter.setClipPath(shape)
         painter.fillRect(self.rect(), QColor("#000000"))
+        if self._backdrop is not None:
+            painter.drawPixmap(self.rect(), self._backdrop)
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 150))
         if self._pixmap is not None:
             scaled = self._pixmap.scaled(
                 self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
@@ -161,6 +187,7 @@ class GalleryImage(QWidget):
         self._final = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMaximumWidth(GALLERY_MAX_WIDTH)
 
     def set_pixmap(self, pixmap: QPixmap, *, final: bool):
         if pixmap.isNull() or (self._final and not final):
@@ -342,8 +369,25 @@ class DetailView(QWidget):
         content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         page_row.addWidget(content, 100)
         page_row.addStretch(1)
+        columns = QHBoxLayout(content)
+        columns.setContentsMargins(0, 0, 8, 0)
+        columns.setSpacing(22)
+        main = QWidget(content)
+        columns.addWidget(main, 1)
+        # Wide windows list related posts in a column beside the post, as the
+        # website does, instead of leaving the right half of the page empty.
+        self._side = QWidget(content)
+        self._side.setFixedWidth(SIDE_WIDTH)
+        self._side_layout = QVBoxLayout(self._side)
+        self._side_layout.setContentsMargins(0, 0, 0, 0)
+        self._side_layout.setSpacing(10)
+        self._side_layout.addStretch(1)
+        columns.addWidget(self._side, 0, Qt.AlignmentFlag.AlignTop)
+        self._side_mode = False
+        self._side.hide()
+        content = main
         self._body = QVBoxLayout(content)
-        self._body.setContentsMargins(0, 0, 8, 0)
+        self._body.setContentsMargins(0, 0, 0, 0)
         self._body.setSpacing(14)
 
         self._stage = MediaStage(content)
@@ -416,13 +460,19 @@ class DetailView(QWidget):
         # Image posts show their pictures after the title block, as on the site.
         self._body.addLayout(self._gallery_box)
 
-        self._related_title = SubtitleLabel(tr("Related", "相关推荐", "関連"), content)
-        self._related_grid = MediaGrid(content, min_card_width=210, selectable=False, max_rows=2)
+        self._related_box = QWidget(content)
+        related_layout = QVBoxLayout(self._related_box)
+        related_layout.setContentsMargins(0, 0, 0, 0)
+        related_layout.setSpacing(10)
+        self._related_title = SubtitleLabel(tr("Related", "相关推荐", "関連"), self._related_box)
+        self._related_grid = MediaGrid(self._related_box, min_card_width=210, selectable=False, max_rows=2)
         self._related_grid.card_activated.connect(self.open_requested)
         self._related_grid.card_context_requested.connect(self.context_requested)
         self._related_grid.bind_fetcher(self._fetcher)
-        self._body.addWidget(self._related_title)
-        self._body.addWidget(self._related_grid)
+        related_layout.addWidget(self._related_title)
+        related_layout.addWidget(self._related_grid)
+        self._related_index = self._body.count()
+        self._body.addWidget(self._related_box)
 
         self._comments_title = SubtitleLabel(tr("Comments", "评论", "コメント"), content)
         self._body.addWidget(self._comments_title)
@@ -438,8 +488,41 @@ class DetailView(QWidget):
         self._body.addStretch(1)
 
         self._scroll.setWidget(page)
+        self._scroll.viewport().installEventFilter(self)
         root.addWidget(self._scroll, 1)
         self._reset_content()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_stage()
+        self._place_related(self.width() >= SIDE_MIN_PAGE_WIDTH)
+
+    def eventFilter(self, watched, event):
+        # The viewport settles after the page itself has been resized.
+        if watched is self._scroll.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_stage()
+        return super().eventFilter(watched, event)
+
+    def _fit_stage(self):
+        """Let the player area use most of the visible height, not a fixed cap."""
+
+        self._stage.set_max_height(round(self._scroll.viewport().height() * 0.8))
+
+    def _place_related(self, side: bool):
+        """Wide windows list related posts beside the post, narrow ones below it."""
+
+        if side == self._side_mode:
+            return
+        self._side_mode = side
+        if side:
+            self._body.removeWidget(self._related_box)
+            self._side_layout.insertWidget(0, self._related_box)
+            self._related_grid.set_max_rows(0)
+        else:
+            self._side_layout.removeWidget(self._related_box)
+            self._body.insertWidget(self._related_index, self._related_box)
+            self._related_grid.set_max_rows(2)
+        self._side.setVisible(side)
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -467,8 +550,7 @@ class DetailView(QWidget):
         self._clear_layout(self._tags_layout)
         self._tags_widget.hide()
         self._related_grid.set_videos([])
-        self._related_title.hide()
-        self._related_grid.hide()
+        self._related_box.hide()
         self._clear_layout(self._comments_box)
         self._comments_title.hide()
         self._comments_hint.setText("")
@@ -649,7 +731,7 @@ class DetailView(QWidget):
         for file_info in files:
             image = GalleryImage(file_info, self)
             image.clicked.connect(webbrowser.open)
-            self._gallery_box.addWidget(image)
+            self._gallery_box.addWidget(image, 0, Qt.AlignmentFlag.AlignHCenter)
             self._gallery.append(image)
             jobs.append(("gallery_thumb", image.file_id, image.thumb_url))
         self._fetcher.request(jobs)
@@ -666,9 +748,7 @@ class DetailView(QWidget):
         # The related endpoint ignores the SFW/NSFW choice; honour it here.
         videos = filter_by_rating(videos, normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL)))
         self._related_grid.set_videos(videos)
-        has = bool(videos)
-        self._related_title.setVisible(has)
-        self._related_grid.setVisible(has)
+        self._related_box.setVisible(bool(videos))
 
     def _on_cover(self, kind: str, key: str, path: str):
         pixmap = None
