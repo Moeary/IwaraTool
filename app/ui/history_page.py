@@ -628,6 +628,9 @@ class HistoryInterface(QWidget):
             self._COL_REMOVE,
         }:
             return
+        self._preview_selected()
+
+    def _preview_selected(self):
         video_id = self._selected_video_id()
         if video_id:
             title = str(self._records_by_id.get(video_id, {}).get("title", "") or "")

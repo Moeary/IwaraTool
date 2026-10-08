@@ -37,6 +37,7 @@ from .rules_page import RulesInterface
 from .repair_page import RepairInterface
 from .search_page import SearchInterface
 from .settings_page import SettingsInterface
+from .shortcut_bindings import install_shortcuts
 from .subscription_page import SubscriptionInterface
 from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
@@ -84,6 +85,7 @@ class MainWindow(FluentWindow):
         self._notification_bridge.update_finished.connect(self._on_update_downloaded)
         self._init_window()
         self._init_navigation()
+        install_shortcuts(self)
         self._init_desktop_notifications()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)

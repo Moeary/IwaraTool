@@ -24,6 +24,7 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..i18n import tr
+from .settings_shortcuts_cards import shortcut_card_keys
 from .theme import set_secondary_text
 
 
@@ -99,6 +100,17 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
                 "トレイと起動、動画再生、リクエスト間隔、バックアップとログ。",
             ),
             ("window", "playback", "request_policy", "maintenance"),
+        ),
+        (
+            "shortcuts",
+            FluentIcon.COMMAND_PROMPT,
+            tr("Keyboard Shortcuts", "键盘快捷键", "キーボードショートカット"),
+            tr(
+                "Shortcuts for every page and the video player; click one to rebind it.",
+                "各页面与视频播放窗口的快捷键，点击即可重新设置。",
+                "各ページと動画プレーヤーのショートカット。クリックして変更できます。",
+            ),
+            shortcut_card_keys(),
         ),
     )
 

@@ -38,6 +38,7 @@ from ..core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .settings_sections import SettingsSections
+from .settings_shortcuts_cards import ShortcutSettingsCards
 from .settings_system_cards import SystemSettingsCards
 from .tag_dictionary_worker import TagDictionaryUpdateWorker
 from .theme import PAGE_MARGINS, apply_theme_mode, normalize_theme_mode
@@ -948,6 +949,7 @@ class SettingsInterface(QWidget):
 
         # ── Window, request pacing and maintenance (self-applying) ───────────
         self._system_cards = SystemSettingsCards(self._settings_board, self)
+        self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
 
         # ── Save button ───────────────────────────────────────────────────────
         # Kept under the category list so it is reachable from every page.

@@ -113,6 +113,7 @@ class AppConfig:
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
+        "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see core/shortcut_defs
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews
@@ -469,6 +470,7 @@ class AppConfig:
     request_max_retries = _Setting()
     x_version_salts = _Setting()
     minimize_to_tray = _Setting()
+    shortcut_overrides = _Setting()
     preview_player_mode = _Setting()
     preview_player_command = _Setting()
     preview_quality = _Setting()

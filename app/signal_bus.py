@@ -60,6 +60,9 @@ class TaskSignalBus(QObject):
     # GitHub Release payload
     release_update_available = Signal(dict)
 
+    # A keyboard shortcut was reassigned or reset.
+    shortcuts_changed = Signal()
+
     # video id, title, local file path (empty when the video is not on disk)
     video_preview_requested = Signal(str, str, str)
 
