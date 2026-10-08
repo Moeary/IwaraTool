@@ -7,6 +7,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
+from app.logging_setup import get_logger, setup_logging
+from app.signal_bus import signal_bus
 from app.core.manager import download_manager
 from app.core.background_services import background_service
 from app.ui.main_window import MainWindow
@@ -14,6 +16,12 @@ from app.ui.theme import apply_theme_mode
 
 
 def main():
+    setup_logging()
+    get_logger(__name__).info("IwaraTool starting")
+    # Mirror the in-app log panel into data/logs so packaged builds stay debuggable.
+    ui_logger = get_logger("ui")
+    signal_bus.log_message.connect(lambda message: ui_logger.info("%s", message))
+
     # Allow high-DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
