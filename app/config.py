@@ -87,6 +87,8 @@ class AppConfig:
         "search_limit_count": 100,
         "search_history_limit": 20,
         "search_auto_search_enabled": True,
+        "search_default_source": "iwara",  # iwara / oreno3d
+        "search_chinese_via_oreno3d": True,
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -420,6 +422,24 @@ class AppConfig:
         self._set("search_history_limit", max(1, min(100, value)))
 
     search_auto_search_enabled = _Setting()
+
+    SEARCH_SOURCES = ("iwara", "oreno3d")
+
+    @property
+    def search_default_source(self) -> str:
+        """The search engine the Search page starts on."""
+
+        value = str(self._get("search_default_source") or "").strip().casefold()
+        return value if value in self.SEARCH_SOURCES else "iwara"
+
+    @search_default_source.setter
+    def search_default_source(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("search_default_source", value if value in self.SEARCH_SOURCES else "iwara")
+
+    # Video keyword searches written in Chinese go to Oreno3D, whose index
+    # carries Chinese titles and tags; Iwara's own search rarely matches them.
+    search_chinese_via_oreno3d = _Setting()
 
     aria2_rpc_enabled = _Setting()
 

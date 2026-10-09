@@ -88,7 +88,7 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
                 "搜索历史、搜索下载上限、标签词典与 Oreno3D 解析。",
                 "検索履歴、ダウンロード上限、タグ辞書、Oreno3D の解決。",
             ),
-            ("search_history", "search_limit", "search_bridge"),
+            ("search_engine", "search_history", "search_limit", "search_bridge"),
         ),
         (
             "subscriptions",

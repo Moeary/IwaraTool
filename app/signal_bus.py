@@ -72,6 +72,9 @@ class TaskSignalBus(QObject):
     # SFW/NSFW selection (core.rating value) changed on Home or Search.
     content_rating_changed = Signal(str)
 
+    # The default search engine was changed in Settings ("iwara" / "oreno3d").
+    search_source_changed = Signal(str)
+
     # Preferred minimum card width (px) of the poster grids changed.
     media_card_size_changed = Signal(int)
 

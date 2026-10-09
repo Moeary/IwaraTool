@@ -530,6 +530,63 @@ class SettingsInterface(QWidget):
         cover_layout.addLayout(incremental_row)
         self._settings_board.add_card("cover_performance", cover_card)
 
+        # ── Search engine ───────────────────────────────────────────────────
+        engine_card = self._settings_board.create_card("search_engine")
+        engine_layout = QVBoxLayout(engine_card)
+        engine_layout.setContentsMargins(20, 16, 20, 16)
+        engine_layout.setSpacing(10)
+        engine_layout.addWidget(
+            SubtitleLabel(tr("Search Engine", "搜索引擎", "検索エンジン"), engine_card)
+        )
+        engine_row = QHBoxLayout()
+        engine_row.addWidget(
+            BodyLabel(tr("Main search engine", "主搜索引擎", "メイン検索エンジン"), engine_card)
+        )
+        engine_row.addStretch()
+        self._search_source_combo = ComboBox(engine_card)
+        self._search_source_combo.addItem(tr("Iwara live API", "Iwara 实时 API", "IwaraライブAPI"))
+        self._search_source_combo.setItemData(0, "iwara")
+        self._search_source_combo.addItem(
+            tr("Oreno3D online search", "Oreno3D 在线搜索", "Oreno3Dオンライン検索")
+        )
+        self._search_source_combo.setItemData(1, "oreno3d")
+        self._search_source_combo.setFixedWidth(260)
+        self._search_source_combo.currentIndexChanged.connect(self._on_search_source_changed)
+        engine_row.addWidget(self._search_source_combo)
+        engine_layout.addLayout(engine_row)
+
+        chinese_row = QHBoxLayout()
+        chinese_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Search Chinese keywords with Oreno3D",
+                    "中文关键词使用 Oreno3D 搜索",
+                    "中国語キーワードは Oreno3D で検索",
+                ),
+                engine_card,
+            )
+        )
+        chinese_row.addStretch()
+        self._search_chinese_oreno_switch = SwitchButton(engine_card)
+        self._search_chinese_oreno_switch.checkedChanged.connect(self._on_search_chinese_oreno_toggle)
+        chinese_row.addWidget(self._search_chinese_oreno_switch)
+        engine_layout.addLayout(chinese_row)
+        chinese_hint = BodyLabel(
+            tr(
+                "Iwara's own search rarely matches Chinese titles. Video searches whose keyword contains "
+                "Chinese characters switch to Oreno3D automatically; the next search without them returns "
+                "to the main engine.",
+                "Iwara 自带搜索很难匹配中文标题。关键词含中文字符的视频搜索会自动改用 Oreno3D，"
+                "之后不含中文的搜索会切回主搜索引擎。",
+                "Iwara 自体の検索は中国語タイトルにほとんど一致しません。キーワードに中国語の文字を含む"
+                "動画検索は自動的に Oreno3D を使い、含まない次の検索でメインのエンジンに戻ります。",
+            ),
+            engine_card,
+        )
+        chinese_hint.setWordWrap(True)
+        engine_layout.addWidget(chinese_hint)
+        self._settings_board.add_card("search_engine", engine_card)
+
         # ── Search download limit ───────────────────────────────────────────
         search_card = self._settings_board.create_card("search_limit")
         search_layout = QVBoxLayout(search_card)
@@ -1032,6 +1089,12 @@ class SettingsInterface(QWidget):
         self._search_limit_edit.setEnabled(app_config.search_limit_enabled)
         self._search_history_limit_spin.setValue(app_config.search_history_limit)
         self._search_auto_search_switch.setChecked(app_config.search_auto_search_enabled)
+        self._search_source_combo.blockSignals(True)
+        self._search_source_combo.setCurrentIndex(
+            1 if app_config.search_default_source == "oreno3d" else 0
+        )
+        self._search_source_combo.blockSignals(False)
+        self._search_chinese_oreno_switch.setChecked(bool(app_config.search_chinese_via_oreno3d))
         search_resolution_mode = str(
             app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
             or "eager"
@@ -1334,6 +1397,20 @@ class SettingsInterface(QWidget):
         if self._loading_settings:
             return
         app_config.auto_restore_stalled_cancelled = bool(checked)
+
+    def _on_search_source_changed(self, index: int):
+        if self._loading_settings:
+            return
+        source = str(self._search_source_combo.itemData(index) or "iwara")
+        if source == app_config.search_default_source:
+            return
+        app_config.search_default_source = source
+        signal_bus.search_source_changed.emit(app_config.search_default_source)
+
+    def _on_search_chinese_oreno_toggle(self, checked: bool):
+        if self._loading_settings:
+            return
+        app_config.search_chinese_via_oreno3d = bool(checked)
 
     def _on_search_limit_toggle(self, checked: bool):
         app_config.search_limit_enabled = checked

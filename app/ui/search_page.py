@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import webbrowser
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any
@@ -142,6 +143,16 @@ class SearchSession:
     account_epoch: int = 0  # login changes seen when recorded; account-bound results expire
 
 
+_HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_KANA = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]")
+
+
+def is_chinese_keyword(text: str) -> bool:
+    """Han characters without any kana: Chinese rather than Japanese."""
+
+    return bool(_HAN.search(text or "")) and not _KANA.search(text or "")
+
+
 class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
     """Search page with Fluent controls, cached covers, and a configurable list."""
 
@@ -182,6 +193,10 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._active_search_request = None
         self._search_error = ""
         self._account_epoch = 0
+        # The source was switched to Oreno3D only for a Chinese keyword.
+        self._source_auto_routed = False
+        # The user picked the source by hand for the keyword now in the box.
+        self._source_pinned = False
         self._all_videos: list[SearchVideo] = []
         self._all_authors: list[SearchAuthor] = []
         self._all_playlists: list[SearchPlaylist] = []
@@ -238,7 +253,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._source_combo.setMinimumWidth(168)
         self._source_combo.setToolTip(tr("Search source", "数据源", "検索ソース"))
-        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        self._set_combo_data(self._source_combo, app_config.search_default_source)
+        self._source_combo.currentIndexChanged.connect(self._on_source_combo_changed)
         keyword_row.addWidget(self._source_combo)
 
         self._keyword_edit = SearchKeywordEdit(query_card)
@@ -252,6 +268,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._keyword_edit.returnPressed.connect(self._start_search)
         self._keyword_edit.textEdited.connect(self._clear_author_navigation)
+        self._keyword_edit.textEdited.connect(self._unpin_source)
         self._keyword_edit.textChanged.connect(self._sync_sort_options)
         keyword_row.addWidget(self._keyword_edit, 1)
 
@@ -322,6 +339,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         options_row.addWidget(self._rating_group)
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_state_changed)
+        signal_bus.search_source_changed.connect(self._on_default_source_changed)
 
         options_row.addStretch(1)
 
@@ -1005,6 +1023,75 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._scope_combo.setCurrentIndex(selected_index)
         self._scope_combo.blockSignals(False)
 
+    def _on_source_combo_changed(self, *_args):
+        self._source_auto_routed = False
+        self._source_pinned = True
+        self._on_source_changed()
+
+    def _unpin_source(self, *_args):
+        self._source_pinned = False
+
+    def _switch_source(self, source: str) -> bool:
+        """Select ``source`` without counting it as the user's own pick.
+
+        The keyword (and the sort, where the new source offers it) comes along
+        instead of that source's own draft.
+        """
+
+        if str(self._source_combo.currentData() or "") == source:
+            return False
+        keyword = self._keyword_edit.text()
+        sort = str(self._sort_combo.currentData() or "date")
+        self._source_combo.blockSignals(True)
+        changed = self._set_combo_data(self._source_combo, source)
+        self._source_combo.blockSignals(False)
+        if changed:
+            self._on_source_changed(trigger_search=False)
+            self._keyword_edit.setText(keyword)
+            self._sync_sort_options()
+            self._sort_combo.blockSignals(True)
+            self._set_combo_data(self._sort_combo, sort)
+            self._sort_combo.blockSignals(False)
+        return changed
+
+    def _on_default_source_changed(self, source: str):
+        """Settings chose another main search engine: start from it."""
+
+        self._source_auto_routed = False
+        self._source_pinned = False
+        self._switch_source(source)
+
+    def _route_source_for_keyword(self):
+        """Chinese video keywords go to Oreno3D; the next other search goes back."""
+
+        if self._author_video_target is not None or self._source_pinned:
+            return
+        if str(self._scope_combo.currentData() or "videos") != "videos":
+            return
+        source = str(self._source_combo.currentData() or "oreno3d")
+        chinese = bool(app_config.search_chinese_via_oreno3d) and is_chinese_keyword(
+            self._keyword_edit.text()
+        )
+        if chinese and source == "iwara":
+            if self._switch_source("oreno3d"):
+                self._source_auto_routed = True
+                InfoBar.info(
+                    title=tr("Searching Oreno3D", "已改用 Oreno3D 搜索", "Oreno3D で検索"),
+                    content=tr(
+                        "Chinese keywords are searched with Oreno3D (see Settings › Search).",
+                        "中文关键词使用 Oreno3D 搜索（可在 设置 › 搜索 中关闭）。",
+                        "中国語キーワードは Oreno3D で検索します（設定 › 検索）。",
+                    ),
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2500,
+                    parent=self,
+                )
+        elif not chinese and self._source_auto_routed:
+            self._source_auto_routed = False
+            self._switch_source(app_config.search_default_source)
+
     def _on_source_changed(self, *_args, trigger_search: bool = True):
         self._clear_author_navigation()
         source = str(self._source_combo.currentData() or "oreno3d")
@@ -1144,9 +1231,10 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             filters, rating=rating, page_size=self._page_size(True, rating, filters.keyword),
         )
 
-    def _start_search(self, *_args):
+    def _start_search(self, *_args, record_history: bool = True):
         self._auto_search_timer.stop()
         self._hide_search_history_popup()
+        self._route_source_for_keyword()
         try:
             filters = self._build_filters()
         except ValueError as exc:
@@ -1173,7 +1261,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             self._show_error(tr("Enter playlist keywords, an ID or a URL", "请输入播放列表关键词、ID 或链接", "プレイリストのキーワード、ID、URLを入力してください"))
             return
 
-        self._record_current_search()
+        if record_history:
+            self._record_current_search()
         self._active_search_request = (filters, scope, source)
         self._search_error = ""
         self._interrupt_search_workers()
@@ -2071,6 +2160,22 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if self._tag_popup is not None:
             self._tag_popup.hide()
         QTimer.singleShot(0, self._resize_grid)
+        # After the event loop turn, so a restore or an external query that
+        # comes with this switch has already put its own search in place.
+        QTimer.singleShot(0, self, self._load_initial_results)
+
+    def _load_initial_results(self):
+        """An empty page loads the listing at once instead of waiting for a refresh."""
+
+        if not self.isVisible() or self._loading or self._active_search_request is not None:
+            return
+        if self._all_videos or self._all_authors or self._all_playlists:
+            return
+        if self._author_video_target is not None:
+            return
+        if str(self._scope_combo.currentData() or "videos") not in {"videos", "images"}:
+            return  # the other scopes need a keyword first
+        self._start_search(record_history=False)
 
     def hideEvent(self, event):
         self._auto_search_timer.stop()
@@ -2234,6 +2339,12 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if self._tag_popup is not None:
             self._tag_popup.hide()
         self._interrupt_search_workers()
+        self._source_pinned = False
+        self._source_auto_routed = (
+            session.source == "oreno3d"
+            and app_config.search_default_source == "iwara"
+            and is_chinese_keyword(session.keyword)
+        )
         ready, self._auto_search_ready = self._auto_search_ready, False
         combos = (self._source_combo, self._scope_combo, self._sort_combo)
         try:

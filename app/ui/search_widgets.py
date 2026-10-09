@@ -52,9 +52,9 @@ def _upsert_search_history(
 ) -> list[dict[str, str]]:
     """Return an MRU history list with duplicate queries collapsed."""
 
+    # An entry not worth keeping (no keyword outside video browsing) leaves
+    # the existing history as it is.
     normalized_entry = _normalize_search_history_entry(entry)
-    if normalized_entry is None:
-        return []
     try:
         safe_limit = max(1, min(MAX_SEARCH_HISTORY_LIMIT, int(limit)))
     except (TypeError, ValueError):
@@ -63,7 +63,7 @@ def _upsert_search_history(
     values = history if isinstance(history, list) else []
     normalized: list[dict[str, str]] = []
     seen: set[tuple[str, str, str, str]] = set()
-    for value in [normalized_entry, *values]:
+    for value in [normalized_entry, *values] if normalized_entry is not None else values:
         item = _normalize_search_history_entry(value)
         if item is None:
             continue

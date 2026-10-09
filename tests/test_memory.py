@@ -395,6 +395,7 @@ class IdleTrimTests(_QtCase):
         for target, value in (
             ("app.config.app_config._qs", QSettings(os.path.join(cls.tmp.name, "config.ini"), QSettings.Format.IniFormat)),
             ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.search_page.SearchInterface._load_initial_results", lambda page: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)

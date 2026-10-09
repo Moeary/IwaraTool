@@ -57,6 +57,7 @@ class _FakeSignalBus(QObject):
     log_message = Signal(str)
     content_rating_changed = Signal(str)
     login_state_changed = Signal(bool)
+    search_source_changed = Signal(str)
 
 
 def _iwara(video_id, **kwargs):
