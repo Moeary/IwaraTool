@@ -69,6 +69,9 @@ class TaskSignalBus(QObject):
     # video id, title, local file path (empty when the video is not on disk)
     video_preview_requested = Signal(str, str, str)
 
+    # video id, title, position (ms); continue an embedded video in the player window.
+    video_popout_requested = Signal(str, str, int)
+
     # SFW/NSFW selection (core.rating value) changed on Home or Search.
     content_rating_changed = Signal(str)
 

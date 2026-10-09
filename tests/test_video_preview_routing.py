@@ -77,7 +77,9 @@ class MainWindowRoutingTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def _stub(self):
-        return SimpleNamespace(_preview_window=None)
+        stub = SimpleNamespace(_preview_window=None)
+        stub._show_preview_window = lambda *args, **kwargs: MainWindow._show_preview_window(stub, *args, **kwargs)
+        return stub
 
     def _route(self, *, local: str, mode: str, window):
         stub = self._stub()
@@ -86,6 +88,14 @@ class MainWindowRoutingTests(unittest.TestCase):
                 mock.patch.object(main_window_module, "VideoPreviewWindow", return_value=window):
             MainWindow._on_video_preview_requested(stub, "abc", "Title", "")
         return stub
+
+    def test_popout_uses_the_window_even_with_an_external_player_and_keeps_the_position(self):
+        window = mock.Mock()
+        stub = self._stub()
+        with mock.patch.object(video_player, "local_video_path", return_value="/v/a.mp4"),                 mock.patch.object(video_player, "player_mode", return_value=video_player.MODE_SYSTEM),                 mock.patch.object(main_window_module, "VideoPreviewWindow", return_value=window):
+            MainWindow._on_video_popout_requested(stub, "abc", "Title", 12_000)
+        window.play_local.assert_called_once_with("/v/a.mp4", "Title", "abc", start_ms=12_000)
+        window.show.assert_called_once()
 
     def test_downloaded_video_uses_the_external_player(self):
         window = mock.Mock()
@@ -98,14 +108,14 @@ class MainWindowRoutingTests(unittest.TestCase):
     def test_builtin_mode_plays_local_files_in_the_window(self):
         window = mock.Mock()
         stub = self._route(local="/v/a.mp4", mode=video_player.MODE_BUILTIN, window=window)
-        window.play_local.assert_called_once_with("/v/a.mp4", "Title", "abc")
+        window.play_local.assert_called_once_with("/v/a.mp4", "Title", "abc", start_ms=0)
         window.show.assert_called_once()
         self.assertIs(stub._preview_window, window)
 
     def test_missing_or_moved_video_streams_in_the_window(self):
         window = mock.Mock()
         self._route(local="", mode=video_player.MODE_SYSTEM, window=window)
-        window.play_remote.assert_called_once_with("abc", "Title")
+        window.play_remote.assert_called_once_with("abc", "Title", start_ms=0)
         window.play_local.assert_not_called()
 
     def test_window_is_reused(self):
@@ -115,7 +125,7 @@ class MainWindowRoutingTests(unittest.TestCase):
                 mock.patch.object(main_window_module, "VideoPreviewWindow") as factory:
             MainWindow._on_video_preview_requested(stub, "def", "Other", "")
         factory.assert_not_called()
-        first.play_remote.assert_called_with("def", "Other")
+        first.play_remote.assert_called_with("def", "Other", start_ms=0)
 
     def test_explicit_local_path_wins_over_history(self):
         with tempfile.TemporaryDirectory() as root:
@@ -127,7 +137,7 @@ class MainWindowRoutingTests(unittest.TestCase):
                     mock.patch.object(video_player, "player_mode", return_value=video_player.MODE_BUILTIN), \
                     mock.patch.object(main_window_module, "VideoPreviewWindow", return_value=window):
                 MainWindow._on_video_preview_requested(stub, "abc", "T", path)
-            window.play_local.assert_called_once_with(path, "T", "abc")
+            window.play_local.assert_called_once_with(path, "T", "abc", start_ms=0)
 
 
 if __name__ == "__main__":

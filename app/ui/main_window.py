@@ -54,7 +54,7 @@ from .shortcut_bindings import install_shortcuts
 from .subscription_page import SubscriptionInterface
 from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
-from .video_preview_window import VideoPreviewWindow
+from .video_preview_window import VideoPreviewWindow, keep_normal_geometry
 from .window_drag import WindowsTitleBarDragFilter
 from .worker_lifecycle import ShutdownPoller
 
@@ -103,6 +103,7 @@ class MainWindow(FluentWindow):
         super().__init__()
         if sys.platform == "win32":
             self._title_bar_drag_filter = WindowsTitleBarDragFilter(self.titleBar)
+        keep_normal_geometry(self)  # no drift after maximize/restore with a left taskbar
         self._reloading_language = False
         self._closing = False  # pages are stopping in the background; the window is hidden
         self._close_complete = False  # the next closeEvent is the real one
@@ -145,6 +146,7 @@ class MainWindow(FluentWindow):
         signal_bus.desktop_notification_requested.connect(self._show_desktop_notification)
         signal_bus.release_update_available.connect(self._on_release_update_available)
         signal_bus.video_preview_requested.connect(self._on_video_preview_requested)
+        signal_bus.video_popout_requested.connect(self._on_video_popout_requested)
         signal_bus.task_status_changed.connect(self._on_task_status_notification)
         signal_bus.subscription_source_requested.connect(self._on_subscription_source_requested)
         signal_bus.media_detail_requested.connect(self._on_media_detail_requested)
@@ -444,13 +446,22 @@ class MainWindow(FluentWindow):
             return
         if not local and not video_id:
             return
+        self._show_preview_window(video_id, title, local)
+
+    def _on_video_popout_requested(self, video_id: str, title: str, position: int):
+        """An embedded player asked for the window: always the built-in one, at the same spot."""
+        video_id = str(video_id or "").strip()
+        if video_id:
+            self._show_preview_window(video_id, title, video_player.local_video_path(video_id), start_ms=position)
+
+    def _show_preview_window(self, video_id: str, title: str, local: str, *, start_ms: int = 0):
         if self._preview_window is None:
             self._preview_window = VideoPreviewWindow()
         window = self._preview_window
         if local:
-            window.play_local(local, title, video_id)
+            window.play_local(local, title, video_id, start_ms=start_ms)
         else:
-            window.play_remote(video_id, title)
+            window.play_remote(video_id, title, start_ms=start_ms)
         window.show()
         window.raise_()
         window.activateWindow()

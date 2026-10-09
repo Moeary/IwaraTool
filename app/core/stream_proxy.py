@@ -92,6 +92,12 @@ class StreamProxy:
             self._sources[token] = source
         return f"http://127.0.0.1:{port}/s/{token}"
 
+    def unregister(self, url: str) -> None:
+        """Drop the source behind one URL that ``register`` returned."""
+        token = str(url or "").rsplit("/s/", 1)[-1].split("?", 1)[0]
+        with self._lock:
+            self._sources.pop(token, None)
+
     def unregister_all(self) -> None:
         with self._lock:
             self._sources.clear()

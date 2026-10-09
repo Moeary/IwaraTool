@@ -48,7 +48,7 @@ def scope_titles() -> dict[str, str]:
         SCOPE_REPAIR: tr("Repair Center", "修复中心", "修復センター"),
         SCOPE_RULES: tr("Rules", "下载规则", "ルール"),
         SCOPE_SETTINGS: tr("Settings", "应用设置", "設定"),
-        SCOPE_PLAYER: tr("Video player window", "视频播放窗口", "動画プレーヤー"),
+        SCOPE_PLAYER: tr("Video player", "视频播放器", "動画プレーヤー"),
     }
 
 

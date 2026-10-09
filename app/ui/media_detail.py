@@ -59,6 +59,7 @@ from .navigation import restore_scroll
 from .search_widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
 from .ui_state import ResponsiveFlowLayout
+from .video_preview_window import VideoPlayer, create_backend
 
 CONTENT_MAX_WIDTH = 1840
 SIDE_WIDTH = 360
@@ -80,7 +81,32 @@ def format_date(value: str) -> str:
     return str(value or "")[:10]
 
 
-class MediaStage(QWidget):
+class StageBox(QWidget):
+    """A 16:9 area at the page width, never taller than the height it is given."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._max_height = 640
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(180)
+
+    def set_max_height(self, height: int):
+        height = max(240, int(height))
+        if height != self._max_height:
+            self._max_height = height
+            self._fit_height()
+
+    def _fit_height(self):
+        height = max(180, min(self._max_height, round(self.width() * 9 / 16)))
+        if height != self.height():
+            self.setFixedHeight(height)
+
+    def resizeEvent(self, event):
+        self._fit_height()
+        super().resizeEvent(event)
+
+
+class MediaStage(StageBox):
     """Letterboxed cover with a play button, standing in for the player."""
 
     clicked = Signal()
@@ -91,11 +117,8 @@ class MediaStage(QWidget):
         self._backdrop: QPixmap | None = None
         self._playable = False
         self._badge = ""
-        self._max_height = 640
         self._scaled: QPixmap | None = None
         self._scaled_key: tuple | None = None
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(180)
 
     def _scaled_pixmap(self) -> QPixmap:
         """The cover fitted to the stage, scaled once per size rather than on every paint."""
@@ -120,26 +143,11 @@ class MediaStage(QWidget):
         )
         self.update()
 
-    def set_max_height(self, height: int):
-        height = max(240, int(height))
-        if height != self._max_height:
-            self._max_height = height
-            self._fit_height()
-
-    def _fit_height(self):
-        height = max(180, min(self._max_height, round(self.width() * 9 / 16)))
-        if height != self.height():
-            self.setFixedHeight(height)
-
     def set_playable(self, playable: bool, badge: str = ""):
         self._playable = playable
         self._badge = badge
         self.setCursor(Qt.CursorShape.PointingHandCursor if playable else Qt.CursorShape.ArrowCursor)
         self.update()
-
-    def resizeEvent(self, event):
-        self._fit_height()
-        super().resizeEvent(event)
 
     def mousePressEvent(self, event):
         # Accept the press so the matching release reaches this widget.
@@ -399,6 +407,9 @@ class DetailView(QWidget):
     open_requested = Signal(object)  # related SearchVideo
     context_requested = Signal(object, QPoint)
 
+    # Builds the multimedia objects of the embedded player (replaced in tests).
+    player_backend_factory = staticmethod(create_backend)
+
     def __init__(self, fetcher: CoverFetcher, parent: QWidget | None = None):
         super().__init__(parent)
         self._fetcher = fetcher
@@ -422,6 +433,7 @@ class DetailView(QWidget):
         self._related: list[SearchVideo] | None = None
         self._comment_batches: list[tuple[list[dict[str, Any]], int | None, str]] = []
         self._reply_rows: dict[str, list[dict[str, Any]]] = {}
+        self._player: VideoPlayer | None = None  # created on the first Play
         self._build_ui()
         fetcher.cover_ready.connect(self._on_cover)
 
@@ -476,6 +488,13 @@ class DetailView(QWidget):
         self._stage = MediaStage(content)
         self._stage.clicked.connect(self._play)
         self._body.addWidget(self._stage)
+        # The player takes the cover's place while a video plays on the page.
+        self._player_box = StageBox(content)
+        player_layout = QVBoxLayout(self._player_box)
+        player_layout.setContentsMargins(0, 0, 0, 0)
+        player_layout.setSpacing(0)
+        self._player_box.hide()
+        self._body.addWidget(self._player_box)
         self._gallery_box = QVBoxLayout()
         self._gallery_box.setSpacing(10)
 
@@ -491,6 +510,10 @@ class DetailView(QWidget):
         actions = ResponsiveFlowLayout(spacing=8)
         self._play_btn = PrimaryPushButton(tr("Play", "播放", "再生"), content, FluentIcon.PLAY)
         self._play_btn.clicked.connect(self._play)
+        self._window_play_btn = PushButton(
+            tr("Play in window", "独立窗口播放", "別ウィンドウで再生"), content, FluentIcon.APPLICATION,
+        )
+        self._window_play_btn.clicked.connect(self._play_in_window)
         self._download_btn = PushButton(tr("Download", "下载", "ダウンロード"), content, FluentIcon.DOWNLOAD)
         self._download_btn.clicked.connect(self._queue)
         self._browser_btn = PushButton(tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), content, FluentIcon.GLOBE)
@@ -503,7 +526,9 @@ class DetailView(QWidget):
         attach_hint(self._download_btn, tr("Download", "下载", "ダウンロード"), "detail_download")
         attach_hint(self._browser_btn, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), "detail_open_browser")
         attach_hint(self._copy_btn, tr("Copy link", "复制链接", "リンクをコピー"), "detail_copy_link")
-        for button in (self._play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn):
+        for button in (
+            self._play_btn, self._window_play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn,
+        ):
             actions.addWidget(button)
         self._body.addLayout(actions)
 
@@ -627,7 +652,9 @@ class DetailView(QWidget):
     def _fit_stage(self):
         """Let the player area use most of the visible height, not a fixed cap."""
 
-        self._stage.set_max_height(round(self._scroll.viewport().height() * 0.8))
+        height = round(self._scroll.viewport().height() * 0.8)
+        self._stage.set_max_height(height)
+        self._player_box.set_max_height(height)
 
     def _place_related(self, side: bool):
         """Wide windows list related posts beside the post, narrow ones below it."""
@@ -657,6 +684,7 @@ class DetailView(QWidget):
                 widget.deleteLater()
 
     def _reset_content(self):
+        self._stop_player()
         self._stage.set_pixmap(None)
         self._stage.set_playable(False)
         self._stage.show()
@@ -676,11 +704,14 @@ class DetailView(QWidget):
         self._comments_title.hide()
         self._comments_hint.setText("")
         self._more_comments_btn.hide()
-        for button in (self._play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn):
+        for button in (
+            self._play_btn, self._window_play_btn, self._download_btn, self._like_btn, self._browser_btn, self._copy_btn,
+        ):
             button.setEnabled(False)
         self._liked = False
         self._sync_like()
         self._play_btn.setVisible(True)
+        self._window_play_btn.setVisible(True)
         self._download_btn.setVisible(True)
         self._info = None
         self._author_target = None
@@ -693,6 +724,8 @@ class DetailView(QWidget):
         self._reply_rows = {}
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
+        if self._player is not None:
+            self._player.shutdown()
         return all([
             stop_workers([*self._detail_workers, *self._comment_workers, *self._like_workers], timeout_ms),
             self._author_status.shutdown(timeout_ms),
@@ -860,8 +893,10 @@ class DetailView(QWidget):
             self._request_stage_cover(video)
         can_play = self._kind == "video" and video.downloadable
         self._play_btn.setEnabled(can_play)
+        self._window_play_btn.setEnabled(can_play)
         self._download_btn.setEnabled(can_play)
         self._play_btn.setVisible(self._kind == "video")
+        self._window_play_btn.setVisible(self._kind == "video")
         self._download_btn.setVisible(self._kind == "video")
 
         user = info.get("user") if isinstance(info.get("user"), dict) else {}
@@ -1025,9 +1060,59 @@ class DetailView(QWidget):
     def _page_url(self) -> str:
         return f"https://www.iwara.tv/{self._kind}/{self._item_id}"
 
+    def _can_play(self) -> bool:
+        return self._video is not None and self._kind == "video" and self._video.downloadable
+
     def _play(self):
-        if self._video is not None and self._kind == "video" and self._video.downloadable:
+        """Play on the page, in place of the cover (the local file when it is on disk)."""
+
+        if not self._can_play():
+            return
+        from ..core import video_player
+
+        if self._player is None:
+            self._player = VideoPlayer(self.player_backend_factory, self._player_box, allow_popout=True)
+            self._player.popout_requested.connect(self._pop_out)
+            self._player_box.layout().addWidget(self._player)
+        video = self._video
+        local = video_player.local_video_path(video.video_id)
+        if local:
+            self._player.play_local(local, video.title, video.video_id)
+        else:
+            self._player.play_remote(video.video_id, video.title)
+        self._stage.hide()
+        self._player_box.show()
+        self._player.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _play_in_window(self):
+        if self._can_play():
+            self._stop_player()
             signal_bus.video_preview_requested.emit(self._video.video_id, self._video.title, "")
+
+    def _pop_out(self):
+        """Continue the embedded video in the separate player window."""
+
+        player = self._player
+        if player is None or not player.video_id:
+            return
+        video_id, title, position = player.video_id, player.title, player.position()
+        self._stop_player()
+        signal_bus.video_popout_requested.emit(video_id, title, position)
+
+    def _stop_player(self):
+        if self._player is not None:
+            if self._player.is_fullscreen():
+                self._player.toggle_fullscreen()
+            self._player.stop()
+        if hasattr(self, "_player_box"):
+            self._player_box.hide()
+            self._stage.show()
+
+    def hideEvent(self, event):
+        # Leaving the post (another page or post) ends the video; minimizing does not.
+        if not event.spontaneous() and not (self._player is not None and self._player.is_fullscreen()):
+            self._stop_player()
+        super().hideEvent(event)
 
     def _queue(self):
         if self._kind != "video" or not self._item_id:
