@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import webbrowser
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any
 
 from PySide6.QtCore import QItemSelectionModel, QPoint, QThread, Qt, QSize, QTimer
@@ -138,6 +138,8 @@ class SearchSession:
     selected: tuple[str, ...] = ()
     scroll: int = 0
     focus: str = ""  # "results" | "keyword" | ""
+    pending: bool = False  # the request was still loading: rerun it on restore
+    account_epoch: int = 0  # login changes seen when recorded; account-bound results expire
 
 
 class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
@@ -179,6 +181,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._query_drafts: dict[tuple[str, str], tuple[str, str]] = {}
         self._active_search_request = None
         self._search_error = ""
+        self._account_epoch = 0
         self._all_videos: list[SearchVideo] = []
         self._all_authors: list[SearchAuthor] = []
         self._all_playlists: list[SearchPlaylist] = []
@@ -318,6 +321,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         rating_layout.addWidget(self._rating_combo)
         options_row.addWidget(self._rating_group)
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
+        signal_bus.login_state_changed.connect(self._on_login_state_changed)
 
         options_row.addStretch(1)
 
@@ -1033,6 +1037,9 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._rating_combo.blockSignals(False)
         self._schedule_auto_search()
 
+    def _on_login_state_changed(self, *_args):
+        self._account_epoch += 1
+
     def _schedule_auto_search(self):
         # Drop a timer scheduled under the previous source/scope state.  A
         # stale timer can otherwise start a new generation during paging and
@@ -1113,17 +1120,28 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         iwara = str(self._source_combo.currentData() or "oreno3d") == "iwara"
         keyword = self._keyword_edit.text().strip()
         rating = api_rating(self._selected_rating()) if iwara else ""
-        page_size = 32 if iwara else 36
-        if rating and keyword:
-            # /search ignores the rating, so the page is filtered locally;
-            # ask for the largest page so a filtered page is not nearly empty.
-            page_size = 100
         return SearchFilters(
             keyword=keyword,
             author_id=author_id,
             sort=str(self._sort_combo.currentData() or "date"),
             rating=rating,
-            page_size=page_size,
+            page_size=self._page_size(iwara, rating, keyword),
+        )
+
+    @staticmethod
+    def _page_size(iwara: bool, rating: str, keyword: str) -> int:
+        if rating and keyword:
+            # /search ignores the rating, so the page is filtered locally;
+            # ask for the largest page so a filtered page is not nearly empty.
+            return 100
+        return 32 if iwara else 36
+
+    def _rerated_filters(self, filters: SearchFilters) -> SearchFilters:
+        """The same Iwara query under the current global content rating."""
+
+        rating = api_rating(self._selected_rating())
+        return dataclass_replace(
+            filters, rating=rating, page_size=self._page_size(True, rating, filters.keyword),
         )
 
     def _start_search(self, *_args):
@@ -2204,6 +2222,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             selected=self._selected_keys(),
             scroll=self._result_view().verticalScrollBar().value(),
             focus=focus,
+            pending=self._loading and self._active_search_request is not None,
+            account_epoch=self._account_epoch,
         )
 
     def nav_restore(self, session: SearchSession):
@@ -2250,6 +2270,26 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._total = session.total
         self._image_path_by_key = dict(session.image_paths)
         self._image_pending_keys.clear()
+        rerun = self._restored_request_to_rerun(session)
+        if rerun is not None:
+            # Unfinished, or recorded under another rating/account: the
+            # cached cards cannot be shown as they are, so ask again.
+            self._active_search_request = rerun
+            self._search_error = ""
+            self._all_videos.clear()
+            self._all_authors.clear()
+            self._all_playlists.clear()
+            self._image_path_by_key.clear()
+            self._next_page = None
+            self._render_results()
+            self._status_label.setText("")
+            filters, scope, source = rerun
+            self._run_search(filters, scope, source=source, page=session.current_page, replace_results=True)
+            if session.focus == "results":
+                self._result_view().setFocus(Qt.FocusReason.OtherFocusReason)
+            elif session.focus == "keyword":
+                self._keyword_edit.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
         self._render_results()
         self._set_loading(False)
         self._status_label.setText(session.status)
@@ -2260,6 +2300,20 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         elif session.focus == "keyword":
             self._keyword_edit.setFocus(Qt.FocusReason.OtherFocusReason)
         self._start_image_loading()  # covers that were still missing come from the cache or the site
+
+    def _restored_request_to_rerun(self, session: SearchSession):
+        """The request to send again on restore, or None when the cached results still hold."""
+
+        request = session.active_request
+        if not isinstance(request, tuple) or len(request) != 3:
+            return None
+        filters, scope, source = request
+        if source != "iwara" or not isinstance(filters, SearchFilters):
+            return request if session.pending else None
+        fresh = (self._rerated_filters(filters), scope, source)
+        if session.pending or fresh != request or session.account_epoch != self._account_epoch:
+            return fresh
+        return None
 
     def dismiss_transient(self) -> bool:
         """Esc on the page: first drop the selection, if there is one."""

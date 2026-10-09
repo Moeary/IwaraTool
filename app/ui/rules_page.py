@@ -1,6 +1,7 @@
 """Named download/filter rules page and reusable rule picker."""
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 
@@ -430,6 +431,36 @@ class RuleFormWidget(QWidget):
         self.filename_template_edit.setText(data["filename_template"])
         self.summary_label.setText(_rule_summary(data))
         self._loading_payload = False
+
+    _DRAFT_TEXTS = (
+        "name_edit", "filename_template_edit", "likes_edit", "views_edit", "start_edit",
+        "end_edit", "include_tags_edit", "exclude_tags_edit", "title_include_edit", "title_exclude_edit",
+    )
+    _DRAFT_SWITCHES = (
+        "filter_enabled", "likes_enabled", "views_enabled", "date_enabled", "include_tags_enabled",
+        "exclude_tags_enabled", "download_video", "mark_only", "download_thumb", "collect_nfo", "record_history",
+    )
+
+    def raw_state(self) -> dict[str, Any]:
+        """Every field exactly as typed, valid or not (for carrying an edit over)."""
+
+        state: dict[str, Any] = {name: getattr(self, name).text() for name in self._DRAFT_TEXTS}
+        state.update({name: getattr(self, name).isChecked() for name in self._DRAFT_SWITCHES})
+        return state
+
+    def load_raw_state(self, state: dict[str, Any]):
+        self._loading_payload = True
+        try:
+            for name in self._DRAFT_SWITCHES:
+                if name in state:
+                    getattr(self, name).setChecked(bool(state[name]))
+            for name in self._DRAFT_TEXTS:
+                if name in state:
+                    getattr(self, name).setText(str(state[name]))
+        finally:
+            self._loading_payload = False
+        self._hide_tag_suggestions()
+        self._update_record_history_hint()
 
     def payload(self) -> dict[str, Any]:
         try:
@@ -888,6 +919,21 @@ class RulesInterface(QWidget):
 
     def _show_error(self, content: str):
         InfoBar.error(title=tr("Invalid rule", "规则无效", "ルールが無効"), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
+
+    def draft_state(self) -> dict[str, Any]:
+        return {
+            "selected": self._selected_id,
+            "draft_rule": copy.deepcopy(self._draft_rule),
+            "form": self._form.raw_state(),
+        }
+
+    def restore_draft(self, state: dict[str, Any]):
+        draft_rule = state.get("draft_rule")
+        self._draft_rule = copy.deepcopy(draft_rule) if isinstance(draft_rule, dict) else None
+        selected = str(state.get("selected") or "")
+        self._reload_list(selected or None)
+        if selected and self._selected_id == selected and isinstance(state.get("form"), dict):
+            self._form.load_raw_state(state["form"])
 
     def refresh_theme_styles(self):
         self._list.setStyleSheet(self._list_style())

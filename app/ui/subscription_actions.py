@@ -1188,6 +1188,17 @@ class SubscriptionActionsMixin:
 
     # ── back history ─────────────────────────────────────────────────────────
 
+    def draft_state(self):
+        fields = {
+            "sources": self._source_search_edit.text(),
+            "titles": self._title_search_edit.text(),
+        }
+        return fields if any(fields.values()) else None
+
+    def restore_draft(self, state):
+        self._source_search_edit.setText(str(state.get("sources") or ""))
+        self._title_search_edit.setText(str(state.get("titles") or ""))
+
     def nav_snapshot(self):
         current = self._view_stack.currentWidget()
         if current is self._source_view and self._source_view.source_id:

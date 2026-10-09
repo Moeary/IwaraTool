@@ -523,6 +523,15 @@ class DownloadInterface(QWidget):
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
+    # ── language rebuild ────────────────────────────────────────────────────
+
+    def draft_state(self) -> dict | None:
+        text = self._url_edit.text()
+        return {"url": text} if text else None
+
+    def restore_draft(self, state: dict):
+        self._url_edit.setText(str(state.get("url") or ""))
+
     def _submit(self):
         # Apply the selected named rule immediately before enqueueing so the
         # resolver and sidecar options use the same snapshot.

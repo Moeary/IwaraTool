@@ -518,5 +518,47 @@ class NavigationOrderTests(unittest.TestCase):
                 MainWindow._window_ref = previous
 
 
+
+class CommentsWorkerTests(unittest.TestCase):
+    """More comments / replies run on a started thread, not just ``run()``."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def _run_started(self, **kwargs):
+        import time
+
+        from app.ui.home_workers import CommentsWorker
+
+        calls = []
+
+        def fake_comments(kind, item_id, *, page=0, parent="", api_client=None):
+            calls.append((kind, item_id, page, parent))
+            return [{"id": "c9"}], 1, ""
+
+        received = []
+        with mock.patch("app.ui.home_workers.download_manager") as manager:
+            manager.get_item_comments.side_effect = fake_comments
+            worker = CommentsWorker(3, "video", "abc", **kwargs)
+            worker.comments_ready.connect(lambda *args: received.append(args))
+            worker.start()  # ManagedThread.start() consults Qt's parent()
+            self.assertTrue(worker.wait(5000))
+            deadline = time.monotonic() + 5
+            while not received and time.monotonic() < deadline:
+                QApplication.processEvents()
+        return calls, received
+
+    def test_next_comment_page_starts(self):
+        calls, received = self._run_started(page=2)
+        self.assertEqual(calls, [("video", "abc", 2, "")])
+        self.assertEqual(received, [(3, [{"id": "c9"}], 1, "", "", 2)])
+
+    def test_replies_start_with_the_parent_comment_id(self):
+        calls, received = self._run_started(page=0, parent="c1")
+        self.assertEqual(calls, [("video", "abc", 0, "c1")])
+        self.assertEqual(received, [(3, [{"id": "c9"}], 1, "", "c1", 0)])
+
+
 if __name__ == "__main__":
     unittest.main()

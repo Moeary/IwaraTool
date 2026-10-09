@@ -185,7 +185,7 @@ class CommentsWorker(ManagedThread):
         self.kind = "image" if kind == "image" else "video"
         self.item_id = item_id
         self.page = page
-        self.parent = parent
+        self.parent_id = parent
 
     def run(self):
         client = None
@@ -195,14 +195,14 @@ class CommentsWorker(ManagedThread):
         try:
             client = download_manager.create_worker_api_client()
             rows, total, error = download_manager.get_item_comments(
-                self.kind, self.item_id, page=self.page, parent=self.parent, api_client=client,
+                self.kind, self.item_id, page=self.page, parent=self.parent_id, api_client=client,
             )
         except Exception as exc:
             error = str(exc)
         finally:
             download_manager.close_worker_api_client(client)
         if not self.isInterruptionRequested():
-            self.comments_ready.emit(self.token, rows, total, error, self.parent, self.page)
+            self.comments_ready.emit(self.token, rows, total, error, self.parent_id, self.page)
 
 
 class ApiCallWorker(ManagedThread):

@@ -51,6 +51,28 @@ def restore_into(page: QWidget, state: Any) -> None:
         restore(state)
 
 
+def draft_of(page: QWidget) -> Any:
+    """Unsaved input a page holds (typed links, an unsaved form), as plain data.
+
+    Unlike ``nav_snapshot`` this is not a place in the history; it is only
+    carried into the new window when the window is rebuilt for a language change.
+    """
+
+    draft = getattr(page, "draft_state", None)
+    if not callable(draft):
+        return None
+    try:
+        return draft()
+    except RuntimeError:
+        return None
+
+
+def restore_draft_into(page: QWidget, state: Any) -> None:
+    restore = getattr(page, "restore_draft", None)
+    if callable(restore) and state is not None:
+        restore(state)
+
+
 def _same_place(first: NavEntry, second: NavEntry) -> bool:
     if first.page is not second.page:
         return False

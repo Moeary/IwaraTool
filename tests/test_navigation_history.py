@@ -282,5 +282,139 @@ class CloseAndLanguageTests(_WindowCase):
         self.assertIs(new.stackedWidget.currentWidget(), new._search_page)
 
 
+
+class SearchRestoreValidityTests(_WindowCase):
+    """Back to a search that was unfinished, or is no longer valid, asks again."""
+
+    def setUp(self):
+        import threading
+
+        super().setUp()
+        self.started = []
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)
+        started, release = self.started, self.release
+
+        def fake_run(worker):
+            started.append((worker.filters, worker.scope, worker.page, worker.source))
+            while not release.is_set() and not worker.isInterruptionRequested():
+                time.sleep(0.01)
+
+        patcher = mock.patch("app.ui.search_workers.SearchWorker.run", fake_run)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.page = self.window._search_page
+        self.page._auto_search_ready = False  # only the searches the test starts
+        self.window.switchTo(self.page)
+        self.page._set_combo_data(self.page._source_combo, "iwara")
+        self.page._keyword_edit.setText("miku")
+        self.page._auto_search_timer.stop()
+
+    def _set_rating(self, value: str):
+        self.page._set_combo_data(self.page._rating_combo, value)
+        self.page._auto_search_timer.stop()
+
+    def _finish_first_search(self):
+        self.page._start_search()
+        self.assertTrue(_spin(lambda: len(self.started) == 1))
+        self.release.set()
+        self.assertTrue(_spin(lambda: not self.page._loading))
+        self.release.clear()
+
+    def _leave_and_return(self, between=None):
+        self.window.switchTo(self.window._history_page)
+        if between is not None:
+            between()
+        self.assertTrue(self.window.navigate_back())
+        self.assertIs(self._current(), self.page)
+
+    def test_returning_to_an_unfinished_search_runs_it_again(self):
+        self.page._start_search()
+        self.assertTrue(_spin(lambda: len(self.started) == 1))
+        self.assertTrue(self.page._loading)
+        self._leave_and_return()
+        self.assertTrue(_spin(lambda: len(self.started) == 2))
+        self.assertEqual(self.started[1], self.started[0])
+        self.assertTrue(self.page._loading)
+        self.assertIsNotNone(self.page._active_search_request)
+
+    def test_finished_search_is_restored_from_the_snapshot_without_a_request(self):
+        from app.core.rating import RATING_ALL
+
+        self._set_rating(RATING_ALL)
+        self._finish_first_search()
+        self.page._all_videos = _videos(4)
+        self.page._render_results()
+        self._leave_and_return()
+        QApplication.processEvents()
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(len(self.page._all_videos), 4)
+        self.assertFalse(self.page._loading)
+
+    def test_switching_to_sfw_meanwhile_requeries_instead_of_showing_old_results(self):
+        from app.core.rating import RATING_ALL, RATING_GENERAL
+
+        self._set_rating(RATING_ALL)
+        self._finish_first_search()
+        self.page._all_videos = [
+            SearchVideo(video_id="n1", title="nsfw", author_username="bob", rating="ecchi"),
+        ]
+        self.page._render_results()
+        self._leave_and_return(lambda: self._set_rating(RATING_GENERAL))
+        self.assertEqual(self.page._selected_rating(), RATING_GENERAL)
+        self.assertFalse(any(video.rating == "ecchi" for video in self.page._all_videos))
+        self.assertTrue(_spin(lambda: len(self.started) == 2))
+        self.assertEqual(self.started[1][0].rating, "general")
+        self.assertEqual(self.page._active_search_request[0].rating, "general")
+
+    def test_login_change_meanwhile_requeries(self):
+        from app.signal_bus import signal_bus
+
+        self._finish_first_search()
+        self._leave_and_return(lambda: signal_bus.login_state_changed.emit(True))
+        self.assertTrue(_spin(lambda: len(self.started) == 2))
+
+
+class LanguageDraftTests(_WindowCase):
+    """Input the user has not submitted or saved survives a language rebuild."""
+
+    def _rebuild(self):
+        self.window._on_language_changed("ja")
+        new = self.MainWindow._window_ref
+        self.addCleanup(self._discard, new)
+        _flush()
+        return new
+
+    def test_typed_download_link_survives_language_switch(self):
+        self.window.switchTo(self.window._download_page)
+        self.window._download_page._url_edit.setText("https://www.iwara.tv/video/abc")
+        new = self._rebuild()
+        self.assertIs(new.stackedWidget.currentWidget(), new._download_page)
+        self.assertEqual(new._download_page._url_edit.text(), "https://www.iwara.tv/video/abc")
+
+    def test_drafts_on_other_pages_survive_too(self):
+        self.window._download_page._url_edit.setText("https://www.iwara.tv/video/xyz")
+        self.window._history_page._search_edit.setText("miku")
+        self.window.switchTo(self.window._settings_page)  # where the language is usually changed
+        new = self._rebuild()
+        self.assertEqual(new._download_page._url_edit.text(), "https://www.iwara.tv/video/xyz")
+        self.assertEqual(new._history_page._search_edit.text(), "miku")
+
+    def test_unsaved_rule_draft_survives_language_switch(self):
+        from app.ui.rules_page import DRAFT_RULE_ID
+
+        rules = self.window._rules_page
+        self.window.switchTo(rules)
+        rules._new_rule()
+        rules._form.name_edit.setText("My rule")
+        rules._form.title_include_edit.setText("dance")
+        rules._form.likes_edit.setText("12x")  # not valid yet: still carried as typed
+        new = self._rebuild()
+        self.assertEqual(new._rules_page._selected_id, DRAFT_RULE_ID)
+        self.assertEqual(new._rules_page._form.name_edit.text(), "My rule")
+        self.assertEqual(new._rules_page._form.title_include_edit.text(), "dance")
+        self.assertEqual(new._rules_page._form.likes_edit.text(), "12x")
+
+
 if __name__ == "__main__":
     unittest.main()

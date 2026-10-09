@@ -40,7 +40,7 @@ from ..logging_setup import get_logger
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
 from .home_page import HomeInterface
-from .navigation import NavEntry, NavigationController, restore_into, snapshot_of
+from .navigation import NavEntry, NavigationController, draft_of, restore_draft_into, restore_into, snapshot_of
 from .notification_dispatcher import (
     PreparedTaskNotifications,
     TaskNotificationBatch,
@@ -779,6 +779,7 @@ class MainWindow(FluentWindow):
         return {
             "current": keys.get(current, ""),
             "state": snapshot_of(current) if current is not None else None,
+            "drafts": {key: draft for key, page in self._pages().items() if (draft := draft_of(page)) is not None},
             "history": [
                 (keys[entry.page], entry.state)
                 for entry in self.navigation.entries()
@@ -789,6 +790,9 @@ class MainWindow(FluentWindow):
     def import_session(self, session: dict):
         pages = self._pages()
         page = pages.get(str(session.get("current") or ""))
+        for key, draft in (session.get("drafts") or {}).items():
+            if key in pages:
+                restore_draft_into(pages[key], draft)
         with self.navigation.quiet():
             if page is not None:
                 super().switchTo(page)

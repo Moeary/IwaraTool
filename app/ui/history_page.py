@@ -346,6 +346,13 @@ class HistoryInterface(QWidget):
         if self.isVisible() and not self._history_refresh_timer.isActive():
             self._history_refresh_timer.start()
 
+    def draft_state(self) -> dict | None:
+        text = self._search_edit.text()
+        return {"search": text} if text else None
+
+    def restore_draft(self, state: dict):
+        self._search_edit.setText(str(state.get("search") or ""))
+
     def _filter_changed(self, *_args):
         """Typing in the filter re-renders at most every ~180 ms on big histories."""
 
