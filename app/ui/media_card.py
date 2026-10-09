@@ -27,6 +27,7 @@ from ..core.rating import is_adult
 from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, small_cover_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
+from .click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT, ClickDispatcher, play_in_window
 from .search_widgets import _format_count, _format_duration
 from .theme import palette, to_qcolor
 
@@ -174,6 +175,10 @@ class MediaCard(QWidget):
     activated = Signal(object)  # SearchVideo
     context_requested = Signal(object, QPoint)  # SearchVideo, global position
     toggled = Signal(object, bool)  # SearchVideo, selected
+    # With ``configurable_clicks`` a plain click / double click is reported
+    # instead of ``activated``, and the owner applies the Settings actions.
+    plain_clicked = Signal(object)  # this card
+    double_clicked = Signal(object)  # this card
 
     def __init__(
         self,
@@ -185,6 +190,8 @@ class MediaCard(QWidget):
     ):
         super().__init__(parent)
         self.video = video
+        self.configurable_clicks = False
+        self._swallow_release = False  # the release that ends a double click
         self._compact = compact  # no author line: every card shares one author
         self._selectable = selectable
         self._selected = False
@@ -336,6 +343,10 @@ class MediaCard(QWidget):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._swallow_release:
+            self._swallow_release = False
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
             pos = event.position().toPoint()
             if self._selectable and self._check_rect().contains(pos):
@@ -345,9 +356,24 @@ class MediaCard(QWidget):
                 and event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
             ):
                 self.set_selected(not self._selected, emit=True)
+            elif self.configurable_clicks:
+                self.plain_clicked.emit(self)
             else:
                 self.activated.emit(self.video)
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if (
+            self.configurable_clicks
+            and event.button() == Qt.MouseButton.LeftButton
+            and not (self._selectable and self._check_rect().contains(event.position().toPoint()))
+            and not event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        ):
+            self._swallow_release = True
+            self.double_clicked.emit(self)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     # ── painting ─────────────────────────────────────────────────────────────
 
@@ -527,8 +553,13 @@ class MediaGrid(QWidget):
         max_rows: int = 0,
         resizable: bool = False,
         compact: bool = False,
+        configurable_clicks: bool = False,
     ):
         super().__init__(parent)
+        # Clicks follow the Settings choices (Search / subscriptions / authors)
+        # instead of "a click opens the post".
+        self._configurable_clicks = configurable_clicks
+        self._clicks = ClickDispatcher(self._perform_click, self) if configurable_clicks else None
         if resizable:
             # Follows the shared "card size" slider instead of a fixed width.
             min_card_width = saved_card_width()
@@ -697,6 +728,18 @@ class MediaGrid(QWidget):
     def videos(self) -> list[SearchVideo]:
         return list(self._videos)
 
+    def _perform_click(self, action: str, card):
+        if card not in self._cards:
+            return  # the card went away in the meantime
+        if action == ACTION_SELECT:
+            if self._selectable:
+                self._set_cursor(self._cards.index(card), scroll=False)
+                card.set_selected(not card.is_selected(), emit=True)
+        elif action == ACTION_PLAY and play_in_window(card.video):
+            pass
+        elif action in (ACTION_DETAIL, ACTION_PLAY):
+            self.card_activated.emit(card.video)
+
     def shown_videos(self) -> list[SearchVideo]:
         return [card.video for card in self._cards]
 
@@ -715,6 +758,10 @@ class MediaGrid(QWidget):
             if card is None:
                 card = MediaCard(video, self, selectable=self._selectable, compact=self._compact)
                 card.activated.connect(self.card_activated)
+                if self._clicks is not None:
+                    card.configurable_clicks = True
+                    card.plain_clicked.connect(self._clicks.click)
+                    card.double_clicked.connect(self._clicks.double_click)
                 card.context_requested.connect(self.card_context_requested)
                 card.toggled.connect(lambda *_: self.selection_changed.emit())
                 pixmap = self._covers.get(video.video_id)

@@ -8,7 +8,7 @@ import webbrowser
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any
 
-from PySide6.QtCore import QItemSelectionModel, QPoint, QThread, Qt, QSize, QTimer
+from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, QPoint, QThread, Qt, QSize, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QSizePolicy,
     QStackedWidget,
+    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -63,6 +64,7 @@ from .navigation import has_focus_within, restore_scroll
 from .rules_page import RulePicker
 from .search_actions import SearchActionsMixin
 from .search_download_status import SearchDownloadStatusMixin, iwara_history_id
+from .click_dispatch import ClickDispatcher
 from .search_widgets import (
     SearchHistoryPopup,
     SearchKeywordEdit,
@@ -102,7 +104,7 @@ from .ui_state import (
 from .media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN, CardSizeControl, PixmapLRU, read_pixmap, saved_card_width
 from .shortcuts import attach_hint
 from .theme import CARD_MARGINS, PAGE_MARGINS, qcolor, set_secondary_text
-from .worker_lifecycle import stop_qthreads
+from .worker_lifecycle import on_finished, stop_qthreads
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)
@@ -141,6 +143,62 @@ class SearchSession:
     focus: str = ""  # "results" | "keyword" | ""
     pending: bool = False  # the request was still loading: rerun it on restore
     account_epoch: int = 0  # login changes seen when recorded; account-bound results expire
+
+
+class _ResultClickFilter(QObject):
+    """Plain clicks on the result grid / table go to the Settings click actions.
+
+    Ctrl / Shift clicks, rubber-band selection on empty space and the context
+    menu keep Qt's own behaviour; a plain press on a result is taken over so it
+    toggles that result instead of replacing the whole selection.
+    """
+
+    def __init__(self, view, dispatcher: ClickDispatcher):
+        super().__init__(view)
+        self._view = view
+        self._dispatcher = dispatcher
+        self._pressed = None
+        self._swallow_release = False
+        view.viewport().installEventFilter(self)
+
+    def _target(self, event):
+        item = self._view.itemAt(event.position().toPoint())
+        if item is None:
+            return None
+        if isinstance(self._view, QTableWidget):
+            return self._view.item(item.row(), 0)  # one stable object per row
+        return item
+
+    def eventFilter(self, obj, event):
+        kind = event.type()
+        if kind not in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick):
+            return False
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        plain = not event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        if kind == QEvent.Type.MouseButtonRelease:
+            if self._swallow_release:
+                self._swallow_release = False
+                return True
+            target, self._pressed = self._pressed, None
+            if target is not None and plain and target is self._target(event):
+                self._dispatcher.click(target)
+                return True
+            return False
+        target = self._target(event) if plain else None
+        if target is None:
+            self._pressed = None
+            return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+        index = self._view.indexFromItem(target)
+        self._view.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+        if kind == QEvent.Type.MouseButtonPress:
+            self._pressed = target
+        else:
+            self._pressed = None
+            self._swallow_release = True
+            self._dispatcher.double_click(target)
+        return True
 
 
 _HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -220,6 +278,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()
         self._pending_preview_video_ids: set[str] = set()
+        self._pending_detail_video_ids: set[str] = set()
         self._pending_open_author_video_ids: set[str] = set()
         self._pending_author_subscription_video_ids: set[str] = set()
         self._init_download_status(download_manager.history, signal_bus)
@@ -493,7 +552,9 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._results.setSelectionRectVisible(True)
         self._results.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._results.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._results.itemDoubleClicked.connect(self._open_item)
+        self._result_clicks = ClickDispatcher(self._perform_result_click, self)
+        _ResultClickFilter(self._results, self._result_clicks)
+        self._results.itemActivated.connect(self._activate_result)
         self._results.itemSelectionChanged.connect(self._sync_selection_buttons)
         self._results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._results.customContextMenuRequested.connect(self._show_context_menu)
@@ -568,7 +629,8 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         if not isinstance(saved_order, list) or 12 not in saved_order:
             self._results_table.setColumnHidden(12, False)
         connect_table_column_saver(self._results_table, "search_result_table_v2")
-        self._results_table.itemDoubleClicked.connect(self._open_table_item)
+        _ResultClickFilter(self._results_table, self._result_clicks)
+        self._results_table.itemActivated.connect(self._activate_result)
         self._results_table.itemSelectionChanged.connect(self._sync_selection_buttons)
         self._results_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._results_table.customContextMenuRequested.connect(self._show_context_menu)
@@ -1270,6 +1332,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._last_page = None
         self._pending_open_video_ids.clear()
         self._pending_preview_video_ids.clear()
+        self._pending_detail_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._next_page = 0
         self._total = None
@@ -1435,6 +1498,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         self._interrupt_search_workers()
         self._pending_open_video_ids.clear()
         self._pending_preview_video_ids.clear()
+        self._pending_detail_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._current_page = page
         self._next_page = None
@@ -1451,7 +1515,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._search_workers.append(worker)
         worker.result_ready.connect(self._on_search_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_search_worker(worker))
+        on_finished(worker, self, self._cleanup_search_worker)
         self._set_loading(True)
         worker.start()
 
@@ -1535,7 +1599,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         worker.item_ready.connect(self._on_oreno_link_item)
         worker.result_ready.connect(self._on_oreno_links_resolved)
         worker.progress.connect(self._on_oreno_link_progress)
-        worker.finished.connect(lambda worker=worker: self._cleanup_oreno_link_worker(worker))
+        on_finished(worker, self, self._cleanup_oreno_link_worker)
         worker.start()
 
     def _on_oreno_link_progress(self, current: int, total: int):
@@ -1633,6 +1697,14 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
             return
 
         focused = self.focusWidget()
+        if video.video_id in self._pending_detail_video_ids:
+            detail_id = self._preview_video_id(video)
+            if detail_id:
+                self._pending_detail_video_ids.discard(video.video_id)
+                signal_bus.media_detail_requested.emit("video", detail_id)
+            elif link.get("error"):
+                self._pending_detail_video_ids.discard(video.video_id)
+                self._show_warning(str(link["error"]))
         if video.video_id in self._pending_preview_video_ids:
             preview_id = self._preview_video_id(video)
             if preview_id:
@@ -1737,7 +1809,7 @@ class SearchInterface(SearchDownloadStatusMixin, SearchActionsMixin, QWidget):
         )
         self._image_workers.append(worker)
         worker.image_ready.connect(self._on_image_ready)
-        worker.finished.connect(lambda worker=worker: self._cleanup_image_worker(worker))
+        on_finished(worker, self, self._cleanup_image_worker)
         worker.start()
 
     def _on_image_ready(self, generation: int, kind: str, item_key: str, path: str):

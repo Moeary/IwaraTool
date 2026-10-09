@@ -37,6 +37,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar
 from .chrome import EmptyState, StatusChip
+from .click_dispatch import ACTION_DETAIL, ACTION_PLAY, ClickDispatcher, play_in_window
 from .media_card import (
     CardSizeControl,
     MediaCard,
@@ -297,9 +298,13 @@ class TileStrip(QWidget):
         super().__init__(parent)
         self._tile_min = tile_min_width
         self.cards: list[MediaCard] = []
+        self._clicks = ClickDispatcher(self._perform_click, self)
         for video in videos:
             card = MediaCard(video, self, selectable=False, compact=True)
             card.activated.connect(self.video_activated)
+            card.configurable_clicks = True
+            card.plain_clicked.connect(self._clicks.click)
+            card.double_clicked.connect(self._clicks.double_click)
             card.context_requested.connect(self.video_context)
             self.cards.append(card)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -308,6 +313,15 @@ class TileStrip(QWidget):
     def set_tile_min_width(self, width: int):
         self._tile_min = max(120, int(width))
         self._relayout(self.width())
+
+    def _perform_click(self, action: str, card):
+        # The overview row has no selection; "select" does nothing here.
+        if card not in self.cards:
+            return
+        if action == ACTION_PLAY and play_in_window(card.video):
+            return
+        if action in (ACTION_DETAIL, ACTION_PLAY):
+            self.video_activated.emit(card.video)
 
     def shown_cards(self) -> list[MediaCard]:
         return [card for card in self.cards if not card.isHidden()]
@@ -1064,7 +1078,7 @@ class SourceItemsView(QWidget):
         column = QVBoxLayout(body)
         column.setContentsMargins(0, 0, 8, 24)
         column.setSpacing(12)
-        self._grid = MediaGrid(body, selectable=True, resizable=True)
+        self._grid = MediaGrid(body, selectable=True, resizable=True, configurable_clicks=True)
         self._grid.card_activated.connect(page._show_video_detail)
         self._grid.card_context_requested.connect(self._on_card_context)
         self._grid.selection_changed.connect(self._sync_buttons)

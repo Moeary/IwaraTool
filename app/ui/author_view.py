@@ -92,7 +92,7 @@ class AuthorView(QWidget):
         self.status.open_subscription_requested.connect(self.open_subscription_requested)
         root.addWidget(self.status)
 
-        self._browse = BrowseView(self._fetcher, self)
+        self._browse = BrowseView(self._fetcher, self, configurable_clicks=True)
         self._browse.set_embedded(True)
         self._browse.open_requested.connect(self._open_post)
         self._browse.context_requested.connect(self._show_menu)

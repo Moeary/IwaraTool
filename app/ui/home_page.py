@@ -607,8 +607,9 @@ class BrowseView(QWidget):
     context_requested = Signal(object, QPoint)
     queue_requested = Signal(list, str)
 
-    def __init__(self, fetcher: CoverFetcher, parent: QWidget | None = None):
+    def __init__(self, fetcher: CoverFetcher, parent: QWidget | None = None, *, configurable_clicks: bool = False):
         super().__init__(parent)
+        self._configurable_clicks = configurable_clicks
         self._section: FeedSection | None = None
         self._tab_id = ""
         self._rating = RATING_ALL
@@ -676,7 +677,9 @@ class BrowseView(QWidget):
         column = QVBoxLayout(page)
         column.setContentsMargins(0, 0, 8, 24)
         column.setSpacing(12)
-        self._grid = MediaGrid(page, selectable=True, resizable=True)
+        self._grid = MediaGrid(
+            page, selectable=True, resizable=True, configurable_clicks=self._configurable_clicks,
+        )
         self._grid.bind_fetcher(fetcher)
         self._grid.card_activated.connect(self.open_requested)
         self._grid.card_context_requested.connect(self.context_requested)

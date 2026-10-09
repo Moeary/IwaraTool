@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterable
 
+import shiboken6
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 
@@ -31,6 +32,20 @@ class ManagedThread(QThread):
     def _release_keepalive(self):
         # Let go on the next event-loop turn, not while ``finished`` is being delivered.
         QTimer.singleShot(0, lambda thread=self: _RUNNING.discard(thread))
+
+
+def on_finished(worker: QThread, owner: QObject, callback: Callable[[QThread], None]) -> None:
+    """Call ``callback(worker)`` when ``worker`` finishes, unless ``owner`` is gone by then.
+
+    A worker can outlive the page that started it (see ``ManagedThread``);
+    its clean-up must not then touch the page's destroyed widgets.
+    """
+
+    def finished():
+        if shiboken6.isValid(owner):
+            callback(worker)
+
+    worker.finished.connect(finished)
 
 
 def running_threads() -> int:

@@ -89,6 +89,8 @@ class AppConfig:
         "search_auto_search_enabled": True,
         "search_default_source": "iwara",  # iwara / oreno3d
         "search_chinese_via_oreno3d": True,
+        "media_click_action": "select",  # select / detail / play / none
+        "media_double_click_action": "detail",
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -440,6 +442,30 @@ class AppConfig:
     # Video keyword searches written in Chinese go to Oreno3D, whose index
     # carries Chinese titles and tags; Iwara's own search rarely matches them.
     search_chinese_via_oreno3d = _Setting()
+
+    MEDIA_CLICK_ACTIONS = ("select", "detail", "play", "none")
+
+    @property
+    def media_click_action(self) -> str:
+        """What a click on a Search / subscription / author result does."""
+
+        value = str(self._get("media_click_action") or "").strip().casefold()
+        return value if value in self.MEDIA_CLICK_ACTIONS else "select"
+
+    @media_click_action.setter
+    def media_click_action(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("media_click_action", value if value in self.MEDIA_CLICK_ACTIONS else "select")
+
+    @property
+    def media_double_click_action(self) -> str:
+        value = str(self._get("media_double_click_action") or "").strip().casefold()
+        return value if value in self.MEDIA_CLICK_ACTIONS else "detail"
+
+    @media_double_click_action.setter
+    def media_double_click_action(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("media_double_click_action", value if value in self.MEDIA_CLICK_ACTIONS else "detail")
 
     aria2_rpc_enabled = _Setting()
 

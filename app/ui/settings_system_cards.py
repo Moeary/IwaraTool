@@ -28,6 +28,7 @@ from ..config import app_config
 from ..core import autostart, backup, video_player
 from ..i18n import tr
 from ..logging_setup import get_logger, log_dir
+from .click_dispatch import ACTIONS as CLICK_ACTIONS, action_label
 from .ui_state import show_fluent_confirmation
 
 logger = get_logger(__name__)
@@ -40,6 +41,7 @@ class SystemSettingsCards:
         self._owner = owner
         self._loading = True
         self._build_window_card(board)
+        self._build_clicks_card(board)
         self._build_playback_card(board)
         self._build_request_card(board)
         self._build_maintenance_card(board)
@@ -125,15 +127,44 @@ class SystemSettingsCards:
     _PLAYER_MODES = (video_player.MODE_SYSTEM, video_player.MODE_BUILTIN, video_player.MODE_CUSTOM)
     _PREVIEW_QUALITIES = ("Source", "540", "360")
 
+    def _build_clicks_card(self, board):
+        card = board.create_card("card_clicks")
+        layout = self._card_layout(
+            card,
+            tr("Clicking Results", "结果点击行为", "結果のクリック動作"),
+            tr(
+                "For the Search page, subscriptions and author pages. Ctrl / Shift clicks and the check box "
+                "always select; Enter opens the detail page.",
+                "作用于搜索页、订阅页与作者页。Ctrl / Shift 单击与勾选框始终用于选择；回车键打开详情页。",
+                "検索ページ・購読・作者ページに適用されます。Ctrl / Shift クリックとチェックボックスは常に選択、"
+                "Enter で詳細ページを開きます。",
+            ),
+        )
+        self._click_combo = ComboBox(card)
+        self._double_click_combo = ComboBox(card)
+        for combo in (self._click_combo, self._double_click_combo):
+            for action in CLICK_ACTIONS:
+                combo.addItem(action_label(action), userData=action)
+            combo.setFixedWidth(220)
+        self._click_combo.currentIndexChanged.connect(
+            lambda index: self._set("media_click_action", self._click_combo.itemData(index))
+        )
+        self._double_click_combo.currentIndexChanged.connect(
+            lambda index: self._set("media_double_click_action", self._double_click_combo.itemData(index))
+        )
+        self._row(layout, tr("Click", "单击", "クリック"), self._click_combo, card)
+        self._row(layout, tr("Double-click", "双击", "ダブルクリック"), self._double_click_combo, card)
+        board.add_card("card_clicks", card)
+
     def _build_playback_card(self, board):
         card = board.create_card("playback")
         layout = self._card_layout(
             card,
             tr("Video Playback", "视频播放", "動画再生"),
             tr(
-                "Double-click a video anywhere to play it. Downloaded files open in the player below; videos that are not on disk (or were moved) stream in the built-in player window.",
-                "在任意页面双击视频即可播放。已下载的文件用下方选择的播放器打开；未下载或已被移走的视频会在内置播放窗口中在线播放。",
-                "どのページでも動画をダブルクリックすると再生します。ダウンロード済みは下で選んだプレイヤーで開き、未保存・移動済みの動画は内蔵プレイヤーでストリーミングします。",
+                "When a video is played in the player window, downloaded files open in the player below; videos that are not on disk (or were moved) stream in the built-in player window. The detail page plays videos on the page itself.",
+                "在播放窗口中播放视频时，已下载的文件用下方选择的播放器打开；未下载或已被移走的视频会在内置播放窗口中在线播放。详情页里的视频直接在页面内播放。",
+                "プレーヤーで再生するとき、ダウンロード済みは下で選んだプレイヤーで開き、未保存・移動済みの動画は内蔵プレイヤーでストリーミングします。詳細ページではページ内で再生します。",
             ),
         )
         self._player_combo = ComboBox(card)
@@ -289,6 +320,10 @@ class SystemSettingsCards:
         self._autostart_switch.setChecked(autostart.is_enabled())
         startup = str(app_config.startup_page or "home")
         self._startup_combo.setCurrentIndex(max(0, self._startup_combo.findData(startup)))
+        self._click_combo.setCurrentIndex(max(0, self._click_combo.findData(app_config.media_click_action)))
+        self._double_click_combo.setCurrentIndex(
+            max(0, self._double_click_combo.findData(app_config.media_double_click_action))
+        )
         mode = video_player.player_mode()
         self._player_combo.setCurrentIndex(self._PLAYER_MODES.index(mode))
         self._player_command_edit.setText(app_config.preview_player_command)

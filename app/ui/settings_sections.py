@@ -110,7 +110,7 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
                 "托盘与开机启动、视频播放、请求节奏、备份与日志。",
                 "トレイと起動、動画再生、リクエスト間隔、バックアップとログ。",
             ),
-            ("window", "playback", "request_policy", "maintenance"),
+            ("window", "card_clicks", "playback", "request_policy", "maintenance"),
         ),
         (
             "shortcuts",

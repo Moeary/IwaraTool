@@ -5,8 +5,8 @@ import sys
 import webbrowser as _default_webbrowser
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem
+from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtWidgets import QTableWidgetItem
 
 from qfluentwidgets import (
     Action,
@@ -33,6 +33,7 @@ from .search_widgets import (
     _oreno3d_video_url,
 )
 from .navigation import record_navigation
+from .worker_lifecycle import on_finished
 from .search_workers import (
     SearchAuthorProfileWorker,
     SearchIwaraAuthorWorker,
@@ -160,7 +161,7 @@ class SearchActionsMixin:
                 )
             )
             worker.result_ready.connect(self._on_queue_resolved)
-            worker.finished.connect(lambda worker=worker: self._cleanup_queue_resolve_worker(worker))
+            on_finished(worker, self, self._cleanup_queue_resolve_worker)
             worker.start()
             return
 
@@ -425,26 +426,73 @@ class SearchActionsMixin:
         if target:
             signal_bus.media_detail_requested.emit(*target)
 
-    def _open_item(self, item: QListWidgetItem):
-        value = item.data(self._DATA_ROLE)
-        if isinstance(value, dict):
-            data = value.get("data")
-            if isinstance(data, SearchVideo) and data.source_kind == IWARA_IMAGE_SOURCE_KIND:
-                # Image posts have nothing to play; read them in the app.
-                self._show_media_detail(data)
-            elif isinstance(data, SearchVideo):
-                self._preview_video(data)
-            elif isinstance(data, SearchPlaylist):
-                self._open_playlist_videos(data)
+    def _perform_result_click(self, action: str, item):
+        """One Settings click action on a result (``item``: grid item or the row's first cell)."""
 
-    def _open_table_item(self, item: QTableWidgetItem):
+        from .click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT
+
+        if action == ACTION_SELECT:
+            self._toggle_result_selected(item)
+            return
         value = item.data(self._DATA_ROLE)
-        if isinstance(value, dict):
-            data = value.get("data")
-            if isinstance(data, SearchVideo) and data.source_kind == IWARA_IMAGE_SOURCE_KIND:
-                self._show_media_detail(data)
-            elif isinstance(data, SearchVideo):
+        data = value.get("data") if isinstance(value, dict) else None
+        if action == ACTION_DETAIL:
+            self._open_result_detail(data)
+        elif action == ACTION_PLAY:
+            if isinstance(data, SearchVideo) and data.source_kind != IWARA_IMAGE_SOURCE_KIND:
                 self._preview_video(data)
+            else:
+                self._open_result_detail(data)  # nothing to play: show it instead
+
+    def _toggle_result_selected(self, item):
+        if isinstance(item, QTableWidgetItem):
+            table = item.tableWidget()
+            if table is None:
+                return
+            flags = QItemSelectionModel.SelectionFlag.Toggle | QItemSelectionModel.SelectionFlag.Rows
+            table.selectionModel().select(table.indexFromItem(item), flags)
+        else:
+            item.setSelected(not item.isSelected())
+        self._sync_selection_buttons()
+
+    def _open_result_detail(self, data):
+        """The in-app page of a result: the post, the playlist's videos or the author."""
+
+        if isinstance(data, SearchPlaylist):
+            self._open_playlist_videos(data)
+        elif isinstance(data, SearchAuthor):
+            target = self._author_navigation_target(data)
+            if target:
+                signal_bus.author_page_requested.emit(target)
+            elif str(data.source_url or "").strip():
+                webbrowser.open(str(data.source_url).strip())
+        elif isinstance(data, SearchVideo):
+            target = self._detail_target(data)
+            if target is None and data.source_kind == "oreno3d":
+                video_id = self._preview_video_id(data)
+                if video_id:
+                    target = ("video", video_id)
+                else:
+                    # An Oreno3D card learns its Iwara id first.
+                    self._pending_detail_video_ids.add(data.video_id)
+                    self._start_oreno_link_resolution([data], priority=True, hydrate_metadata=False)
+                    self._status_label.setText(
+                        tr("Resolving the Iwara ID…", "正在解析 Iwara ID…", "Iwara IDを取得中…")
+                    )
+                    return
+            if target:
+                signal_bus.media_detail_requested.emit(*target)
+
+    def _activate_result(self, item):
+        """Enter on a result: its detail page (mouse clicks follow the Settings actions)."""
+
+        value = item.data(self._DATA_ROLE)
+        if isinstance(item, QTableWidgetItem) and not isinstance(value, dict):
+            table = item.tableWidget()
+            first = table.item(item.row(), 0) if table is not None else None
+            value = first.data(self._DATA_ROLE) if first is not None else None
+        if isinstance(value, dict):
+            self._open_result_detail(value.get("data"))
 
     def _show_context_menu(self, position):
         if self._is_list_view():
@@ -807,7 +855,7 @@ class SearchActionsMixin:
         )
         self._author_profile_workers.append(worker)
         worker.result_ready.connect(self._on_author_profile_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_author_profile_worker(worker))
+        on_finished(worker, self, self._cleanup_author_profile_worker)
         self._status_label.setText(
             tr(f"Resolving @{target[0]}’s Iwara user ID…", f"正在解析 @{target[0]} 的 Iwara 用户 ID…", f"@{target[0]} のIwaraユーザーIDを取得中…")
         )
@@ -938,7 +986,7 @@ class SearchActionsMixin:
         worker = SearchOrenoAuthorWorker(self._generation, video)
         self._oreno_author_workers.append(worker)
         worker.result_ready.connect(self._on_oreno_author_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_oreno_author_worker(worker))
+        on_finished(worker, self, self._cleanup_oreno_author_worker)
         worker.start()
 
     def _on_oreno_author_result(self, result: object):
@@ -1027,7 +1075,7 @@ class SearchActionsMixin:
         worker = SearchIwaraAuthorWorker(self._generation, iwara_id)
         self._iwara_author_workers.append(worker)
         worker.result_ready.connect(self._on_iwara_author_result)
-        worker.finished.connect(lambda worker=worker: self._cleanup_iwara_author_worker(worker))
+        on_finished(worker, self, self._cleanup_iwara_author_worker)
         worker.start()
 
     def _on_iwara_author_result(self, result: object):
@@ -1205,6 +1253,7 @@ class SearchActionsMixin:
         self._pending_author_subscription_video_ids.clear()
         self._pending_open_video_ids.clear()
         self._pending_preview_video_ids.clear()
+        self._pending_detail_video_ids.clear()
         self._pending_open_author_video_ids.clear()
         self._current_page = 0
         self._last_page = None
