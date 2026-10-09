@@ -1,13 +1,16 @@
 """Home: account feed, hot videos and hot images, with in-app detail pages.
 
 The page is a small stack — the feed, a paginated "More" view and a post
-detail view — with a back trail, so browsing feels like the website while the
-batch download tools stay one click away (select cards, pick a rule, queue).
+detail view.  Each move records where the user was in the window's shared back
+history (``navigation``), so Back returns to exactly that list or post, while
+the batch download tools stay one click away (select cards, pick a rule, queue).
 """
 from __future__ import annotations
 
 import time
 import webbrowser
+from dataclasses import dataclass, field, replace as dataclass_replace
+from typing import Any
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -58,7 +61,8 @@ from ..signal_bus import signal_bus
 from .chrome import EmptyState, PageHeader, SectionTitle, format_age
 from .home_workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows, stop_workers
 from .media_card import CardSizeControl, MediaGrid, transparent_scroll_area
-from .media_detail import DetailView
+from .media_detail import DetailState, DetailView
+from .navigation import has_focus_within, navigate_back, record_navigation, restore_scroll
 from .rules_page import RulePicker
 from .shortcuts import attach_hint
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
@@ -577,6 +581,24 @@ class HomeFeedView(QWidget):
         return all([block.shutdown(timeout_ms) for block in [*self.blocks, *self._retired]])
 
 
+@dataclass
+class BrowseState:
+    """Everything a "More" list shows, so Back can show it again without the network."""
+
+    section: FeedSection
+    tab_id: str
+    rating: str
+    page: int
+    has_more: bool
+    items: list[SearchVideo] = field(default_factory=list)
+    status: str = ""
+    scroll: int = 0
+    selected: tuple[str, ...] = ()
+    cursor: int = -1
+    focused: bool = False
+    loaded: bool = False  # False: the page had not arrived yet, so it is asked for again
+
+
 class BrowseView(QWidget):
     """A section's full, paginated list with multi-select downloading."""
 
@@ -593,6 +615,7 @@ class BrowseView(QWidget):
         self._page = 0
         self._has_more = False
         self._token = 0
+        self._loaded = False
         self._worker: FeedWorker | None = None
         self._workers: list[FeedWorker] = []
 
@@ -708,6 +731,55 @@ class BrowseView(QWidget):
     def reload(self):
         self._go(self._page)
 
+    @property
+    def section(self) -> FeedSection | None:
+        return self._section
+
+    def view_state(self) -> BrowseState | None:
+        if self._section is None:
+            return None
+        return BrowseState(
+            section=self._section,
+            tab_id=self._tab_id,
+            rating=self._rating,
+            page=self._page,
+            has_more=self._has_more,
+            items=list(self._grid.videos()),
+            status=self._state.text(),
+            scroll=self._scroll.verticalScrollBar().value(),
+            selected=tuple(v.video_id for v in self._grid.selected_videos()),
+            cursor=self._grid.cursor_index(),
+            focused=has_focus_within(self._grid),
+            loaded=self._loaded,
+        )
+
+    def restore_state(self, state: BrowseState):
+        """Show a recorded list again: same tab, page, cards, selection and scroll."""
+
+        self._section = state.section
+        self._tab_id = state.section.tab(state.tab_id).id
+        self._rating = normalize_rating(state.rating)
+        self._title.setText(state.section.title)
+        self._rebuild_tabs()
+        if not state.loaded:
+            self._go(state.page)
+            return
+        self._token += 1  # whatever is still loading belongs to another list
+        if self._worker is not None:
+            self._worker.requestInterruption()
+        self._page = max(0, state.page)
+        self._has_more = state.has_more
+        self._loaded = True
+        self._state.setText(state.status)
+        self._grid.set_videos(list(state.items))
+        self._grid.select_ids(set(state.selected))
+        self._grid.set_cursor(state.cursor)
+        if state.focused:
+            self._grid.setFocus(Qt.FocusReason.OtherFocusReason)
+        restore_scroll(self._scroll, state.scroll)
+        self._update_pager()
+        self._sync_selection()
+
     def _pick_tab(self, tab_id: str):
         if tab_id != self._tab_id:
             self._tab_id = tab_id
@@ -728,10 +800,14 @@ class BrowseView(QWidget):
         if self._worker is not None:
             self._worker.requestInterruption()
         tab = self._section.tab(self._tab_id)
+        self._loaded = False
         self._state.setText(tr("Loading…", "加载中…", "読み込み中…"))
         self._grid.set_videos([])
         self._update_pager()
-        worker = FeedWorker(self._token, tab.kind, tab.request_params(self._rating), self._page, BROWSE_PAGE_LIMIT)
+        worker = FeedWorker(
+            self._token, tab.kind, tab.request_params(self._rating), self._page, BROWSE_PAGE_LIMIT,
+            mode=tab.mode, value=tab.value, rating=self._rating,
+        )
         worker.result_ready.connect(self._on_result)
         worker.finished.connect(lambda worker=worker: self._on_finished(worker))
         self._worker = worker
@@ -749,6 +825,7 @@ class BrowseView(QWidget):
         if result.token != self._token:
             return
         self._has_more = result.has_more
+        self._loaded = True
         if result.error and not result.items:
             self._state.setText(tr(f"Could not load: {result.error}", f"加载失败：{result.error}", f"読み込めませんでした: {result.error}"))
         elif not result.items:
@@ -787,11 +864,18 @@ class BrowseView(QWidget):
         return stop_workers(list(self._workers), timeout_ms)
 
 
+@dataclass
+class HomeState:
+    view: str  # "feed" | "browse" | "detail"
+    feed_scroll: int = 0
+    browse: BrowseState | None = None
+    detail: DetailState | None = None
+
+
 class HomeInterface(QWidget):
-    """The Home page: feed → browse → detail, with a back trail."""
+    """The Home page: feed → browse → detail, sharing the window's back history."""
 
     open_settings_requested = Signal()
-    return_requested = Signal()  # back out of a detail page opened from another page
 
     _FEED, _BROWSE, _DETAIL = 0, 1, 2
 
@@ -799,7 +883,6 @@ class HomeInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("HomeInterface")
         self._fetcher = CoverFetcher(self)
-        self._trail: list[tuple] = [("feed",)]
         self._loaded_once = False
         self._rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
 
@@ -910,20 +993,32 @@ class HomeInterface(QWidget):
 
     # ── navigation ───────────────────────────────────────────────────────────
 
-    def _show(self, entry: tuple):
-        if entry[0] == "origin":
-            # The first detail page was opened from another page: go back there.
-            self._trail = [("feed",)]
-            self._stack.setCurrentIndex(self._FEED)
-            self.return_requested.emit()
-        elif entry[0] == "feed":
-            self._stack.setCurrentIndex(self._FEED)
-        elif entry[0] == "browse":
+    def nav_snapshot(self) -> HomeState:
+        index = self._stack.currentIndex()
+        if index == self._DETAIL:
+            return HomeState("detail", detail=self._detail.view_state())
+        if index == self._BROWSE:
+            return HomeState("browse", browse=self._browse.view_state())
+        return HomeState("feed", feed_scroll=self._feed._scroll.verticalScrollBar().value())
+
+    def nav_restore(self, state: HomeState):
+        if state.view == "detail" and state.detail is not None:
+            if self._stack.currentIndex() != self._DETAIL or self._detail.item != (state.detail.kind, state.detail.item_id):
+                self._detail.restore_state(state.detail)
+            else:
+                restore_scroll(self._detail._scroll, state.detail.scroll)
+            self._stack.setCurrentIndex(self._DETAIL)
+        elif state.view == "browse" and state.browse is not None:
+            browse = state.browse
+            # The row's own section, so its labels follow the current language.
+            fresh = next((b.section for b in self._feed.blocks if b.section.id == browse.section.id), None)
+            if fresh is not None:
+                browse = dataclass_replace(browse, section=fresh)
+            self._browse.restore_state(browse)
             self._stack.setCurrentIndex(self._BROWSE)
         else:
-            _, kind, item_id = entry
-            self._detail.load(kind, item_id, None)
-            self._stack.setCurrentIndex(self._DETAIL)
+            self._stack.setCurrentIndex(self._FEED)
+            restore_scroll(self._feed._scroll, state.feed_scroll)
 
     def refresh(self):
         """Reload the feeds, or the open "More" list."""
@@ -934,14 +1029,23 @@ class HomeInterface(QWidget):
             self._feed.reload_all(force=True)
 
     def go_back(self):
-        if len(self._trail) > 1:
-            self._back()
+        """Back through the history; with none left, up from a post or list to the feed."""
+
+        self._back()
+
+    def dismiss_transient(self) -> bool:
+        """Esc on the page: first drop the "More" list's selection, if there is one."""
+
+        if self._stack.currentIndex() == self._BROWSE and self._browse._grid.selected_videos():
+            self._browse._grid.clear_selection()
+            return True
+        return False
 
     def close_current(self):
-        """Esc: leave an open post or "More" list, doing nothing on the feed itself."""
+        """Leave an open post or "More" list, doing nothing on the feed itself."""
 
         if self._stack.currentIndex() != self._FEED:
-            self.go_back()
+            self._back()
 
     def scroll_to(self, *, bottom: bool):
         area = {
@@ -975,9 +1079,8 @@ class HomeInterface(QWidget):
             getattr(self._detail, method)()
 
     def _back(self):
-        if len(self._trail) > 1:
-            self._trail.pop()
-        self._show(self._trail[-1])
+        if not navigate_back(self) and self._stack.currentIndex() != self._FEED:
+            self._stack.setCurrentIndex(self._FEED)
 
     def _open_browse(self, section_id: str, tab_id: str):
         section = next((b.section for b in self._feed.blocks if b.section.id == section_id), None)
@@ -993,7 +1096,7 @@ class HomeInterface(QWidget):
             # sorts, switches view and queues downloads.
             signal_bus.search_requested.emit(tab.search_request())
             return
-        self._trail = [("feed",), ("browse",)]
+        record_navigation(self)
         self._browse.open(section, tab_id, self._rating)
         self._stack.setCurrentIndex(self._BROWSE)
 
@@ -1011,21 +1114,15 @@ class HomeInterface(QWidget):
     ):
         """Open a post's detail page (also used by other pages).
 
-        ``external`` means another page asked for it; Back then returns there
-        instead of to the Home feed.
+        ``external`` means another page asked for it and the window has already
+        recorded where the user came from; otherwise this page records itself.
         """
 
         kind = "image" if kind == "image" else "video"
-        if external:
-            self._trail = [("origin",)]
-        elif self._trail[0] == ("origin",) and self._stack.currentIndex() != self._DETAIL:
-            self._trail = [("feed",)]
-        entry = ("detail", kind, str(item_id))
-        if self._trail[-1] != entry:
-            self._trail.append(entry)
-            # Keep the trail short: browsing related posts must not grow it forever.
-            if len(self._trail) > 25:
-                self._trail = self._trail[:1] + self._trail[-24:]
+        if self._stack.currentIndex() == self._DETAIL and self._detail.item == (kind, str(item_id)):
+            return  # already showing it
+        if not external:
+            record_navigation(self)
         self._detail.load(kind, str(item_id), preview)
         self._stack.setCurrentIndex(self._DETAIL)
 

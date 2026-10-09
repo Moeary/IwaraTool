@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIntValidator
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -44,13 +44,15 @@ from .settings_system_cards import SystemSettingsCards
 from .tag_dictionary_worker import TagDictionaryUpdateWorker
 from .theme import PAGE_MARGINS, apply_theme_mode, normalize_theme_mode
 from .ui_state import show_fluent_confirmation
-from .worker_lifecycle import stop_qthreads
+from .worker_lifecycle import ManagedThread, stop_qthreads
 
 
 # ── Worker thread for login ───────────────────────────────────────────────────
 
-class LoginWorker(QThread):
-    finished = Signal(bool, str)  # success, msg
+class LoginWorker(ManagedThread):
+    # Not ``finished``: that is QThread's own signal, which the page waits for
+    # before letting the thread go.
+    result_ready = Signal(bool, str)  # success, msg
 
     def __init__(self, credential: str, password: str):
         super().__init__()
@@ -59,7 +61,7 @@ class LoginWorker(QThread):
 
     def run(self):
         ok, msg = download_manager.api.login(self._credential, self._password)
-        self.finished.emit(ok, msg)
+        self.result_ready.emit(ok, msg)
 
 
 # ── Settings Interface ────────────────────────────────────────────────────────
@@ -1136,6 +1138,8 @@ class SettingsInterface(QWidget):
                 parent=self,
             )
 
+        if self._worker is not None and self._worker.isRunning():
+            return  # a sign-in is already on its way
         self._login_btn.setEnabled(False)
         self._login_status_lbl.setText(tr("Signing in...", "登录中…", "ログイン中..."))
         signal_bus.log_message.emit(
@@ -1147,9 +1151,16 @@ class SettingsInterface(QWidget):
         )
 
         download_manager.apply_config()
-        self._worker = LoginWorker(credential, password)
-        self._worker.finished.connect(lambda ok, msg: self._on_login_finished(ok, msg, silent))
-        self._worker.start()
+        worker = LoginWorker(credential, password)
+        worker.result_ready.connect(lambda ok, msg: self._on_login_finished(ok, msg, silent))
+        worker.finished.connect(lambda worker=worker: self._release_login_worker(worker))
+        self._worker = worker
+        worker.start()
+
+    def _release_login_worker(self, worker: LoginWorker):
+        if self._worker is worker:
+            self._worker = None
+        worker.deleteLater()
 
     def _on_login_finished(self, ok: bool, msg: str, silent: bool):
         self._login_btn.setEnabled(True)

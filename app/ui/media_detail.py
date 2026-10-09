@@ -6,9 +6,11 @@ the card that was clicked and fills in as the API answers.
 """
 from __future__ import annotations
 
+import copy
 import html
 import re
 import webbrowser
+from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
@@ -53,6 +55,7 @@ from .author_status import AuthorStatusBar
 from .shortcuts import attach_hint
 from .home_workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
 from .media_card import MediaGrid, image_size, read_pixmap, transparent_scroll_area
+from .navigation import restore_scroll
 from .search_widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
 from .ui_state import ResponsiveFlowLayout
@@ -366,6 +369,29 @@ class CommentWidget(QWidget):
             self._replies_btn.hide()
 
 
+@dataclass
+class DetailState:
+    """A post as it was shown: the API answers, the comments opened so far and the scroll.
+
+    Restoring rebuilds the page from these answers, so Back to a post neither
+    asks the network again nor loses the expanded replies or the position.
+    """
+
+    kind: str
+    item_id: str
+    video: SearchVideo | None = None
+    info: dict[str, Any] | None = None
+    related: list[SearchVideo] | None = None
+    comment_batches: list[tuple[list[dict[str, Any]], int | None, str]] = field(default_factory=list)
+    comment_page: int = 0
+    replies: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    liked: bool = False
+    scroll: int = 0
+
+    def __eq__(self, other: object) -> bool:  # same post = same place in the history
+        return isinstance(other, DetailState) and (self.kind, self.item_id) == (other.kind, other.item_id)
+
+
 class DetailView(QWidget):
     """The post page."""
 
@@ -393,6 +419,9 @@ class DetailView(QWidget):
         self._comment_workers: list[CommentsWorker] = []
         self._gallery: list[GalleryImage] = []
         self._pending_replies: dict[str, CommentWidget] = {}
+        self._related: list[SearchVideo] | None = None
+        self._comment_batches: list[tuple[list[dict[str, Any]], int | None, str]] = []
+        self._reply_rows: dict[str, list[dict[str, Any]]] = {}
         self._build_ui()
         fetcher.cover_ready.connect(self._on_cover)
 
@@ -659,6 +688,9 @@ class DetailView(QWidget):
         self._comment_total = None
         self._comment_count = 0
         self._pending_replies.clear()
+        self._related = None
+        self._comment_batches = []
+        self._reply_rows = {}
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
         return all([
@@ -689,6 +721,65 @@ class DetailView(QWidget):
         self._detail_worker = worker
         self._detail_workers.append(worker)
         worker.start()
+
+    @property
+    def item(self) -> tuple[str, str]:
+        return self._kind, self._item_id
+
+    def view_state(self) -> DetailState:
+        return DetailState(
+            kind=self._kind,
+            item_id=self._item_id,
+            video=copy.copy(self._video),
+            info=self._info,
+            related=list(self._related) if self._related is not None else None,
+            comment_batches=list(self._comment_batches),
+            comment_page=self._comment_page,
+            replies=dict(self._reply_rows),
+            liked=self._liked,
+            scroll=self._scroll.verticalScrollBar().value(),
+        )
+
+    def restore_state(self, state: DetailState):
+        """Show a recorded post again from its saved answers (loads it only if it never arrived)."""
+
+        if state.info is None:
+            self.load(state.kind, state.item_id, state.video)
+            return
+        self._token += 1
+        token = self._token
+        self._kind = "image" if state.kind == "image" else "video"
+        self._item_id = str(state.item_id)
+        for worker in [*self._detail_workers, *self._comment_workers]:
+            worker.requestInterruption()
+        self._reset_content()
+        self._video = copy.copy(state.video)
+        self._status.setText("")
+        self._on_info(token, state.info, "")
+        self._liked = state.liked
+        if self._video is not None:
+            if state.video is not None:
+                self._video.likes = state.video.likes
+            self._meta.setText(self._meta_text(self._video))
+        self._sync_like()
+        if state.related is not None:
+            self._on_related(token, list(state.related))
+        for rows, total, error in state.comment_batches:
+            self._on_comments(token, rows, total, error)
+        self._comment_page = state.comment_page
+        for comment_id, rows in state.replies.items():
+            owner = self._comment_widget(comment_id)
+            if owner is not None:
+                self._reply_rows[comment_id] = rows
+                owner.add_replies([CommentWidget(row, self._fetcher, nested=True, parent=owner) for row in rows])
+        restore_scroll(self._scroll, state.scroll)
+
+    def _comment_widget(self, comment_id: str) -> "CommentWidget | None":
+        for index in range(self._comments_box.count()):
+            widget = self._comments_box.itemAt(index).widget()
+            if isinstance(widget, CommentWidget) and widget.comment_id == comment_id:
+                return widget
+        return None
 
     def _on_worker_finished(self, worker: DetailWorker):
         if self._detail_worker is worker:
@@ -846,6 +937,7 @@ class DetailView(QWidget):
         if token != self._token or not isinstance(videos, list):
             return
         videos = [v for v in videos if isinstance(v, SearchVideo)]
+        self._related = list(videos)
         # The related endpoint ignores the SFW/NSFW choice; honour it here.
         videos = filter_by_rating(videos, normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL)))
         self._related_grid.set_videos(videos)
@@ -872,7 +964,10 @@ class DetailView(QWidget):
         if token != self._token:
             return
         self._comments_title.show()
-        self._append_comments(rows if isinstance(rows, list) else [], total if isinstance(total, int) else None, error)
+        rows = rows if isinstance(rows, list) else []
+        total = total if isinstance(total, int) else None
+        self._comment_batches.append((rows, total, error))
+        self._append_comments(rows, total, error)
 
     def _append_comments(self, rows: list[dict[str, Any]], total: int | None, error: str):
         if total is not None:
@@ -918,9 +1013,12 @@ class DetailView(QWidget):
         if parent:
             owner = self._pending_replies.pop(parent, None)
             if owner is not None:
+                self._reply_rows[parent] = rows
                 owner.add_replies([CommentWidget(row, self._fetcher, nested=True, parent=owner) for row in rows])
             return
-        self._append_comments(rows, total if isinstance(total, int) else None, error)
+        total = total if isinstance(total, int) else None
+        self._comment_batches.append((rows, total, error))
+        self._append_comments(rows, total, error)
 
     # ── actions ──────────────────────────────────────────────────────────────
 

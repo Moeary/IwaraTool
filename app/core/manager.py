@@ -88,6 +88,10 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
         self._terminal_task_id_set: set[str] = set()
         self._lock = threading.Lock()
         self._api_lock = threading.RLock()
+        # Short lock for token/proxy writes. _api_lock is held across network
+        # requests, so UI-thread readers must never wait on it; readers take a
+        # snapshot instead (writers always replace whole values).
+        self._auth_lock = threading.Lock()
         self._subscription_refresh_guard = threading.Lock()
         self._existing_file_index_lock = threading.Lock()
         self._existing_file_index: dict[str, str] = {}
@@ -722,7 +726,7 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
         return True, ""
 
     def set_login(self, logged_in: bool, token: str | None = None):
-        with self._api_lock:
+        with self._auth_lock:
             if logged_in and token:
                 self.api.token = token
                 app_config.auth_token = token
@@ -736,13 +740,13 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
         token = (app_config.auth_token or "").strip()
         if not (app_config.auth_enabled and token):
             return False
-        with self._api_lock:
+        with self._auth_lock:
             self.api.token = token
         return True
 
     def apply_config(self):
         """Apply proxy settings from app_config to the scraper."""
-        with self._api_lock:
+        with self._auth_lock:
             if app_config.api_proxy_enabled and app_config.api_proxy_url:
                 self.api.set_proxy(app_config.api_proxy_url)
             else:
@@ -761,8 +765,8 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
             return method(*args, **kwargs)
 
     def _current_token(self) -> str:
-        with self._api_lock:
-            return self.api.token or ""
+        # Lock-free snapshot: must not wait for an in-flight _api_call.
+        return self.api.token or ""
 
     # ── URL parsing ───────────────────────────────────────────────────────────
 

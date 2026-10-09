@@ -348,7 +348,12 @@ class _TableWidthSaver(QObject):
         header.sectionMoved.connect(lambda *_args: self.save(sync=False))
         app = QApplication.instance()
         if app is not None:
-            app.aboutToQuit.connect(lambda: self.save(sync=True))
+            # A bound slot (not a lambda), so the connection goes away with this
+            # saver when its table is destroyed (e.g. by a language rebuild).
+            app.aboutToQuit.connect(self._save_on_quit)
+
+    def _save_on_quit(self):
+        self.save(sync=True)
 
     def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
         if watched is self._table and event.type() in (
@@ -360,7 +365,10 @@ class _TableWidthSaver(QObject):
         return super().eventFilter(watched, event)
 
     def save(self, *, sync: bool):
-        if self._table.columnCount() <= 0:
+        try:
+            if self._table.columnCount() <= 0:
+                return
+        except RuntimeError:  # the table is already gone
             return
         widths = [str(self._table.columnWidth(col)) for col in range(self._table.columnCount())]
         app_config.set_ui_value(self._key, ",".join(widths), sync=sync)

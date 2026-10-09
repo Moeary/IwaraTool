@@ -255,6 +255,9 @@ class HomeInterfaceTests(unittest.TestCase):
         detail = mock.patch("app.ui.media_detail.DetailWorker.run", lambda self: None)
         detail.start()
         self.addCleanup(detail.stop)
+        api_calls = mock.patch("app.ui.home_workers.ApiCallWorker.run", lambda self: None)  # author status, likes
+        api_calls.start()
+        self.addCleanup(api_calls.stop)
         self.home = home_page.HomeInterface()
         self.addCleanup(self._discard_home)
 
@@ -278,10 +281,38 @@ class HomeInterfaceTests(unittest.TestCase):
         home.show_detail("image", "b")
         self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.go_back()
-        self.assertEqual(home._trail[-1], ("detail", "video", "a"))
+        self.assertEqual(home._detail.item, ("video", "a"))
+        self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
         home.go_back()  # nothing left to pop
+        self.assertEqual(home._stack.currentIndex(), home._FEED)
+
+    def test_back_to_a_post_rebuilds_it_from_the_record_without_loading(self):
+        from app.ui import media_detail
+
+        home = self.home
+        detail = home._detail
+        home.show_detail("video", "a")
+        detail._on_info(detail._token, {"id": "a", "title": "Post A", "user": {"username": "alice"}}, "")
+        comments = [{"id": f"c{i}", "body": f"comment {i}", "numReplies": 1, "user": {"username": "u"}} for i in range(3)]
+        detail._on_comments(detail._token, comments, 3, "")
+        detail._pending_replies["c1"] = detail._comment_widget("c1")  # what "Show replies" registers
+        detail._on_more_comments(detail._token, [{"id": "r1", "body": "a reply", "user": {}}], None, "", "c1", 0)
+        home.show_detail("video", "b")
+        with mock.patch.object(media_detail, "DetailWorker") as worker:
+            home.go_back()
+        worker.assert_not_called()  # nothing asked of the network again
+        self.assertEqual(detail.item, ("video", "a"))
+        self.assertEqual(detail._title.text(), "Post A")
+        self.assertEqual(detail._comment_count, 3)
+        self.assertIn("c1", detail._reply_rows)  # the opened replies are open again
+
+    def test_opening_the_same_post_again_is_not_a_new_step(self):
+        home = self.home
+        home.show_detail("video", "a")
+        home.show_detail("video", "a")
+        home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
     def test_more_on_a_ranking_jumps_to_the_search_page(self):
@@ -310,17 +341,14 @@ class HomeInterfaceTests(unittest.TestCase):
         home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_detail_opened_elsewhere_returns_to_the_caller(self):
+    def test_detail_opened_elsewhere_records_nothing_itself(self):
         home = self.home
-        returned = []
-        home.return_requested.connect(lambda: returned.append(True))
-        home.show_detail("video", "a", external=True)
+        home.show_detail("video", "a", external=True)  # the window recorded the caller
         self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.show_detail("video", "b")  # a related post
         home.go_back()
-        self.assertEqual(returned, [])
-        home.go_back()
-        self.assertEqual(returned, [True])
+        self.assertEqual(home._detail.item, ("video", "a"))
+        home.go_back()  # no history left here: the Back button goes up to the feed
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
     def test_queue_uses_the_given_rule_and_ignores_images(self):
@@ -436,17 +464,16 @@ class AuthorRoutingTests(unittest.TestCase):
             window = MainWindow()
             try:
                 window.switchTo(window._search_page)
+                window.navigation.clear()
                 with mock.patch.object(window._subscription_page, "show_author") as show:
                     signal_bus.author_page_requested.emit(("alice", "Alice", "u1", ""))
                 show.assert_called_once_with(("alice", "Alice", "u1", ""), external=True)
                 self.assertIs(window.stackedWidget.currentWidget(), window._subscription_page)
-                window._subscription_page.return_requested.emit()
+                self.assertEqual(len(window.navigation), 1)  # just the search page, not the switch as well
+                self.assertTrue(window.navigate_back())
                 self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
-                # asked from the subscription page itself: nothing to return to
-                window.switchTo(window._subscription_page)
-                with mock.patch.object(window._subscription_page, "show_author") as show:
-                    signal_bus.author_page_requested.emit(("bob", "Bob", "", ""))
-                show.assert_called_once_with(("bob", "Bob", "", ""), external=False)
+                self.assertFalse(window.navigate_back())  # no history: stay put
+                self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
             finally:
                 window._reloading_language = True
                 window.close()

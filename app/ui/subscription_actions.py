@@ -26,6 +26,7 @@ from ..i18n import tr
 from ..signal_bus import signal_bus as _default_signal_bus
 from .author_view import clean_username
 from .download_page import FilterDialog, option_button_style
+from .navigation import navigate_back, record_navigation, restore_scroll
 from .subscription_components import (
     SubscriptionEnqueueWorker,
     SubscriptionImportAuthorsWorker,
@@ -496,9 +497,18 @@ class SubscriptionActionsMixin:
     def _import_followed_authors(self):
         if self._import_worker and self._import_worker.isRunning():
             return
-        self._import_worker = SubscriptionImportAuthorsWorker()
-        self._import_worker.finished.connect(self._on_import_followed_finished)
-        self._import_worker.start()
+        worker = SubscriptionImportAuthorsWorker()
+        worker.result_ready.connect(self._on_import_followed_finished)
+        worker.finished.connect(lambda worker=worker: self._release_worker("_import_worker", worker))
+        self._import_worker = worker
+        worker.start()
+
+    def _release_worker(self, attr: str, worker):
+        """Drop a page-owned QThread once its native ``finished`` has fired."""
+
+        if getattr(self, attr, None) is worker:
+            setattr(self, attr, None)
+        worker.deleteLater()
 
     def _on_import_followed_finished(self, result: dict):
         self._load_sources()
@@ -656,10 +666,12 @@ class SubscriptionActionsMixin:
         if self._worker and self._worker.isRunning():
             return
         self._set_refresh_actions_enabled(False)
-        self._worker = SubscriptionRefreshWorker(source_id, ignore_disabled=ignore_disabled)
-        self._worker.progress.connect(self._on_refresh_progress)
-        self._worker.finished.connect(self._on_refresh_finished)
-        self._worker.start()
+        worker = SubscriptionRefreshWorker(source_id, ignore_disabled=ignore_disabled)
+        worker.progress.connect(self._on_refresh_progress)
+        worker.result_ready.connect(self._on_refresh_finished)
+        worker.finished.connect(lambda worker=worker: self._release_worker("_worker", worker))
+        self._worker = worker
+        worker.start()
 
     def _set_refresh_actions_enabled(self, enabled: bool):
         for button_name in ("_refresh_current_btn", "_refresh_all_btn"):
@@ -708,12 +720,8 @@ class SubscriptionActionsMixin:
             info_bar.close()
 
     def _on_refresh_finished(self, summary: dict):
-        worker = self._worker
-        self._worker = None
         self._clear_refresh_progress()
         self._set_refresh_actions_enabled(True)
-        if worker:
-            worker.deleteLater()
         self._refresh_sources_keep_current_items()
         errors = summary.get("errors") or []
         if errors:
@@ -1076,9 +1084,11 @@ class SubscriptionActionsMixin:
             rule_id
             or (self._rule_picker.selected_rule_id() if hasattr(self, "_rule_picker") else "")
         )
-        self._enqueue_worker = SubscriptionEnqueueWorker(ids, rule_id=selected_rule_id)
-        self._enqueue_worker.finished.connect(self._on_enqueue_finished)
-        self._enqueue_worker.start()
+        worker = SubscriptionEnqueueWorker(ids, rule_id=selected_rule_id)
+        worker.result_ready.connect(self._on_enqueue_finished)
+        worker.finished.connect(lambda worker=worker: self._release_worker("_enqueue_worker", worker))
+        self._enqueue_worker = worker
+        worker.start()
 
     def _on_enqueue_finished(self, result: dict):
         queued = int(result.get("queued", 0) or 0)
@@ -1088,7 +1098,6 @@ class SubscriptionActionsMixin:
         failed = int(result.get("failed", 0) or 0)
         skipped_unavailable = int(result.get("skipped_unavailable", 0) or 0)
         mode = str(result.get("mode", "") or "")
-        self._enqueue_worker = None
         self._refresh_sources_keep_current_items()
         if mode == "metadata":
             title = tr("Processed", "已处理", "処理完了")
@@ -1141,35 +1150,74 @@ class SubscriptionActionsMixin:
         if persist:
             app_config.set_ui_value("subscription_view_mode_v1", mode)
 
-    def _open_source_grid(self, source_id: int):
-        source = next((s for s in self._all_sources if int(s.get("id", 0) or 0) == int(source_id)), None)
+    def _source_by_id(self, source_id: int) -> dict[str, Any] | None:
+        return next((s for s in self._all_sources if int(s.get("id", 0) or 0) == int(source_id)), None)
+
+    def _open_source_grid(self, source_id: int, *, record: bool = True):
+        """Show one subscription's grid; ``record`` keeps where the user was for Back."""
+
+        source = self._source_by_id(source_id)
         if source is None:
             return
+        if record and not (
+            self._view_stack.currentWidget() is self._source_view and self._source_view.source_id == int(source_id)
+        ):
+            record_navigation(self)
         self._source_view.open_source(source)
         self._view_stack.setCurrentWidget(self._source_view)
 
-    def _leave_page_view(self):
-        """Back from a source/author page: to the caller, or to the overview."""
+    def _show_list_view(self):
+        """The overview or the table, whichever the user prefers."""
 
-        if self._external_return:
-            self._external_return = False
-            origin, self._page_origin = self._page_origin, None
-            # Park on the list view so returning here later is not stuck on the author.
-            self._view_stack.setCurrentWidget(self._overview if self._view_mode_is_overview() else self._table_page)
-            self.return_requested.emit()
-            return
-        origin, self._page_origin = self._page_origin, None
-        if origin is None or origin is self._author_view or origin is self._source_view:
-            origin = self._overview if self._view_mode_is_overview() else self._table_page
-        self._view_stack.setCurrentWidget(origin)
-        if origin is self._overview:
+        list_view = self._overview if self._view_mode_is_overview() else self._table_page
+        self._view_stack.setCurrentWidget(list_view)
+        if list_view is self._overview:
             self._overview.reload_if_dirty()
 
+    def _leave_page_view(self):
+        """Back from a source/author page: to wherever the user came from, else the list."""
+
+        if not navigate_back(self):
+            self._show_list_view()
+
     def go_back_view(self):
-        """Alt+Left: from an opened subscription / author back to the list."""
+        """Alt+Left: back from an opened subscription / author (to the list without history)."""
 
         if self._view_stack.currentWidget() in (self._source_view, self._author_view):
             self._leave_page_view()
+
+    # ── back history ─────────────────────────────────────────────────────────
+
+    def nav_snapshot(self):
+        current = self._view_stack.currentWidget()
+        if current is self._source_view and self._source_view.source_id:
+            return ("source", self._source_view.view_state())
+        if current is self._author_view:
+            return ("author", self._author_view.view_state())
+        if current is self._table_page:
+            return ("table", int(self._current_source_id or 0))
+        return ("overview", self._overview._scroll.verticalScrollBar().value())
+
+    def nav_restore(self, state):
+        kind, data = state
+        if kind == "source":
+            source = self._source_by_id(data.source_id)
+            if source is not None:
+                self._source_view.restore_state(source, data)
+                self._view_stack.setCurrentWidget(self._source_view)
+                return
+            kind, data = "overview", 0  # the subscription was deleted since
+        if kind == "author":
+            self._author_view.restore_state(data)
+            self._view_stack.setCurrentWidget(self._author_view)
+        elif kind == "table":
+            self._set_view_mode("table")
+            if data:
+                self._select_source_id(int(data))
+        else:
+            self._set_view_mode("overview")
+            self._overview.reload_if_dirty()
+            restore_scroll(self._overview._scroll, int(data or 0))
 
     def select_all_in_view(self):
         if self._view_stack.currentWidget() is self._source_view:
@@ -1187,6 +1235,19 @@ class SubscriptionActionsMixin:
         focus = QApplication.focusWidget()
         if focus is not None and hasattr(focus, "clearSelection"):
             focus.clearSelection()
+
+    def dismiss_transient(self) -> bool:
+        """Esc on the page: first drop the grid's selection, if there is one."""
+
+        current = self._view_stack.currentWidget()
+        grid = {
+            self._source_view: self._source_view._grid,
+            self._author_view: self._author_view._browse._grid,
+        }.get(current)
+        if grid is None or not grid.selected_videos():
+            return False
+        grid.clear_selection()
+        return True
 
     def toggle_view_mode(self):
         self._set_view_mode("table" if self._view_mode_is_overview() else "overview")
@@ -1212,30 +1273,32 @@ class SubscriptionActionsMixin:
         self._leave_page_view()
 
     def show_source(self, source_id: int):
-        """Bring one source to the front (after subscribing from another page)."""
+        """Bring one source to the front (the window has recorded where the user was)."""
 
         self._select_source_id(source_id)
         if self._view_stack.currentWidget() is not self._table_page:
-            self._open_source_grid(source_id)
+            self._open_source_grid(source_id, record=False)
 
     def show_author(self, target, *, external: bool = False):
         """Open an author inside the app.
 
         A local subscription opens on its poster grid; anyone else gets a live
-        author page with the subscribe/follow controls.  ``external`` means
-        another page asked, so Back returns there.
+        author page with the subscribe/follow controls.  ``external`` means the
+        window already recorded where the user came from.
         """
 
         username = clean_username(target[0]) if target else ""
         if not username:
             return
-        self._external_return = bool(external)
-        self._page_origin = None if external else self._view_stack.currentWidget()
         source = download_manager.find_author_subscription(username)
         source_id = int((source or {}).get("id", 0) or 0)
         if source_id and any(int(s.get("id", 0) or 0) == source_id for s in self._all_sources):
-            self._open_source_grid(source_id)
+            self._open_source_grid(source_id, record=not external)
             return
+        if not external and not (
+            self._view_stack.currentWidget() is self._author_view and self._author_view.username == username
+        ):
+            record_navigation(self)
         self._author_view.open_author(tuple(target))
         self._view_stack.setCurrentWidget(self._author_view)
 
@@ -1253,7 +1316,7 @@ class SubscriptionActionsMixin:
         if current is self._source_view and self._source_view.source_id and not any(
             int(s.get("id", 0) or 0) == self._source_view.source_id for s in self._all_sources
         ):
-            self._leave_page_view()  # the subscription being viewed was deleted
+            self._show_list_view()  # the subscription being viewed was deleted
             return
         if current is self._source_view:
             self._source_view.reload_if_visible()

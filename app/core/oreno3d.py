@@ -8,7 +8,6 @@ parser for the stable Oreno3D selectors used by its listing/detail pages.
 from __future__ import annotations
 
 import re
-import time
 from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
@@ -17,6 +16,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from requests.exceptions import ConnectionError, Timeout
 
+from .net_policy import cancellable_sleep
 from .oreno3d_mapping import resolve_oreno3d_entity
 
 
@@ -437,10 +437,10 @@ class Oreno3DClient:
                     if retry_after and (not retry_after.isdigit() or int(retry_after) > 2):
                         return response
                     response.close()
-                    time.sleep(max(self.delay, float(retry_after or 0), 0.25))
+                    cancellable_sleep(max(self.delay, float(retry_after or 0), 0.25))
                     continue
                 return response
-            time.sleep(max(self.delay, 0.25))
+            cancellable_sleep(max(self.delay, 0.25))
 
     def fetch_listing_page(self, page: int, *, sort: str = "latest") -> tuple[list[Oreno3DListing], int]:
         params = {"sort": sort, "page": max(1, int(page))}

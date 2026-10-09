@@ -84,6 +84,7 @@ class AuthorStatusBar(QWidget):
         self.open_btn.clicked.connect(self._open_subscription)
         for button in (self.subscribe_btn, self.follow_btn, self.open_btn):
             flow.addWidget(button)
+        signal_bus.login_state_changed.connect(self._on_login_changed)
         self._sync()
 
     # ── state ────────────────────────────────────────────────────────────────
@@ -112,7 +113,14 @@ class AuthorStatusBar(QWidget):
             self._source = None
         self._sync()
 
+    def _on_login_changed(self, _logged_in: bool):
+        # The follow state belongs to the account; re-read it for the new one.
+        if self._username:
+            self.refresh_web()
+
     def refresh_web(self):
+        # Bumping the token also invalidates in-flight follow replies, so a
+        # reply for a previous author or account never lands on this one.
         self._token += 1
         if not self._username:
             return
@@ -225,26 +233,34 @@ class AuthorStatusBar(QWidget):
         if not self._user_id or self._web_state != "ready":
             return
         wanted = not self._following
-        user_id = self._user_id
+        user_id, username, token = self._user_id, self._username, self._token
         self.follow_btn.setEnabled(False)
         worker = ApiCallWorker(lambda client: client.set_following(user_id, wanted), self)
-        worker.done.connect(lambda result, error, wanted=wanted: self._on_follow_done(wanted, result, error))
+        worker.done.connect(
+            lambda result, error, wanted=wanted, token=token, user_id=user_id, username=username:
+            self._on_follow_done(wanted, result, error, token=token, user_id=user_id, username=username)
+        )
         worker.finished.connect(lambda worker=worker: self._discard(worker))
         self._workers.append(worker)
         worker.start()
 
-    def _on_follow_done(self, wanted: bool, result: Any, error: str):
+    def _on_follow_done(
+        self, wanted: bool, result: Any, error: str, *, token: int, user_id: str, username: str,
+    ):
         ok, message = result if isinstance(result, tuple) and len(result) == 2 else (False, error)
+        current = token == self._token and user_id == self._user_id
         if ok:
-            self._following = wanted
+            if current:
+                self._following = wanted
             self._toast(
                 True,
                 tr("Followed on Iwara", "已在 Iwara 关注", "Iwaraでフォローしました") if wanted else tr("Unfollowed on Iwara", "已取消 Iwara 关注", "Iwaraのフォローを解除しました"),
-                f"@{self._username}",
+                f"@{username}",
             )
         else:
             self._toast(False, tr("Could not change the follow", "无法更改关注状态", "フォローを変更できません"), str(message or error))
-        self._sync()
+        if current:
+            self._sync()
 
     def _toast(self, ok: bool, title: str, content: str):
         (InfoBar.success if ok else InfoBar.error)(

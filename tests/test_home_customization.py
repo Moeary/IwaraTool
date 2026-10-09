@@ -24,6 +24,8 @@ from app.core.home_feed import (
     MODE_KEYWORD,
     MODE_SUBSCRIPTIONS,
     MODE_TAGS,
+    FeedSection,
+    FeedTab,
     HomeSectionSpec,
     default_specs,
     home_sections,
@@ -389,6 +391,30 @@ class SectionBlockCacheTests(_QtCase):
         self.assertTrue(self.block._body.isHidden())
         self.block._on_fold_toggled(False)
         self.assertFalse(self.block._body.isHidden())
+
+
+class BrowseViewQueryTests(_QtCase):
+    def test_author_browse_forwards_the_author_to_the_worker(self):
+        from app.ui import home_page
+        from app.ui.home_workers import CoverFetcher, FeedWorker
+
+        started: list = []
+        with mock.patch.object(FeedWorker, "start", lambda worker: started.append(worker)):
+            fetcher = CoverFetcher()
+            view = home_page.BrowseView(fetcher)
+            section = FeedSection("author", "Alice", (
+                FeedTab("videos", "Videos", "video", (("sort", "date"),), mode=MODE_AUTHOR, value="alice"),
+                FeedTab("images", "Images", "image", (("sort", "date"),), mode=MODE_AUTHOR, value="alice"),
+            ))
+            view.open(section, "videos", "")
+            view._pick_tab("images")
+            view._go(2)
+            fetcher.shutdown(500)
+            view.deleteLater()
+        for worker in started:
+            self.assertEqual((worker.mode, worker.value), (MODE_AUTHOR, "alice"))
+        self.assertEqual([w.kind for w in started], ["video", "image", "image"])
+        self.assertEqual(started[-1].page, 2)
 
 
 class FeedWorkerModeTests(unittest.TestCase):

@@ -32,6 +32,7 @@ from .search_widgets import (
     _extract_iwara_video_id,
     _oreno3d_video_url,
 )
+from .navigation import record_navigation
 from .search_workers import (
     SearchAuthorProfileWorker,
     SearchIwaraAuthorWorker,
@@ -248,6 +249,7 @@ class SearchActionsMixin:
     def _open_playlist_videos(self, playlist: SearchPlaylist):
         """List one playlist's videos in place of the playlist search results."""
 
+        record_navigation(self)
         self._clear_author_navigation()
         self._set_combo_data(self._scope_combo, "playlists")
         self._keyword_edit.setText(playlist.source_url)
@@ -829,14 +831,23 @@ class SearchActionsMixin:
             self._author_profile_workers.remove(worker)
         worker.deleteLater()
 
-    def _show_author_works_target(self, target: tuple[str, str, str, str]):
-        """Start a user-scoped video search, with an explicit route back out."""
+    def _show_author_works_target(self, target: tuple[str, str, str, str], *, record: bool = True):
+        """Start a user-scoped video search; Back returns to the search it replaced.
 
+        ``record`` is False when the window has already recorded the session.
+        """
+
+        if record:
+            record_navigation(self)
         self._auto_search_timer.stop()
         self._set_combo_data(self._source_combo, "iwara")
         self._set_combo_data(self._scope_combo, "videos")
         self._keyword_edit.clear()
         self._auto_search_timer.stop()
+        self._enter_author_mode(target)
+        self._start_search()
+
+    def _enter_author_mode(self, target: tuple[str, str, str, str]):
         self._author_video_target = target
         self._keyword_edit.setPlaceholderText(
             tr(f"@{target[0]}’s works; type keywords for a new search…", f"@{target[0]} 的作品；输入关键词开始新搜索…", f"@{target[0]} の作品。キーワード入力で新しい検索…")
@@ -848,7 +859,6 @@ class SearchActionsMixin:
                 f"@{target[0]} の作品を表示中。キーワード入力やソース・検索対象の変更で通常の検索に戻ります。",
             )
         )
-        self._start_search()
 
     @staticmethod
     def _needs_iwara_author_hydration(video: SearchVideo) -> bool:

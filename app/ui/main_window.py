@@ -8,7 +8,16 @@ import threading
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QLineEdit,
+    QMenu,
+    QPlainTextEdit,
+    QSystemTrayIcon,
+    QTextEdit,
+    QWidget,
+)
 
 from qfluentwidgets import (
     FluentIcon,
@@ -31,6 +40,7 @@ from ..logging_setup import get_logger
 from .download_page import DownloadInterface
 from .history_page import HistoryInterface
 from .home_page import HomeInterface
+from .navigation import NavEntry, NavigationController, restore_into, snapshot_of
 from .notification_dispatcher import (
     PreparedTaskNotifications,
     TaskNotificationBatch,
@@ -46,9 +56,13 @@ from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
 from .video_preview_window import VideoPreviewWindow
 from .window_drag import WindowsTitleBarDragFilter
+from .worker_lifecycle import ShutdownPoller
 
 
 logger = get_logger(__name__)
+
+
+PAGE_SHUTDOWN_TIMEOUT_MS = 30_000
 
 
 class _NotificationBridge(QObject):
@@ -56,6 +70,27 @@ class _NotificationBridge(QObject):
 
     prepared = Signal(object)
     update_finished = Signal(str, str)  # downloaded path, error message
+
+
+class _BackButtonFilter(QObject):
+    """The mouse's back (X1) button goes back, wherever the pointer is in the window."""
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__(window)
+        self._window = window
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        if kind in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonRelease,
+            QEvent.Type.MouseButtonDblClick,
+        ) and event.button() == Qt.MouseButton.BackButton:
+            if isinstance(watched, QWidget) and watched.window() is self._window:
+                if kind == QEvent.Type.MouseButtonPress:
+                    self._window.navigate_back()
+                return True
+        return False
 
 
 class MainWindow(FluentWindow):
@@ -69,6 +104,14 @@ class MainWindow(FluentWindow):
         if sys.platform == "win32":
             self._title_bar_drag_filter = WindowsTitleBarDragFilter(self.titleBar)
         self._reloading_language = False
+        self._closing = False  # pages are stopping in the background; the window is hidden
+        self._close_complete = False  # the next closeEvent is the real one
+        self._shutdown_poller: ShutdownPoller | None = None
+        self.navigation = NavigationController(
+            resolve_page=self._page_of,
+            current_page=lambda: self.stackedWidget.currentWidget(),
+            switch_to=lambda page: FluentWindow.switchTo(self, page),
+        )
         self._quitting = False
         self._tray_hint_shown = False
         self._pending_update_path = ""
@@ -92,7 +135,10 @@ class MainWindow(FluentWindow):
         self._notification_bridge.update_finished.connect(self._on_update_downloaded)
         self._init_window()
         self._init_navigation()
+        self.navigation.clear()  # opening on the startup page is not a step to go back to
         install_shortcuts(self)
+        self._back_button_filter = _BackButtonFilter(self)
+        QApplication.instance().installEventFilter(self._back_button_filter)
         self._init_desktop_notifications()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)
@@ -128,10 +174,6 @@ class MainWindow(FluentWindow):
         self._home_page.open_settings_requested.connect(
             lambda: self.switchTo(self._settings_page)
         )
-        self._home_page.return_requested.connect(self._return_from_detail)
-        self._detail_origin = None
-        self._author_origin = None
-        self._subscription_page.return_requested.connect(self._return_from_author)
 
         # Sidebar order: Home, Subscriptions, Search, Download Hub, Repair, History.
         self.addSubInterface(
@@ -226,50 +268,102 @@ class MainWindow(FluentWindow):
         # Currently a no-op.
         pass
 
+    # ── navigation ───────────────────────────────────────────────────────────
+
+    def _pages(self) -> dict[str, QWidget]:
+        """Every sidebar page by a stable key (survives a language rebuild)."""
+
+        names = {
+            "home": "_home_page",
+            "download": "_download_page",
+            "search": "_search_page",
+            "subscriptions": "_subscription_page",
+            "history": "_history_page",
+            "repair": "_repair_page",
+            "rules": "_rules_page",
+            "settings": "_settings_page",
+        }
+        return {key: getattr(self, name) for key, name in names.items() if getattr(self, name, None) is not None}
+
+    def _page_of(self, widget: QWidget | None) -> QWidget | None:
+        pages = set(self._pages().values())
+        while widget is not None and widget not in pages:
+            widget = widget.parentWidget()
+        return widget
+
+    def switchTo(self, interface):
+        """Any page switch (sidebar, shortcut, link) is a step Back can undo."""
+
+        current = self.stackedWidget.currentWidget()
+        if current is not None and interface is not current and hasattr(self, "navigation"):
+            self.navigation.record(current)
+        super().switchTo(interface)
+
+    def _show_page(self, page: QWidget, show):
+        """Record where the user is, then let ``show`` fill ``page`` and bring it up."""
+
+        self.navigation.record(self.stackedWidget.currentWidget())
+        with self.navigation.quiet():
+            show()
+            if self.stackedWidget.currentWidget() is not page:
+                super().switchTo(page)
+
+    def navigate_back(self) -> bool:
+        """Back to the previous place in the history; nothing happens without one."""
+
+        if self._closing:
+            return False
+        return self.navigation.back()
+
+    def escape_back(self):
+        """Esc: close what floats above the page first, then go back."""
+
+        popup = QApplication.activePopupWidget()
+        if popup is not None:
+            popup.close()
+            return
+        focus = QApplication.focusWidget()
+        if (
+            isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox))
+            and focus.window() is self
+        ):
+            focus.clearFocus()  # leave the text box; the next Esc goes back
+            return
+        page = self.stackedWidget.currentWidget()
+        dismiss = getattr(page, "dismiss_transient", None)
+        if callable(dismiss) and dismiss():
+            return
+        self.navigate_back()
+
     def _on_subscription_source_requested(self, source_id: int):
         """Navigate after subscription_source_added has selected and refreshed."""
 
         source_id = int(source_id or 0)
         if not source_id:
             return
-        self._subscription_page.show_source(source_id)
-        self.switchTo(self._subscription_page)
+        self._show_page(self._subscription_page, lambda: self._subscription_page.show_source(source_id))
 
     def _on_media_detail_requested(self, kind: str, item_id: str):
         """Show a post in the Home detail view (e.g. from a search result)."""
 
-        origin = self.stackedWidget.currentWidget()
-        external = origin is not None and origin is not self._home_page
-        self._detail_origin = origin if external else None
-        self._home_page.show_detail(kind, item_id, external=external)
-        self.switchTo(self._home_page)
-
-    def _return_from_detail(self):
-        """Back from a detail page that was opened from another page."""
-
-        origin, self._detail_origin = self._detail_origin, None
-        if origin is not None:
-            self.switchTo(origin)
+        self._show_page(self._home_page, lambda: self._home_page.show_detail(kind, item_id, external=True))
 
     def _on_author_page_requested(self, target):
         """Open an author's in-app page (subscribed or not); Back returns to the caller."""
 
-        origin = self.stackedWidget.currentWidget()
-        external = origin is not None and origin is not self._subscription_page
-        self._author_origin = origin if external else None
-        self._subscription_page.show_author(tuple(target), external=external)
-        self.switchTo(self._subscription_page)
-
-    def _return_from_author(self):
-        origin, self._author_origin = self._author_origin, None
-        if origin is not None:
-            self.switchTo(origin)
+        self._show_page(
+            self._subscription_page,
+            lambda: self._subscription_page.show_author(tuple(target), external=True),
+        )
 
     def _on_search_requested(self, request: dict):
-        """Run an Iwara search on the Search page for another page."""
+        """Run an Iwara search on the Search page for another page; Back restores the caller."""
 
-        self.switchTo(self._search_page)
-        self._search_page.apply_external_query(request)
+        def show():
+            super(MainWindow, self).switchTo(self._search_page)
+            self._search_page.apply_external_query(request)
+
+        self._show_page(self._search_page, show)
 
     def _init_desktop_notifications(self):
         self._tray_icon: QSystemTrayIcon | None = None
@@ -675,11 +769,49 @@ class MainWindow(FluentWindow):
     def _open_github(self):
         QDesktopServices.openUrl(QUrl("https://github.com/Moeary/IwaraTool"))
 
+    # ── language rebuild ─────────────────────────────────────────────────────
+
+    def export_session(self) -> dict:
+        """Where the user is and how they got there, as plain data for a new window."""
+
+        keys = {page: key for key, page in self._pages().items()}
+        current = self.stackedWidget.currentWidget()
+        return {
+            "current": keys.get(current, ""),
+            "state": snapshot_of(current) if current is not None else None,
+            "history": [
+                (keys[entry.page], entry.state)
+                for entry in self.navigation.entries()
+                if entry.page in keys
+            ],
+        }
+
+    def import_session(self, session: dict):
+        pages = self._pages()
+        page = pages.get(str(session.get("current") or ""))
+        with self.navigation.quiet():
+            if page is not None:
+                super().switchTo(page)
+                restore_into(page, session.get("state"))
+        self.navigation.replace([
+            NavEntry(pages[key], state) for key, state in session.get("history") or [] if key in pages
+        ])
+
     def _on_language_changed(self, _lang: str):
+        """Rebuild the window in the new language, carrying the user's place over.
+
+        Texts are set when widgets are built, so a fresh window is the reliable
+        way to translate everything; the old one stops its work in the
+        background and is then destroyed, with its shortcuts, tray icon and
+        signal connections.
+        """
+
         if self._reloading_language:
             return
         self._reloading_language = True
+        session = self.export_session()
         new_window = MainWindow()
+        new_window.import_session(session)
         if self.isMaximized():
             new_window.showMaximized()
         else:
@@ -715,14 +847,20 @@ class MainWindow(FluentWindow):
             memory.trim_memory()
 
     def closeEvent(self, event: QCloseEvent):
-        """Persist active work before the final application window closes."""
-        if self._reloading_language or MainWindow._window_ref is not self:
-            self._close_preview_window()
-            if not self._shutdown_page_workers():
-                event.ignore()
-                return
-            self._shutdown_task_notification_worker()
+        """Persist active work before the final application window closes.
+
+        Page workers are stopped without blocking the GUI thread: all of them
+        are cancelled at once, the window hides, and the close completes when
+        they report done (or the shared deadline passes).
+        """
+        if self._close_complete:
             super().closeEvent(event)
+            return
+        if self._closing:
+            event.ignore()
+            return
+        if self._reloading_language or MainWindow._window_ref is not self:
+            self._retire(event)
             return
 
         if (
@@ -766,17 +904,52 @@ class MainWindow(FluentWindow):
             event.ignore()
             return
 
-        if not self._shutdown_page_workers():
-            signal_bus.log_message.emit(
-                tr(
-                    "[Exit] Background page operations are still stopping; close again after they finish.",
-                    "[退出] 页面后台操作仍在停止，请稍后再次关闭。",
-                    "[終了] ページのバックグラウンド処理を停止中です。完了後に再度終了してください。",
-                )
-            )
-            event.ignore()
+        self._close_preview_window()
+        self._shutdown_task_notification_worker()
+        if self._start_page_shutdown(self._on_exit_pages_stopped):
+            self._finish_exit()
+            super().closeEvent(event)
             return
+        event.ignore()
+        self._hide_while_stopping()
 
+    def _page_shutdown_steps(self) -> list:
+        return [
+            page.shutdown
+            for page in (
+                getattr(self, "_home_page", None),
+                getattr(self, "_search_page", None),
+                getattr(self, "_subscription_page", None),
+                getattr(self, "_repair_page", None),
+                getattr(self, "_settings_page", None),
+            )
+            if callable(getattr(page, "shutdown", None))
+        ]
+
+    def _start_page_shutdown(self, on_done) -> bool:
+        """Cancel every page's workers at once; True if none had to be waited for.
+
+        Otherwise ``on_done(ok)`` runs once they have stopped (``ok``) or the
+        shared deadline passed, while the event loop keeps running.
+        """
+
+        poller = ShutdownPoller(self._page_shutdown_steps(), timeout_ms=PAGE_SHUTDOWN_TIMEOUT_MS, parent=self)
+        if poller.start():
+            poller.deleteLater()
+            return True
+        self._closing = True
+        self._shutdown_poller = poller
+        poller.done.connect(on_done)
+        return False
+
+    def _hide_while_stopping(self):
+        self._closing = True
+        self._trim_timer.stop()
+        if self._tray_icon is not None:
+            self._tray_icon.hide()
+        self.hide()
+
+    def _finish_exit(self):
         from ..core.background_services import background_service
 
         background_service.stop(wait=False)
@@ -793,17 +966,60 @@ class MainWindow(FluentWindow):
             except Exception:
                 logger.exception("Could not start the update installer")
         MainWindow._window_ref = None
-        super().closeEvent(event)
 
-    def _shutdown_page_workers(self) -> bool:
-        for page in (
-            getattr(self, "_home_page", None),
-            getattr(self, "_search_page", None),
-            getattr(self, "_subscription_page", None),
-            getattr(self, "_repair_page", None),
-            getattr(self, "_settings_page", None),
-        ):
-            shutdown = getattr(page, "shutdown", None)
-            if callable(shutdown) and not shutdown(timeout_ms=30_000):
-                return False
-        return True
+    def _on_exit_pages_stopped(self, ok: bool):
+        self._shutdown_poller = None
+        self._finish_exit()
+        self._close_complete = True
+        self.close()
+        if ok:
+            QApplication.quit()
+            return
+        # A page worker is stuck in a request past the deadline.  Destroying a
+        # running QThread would crash, so leave without tearing Qt down; the
+        # queue and settings were already saved above.
+        logger.warning("Page workers did not stop within %d ms; exiting anyway", PAGE_SHUTDOWN_TIMEOUT_MS)
+        app_config.sync()
+        import logging
+
+        logging.shutdown()
+        os._exit(0)
+
+    def _retire(self, event: QCloseEvent):
+        """Close a window that was replaced (language change): stop, then destroy it."""
+
+        self._close_preview_window()
+        self._shutdown_task_notification_worker()
+        if self._tray_icon is not None:
+            self._tray_icon.hide()
+        tray_menu = getattr(self, "_tray_menu", None)
+        if tray_menu is not None:
+            tray_menu.deleteLater()
+        if self._start_page_shutdown(self._on_retired_pages_stopped):
+            self._close_complete = True
+            super().closeEvent(event)
+            self.deleteLater()
+            return
+        event.ignore()
+        self._hide_while_stopping()
+
+    def deleteLater(self):
+        """Never destroy the window (and its pages' running QThreads) mid-shutdown.
+
+        While pages are still stopping in the background, deletion is deferred
+        until they have; destroying a running QThread would abort the process.
+        """
+        if self._closing and not self._close_complete:
+            return  # _on_retired_pages_stopped deletes it once its workers have stopped
+        super().deleteLater()
+
+    def _on_retired_pages_stopped(self, ok: bool):
+        self._shutdown_poller = None
+        if not ok:
+            # Still busy: keep waiting while hidden, never destroy a running thread.
+            self._closing = False
+            if not self._start_page_shutdown(self._on_retired_pages_stopped):
+                return
+        self._close_complete = True
+        self.close()
+        self.deleteLater()

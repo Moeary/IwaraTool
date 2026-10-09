@@ -479,9 +479,9 @@ class SearchManagerMixin:
         workers can safely use independent cloudscraper sessions while
         carrying over the current token and proxy configuration.
         """
-        with self._api_lock:
-            token = self.api.token or ""
-            proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
+        # Snapshot without _api_lock, which is held across shared-session requests.
+        token = self.api.token or ""
+        proxies = dict(getattr(self.api.scraper, "proxies", {}) or {})
         client = IwaraAPI()
         client.token = token or None
         client.scraper.proxies = proxies

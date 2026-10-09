@@ -8,7 +8,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
 from ..core.manager import download_manager as _default_download_manager
 from ..core.oreno3d_search import (
@@ -38,6 +38,7 @@ from ..core.search import (
 )
 from ..core.rating import filter_by_rating
 from ..i18n import tr
+from .worker_lifecycle import ManagedThread
 
 
 class _SearchManagerProxy:
@@ -106,7 +107,7 @@ def _resolve_oreno_video_details(video: SearchVideo) -> dict[str, Any]:
     return {"video_id": _resolve_oreno_video_id(video)}
 
 
-class SearchWorker(QThread):
+class SearchWorker(ManagedThread):
     """Fetch and locally filter one result page off the GUI thread."""
 
     result_ready = Signal(object)
@@ -441,7 +442,7 @@ class SearchWorker(QThread):
         )
 
 
-class SearchImageWorker(QThread):
+class SearchImageWorker(ManagedThread):
     """Download visible card images through the manager's configured session."""
 
     image_ready = Signal(int, str, str, str)
@@ -513,7 +514,7 @@ class SearchImageWorker(QThread):
                     close_client(client)
 
 
-class SearchQueueResolveWorker(QThread):
+class SearchQueueResolveWorker(ManagedThread):
     """Resolve only the selected Oreno3D cards before queueing them."""
 
     result_ready = Signal(object)
@@ -576,7 +577,7 @@ class SearchQueueResolveWorker(QThread):
         self.result_ready.emit({"ids": ids, "skipped": skipped, "errors": errors})
 
 
-class SearchOrenoLinkWorker(QThread):
+class SearchOrenoLinkWorker(ManagedThread):
     """Resolve Oreno IDs, then hydrate each result from the Iwara API."""
 
     item_ready = Signal(object)
@@ -765,7 +766,7 @@ class SearchOrenoLinkWorker(QThread):
         )
 
 
-class SearchIwaraAuthorWorker(QThread):
+class SearchIwaraAuthorWorker(ManagedThread):
     """Hydrate one Iwara video's metadata before an author action."""
 
     result_ready = Signal(object)
@@ -794,7 +795,7 @@ class SearchIwaraAuthorWorker(QThread):
         )
 
 
-class SearchAuthorProfileWorker(QThread):
+class SearchAuthorProfileWorker(ManagedThread):
     """Resolve a known Iwara account to its real user ID off the UI thread."""
 
     result_ready = Signal(object)
@@ -840,7 +841,7 @@ class SearchAuthorProfileWorker(QThread):
         )
 
 
-class SearchOrenoAuthorWorker(QThread):
+class SearchOrenoAuthorWorker(ManagedThread):
     """Resolve an Oreno3D author page and map it to an Iwara profile."""
 
     result_ready = Signal(object)

@@ -247,6 +247,35 @@ class AuthorStatusBarTests(_QtCase):
         self.bar._on_profile(stale, ({"user": {"id": "x", "following": True}}, ""), "")
         self.assertEqual(self.bar.web_chip.tone(), "neutral")
 
+    def test_a_late_follow_reply_for_a_previous_author_does_not_touch_the_next(self):
+        from app.ui import home_workers
+
+        held = []
+        with mock.patch.object(home_workers.ApiCallWorker, "start", lambda worker: held.append(worker)):
+            self.bar.set_author("alice", "Alice")
+            held.pop().run()  # alice's profile
+            self.bar.follow_btn.click()
+            follow_for_alice = held.pop()
+            self.client.get_user_profile.return_value = ({"user": {"id": "u2", "following": False}}, "")
+            self.bar.set_author("bob", "Bob")
+            held.pop().run()  # bob's profile
+            follow_for_alice.run()  # alice's follow reply arrives late
+        self.client.set_following.assert_called_once_with("u1", True)
+        self.assertFalse(self.bar._following)
+        self.assertEqual(self.bar.web_chip.tone(), "neutral")
+        self.assertEqual(self.bar.username, "bob")
+
+    def test_signing_out_re_reads_the_follow_state(self):
+        from app.signal_bus import signal_bus
+
+        self.client.get_user_profile.return_value = ({"user": {"id": "u1", "following": True}}, "")
+        self.bar.set_author("alice")
+        self.assertEqual(self.bar.web_chip.tone(), "accent")
+        self.manager.is_logged_in.return_value = False
+        signal_bus.login_state_changed.emit(False)
+        self.assertEqual(self.bar.web_chip.text(), self.module.web_chip_state("signed_out")[0])
+        self.assertFalse(self.bar.follow_btn.isEnabled())
+
 
 class DetailLikeTests(_QtCase):
     def setUp(self):

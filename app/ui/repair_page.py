@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any
 
-from PySide6.QtCore import QThread, Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -51,7 +51,7 @@ from .theme import (
     set_secondary_text,
     summary_text,
 )
-from .worker_lifecycle import stop_qthreads
+from .worker_lifecycle import ManagedThread, stop_qthreads
 
 
 class FolderDropLineEdit(LineEdit):
@@ -88,7 +88,7 @@ class FolderDropLineEdit(LineEdit):
         super().dropEvent(event)
 
 
-class RepairWorker(QThread):
+class RepairWorker(ManagedThread):
     """Run one repair phase without blocking the Qt event loop."""
 
     item_ready = Signal(dict)

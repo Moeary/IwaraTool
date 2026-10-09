@@ -753,6 +753,13 @@ class MediaGrid(QWidget):
     def clear_selection(self):
         self.select_all(False)
 
+    def select_ids(self, video_ids: set[str]):
+        """Re-select cards by video ID, e.g. after the same page was rebuilt."""
+
+        for card in self._cards:
+            card.set_selected(card.video.video_id in video_ids)
+        self.selection_changed.emit()
+
     # ── layout ───────────────────────────────────────────────────────────────
 
     def _layout_cards(self):
@@ -796,6 +803,13 @@ class MediaGrid(QWidget):
 
     def cursor_index(self) -> int:
         return self._cursor
+
+    def set_cursor(self, index: int):
+        """Put the keyboard cursor back on a card (e.g. after returning to this list)."""
+
+        if index < 0 or not self._cards:
+            return
+        self._set_cursor(index, scroll=False)
 
     def _set_cursor(self, index: int, *, scroll: bool = True):
         if not self._cards:

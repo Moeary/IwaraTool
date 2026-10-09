@@ -92,7 +92,7 @@ class OrenoRequestRecoveryTests(unittest.TestCase):
                 success = self.response(200)
                 session = Mock()
                 session.get.side_effect = [failure, success]
-                with patch("app.core.oreno3d.time.sleep"):
+                with patch("app.core.oreno3d.cancellable_sleep"):
                     detail = Oreno3DClient(session).fetch_detail_url("123", SOURCE)
                 self.assertEqual(detail.author.url, AUTHOR)
                 self.assertEqual(session.get.call_count, 2)
@@ -113,7 +113,7 @@ class OrenoRequestRecoveryTests(unittest.TestCase):
     def test_repeated_failure_stops_after_two_attempts(self):
         session = Mock()
         session.get.side_effect = [Timeout("first"), Timeout("second")]
-        with patch("app.core.oreno3d.time.sleep"), self.assertRaisesRegex(Timeout, "second"):
+        with patch("app.core.oreno3d.cancellable_sleep"), self.assertRaisesRegex(Timeout, "second"):
             Oreno3DClient(session).fetch_detail_url("123", SOURCE)
         self.assertEqual(session.get.call_count, 2)
 

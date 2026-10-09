@@ -39,6 +39,7 @@ def install_shortcuts(window) -> None:
     handlers.update({
         "nav_next": lambda: window.switchTo(cycle[(_index_of(window, cycle) + 1) % len(cycle)]),
         "nav_prev": lambda: window.switchTo(cycle[(_index_of(window, cycle) - 1) % len(cycle)]),
+        "nav_back": window.escape_back,
         "focus_search": lambda: (window.switchTo(window._search_page), window._search_page._focus_keyword()),
         "quick_download": window.quick_download,
         "open_download_folder": window.open_download_folder,
@@ -63,7 +64,6 @@ def install_shortcuts(window) -> None:
             "home_bottom": lambda: home.scroll_to(bottom=True),
             "home_fold_all": lambda: home.fold_all(True),
             "home_unfold_all": lambda: home.fold_all(False),
-            "detail_close": home.close_current,
             "detail_like": lambda: home.detail_action("like"),
             "detail_play": lambda: home.detail_action("play"),
             "detail_download": lambda: home.detail_action("download"),

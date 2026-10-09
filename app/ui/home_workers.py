@@ -9,14 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Signal
 
 from ..core.home_feed import MODE_AUTHOR, MODE_BROWSE, MODE_KEYWORD, MODE_TAGS
 from ..core.manager import download_manager
 from ..core.rating import filter_by_rating
 from ..core.search import SearchVideo, normalize_image, normalize_video
 from .search_workers import SearchImageWorker
-from .worker_lifecycle import stop_qthreads
+from .worker_lifecycle import ManagedThread, stop_qthreads
 
 
 @dataclass(slots=True)
@@ -68,7 +68,7 @@ def author_user_id(username: str, client) -> tuple[str, str]:
     return "", error or "author not found"
 
 
-class FeedWorker(QThread):
+class FeedWorker(ManagedThread):
     """Load one page of a Home row: ``/videos``, ``/images`` or ``/search``."""
 
     result_ready = Signal(object)  # FeedResult
@@ -132,7 +132,7 @@ class FeedWorker(QThread):
             self.result_ready.emit(result)
 
 
-class DetailWorker(QThread):
+class DetailWorker(ManagedThread):
     """Load a post's full record, its related items and the first comments."""
 
     info_ready = Signal(int, object, str)  # token, dict | None, error
@@ -174,7 +174,7 @@ class DetailWorker(QThread):
             download_manager.close_worker_api_client(client)
 
 
-class CommentsWorker(QThread):
+class CommentsWorker(ManagedThread):
     """Another page of comments, or the replies to one comment."""
 
     comments_ready = Signal(int, object, object, str, str, int)  # token, rows, total, error, parent, page
@@ -205,7 +205,7 @@ class CommentsWorker(QThread):
             self.comments_ready.emit(self.token, rows, total, error, self.parent, self.page)
 
 
-class ApiCallWorker(QThread):
+class ApiCallWorker(ManagedThread):
     """Run one call against a private API client off the GUI thread.
 
     ``call(client)`` returns anything; it is delivered through ``done`` (an

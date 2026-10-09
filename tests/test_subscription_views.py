@@ -228,6 +228,21 @@ class SubscriptionPageViewTests(_QtCase):
             view._download_all()
             self.assertEqual(len(enqueue.call_args.args[0]), 10)
 
+    def test_background_reload_keeps_the_selection_and_page(self):
+        view = self.page._source_view
+        view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+        with patch.object(views, "GRID_PAGE_SIZE", 4):
+            view._apply(reset_page=True)
+            view._go(1)
+            card = next(c for c in view._grid._cards if c.video.video_id == "a5")
+            card.set_selected(True)
+            view.reload()  # what a download-state change triggers
+            self.assertEqual(view._page_index, 1)
+            self.assertEqual([v.video_id for v in view._grid.selected_videos()], ["a5"])
+            view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+            self.assertEqual(view._page_index, 0)  # opening a source starts fresh
+            self.assertEqual(view._grid.selected_videos(), [])
+
     def test_show_source_opens_the_grid_unless_the_table_is_active(self):
         self.page.show_source(self.author)
         self.assertIs(self.page._view_stack.currentWidget(), self.page._source_view)
@@ -276,20 +291,78 @@ class SubscriptionPageViewTests(_QtCase):
 
     def test_back_from_an_author_opened_here_returns_to_the_overview(self):
         self._quiet_author_page()
-        returned = []
-        self.page.return_requested.connect(lambda: returned.append(True))
         self.page.show_author(("stranger", "Stranger", "u9", ""))
         self.page._author_view.back_requested.emit()
         self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
-        self.assertEqual(returned, [])
 
-    def test_back_from_an_author_opened_by_another_page_leaves_this_page(self):
+    def _fill_author_list(self, prefix: str, count: int = 12):
+        from app.ui.home_workers import FeedResult
+
+        browse = self.page._author_view._browse
+        videos = [SearchVideo(video_id=f"{prefix}{i}", title=f"{prefix} {i}") for i in range(count)]
+        browse._on_result(FeedResult(token=browse._token, items=videos, has_more=True))
+
+    def test_author_a_to_author_b_and_back_restores_a_exactly(self):
         self._quiet_author_page()
-        returned = []
-        self.page.return_requested.connect(lambda: returned.append(True))
-        self.page.show_author(("stranger", "Stranger", "u9", ""), external=True)
+        view = self.page._author_view
+        browse = view._browse
+        self.page.show_author(("alice", "Alice", "u1", ""))
+        browse._pick_tab("images")
+        browse._go(2)
+        self._fill_author_list("img")
+        next(card for card in browse._grid._cards if card.video.video_id == "img3").set_selected(True)
+        self.page.show_author(("bob", "Bob", "u2", ""))
+        self.assertEqual(view.username, "bob")
+        self.assertEqual(browse._tab_id, "videos")
+
+        view.back_requested.emit()
+        self.assertEqual(view.username, "alice")
+        self.assertEqual(browse._tab_id, "images")
+        self.assertEqual(browse._page, 2)
+        self.assertEqual([v.video_id for v in browse._grid.selected_videos()], ["img3"])
+        self.assertEqual(len(browse._grid.videos()), 12)  # from the record, not a new request
+        self.assertEqual(browse.section.tab("images").value, "alice")
+
+    def test_back_from_the_author_page_returns_to_the_works_page_it_came_from(self):
+        self._quiet_author_page()
+        view = self.page._source_view
+        self.page._open_source_grid(self.author)
+        with patch.object(views, "GRID_PAGE_SIZE", 4):
+            view._apply(reset_page=True)
+            view._go(1)
+            next(card for card in view._grid._cards if card.video.video_id == "a5").set_selected(True)
+            self.page.show_author(("stranger", "Stranger", "u9", ""))
+            self.page._author_view.back_requested.emit()
+            self.assertIs(self.page._view_stack.currentWidget(), view)
+            self.assertEqual(view.source_id, self.author)
+            self.assertEqual(view._page_index, 1)
+            self.assertEqual([v.video_id for v in view._grid.selected_videos()], ["a5"])
+
+    def test_a_download_finishing_keeps_the_works_page_scrolled_where_it_was(self):
+        view = self.page._source_view
+        self.manager.subscriptions.upsert_items(
+            self.author,
+            [_item(f"b{i}", author="creator", published_at=f"2026-04-{i % 28 + 1:02d}T00:00:00Z") for i in range(40)],
+        )
+        self.page._all_sources = self.page._fetch_sources()
+        self.page._open_source_grid(self.author)
+        self.page.resize(1000, 500)
+        self.app.processEvents()
+        bar = view._scroll.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        bar.setValue(bar.maximum() // 2)
+        position = bar.value()
+        next(iter(view._grid._cards)).set_selected(True)
+        selected = [v.video_id for v in view._grid.selected_videos()]
+        view.reload()  # what a task status change ends in
+        self.app.processEvents()
+        self.assertEqual(bar.value(), position)
+        self.assertEqual([v.video_id for v in view._grid.selected_videos()], selected)
+
+    def test_back_without_history_falls_back_to_the_list(self):
+        self._quiet_author_page()
+        self.page.show_author(("stranger", "Stranger", "u9", ""), external=True)  # the caller is recorded elsewhere
         self.page._author_view.back_requested.emit()
-        self.assertEqual(returned, [True])
         self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
 
     def test_removing_the_viewed_subscription_elsewhere_closes_its_grid(self):

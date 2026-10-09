@@ -152,8 +152,6 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
 
     # Emitted whenever the source list was re-read (refresh, add, delete, ...).
     sources_changed = Signal()
-    # An author/source page that another page opened was closed with Back.
-    return_requested = Signal()
 
     _RENDER_BATCH_SIZE = 80
     _MIN_ITEM_TABLE_HEIGHT = 140
@@ -261,8 +259,6 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._source_view.back_requested.connect(self._close_source_grid)
         self._author_view.back_requested.connect(self._close_author_view)
         self._author_view.open_subscription_requested.connect(self._open_source_grid)
-        self._external_return = False  # Back from the open author/source page leaves this page
-        self._page_origin = None
         root.addWidget(self._view_stack, stretch=1)
 
         left_panel = CardWidget(self)
@@ -1368,7 +1364,7 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
         self._avatar_requested_source_ids.update(source_ids)
         self._avatar_worker = SubscriptionAvatarWorker(source_ids)
         self._avatar_worker.avatar_ready.connect(self._on_avatar_ready)
-        self._avatar_worker.done.connect(self._on_avatar_worker_finished)
+        self._avatar_worker.finished.connect(self._on_avatar_worker_finished)
         self._avatar_worker.start()
 
     def _on_avatar_ready(self, source_id: int, avatar_url: str, avatar_path: str):
@@ -1385,7 +1381,12 @@ class SubscriptionInterface(SubscriptionActionsMixin, QWidget):
                 break
 
     def _on_avatar_worker_finished(self):
+        worker = self._avatar_worker
         self._avatar_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        if self._shutting_down:
+            return
         self._start_avatar_worker_for_missing_sources()
 
     def _load_items(self, source_id: int | None):

@@ -6,13 +6,14 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from PySide6.QtCore import QRect, QThread, Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QSplitter, QWidget
 
 from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton
 
 from ..core.manager import download_manager as _default_download_manager
+from .worker_lifecycle import ManagedThread
 from .theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
 
 
@@ -26,8 +27,10 @@ class _SubscriptionManagerProxy:
 download_manager = _SubscriptionManagerProxy()
 
 
-class SubscriptionRefreshWorker(QThread):
-    finished = Signal(dict)
+class SubscriptionRefreshWorker(ManagedThread):
+    # Never shadow QThread.finished: owners release the thread only on the
+    # native signal, after run() has returned.
+    result_ready = Signal(dict)
     progress = Signal(dict)
 
     def __init__(
@@ -96,18 +99,18 @@ class SubscriptionRefreshWorker(QThread):
             summary = download_manager._subscription_refresh_summary(summaries)
         else:
             summary = download_manager.refresh_all_subscriptions(self.progress.emit)
-        self.finished.emit(summary)
+        self.result_ready.emit(summary)
 
 
-class SubscriptionImportAuthorsWorker(QThread):
-    finished = Signal(dict)
+class SubscriptionImportAuthorsWorker(ManagedThread):
+    result_ready = Signal(dict)
 
     def run(self):
-        self.finished.emit(download_manager.import_followed_author_subscriptions())
+        self.result_ready.emit(download_manager.import_followed_author_subscriptions())
 
 
-class SubscriptionEnqueueWorker(QThread):
-    finished = Signal(dict)
+class SubscriptionEnqueueWorker(ManagedThread):
+    result_ready = Signal(dict)
 
     def __init__(self, video_ids: list[str], *, rule_id: str = ""):
         super().__init__()
@@ -115,7 +118,7 @@ class SubscriptionEnqueueWorker(QThread):
         self._rule_id = str(rule_id or "")
 
     def run(self):
-        self.finished.emit(
+        self.result_ready.emit(
             download_manager.submit_subscription_items(
                 self._video_ids,
                 rule_id=self._rule_id,
@@ -123,9 +126,8 @@ class SubscriptionEnqueueWorker(QThread):
         )
 
 
-class SubscriptionAvatarWorker(QThread):
+class SubscriptionAvatarWorker(ManagedThread):
     avatar_ready = Signal(int, str, str)
-    done = Signal()
 
     def __init__(self, source_ids: list[int]):
         super().__init__()
@@ -141,14 +143,13 @@ class SubscriptionAvatarWorker(QThread):
                     str(result.get("avatar_url", "") or ""),
                     avatar_path,
                 )
-        self.done.emit()
 
 
 _DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
 _MAX_COVER_DOWNLOAD_CONCURRENCY = 16
 
 
-class SubscriptionThumbnailWorker(QThread):
+class SubscriptionThumbnailWorker(ManagedThread):
     thumbnail_ready = Signal(str, str)
     done = Signal()
 

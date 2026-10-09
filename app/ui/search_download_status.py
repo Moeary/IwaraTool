@@ -6,10 +6,11 @@ from enum import Enum
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 
 from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ..i18n import tr
+from .worker_lifecycle import ManagedThread
 
 
 class SearchDownloadStatus(Enum):
@@ -82,7 +83,7 @@ def query_download_statuses(
     return statuses
 
 
-class SearchDownloadStatusWorker(QThread):
+class SearchDownloadStatusWorker(ManagedThread):
     """Keep SQLite and file checks off the GUI thread."""
 
     result_ready = Signal(object)

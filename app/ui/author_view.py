@@ -9,6 +9,7 @@ subscriptions open on the subscription grid, which carries the same status bar.
 from __future__ import annotations
 
 import webbrowser
+from dataclasses import dataclass, replace as dataclass_replace
 
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
@@ -34,10 +35,16 @@ from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
-from .home_page import BrowseView, queueable_ids
+from .home_page import BrowseState, BrowseView, queueable_ids
 from .media_card import read_pixmap
 from .home_workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+
+
+@dataclass
+class AuthorViewState:
+    target: tuple[str, str, str, str]
+    browse: BrowseState | None = None
 
 
 class AuthorView(QWidget):
@@ -50,6 +57,7 @@ class AuthorView(QWidget):
         super().__init__(parent)
         self._fetcher = CoverFetcher(self)
         self._username = ""
+        self._target: tuple[str, str, str, str] = ("", "", "", "")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
@@ -99,7 +107,36 @@ class AuthorView(QWidget):
         return self._username
 
     def open_author(self, target: tuple[str, str, str, str]):
+        self._show_author(target)
+        rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
+        self._browse.open(self._section(), "videos", rating)
+
+    def _section(self) -> FeedSection:
+        username, name = self._username, self._target[1]
+        return FeedSection(
+            "author",
+            name or username,
+            (
+                FeedTab("videos", tr("Videos", "视频", "動画"), "video", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
+                FeedTab("images", tr("Images", "图片", "画像"), "image", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
+            ),
+        )
+
+    def view_state(self) -> AuthorViewState:
+        return AuthorViewState(self._target, self._browse.view_state())
+
+    def restore_state(self, state: AuthorViewState):
+        """Show a recorded author again: same tab, page, cards, selection and scroll."""
+
+        if state.browse is None:
+            self.open_author(state.target)
+            return
+        self._show_author(state.target)
+        self._browse.restore_state(dataclass_replace(state.browse, section=self._section()))
+
+    def _show_author(self, target: tuple[str, str, str, str]):
         username, name, user_id, avatar = (list(target) + ["", "", "", ""])[:4]
+        self._target = (str(username), str(name), str(user_id), str(avatar))
         self._username = clean_username(username)
         self._name.setText(name or self._username)
         self._handle.setText(f"@{self._username}")
@@ -110,16 +147,6 @@ class AuthorView(QWidget):
             if cached:
                 self._on_cover("avatar", self._username, cached)
         self.status.set_author(self._username, name, user_id, avatar)
-        section = FeedSection(
-            "author",
-            name or self._username,
-            (
-                FeedTab("videos", tr("Videos", "视频", "動画"), "video", (("sort", "date"),), mode=MODE_AUTHOR, value=self._username),
-                FeedTab("images", tr("Images", "图片", "画像"), "image", (("sort", "date"),), mode=MODE_AUTHOR, value=self._username),
-            ),
-        )
-        rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
-        self._browse.open(section, "videos", rating)
 
     def refresh_status(self):
         self.status.refresh_local()

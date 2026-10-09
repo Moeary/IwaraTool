@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
@@ -45,6 +46,7 @@ from .media_card import (
     saved_card_width,
     transparent_scroll_area,
 )
+from .navigation import has_focus_within, restore_scroll
 from .rules_page import RulePicker
 from .subscription_components import SubscriptionThumbnailWorker
 from .subscription_helpers import (
@@ -191,6 +193,7 @@ class CoverLoader(QObject):
         self._requested: set[str] = set()
         self._batch: list[str] = []
         self._delivered: set[str] = set()
+        self._stopped = False
 
     def request(self, requests: list[tuple[str, str]], *, urgent: bool = False):
         fresh: list[tuple[str, str, bool]] = []
@@ -223,7 +226,7 @@ class CoverLoader(QObject):
         return SubscriptionThumbnailWorker(batch, concurrency=concurrency)
 
     def _pump(self):
-        if self._worker is not None or not self._queue:
+        if self._stopped or self._worker is not None or not self._queue:
             return
         batch, self._queue = self._queue[: self.BATCH], self._queue[self.BATCH:]
         self._batch = [video_id for video_id, _url, _urgent in batch]
@@ -269,12 +272,14 @@ class CoverLoader(QObject):
         self._requested.difference_update(video_ids)
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
+        # Keep the reference until the thread's own ``finished``: dropping it
+        # here would let a still-running QThread be destroyed.  Safe to call
+        # again and again (``timeout_ms=0`` just polls).
+        self._stopped = True
         self._queue.clear()
-        worker, self._worker = self._worker, None
-        if worker is None:
+        if self._worker is None:
             return True
-        worker.requestInterruption()
-        return stop_qthreads([worker], timeout_ms=timeout_ms)
+        return stop_qthreads([self._worker], timeout_ms=timeout_ms)
 
 
 # ── overview ─────────────────────────────────────────────────────────────────
@@ -922,6 +927,21 @@ class SubscriptionOverview(QWidget):
 # ── one source as a grid ─────────────────────────────────────────────────────
 
 
+@dataclass
+class SourceViewState:
+    """One subscription's grid as the user left it (filters, page, selection, scroll)."""
+
+    source_id: int
+    search: str = ""
+    state_filter: str = "all"
+    order: str = "date_desc"
+    page_index: int = 0
+    scroll: int = 0
+    selected: tuple[str, ...] = ()
+    cursor: int = -1
+    focused: bool = False
+
+
 class SourceItemsView(QWidget):
     """A subscription's videos as selectable posters, with the download tools."""
 
@@ -1102,7 +1122,44 @@ class SourceItemsView(QWidget):
         self._search.blockSignals(False)
         self._state_combo.setCurrentIndex(0)
         self._page_btn.setEnabled(bool(self._page._source_page_url(source)))
-        self.reload()
+        self._stale = False
+        self._items = self._page._source_items(self.source_id) if self.source_id else []
+        self._apply(reset_page=True)
+
+    def view_state(self) -> SourceViewState:
+        return SourceViewState(
+            source_id=self.source_id,
+            search=self._search.text(),
+            state_filter=str(self._state_combo.currentData() or "all"),
+            order=str(self._sort_combo.currentData() or "date_desc"),
+            page_index=self._page_index,
+            scroll=self._scroll.verticalScrollBar().value(),
+            selected=tuple(v.video_id for v in self._grid.selected_videos()),
+            cursor=self._grid.cursor_index(),
+            focused=has_focus_within(self._grid),
+        )
+
+    def restore_state(self, source: dict[str, Any], state: SourceViewState):
+        """Re-open ``source`` on the recorded filters, page, selection and scroll (local data only)."""
+
+        self.open_source(source)
+        for combo, value in ((self._state_combo, state.state_filter), (self._sort_combo, state.order)):
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+        self._search.blockSignals(True)
+        self._search.setText(state.search)
+        self._search.blockSignals(False)
+        self._filter_timer.stop()
+        self._page_index = state.page_index
+        self._apply(reset_page=False)
+        self._grid.select_ids(set(state.selected))
+        self._grid.set_cursor(state.cursor)
+        if state.focused:
+            self._grid.setFocus(Qt.FocusReason.OtherFocusReason)
+        restore_scroll(self._scroll, state.scroll)
 
     def set_avatar(self, source_id: int, path: str):
         if int(source_id) == self.source_id:
@@ -1117,7 +1174,9 @@ class SourceItemsView(QWidget):
         if not self.source_id:
             return
         self._items = self._page._source_items(self.source_id)
-        self._apply(reset_page=False)
+        # Download-state changes land here: keep what the user selected and
+        # where they were scrolled to, instead of jumping back to the top.
+        self._apply(reset_page=False, keep_view=True)
 
     def refresh_status(self):
         """Re-read whether the author is still a local subscription."""
@@ -1136,18 +1195,21 @@ class SourceItemsView(QWidget):
         if self._stale:
             self.reload()
 
-    def _apply(self, *, reset_page: bool):
+    def _apply(self, *, reset_page: bool, keep_view: bool = False):
         mode = str(self._state_combo.currentData() or "all")
         order = str(self._sort_combo.currentData() or "date_desc")
         self._filtered = sort_items(filter_items(self._items, mode, self._search.text()), order)
         if reset_page:
             self._page_index = 0
-        self._go(self._page_index)
+        self._go(self._page_index, keep_view=keep_view)
 
     def _page_count(self) -> int:
         return max(1, -(-len(self._filtered) // GRID_PAGE_SIZE))
 
-    def _go(self, index: int):
+    def _go(self, index: int, *, keep_view: bool = False):
+        bar = self._scroll.verticalScrollBar()
+        selected_ids = {v.video_id for v in self._grid.selected_videos()} if keep_view else set()
+        scroll_value = bar.value() if keep_view else 0
         self._page_index = max(0, min(index, self._page_count() - 1))
         start = self._page_index * GRID_PAGE_SIZE
         chunk = self._filtered[start:start + GRID_PAGE_SIZE]
@@ -1160,7 +1222,12 @@ class SourceItemsView(QWidget):
                 self._pixmaps[video.video_id] = cached
                 self._grid.set_cover(video.video_id, cached)
         self._grid.set_videos(videos)
-        self._scroll.verticalScrollBar().setValue(0)
+        if selected_ids:
+            self._grid.select_ids(selected_ids)
+        bar.setValue(scroll_value)
+        if scroll_value:
+            # The scroll range may only grow once the rebuilt grid is laid out.
+            QTimer.singleShot(0, bar, lambda: bar.setValue(scroll_value))
         self._request_covers(videos)
         self._prev_btn.setEnabled(self._page_index > 0)
         self._next_btn.setEnabled(self._page_index < self._page_count() - 1)

@@ -664,7 +664,7 @@ class ShortcutCatalogueTests(_QtCase):
             "nav_next", "nav_prev", "focus_search", "quick_download", "open_download_folder", "rating_cycle",
             "card_size_up", "card_size_down", "card_size_reset", "toggle_theme", "toggle_fullscreen", "shortcut_help",
             "home_top", "home_bottom", "home_fold_all", "home_unfold_all", "detail_like", "detail_play",
-            "detail_download", "detail_open_browser", "detail_copy_link", "detail_author_page", "detail_close",
+            "detail_download", "detail_open_browser", "detail_copy_link", "detail_author_page", "nav_back",
             "search_prev_page", "search_next_page", "search_toggle_view", "search_toggle_controls", "search_reset",
             "sub_back", "sub_select_all", "sub_clear_selection", "sub_toggle_view", "sub_focus_filter",
         ):
