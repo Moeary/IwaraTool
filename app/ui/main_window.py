@@ -457,6 +457,7 @@ class MainWindow(FluentWindow):
     def _show_preview_window(self, video_id: str, title: str, local: str, *, start_ms: int = 0):
         if self._preview_window is None:
             self._preview_window = VideoPreviewWindow()
+            self._preview_window.closed.connect(self._on_preview_window_closed)
         window = self._preview_window
         if local:
             window.play_local(local, title, video_id, start_ms=start_ms)
@@ -466,6 +467,13 @@ class MainWindow(FluentWindow):
         window.raise_()
         window.activateWindow()
         window.setFocus()
+
+    def _on_preview_window_closed(self):
+        """A closed player window is not shown again; the next video gets a fresh one."""
+        window = self.sender()
+        if window is not None and window is self._preview_window:
+            self._preview_window = None
+            window.deleteLater()
 
     def _close_preview_window(self):
         window, self._preview_window = self._preview_window, None

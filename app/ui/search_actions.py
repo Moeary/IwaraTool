@@ -411,15 +411,18 @@ class SearchActionsMixin:
         if target:
             webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
 
-    @staticmethod
-    def _detail_target(video: SearchVideo) -> tuple[str, str] | None:
-        """``(kind, id)`` for the Home detail view, or ``None`` for bridge cards."""
+    @classmethod
+    def _detail_target(cls, video: SearchVideo) -> tuple[str, str] | None:
+        """``(kind, Iwara id)`` for the Home detail view, or ``None`` while unknown.
+
+        A resolved Oreno3D card turns into ``source_kind == "iwara"`` but keeps
+        its ``oreno3d:<n>`` card id; the Iwara id is the resolved one.
+        """
 
         if video.source_kind == IWARA_IMAGE_SOURCE_KIND:
             return "image", video.video_id
-        if video.source_kind == "iwara":
-            return "video", video.video_id
-        return None
+        video_id = cls._preview_video_id(video)
+        return ("video", video_id) if video_id else None
 
     def _show_media_detail(self, video: SearchVideo):
         target = self._detail_target(video)
@@ -469,17 +472,13 @@ class SearchActionsMixin:
         elif isinstance(data, SearchVideo):
             target = self._detail_target(data)
             if target is None and data.source_kind == "oreno3d":
-                video_id = self._preview_video_id(data)
-                if video_id:
-                    target = ("video", video_id)
-                else:
-                    # An Oreno3D card learns its Iwara id first.
-                    self._pending_detail_video_ids.add(data.video_id)
-                    self._start_oreno_link_resolution([data], priority=True, hydrate_metadata=False)
-                    self._status_label.setText(
-                        tr("Resolving the Iwara ID…", "正在解析 Iwara ID…", "Iwara IDを取得中…")
-                    )
-                    return
+                # An Oreno3D card learns its Iwara id first.
+                self._pending_detail_video_ids.add(data.video_id)
+                self._start_oreno_link_resolution([data], priority=True, hydrate_metadata=False)
+                self._status_label.setText(
+                    tr("Resolving the Iwara ID…", "正在解析 Iwara ID…", "Iwara IDを取得中…")
+                )
+                return
             if target:
                 signal_bus.media_detail_requested.emit(*target)
 

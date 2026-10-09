@@ -666,7 +666,15 @@ class VideoPlayer(QWidget):
 
 
 class VideoPreviewWindow(FluentWidget):
-    """One reusable Fluent window (themed title bar, Mica) around a ``VideoPlayer``."""
+    """A Fluent window (themed title bar, Mica) around a ``VideoPlayer``.
+
+    Reused while it is open, but not after it was closed: closing destroys the
+    native window, and the one Qt recreates on the next ``show()`` lacks the
+    frameless-window styles, so Windows would maximize it under a left taskbar
+    and leave a gap on the right.  ``closed`` tells the owner to drop it.
+    """
+
+    closed = Signal()
 
     def __init__(self, backend_factory: Callable[[QWidget], Backend] = create_backend, parent: QWidget | None = None):
         super().__init__(parent)
@@ -695,6 +703,8 @@ class VideoPreviewWindow(FluentWidget):
     def closeEvent(self, event):
         self.player.shutdown()
         super().closeEvent(event)
+        if event.isAccepted():
+            self.closed.emit()
 
 
 class _NormalGeometryKeeper(QObject):

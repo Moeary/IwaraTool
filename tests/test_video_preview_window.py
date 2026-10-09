@@ -298,6 +298,15 @@ class EmbeddedPlayerTests(_PlayerCase):
         self.assertEqual(asked, [True])
         self.assertFalse(player.is_fullscreen())
 
+    def test_closing_the_window_tells_its_owner_to_drop_it(self):
+        window = VideoPreviewWindow(backend_factory=fake_backend)
+        self.addCleanup(window.deleteLater)
+        closed = []
+        window.closed.connect(lambda: closed.append(True))
+        window.show()
+        window.close()
+        self.assertEqual(closed, [True])
+
     def test_popout_button_only_where_offered(self):
         self.assertFalse(self.player_widget._popout_btn.isHidden())
         window = VideoPreviewWindow(backend_factory=fake_backend)

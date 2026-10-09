@@ -77,7 +77,7 @@ class MainWindowRoutingTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def _stub(self):
-        stub = SimpleNamespace(_preview_window=None)
+        stub = SimpleNamespace(_preview_window=None, _on_preview_window_closed=lambda: None)
         stub._show_preview_window = lambda *args, **kwargs: MainWindow._show_preview_window(stub, *args, **kwargs)
         return stub
 

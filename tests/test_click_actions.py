@@ -240,6 +240,18 @@ class SearchResultClickTests(_ConfigCase):
         QTest.keyClick(self.page._results, Qt.Key.Key_Return)
         self.assertEqual(opened, [("video", "v1")])
 
+    def test_resolved_oreno3d_card_opens_the_iwara_post_not_the_card_id(self):
+        video = SearchVideo(
+            video_id="oreno3d:12345", title="t", source_kind="oreno3d",
+            source_url="https://oreno3d.com/movies/12345", downloadable=False,
+        )
+        self.page._apply_oreno_link(video, {"id": "AbCdEf123", "url": "https://www.iwara.tv/video/AbCdEf123"})
+        self.assertEqual(video.source_kind, "iwara")  # the card now looks like an Iwara one...
+        self.assertEqual(self.page._detail_target(video), ("video", "AbCdEf123"))  # ...with the Iwara id
+        opened = self._listen(signal_bus.media_detail_requested)
+        self.page._open_result_detail(video)
+        self.assertEqual(opened, [("video", "AbCdEf123")])
+
     def test_unresolved_oreno3d_card_opens_its_detail_once_resolved(self):
         video = _videos(1, source_kind="oreno3d")[0]
         with patch.object(self.page, "_start_oreno_link_resolution") as resolve:
