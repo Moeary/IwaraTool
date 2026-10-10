@@ -9,7 +9,7 @@ from qfluentwidgets import InfoBarPosition, PrimaryPushButton
 
 from ...config import app_config
 from ...i18n import tr
-from ..download_page import FilterDialog, option_button_style
+from ..downloads.filter_dialog import FilterDialog, option_button_style
 from .components import SubscriptionEnqueueWorker, _CONTROL_HEIGHT
 from .page_dependencies import InfoBar, download_manager, signal_bus
 

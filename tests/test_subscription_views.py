@@ -457,7 +457,7 @@ class CardSizeTests(_QtCase):
 
 class TaskSpeedTests(_QtCase):
     def test_total_speed_sums_only_downloading_tasks(self):
-        from app.ui.task_page import TaskCenterInterface
+        from app.ui.downloads.task_center import TaskCenterInterface
 
         page = TaskCenterInterface()
         self.addCleanup(page.deleteLater)

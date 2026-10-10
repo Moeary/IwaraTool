@@ -13,7 +13,7 @@ from qfluentwidgets import Theme, setTheme, themeColor
 
 from app.config import app_config
 from app.core.models import TaskStatus
-from app.ui.download_page import split_submitted_urls
+from app.ui.downloads.submitted_urls import split_submitted_urls
 from app.ui.history_page import HISTORY_CSV_FIELDS, write_history_csv
 from app.ui.theme import (
     DARK,

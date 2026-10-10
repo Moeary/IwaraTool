@@ -17,7 +17,7 @@ from app.core.history import DownloadHistory
 from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_image_url, _subscription_item_from_video, download_manager
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
-from app.ui.download_page import DownloadInterface
+from app.ui.downloads.page import DownloadInterface
 from app.ui.history_page import HistoryInterface
 from app.ui.repair_page import RepairInterface
 from app.ui.rules_page import RuleFormWidget, RulesInterface
@@ -30,7 +30,7 @@ from app.ui.subscription.helpers import (
     _split_title_keywords,
     _title_matches_keywords,
 )
-from app.ui.task_page import TaskCenterInterface
+from app.ui.downloads.task_center import TaskCenterInterface
 from app.ui.ui_state import (
     apply_table_column_layout,
     connect_table_width_saver,
@@ -1129,8 +1129,8 @@ class UiPerformanceTests(unittest.TestCase):
         page._visible_task_ids = list(tasks)
         page._schedule_refresh = lambda *_args: None
 
-        with patch("app.ui.task_page.download_manager") as manager, patch(
-            "app.ui.task_page.InfoBar.info"
+        with patch("app.ui.downloads.task_center.download_manager") as manager, patch(
+            "qfluentwidgets.InfoBar.info"
         ):
             manager.retry_task.return_value = True
             manager.restore_cancelled_task.return_value = True
@@ -1176,8 +1176,8 @@ class UiPerformanceTests(unittest.TestCase):
             )
         }
 
-        with patch("app.ui.task_page.webbrowser.open") as open_url, patch(
-            "app.ui.task_page.download_manager"
+        with patch("webbrowser.open") as open_url, patch(
+            "app.ui.downloads.task_center.download_manager"
         ) as manager:
             manager.open_task_output.return_value = (True, "")
             page._open_task_video_pages(("completed",))
