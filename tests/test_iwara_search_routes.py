@@ -16,7 +16,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.search import SearchFilters, SearchPageResult, build_keyword_query_params
 from app.core.search_manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary

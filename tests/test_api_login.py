@@ -11,7 +11,8 @@ from unittest.mock import patch
 from PySide6.QtCore import QSettings
 
 from app.config import app_config
-from app.core.api import IwaraAPI, token_is_expired
+from app.core.api.client import IwaraAPI
+from app.core.api.auth_tokens import token_is_expired
 from app.core.manager import DownloadManager
 
 

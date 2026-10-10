@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 from ...i18n import tr
-from ..api import IwaraAPI
+from ..api.client import IwaraAPI
 from ..task_metadata import _dict_or_empty, _iwara_image_url, _subscription_thumbnail_url
 
 

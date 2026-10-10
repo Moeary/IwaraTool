@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core import rating
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import default_specs, home_sections
 from app.core.search import (

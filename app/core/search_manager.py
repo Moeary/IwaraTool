@@ -6,7 +6,7 @@ from typing import Any
 import cloudscraper
 
 from ..i18n import tr
-from .api import IwaraAPI
+from .api.client import IwaraAPI
 from .oreno3d import Oreno3DClient, extract_iwara_video_id
 from .oreno3d_search import intersect_oreno3d_listings
 from .task_metadata import _dict_or_empty, _iwara_image_url

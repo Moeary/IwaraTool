@@ -7,7 +7,7 @@ from datetime import datetime
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..api import token_is_expired
+from ..api.auth_tokens import token_is_expired
 
 
 class SessionMixin:

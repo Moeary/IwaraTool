@@ -13,7 +13,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.search import SearchFilters
 from app.core.search_manager import SearchManagerMixin
 from app.signal_bus import signal_bus

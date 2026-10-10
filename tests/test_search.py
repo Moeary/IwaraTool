@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from datetime import date
 
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.image_cache import SearchImageCache
 from app.core.search import (
     SearchFilters,

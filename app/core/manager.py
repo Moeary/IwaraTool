@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .api import IwaraAPI
+from .api.client import IwaraAPI
 from .download.paths import DownloadPathMixin
 from .download.aria2 import Aria2DownloadMixin
 from .download.artifacts import DownloadArtifactsMixin

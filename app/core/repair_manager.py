@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .api import IwaraAPI
+from .api.client import IwaraAPI
 from .models import DownloadTask
 from .repair import (
     candidate_match_score,

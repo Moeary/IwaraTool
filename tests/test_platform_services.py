@@ -11,7 +11,7 @@ from unittest import mock
 
 from app import logging_setup
 from app.config import AppConfig, app_config
-from app.core import api as api_module
+from app.core.api import auth_tokens as api_module
 from app.core.sqlite_utils import connect
 
 
