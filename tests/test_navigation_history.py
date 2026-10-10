@@ -70,7 +70,7 @@ class _WindowCase(unittest.TestCase):
             ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
             ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
             ("app.ui.search.image_worker.SearchImageWorker.run", lambda worker: None),
-            ("app.ui.subscription.views.CoverLoader.request", lambda *args, **kwargs: None),
+            ("app.ui.subscription.cover_loader.CoverLoader.request", lambda *args, **kwargs: None),
             ("app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources", lambda page: None),
         ):
             patcher = mock.patch(target, value)

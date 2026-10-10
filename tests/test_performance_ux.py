@@ -307,7 +307,7 @@ class SubscriptionOverviewTests(_QtCase):
             ])
             self.ids.append(source_id)
         for target in (
-            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
             "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)
@@ -954,7 +954,7 @@ class SubscriptionKeyboardActionTests(_QtCase):
             for i in range(6)
         ])
         for target in (
-            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
             "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)

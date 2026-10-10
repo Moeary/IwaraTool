@@ -28,7 +28,7 @@ from .components import (
     _style_content_splitter,
     _thumbnail_list_style,
 )
-from .views import CoverLoader
+from .cover_loader import CoverLoader
 from ..worker_lifecycle import stop_qthreads
 from .item_grid import SubscriptionItemGridMixin
 from .item_list import SubscriptionItemListMixin

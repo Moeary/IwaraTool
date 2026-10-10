@@ -19,7 +19,7 @@ from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
 from app.core.search import SearchVideo
 from app.core.subscriptions import SubscriptionStore
-from app.ui.subscription import views
+from app.ui.subscription import item_queries, overview, source_items_view
 
 
 def _item(video_id, **kwargs):
@@ -30,13 +30,13 @@ def _item(video_id, **kwargs):
 
 class ItemHelperTests(unittest.TestCase):
     def test_state_priority(self):
-        self.assertEqual(views.item_state(_item("a")), "")
-        self.assertEqual(views.item_state(_item("a", is_new=1)), "new")
-        self.assertEqual(views.item_state(_item("a", is_new=1, queued=True)), "queued")
-        self.assertEqual(views.item_state(_item("a", downloaded=True, download_file_exists=True)), "downloaded")
-        self.assertEqual(views.item_state(_item("a", downloaded=True, download_file_exists=False)), "moved")
+        self.assertEqual(item_queries.item_state(_item("a")), "")
+        self.assertEqual(item_queries.item_state(_item("a", is_new=1)), "new")
+        self.assertEqual(item_queries.item_state(_item("a", is_new=1, queued=True)), "queued")
+        self.assertEqual(item_queries.item_state(_item("a", downloaded=True, download_file_exists=True)), "downloaded")
+        self.assertEqual(item_queries.item_state(_item("a", downloaded=True, download_file_exists=False)), "moved")
         self.assertEqual(
-            views.item_state(_item("a", is_new=1, downloaded=True, download_state="private")), "unavailable"
+            item_queries.item_state(_item("a", is_new=1, downloaded=True, download_state="private")), "unavailable"
         )
 
     def test_filter_and_sort(self):
@@ -46,14 +46,14 @@ class ItemHelperTests(unittest.TestCase):
             _item("c", title="alpine", published_at="2026-01-01", queued=True),
         ]
         ids = lambda rows: [row["video_id"] for row in rows]  # noqa: E731
-        self.assertEqual(ids(views.filter_items(items, "all", "al")), ["a", "c"])
-        self.assertEqual(ids(views.filter_items(items, "ready")), ["a"])
-        self.assertEqual(ids(views.filter_items(items, "downloaded")), ["b"])
-        self.assertEqual(ids(views.filter_items(items, "queued")), ["c"])
-        self.assertEqual(ids(views.sort_items(items, "date_desc")), ["a", "b", "c"])
-        self.assertEqual(ids(views.sort_items(items, "date_asc")), ["c", "b", "a"])
-        self.assertEqual(ids(views.sort_items(items, "title")), ["a", "c", "b"])
-        self.assertEqual(ids(views.sort_items(list(reversed(items)), "new_first"))[0], "a")
+        self.assertEqual(ids(item_queries.filter_items(items, "all", "al")), ["a", "c"])
+        self.assertEqual(ids(item_queries.filter_items(items, "ready")), ["a"])
+        self.assertEqual(ids(item_queries.filter_items(items, "downloaded")), ["b"])
+        self.assertEqual(ids(item_queries.filter_items(items, "queued")), ["c"])
+        self.assertEqual(ids(item_queries.sort_items(items, "date_desc")), ["a", "b", "c"])
+        self.assertEqual(ids(item_queries.sort_items(items, "date_asc")), ["c", "b", "a"])
+        self.assertEqual(ids(item_queries.sort_items(items, "title")), ["a", "c", "b"])
+        self.assertEqual(ids(item_queries.sort_items(list(reversed(items)), "new_first"))[0], "a")
 
     def test_downloadable_ids_skip_finished_queued_and_blocked(self):
         items = [
@@ -64,18 +64,18 @@ class ItemHelperTests(unittest.TestCase):
             _item("blocked", download_state="private"),
             _item("new"),
         ]
-        self.assertEqual(views.downloadable_ids(items), ["new", "old"])
-        self.assertEqual(views.downloadable_ids(items, only_new=True), ["new"])
+        self.assertEqual(item_queries.downloadable_ids(items), ["new", "old"])
+        self.assertEqual(item_queries.downloadable_ids(items, only_new=True), ["new"])
 
     def test_item_to_video_carries_state_and_a_fallback_link(self):
-        video = views.item_to_video(_item("abc", is_new=1, author="creator"), author_name="Creator")
+        video = item_queries.item_to_video(_item("abc", is_new=1, author="creator"), author_name="Creator")
         self.assertEqual(video.raw["_state"], "new")
         self.assertEqual(video.author_name, "Creator")
         self.assertEqual(video.source_url, "https://www.iwara.tv/video/abc")
 
     def test_feed_sources_are_recognised(self):
-        self.assertTrue(views.is_feed_source({"source_type": "feed"}))
-        self.assertFalse(views.is_feed_source({"source_type": "author"}))
+        self.assertTrue(item_queries.is_feed_source({"source_type": "feed"}))
+        self.assertFalse(item_queries.is_feed_source({"source_type": "author"}))
 
 
 class SpeedTextTests(unittest.TestCase):
@@ -119,7 +119,7 @@ class RecentItemsTests(unittest.TestCase):
                 item = manager.get_subscription_recent_items(4)[source][0]
             self.assertTrue(item["downloaded"])
             self.assertFalse(item["download_file_exists"])
-            self.assertEqual(views.item_state(item), "moved")
+            self.assertEqual(item_queries.item_state(item), "moved")
 
 
 class _QtCase(unittest.TestCase):
@@ -152,7 +152,7 @@ class SubscriptionPageViewTests(_QtCase):
         )
         store.upsert_items(self.feed, [{"video_id": "f1", "title": "Feed video", "published_at": "2026-03-01"}])
         for target in (
-            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
             "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = patch(target)
@@ -183,7 +183,7 @@ class SubscriptionPageViewTests(_QtCase):
         strip = self.page._overview._rows[self.author].strip
         self.assertIsNotNone(strip)
         ids = [card.video.video_id for card in strip.cards]
-        self.assertEqual(len(ids), views.RECENT_PER_SOURCE)
+        self.assertEqual(len(ids), overview.RECENT_PER_SOURCE)
         self.assertEqual(ids[0], "a10")
         self.assertLessEqual(len(strip.shown_cards()), len(ids))
         self.assertIsNone(self.page._overview._rows[self.playlist].strip)
@@ -213,7 +213,7 @@ class SubscriptionPageViewTests(_QtCase):
     def test_grid_pages_and_downloads_through_the_page(self):
         view = self.page._source_view
         view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
-        with patch.object(views, "GRID_PAGE_SIZE", 4):
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
             view._apply(reset_page=True)
             self.assertEqual(len(view._grid.videos()), 4)
             self.assertEqual(view._page_count(), 3)
@@ -231,7 +231,7 @@ class SubscriptionPageViewTests(_QtCase):
     def test_background_reload_keeps_the_selection_and_page(self):
         view = self.page._source_view
         view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
-        with patch.object(views, "GRID_PAGE_SIZE", 4):
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
             view._apply(reset_page=True)
             view._go(1)
             card = next(c for c in view._grid._cards if c.video.video_id == "a5")
@@ -327,7 +327,7 @@ class SubscriptionPageViewTests(_QtCase):
         self._quiet_author_page()
         view = self.page._source_view
         self.page._open_source_grid(self.author)
-        with patch.object(views, "GRID_PAGE_SIZE", 4):
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
             view._apply(reset_page=True)
             view._go(1)
             next(card for card in view._grid._cards if card.video.video_id == "a5").set_selected(True)
@@ -378,15 +378,15 @@ class SubscriptionPageViewTests(_QtCase):
 
     def test_source_grid_asks_for_its_covers_urgently_and_reports_progress(self):
         view = self.page._source_view
-        with patch("app.ui.subscription.views.CoverLoader.request") as request, \
-                patch("app.ui.subscription.views.CoverLoader.pending", return_value=3):
+        with patch("app.ui.subscription.cover_loader.CoverLoader.request") as request, \
+                patch("app.ui.subscription.cover_loader.CoverLoader.pending", return_value=3):
             view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
             view._sync_status()
         self.assertTrue(request.call_args.kwargs.get("urgent"))
         self.assertIn("10", view._status.text())
 
     def test_leaving_the_overview_drops_its_background_covers(self):
-        with patch("app.ui.subscription.views.CoverLoader.drop_background") as drop:
+        with patch("app.ui.subscription.cover_loader.CoverLoader.drop_background") as drop:
             self.page._open_source_grid(self.author)
             self.app.processEvents()
         drop.assert_called()

@@ -261,6 +261,11 @@ class SubscriptionItemListMixin:
                 cell.setForeground(qcolor("warning"))
             self._item_table.setItem(row, col, cell)
 
+        self._render_item_link_cells(row, video_id, source_url, file_exists)
+        if video_id in self._pending_video_ids:
+            self._set_pending_row_background(row, True)
+
+    def _render_item_link_cells(self, row: int, video_id: str, source_url: str, file_exists: bool):
         source_url_item = QTableWidgetItem(source_url)
         source_url_item.setData(Qt.ItemDataRole.UserRole, video_id)
         source_url_item.setToolTip(source_url or tr("No video URL", "没有视频链接", "動画URLがありません"))
@@ -296,9 +301,6 @@ class SubscriptionItemListMixin:
             tr("Open downloaded file", "打开下载文件", "保存ファイルを開く"),
             file_exists,
         )
-
-        if video_id in self._pending_video_ids:
-            self._set_pending_row_background(row, True)
 
     def _on_task_status_changed(self, _task_id: str, _status_str: str):
         self._schedule_items_refresh_after_task_change()

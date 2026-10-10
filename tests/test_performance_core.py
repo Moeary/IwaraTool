@@ -1428,7 +1428,7 @@ class UiPerformanceTests(unittest.TestCase):
             _on_source_cover_cache_finished=lambda: None,
         )
         with patch("app.ui.subscription.page.download_manager") as manager, patch(
-            "app.ui.subscription.actions.SubscriptionThumbnailWorker"
+            "app.ui.subscription.refreshing.SubscriptionThumbnailWorker"
         ) as worker, patch("app.ui.subscription.page.InfoBar"):
             manager.get_subscription_items.return_value = [
                 {"video_id": f"video-{i}", "thumbnail_url": ""} for i in range(100)

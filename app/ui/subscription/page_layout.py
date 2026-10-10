@@ -18,7 +18,8 @@ from .components import (
     _apply_fluent_scrollbars,
     _style_content_splitter,
 )
-from .views import SourceItemsView, SubscriptionOverview
+from .source_items_view import SourceItemsView
+from .overview import SubscriptionOverview
 from ..theme import PAGE_MARGINS
 from ..ui_state import connect_splitter_saver, fit_table_last_column, restore_splitter_sizes
 from .item_panel_layout import SubscriptionItemPanelLayoutMixin

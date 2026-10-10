@@ -23,7 +23,7 @@ from .helpers import (
 )
 from ..media_card import read_pixmap
 from .components import SubscriptionAvatarWorker, _SOURCE_SORT_FIELDS
-from .views import is_feed_source
+from .item_queries import is_feed_source
 from ..theme import qcolor
 from .page_dependencies import download_manager
 
