@@ -22,7 +22,7 @@ from app.core.search import SearchVideo
 from app.core.subscriptions import SubscriptionStore
 from app.ui.main_window import MainWindow
 from app.ui.search.download_status import SearchDownloadStatus, download_status_text
-from app.ui.subscription_page import SubscriptionInterface
+from app.ui.subscription.page import SubscriptionInterface
 
 
 class Issue13AcceptanceTests(unittest.TestCase):

@@ -22,8 +22,8 @@ from app.ui.history_page import HistoryInterface
 from app.ui.repair_page import RepairInterface
 from app.ui.rules_page import RuleFormWidget, RulesInterface
 from app.ui.search.page import SearchInterface
-from app.ui.subscription_page import (
-    SubscriptionInterface,
+from app.ui.subscription.page import SubscriptionInterface
+from app.ui.subscription.helpers import (
     _source_search_text,
     _source_sort_key,
     _title_matcher,
@@ -1259,7 +1259,7 @@ class UiPerformanceTests(unittest.TestCase):
             ],
         )
 
-        with patch("app.ui.subscription_page.download_manager", mgr):
+        with patch("app.ui.subscription.page.download_manager", mgr):
             page = SubscriptionInterface()
             page.resize(1500, 900)
             page.show()
@@ -1281,13 +1281,13 @@ class UiPerformanceTests(unittest.TestCase):
                 Qt.BrushStyle.NoBrush,
             )
             page._add_pending_video_ids(["pending01"])
-            with patch("app.ui.subscription_page.isDarkTheme", return_value=True):
+            with patch("app.ui.subscription.page.isDarkTheme", return_value=True):
                 page.refresh_theme_styles()
             self.assertEqual(
                 page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
                 "#1f5f3d",
             )
-            with patch("app.ui.subscription_page.isDarkTheme", return_value=False):
+            with patch("app.ui.subscription.page.isDarkTheme", return_value=False):
                 page.refresh_theme_styles()
             self.assertEqual(
                 page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
@@ -1326,7 +1326,7 @@ class UiPerformanceTests(unittest.TestCase):
             for index in range(3)
         ]
 
-        with patch("app.ui.subscription_page.download_manager", mgr):
+        with patch("app.ui.subscription.page.download_manager", mgr):
             page = SubscriptionInterface()
             page.resize(800, 900)
             page.show()
@@ -1414,22 +1414,22 @@ class UiPerformanceTests(unittest.TestCase):
             _on_thumbnail_ready=lambda *args: None,
             _on_thumbnail_worker_finished=lambda: None,
         )
-        with patch("app.ui.subscription_page.SubscriptionThumbnailWorker") as worker:
+        with patch("app.ui.subscription.item_grid.SubscriptionThumbnailWorker") as worker:
             self.assertTrue(SubscriptionInterface._start_thumbnail_worker_for_visible_items(page))
             self.assertEqual(worker.call_args.args[0], [("no-url", "")])
 
     def test_source_cover_cache_uses_full_source_and_can_retry(self):
         from types import SimpleNamespace
-        from app.ui.subscription_actions import SubscriptionActionsMixin
+        from app.ui.subscription.actions import SubscriptionActionsMixin
         page = SimpleNamespace(
             _current_source_id=12, _shutting_down=False, _cover_cache_worker=None,
             _cover_download_concurrency=lambda: 2,
             _on_thumbnail_ready=lambda *args: None,
             _on_source_cover_cache_finished=lambda: None,
         )
-        with patch("app.ui.subscription_page.download_manager") as manager, patch(
-            "app.ui.subscription_actions.SubscriptionThumbnailWorker"
-        ) as worker, patch("app.ui.subscription_page.InfoBar"):
+        with patch("app.ui.subscription.page.download_manager") as manager, patch(
+            "app.ui.subscription.actions.SubscriptionThumbnailWorker"
+        ) as worker, patch("app.ui.subscription.page.InfoBar"):
             manager.get_subscription_items.return_value = [
                 {"video_id": f"video-{i}", "thumbnail_url": ""} for i in range(100)
             ]

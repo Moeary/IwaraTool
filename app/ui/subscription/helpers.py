@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 
 from PySide6.QtGui import QColor
 
-from ..core.models import TaskStatus, status_label
-from ..i18n import tr
-from .theme import palette, qcolor
+from ...core.models import TaskStatus, status_label
+from ...i18n import tr
+from ..theme import palette, qcolor
 
 
 def _split_title_keywords(value: str) -> list[str]:

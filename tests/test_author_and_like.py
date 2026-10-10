@@ -389,7 +389,7 @@ class _FakeCoverWorker(QObject):
 
 class CoverPriorityTests(_QtCase):
     def setUp(self):
-        from app.ui.subscription_views import CoverLoader
+        from app.ui.subscription.views import CoverLoader
 
         self.workers: list[_FakeCoverWorker] = []
         self.loader = CoverLoader()

@@ -19,7 +19,7 @@ from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
 from app.core.search import SearchVideo
 from app.core.subscriptions import SubscriptionStore
-from app.ui import subscription_views as views
+from app.ui.subscription import views
 
 
 def _item(video_id, **kwargs):
@@ -130,7 +130,7 @@ class _QtCase(unittest.TestCase):
 
 class SubscriptionPageViewTests(_QtCase):
     def setUp(self):
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -152,13 +152,13 @@ class SubscriptionPageViewTests(_QtCase):
         )
         store.upsert_items(self.feed, [{"video_id": "f1", "title": "Feed video", "published_at": "2026-03-01"}])
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = patch("app.ui.subscription_page.download_manager", self.manager)
+        manager_patch = patch("app.ui.subscription.page.download_manager", self.manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()
@@ -378,15 +378,15 @@ class SubscriptionPageViewTests(_QtCase):
 
     def test_source_grid_asks_for_its_covers_urgently_and_reports_progress(self):
         view = self.page._source_view
-        with patch("app.ui.subscription_views.CoverLoader.request") as request, \
-                patch("app.ui.subscription_views.CoverLoader.pending", return_value=3):
+        with patch("app.ui.subscription.views.CoverLoader.request") as request, \
+                patch("app.ui.subscription.views.CoverLoader.pending", return_value=3):
             view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
             view._sync_status()
         self.assertTrue(request.call_args.kwargs.get("urgent"))
         self.assertIn("10", view._status.text())
 
     def test_leaving_the_overview_drops_its_background_covers(self):
-        with patch("app.ui.subscription_views.CoverLoader.drop_background") as drop:
+        with patch("app.ui.subscription.views.CoverLoader.drop_background") as drop:
             self.page._open_source_grid(self.author)
             self.app.processEvents()
         drop.assert_called()

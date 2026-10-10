@@ -69,7 +69,7 @@ class SubscriptionWorkerSignalTests(unittest.TestCase):
     def test_workers_do_not_shadow_the_native_finished_signal(self):
         from PySide6.QtCore import QThread
 
-        from app.ui import subscription_components as sc
+        from app.ui.subscription import components as sc
 
         for cls in (
             sc.SubscriptionRefreshWorker,
@@ -84,7 +84,7 @@ class SubscriptionWorkerSignalTests(unittest.TestCase):
 
         from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
 
-        from app.ui import subscription_actions, subscription_components as sc
+        from app.ui.subscription import actions as subscription_actions, components as sc
 
         manager = mock.Mock()
         manager.refresh_all_subscriptions.return_value = {"errors": []}

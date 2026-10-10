@@ -51,7 +51,7 @@ from .repair_page import RepairInterface
 from .search.page import SearchInterface
 from .settings_page import SettingsInterface
 from .shortcut_bindings import install_shortcuts
-from .subscription_page import SubscriptionInterface
+from .subscription.page import SubscriptionInterface
 from .theme import apply_theme_mode, install_accent, refresh_splitters
 from .ui_state import show_fluent_confirmation
 from .video_preview_window import VideoPreviewWindow, keep_normal_geometry

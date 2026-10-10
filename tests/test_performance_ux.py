@@ -287,7 +287,7 @@ class SubscriptionOverviewTests(_QtCase):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
         from app.core.subscriptions import SubscriptionStore
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -307,13 +307,13 @@ class SubscriptionOverviewTests(_QtCase):
             ])
             self.ids.append(source_id)
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = mock.patch("app.ui.subscription_page.download_manager", self.manager)
+        manager_patch = mock.patch("app.ui.subscription.page.download_manager", self.manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()
@@ -473,7 +473,7 @@ class SubscriptionOverviewTests(_QtCase):
             built.append(source["id"])
             return original(overview, source, *args, **kwargs)
 
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         with mock.patch.object(type(self.page._overview), "_make_row", counting):
             page = SubscriptionInterface()
@@ -937,7 +937,7 @@ class SubscriptionKeyboardActionTests(_QtCase):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
         from app.core.subscriptions import SubscriptionStore
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -954,13 +954,13 @@ class SubscriptionKeyboardActionTests(_QtCase):
             for i in range(6)
         ])
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.views.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = mock.patch("app.ui.subscription_page.download_manager", manager)
+        manager_patch = mock.patch("app.ui.subscription.page.download_manager", manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()

@@ -1,7 +1,6 @@
 """Workers and reusable visual components for subscriptions."""
 from __future__ import annotations
 
-import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -12,19 +11,9 @@ from PySide6.QtWidgets import QSplitter, QWidget
 
 from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton
 
-from ..core.manager import download_manager as _default_download_manager
-from .worker_lifecycle import ManagedThread
-from .theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
-
-
-class _SubscriptionManagerProxy:
-    def __getattr__(self, name: str):
-        page_module = sys.modules.get("app.ui.subscription_page")
-        manager = getattr(page_module, "download_manager", _default_download_manager)
-        return getattr(manager, name)
-
-
-download_manager = _SubscriptionManagerProxy()
+from ..worker_lifecycle import ManagedThread
+from ..theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
+from .page_dependencies import download_manager
 
 
 class SubscriptionRefreshWorker(ManagedThread):

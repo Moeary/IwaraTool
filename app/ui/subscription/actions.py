@@ -1,7 +1,6 @@
 """Commands and context-menu actions for the subscription page."""
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 from PySide6.QtCore import Qt
@@ -11,60 +10,35 @@ from PySide6.QtWidgets import QApplication, QDialog, QListWidgetItem, QTableWidg
 from qfluentwidgets import (
     Action,
     FluentIcon,
-    InfoBar as _DefaultInfoBar,
     InfoBarPosition,
     PrimaryPushButton,
     ProgressBar,
     RoundMenu,
     TableWidget,
-    isDarkTheme as _default_is_dark_theme,
 )
 
-from ..config import app_config
-from ..core.manager import download_manager as _default_download_manager
-from ..i18n import tr
-from ..signal_bus import signal_bus as _default_signal_bus
-from .author_view import clean_username
-from .download_page import FilterDialog, option_button_style
-from .navigation import navigate_back, record_navigation, restore_scroll
-from .subscription_components import (
+from ...config import app_config
+from ...i18n import tr
+from ..author_view import clean_username
+from ..download_page import FilterDialog, option_button_style
+from ..navigation import navigate_back, record_navigation, restore_scroll
+from .components import (
     SubscriptionEnqueueWorker,
     SubscriptionImportAuthorsWorker,
     SubscriptionRefreshWorker,
     SubscriptionThumbnailWorker,
     _CONTROL_HEIGHT,
 )
-from .subscription_helpers import _detect_source_input, _open_url, _source_url, _video_url
-from .theme import link_color
-from .ui_state import show_fluent_confirmation, show_fluent_text_input
-
-
-class _PageDependencyProxy:
-    def __init__(self, name: str, fallback: object):
-        self.name = name
-        self.fallback = fallback
-
-    def __getattr__(self, attribute: str):
-        page_module = sys.modules.get("app.ui.subscription_page")
-        target = getattr(page_module, self.name, self.fallback)
-        return getattr(target, attribute)
-
-
-download_manager = _PageDependencyProxy("download_manager", _default_download_manager)
-signal_bus = _PageDependencyProxy("signal_bus", _default_signal_bus)
-InfoBar = _PageDependencyProxy("InfoBar", _DefaultInfoBar)
-
-
-def _is_dark_theme() -> bool:
-    page_module = sys.modules.get("app.ui.subscription_page")
-    resolver = getattr(page_module, "isDarkTheme", _default_is_dark_theme)
-    return bool(resolver())
+from .helpers import _detect_source_input, _open_url, _source_url, _video_url
+from .page_dependencies import InfoBar, download_manager, isDarkTheme, signal_bus
+from ..theme import link_color
+from ..ui_state import show_fluent_confirmation, show_fluent_text_input
 
 
 class SubscriptionActionsMixin:
     @staticmethod
     def _pending_item_brush() -> QBrush:
-        return QBrush(QColor("#1f5f3d" if _is_dark_theme() else "#c6efce"))
+        return QBrush(QColor("#1f5f3d" if isDarkTheme() else "#c6efce"))
 
     @staticmethod
     def _default_item_brush() -> QBrush:
