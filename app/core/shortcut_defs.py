@@ -54,6 +54,11 @@ def scope_titles() -> dict[str, str]:
 
 def all_actions() -> tuple[ShortcutAction, ...]:
     """The catalogue, built on demand so labels follow the UI language."""
+    return _global_actions() + _home_actions() + _page_actions() + _player_actions()
+
+
+def _global_actions() -> tuple[ShortcutAction, ...]:
+    """Shortcuts that work on every page."""
     A = ShortcutAction
     return (
         A("nav_home", SCOPE_GLOBAL, "Ctrl+1", tr("Go to Home", "前往首页", "ホームへ移動")),
@@ -82,7 +87,13 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("toggle_fullscreen", SCOPE_GLOBAL, "F11", tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
         A("shortcut_help", SCOPE_GLOBAL, "F1", tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),
         A("quit_app", SCOPE_GLOBAL, "Ctrl+Q", tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了")),
+    )
 
+
+def _home_actions() -> tuple[ShortcutAction, ...]:
+    """Home page and the post detail opened from it."""
+    A = ShortcutAction
+    return (
         A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
         A("home_back", SCOPE_HOME, "Alt+Left", tr("Back (to the feed when there is no history)", "返回（无历史时回到首页）", "戻る（履歴がなければホームへ）")),
         A("home_customize", SCOPE_HOME, "Ctrl+E", tr("Customize the Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ")),
@@ -96,7 +107,13 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("detail_open_browser", SCOPE_HOME, "Ctrl+O", tr("Open the post in the browser", "在浏览器打开作品", "投稿をブラウザーで開く")),
         A("detail_copy_link", SCOPE_HOME, "Ctrl+Shift+C", tr("Copy the post's link", "复制作品链接", "投稿のリンクをコピー")),
         A("detail_author_page", SCOPE_HOME, "Ctrl+Shift+A", tr("Open the post's author page", "打开作品的作者页", "投稿の作者ページを開く")),
+    )
 
+
+def _page_actions() -> tuple[ShortcutAction, ...]:
+    """Download, Search, Subscriptions, History, Repair, Rules and Settings."""
+    A = ShortcutAction
+    return (
         A("download_submit", SCOPE_DOWNLOAD, "Ctrl+Return", tr("Submit the links", "提交链接下载", "リンクを送信")),
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),
         A("tasks_focus_search", SCOPE_DOWNLOAD, "Ctrl+F", tr("Search tasks", "搜索任务", "タスクを検索")),
@@ -141,7 +158,13 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("rules_delete", SCOPE_RULES, "Ctrl+Delete", tr("Delete the rule", "删除规则", "ルールを削除")),
 
         A("settings_save", SCOPE_SETTINGS, "Ctrl+S", tr("Save all settings", "保存所有设置", "すべて保存")),
+    )
 
+
+def _player_actions() -> tuple[ShortcutAction, ...]:
+    """The video player."""
+    A = ShortcutAction
+    return (
         A("player_play_pause", SCOPE_PLAYER, "Space", tr("Play / pause", "播放 / 暂停", "再生 / 一時停止")),
         A("player_seek_back", SCOPE_PLAYER, "Left", tr("Seek back 5 s", "后退 5 秒", "5秒戻る")),
         A("player_seek_forward", SCOPE_PLAYER, "Right", tr("Seek forward 5 s (hold for 2x speed)", "前进 5 秒（按住倍速播放）", "5秒進む（長押しで倍速）")),

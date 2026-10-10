@@ -85,7 +85,6 @@ class SearchImageCache:
         string.  Search cards can keep their placeholder without failing the
         entire result page.
         """
-
         image_url = str(image_url or "").strip()
         if not image_url or not image_url.startswith(("http://", "https://")):
             return ""
@@ -110,32 +109,7 @@ class SearchImageCache:
                 stream=True,
                 timeout=30,
             )
-            if int(getattr(response, "status_code", 0) or 0) != 200:
-                return ""
-            content_type = str(
-                getattr(response, "headers", {}).get("content-type", "") or ""
-            ).lower()
-            if content_type and not (
-                content_type.startswith("image/")
-                or content_type in {"application/octet-stream", "binary/octet-stream"}
-            ):
-                return ""
-            signature = bytearray()
-            with open(temp_path, "wb") as stream:
-                for chunk in response.iter_content(chunk_size=65536):
-                    if chunk:
-                        if len(signature) < 16:
-                            signature.extend(chunk[: 16 - len(signature)])
-                        stream.write(chunk)
-            if not content_type.startswith("image/") and not self._looks_like_image(bytes(signature)):
-                return ""
-            if os.path.isfile(temp_path) and os.path.getsize(temp_path) > 0:
-                # Atomic replacement keeps readers safe.  A duplicate request
-                # may race here, but both files contain the same cache key and
-                # the final result remains a complete image.
-                os.replace(temp_path, path)
-                return path
-            return ""
+            return self._store_response(response, temp_path, path)
         except Exception:
             logger.debug("Image fetch failed: %s", image_url, exc_info=True)
             return ""
@@ -151,6 +125,36 @@ class SearchImageCache:
                     os.remove(temp_path)
             except OSError:
                 pass
+
+    def _store_response(self, response, temp_path: str, path: str) -> str:
+        """Write an image response to ``path`` via ``temp_path``; "" unless it is a valid image."""
+
+        if int(getattr(response, "status_code", 0) or 0) != 200:
+            return ""
+        content_type = str(
+            getattr(response, "headers", {}).get("content-type", "") or ""
+        ).lower()
+        if content_type and not (
+            content_type.startswith("image/")
+            or content_type in {"application/octet-stream", "binary/octet-stream"}
+        ):
+            return ""
+        signature = bytearray()
+        with open(temp_path, "wb") as stream:
+            for chunk in response.iter_content(chunk_size=65536):
+                if chunk:
+                    if len(signature) < 16:
+                        signature.extend(chunk[: 16 - len(signature)])
+                    stream.write(chunk)
+        if not content_type.startswith("image/") and not self._looks_like_image(bytes(signature)):
+            return ""
+        if os.path.isfile(temp_path) and os.path.getsize(temp_path) > 0:
+            # Atomic replacement keeps readers safe.  A duplicate request
+            # may race here, but both files contain the same cache key and
+            # the final result remains a complete image.
+            os.replace(temp_path, path)
+            return path
+        return ""
 
 
 class SubscriptionImageCache(SearchImageCache):

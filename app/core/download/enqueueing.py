@@ -58,13 +58,50 @@ class EnqueueingMixin:
         )
         normalized, skipped_empty, skipped_input_duplicate = self._normalize_enqueue_items(items)
         existing_paths = self._existing_paths_for(normalized)
+        skipped_existing = len(existing_paths)
+        limit = app_config.max_concurrent
+        added_infos, skipped_duplicate, queued_count, active_count = self._add_queued_tasks(
+            normalized, existing_paths, priority=priority, rule_id=rule_id, rule_payload_json=rule_payload_json,
+        )
+
+        if added_infos:
+            signal_bus.tasks_added.emit(added_infos)
+            if len(added_infos) == 1:
+                info = dict(added_infos[0])
+                task_id = str(info.pop("task_id"))
+                signal_bus.task_added.emit(task_id, info)
+
+        label = f" from {source_label}" if source_label else ""
+        signal_bus.log_message.emit(
+            tr(
+                f"[Queue] added {len(added_infos)}{label}; duplicate {skipped_duplicate + skipped_input_duplicate}; existing {skipped_existing}; queued {queued_count}; active {active_count}/{limit}",
+                f"[入队] 新增 {len(added_infos)} 个{('，来源: ' + source_label) if source_label else ''}；重复 {skipped_duplicate + skipped_input_duplicate}；本地已存在 {skipped_existing}；排队 {queued_count}；活动 {active_count}/{limit}",
+                f"[キュー] 追加 {len(added_infos)} 件{label}; 重複 {skipped_duplicate + skipped_input_duplicate}; 既存 {skipped_existing}; 待機 {queued_count}; 稼働 {active_count}/{limit}",
+            )
+        )
+        if added_infos:
+            self._schedule_task_persist()
+        self._try_activate()
+        return {
+            "queued": len(added_infos),
+            "duplicates": skipped_duplicate + skipped_input_duplicate,
+            "existing": skipped_existing,
+            "empty": skipped_empty,
+        }
+
+    def _add_queued_tasks(
+        self,
+        normalized: list[tuple[str, str]],
+        existing_paths: dict[str, str],
+        *,
+        priority: int,
+        rule_id: str,
+        rule_payload_json: str,
+    ) -> tuple[list[dict[str, Any]], int, int, int]:
+        """Create tasks under the lock; returns ``(added infos, duplicates, queued, active)``."""
 
         added_infos: list[dict[str, Any]] = []
-        skipped_existing = len(existing_paths)
         skipped_duplicate = 0
-        queued_count = 0
-        active_count = 0
-        limit = app_config.max_concurrent
         with self._lock:
             for video_id, original_url in normalized:
                 key = video_id.lower()
@@ -97,31 +134,7 @@ class EnqueueingMixin:
                 )
             queued_count = len(self._queued_meta_ids)
             active_count = len(self._active_task_ids)
-
-        if added_infos:
-            signal_bus.tasks_added.emit(added_infos)
-            if len(added_infos) == 1:
-                info = dict(added_infos[0])
-                task_id = str(info.pop("task_id"))
-                signal_bus.task_added.emit(task_id, info)
-
-        label = f" from {source_label}" if source_label else ""
-        signal_bus.log_message.emit(
-            tr(
-                f"[Queue] added {len(added_infos)}{label}; duplicate {skipped_duplicate + skipped_input_duplicate}; existing {skipped_existing}; queued {queued_count}; active {active_count}/{limit}",
-                f"[入队] 新增 {len(added_infos)} 个{('，来源: ' + source_label) if source_label else ''}；重复 {skipped_duplicate + skipped_input_duplicate}；本地已存在 {skipped_existing}；排队 {queued_count}；活动 {active_count}/{limit}",
-                f"[キュー] 追加 {len(added_infos)} 件{label}; 重複 {skipped_duplicate + skipped_input_duplicate}; 既存 {skipped_existing}; 待機 {queued_count}; 稼働 {active_count}/{limit}",
-            )
-        )
-        if added_infos:
-            self._schedule_task_persist()
-        self._try_activate()
-        return {
-            "queued": len(added_infos),
-            "duplicates": skipped_duplicate + skipped_input_duplicate,
-            "existing": skipped_existing,
-            "empty": skipped_empty,
-        }
+        return added_infos, skipped_duplicate, queued_count, active_count
 
     @staticmethod
     def _normalize_enqueue_items(items: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], int, int]:

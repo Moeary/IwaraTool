@@ -45,68 +45,89 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
     video_id = str(getattr(task, "video_id", "") or "")
     title = (str(getattr(task, "title", "") or "") or video_id).strip()
     root = ET.Element("movie")
+    _add_identity_fields(root, task, title, video_id)
+    _add_release_fields(root, task, date_only, author_message, tags)
+    _add_runtime_and_stats(root, task)
 
-    def add(tag: str, value: Any, attrs: dict[str, str] | None = None):
-        text = str(value or "").strip()
-        if not text:
-            return None
-        node = ET.SubElement(root, tag, attrs or {})
-        node.text = text
-        return node
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    xml_body = ET.tostring(root, encoding="unicode", short_empty_elements=False)
+    return "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + xml_body + "\n"
 
-    add("title", title)
-    add("originaltitle", title)
-    add("sorttitle", title)
+
+def _add(root: ET.Element, tag: str, value: Any, attrs: dict[str, str] | None = None):
+    """Append ``<tag>value</tag>`` unless the value is empty."""
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    node = ET.SubElement(root, tag, attrs or {})
+    node.text = text
+    return node
+
+
+def _add_identity_fields(root: ET.Element, task: Any, title: str, video_id: str) -> None:
+    _add(root, "title", title)
+    _add(root, "originaltitle", title)
+    _add(root, "sorttitle", title)
     # Keep the long-standing field names alongside the newer Iwara-specific
     # aliases.  Emby is forgiving about unknown tags, but it does not map
     # every custom name (for example ``iwara_views``) back to its standard
     # movie metadata field.
-    add("video_id", video_id)
-    add("id", video_id)
-    add("uniqueid", video_id, {"type": "iwara", "default": "true"})
-    add("iwaraid", video_id)
-    add("source", "iwara")
-    add("source_url", getattr(task, "url", ""))
-    add("slug", getattr(task, "slug", ""))
-    add("quality", getattr(task, "quality", ""))
+    _add(root, "video_id", video_id)
+    _add(root, "id", video_id)
+    _add(root, "uniqueid", video_id, {"type": "iwara", "default": "true"})
+    _add(root, "iwaraid", video_id)
+    _add(root, "source", "iwara")
+    _add(root, "source_url", getattr(task, "url", ""))
+    _add(root, "slug", getattr(task, "slug", ""))
+    _add(root, "quality", getattr(task, "quality", ""))
+
+
+def _add_release_fields(root: ET.Element, task: Any, date_only: str, author_message: str, tags: list[str]) -> None:
+    """Author, dates, runtime, rating, plot, poster and tags."""
 
     author = str(getattr(task, "author", "") or "")
     if author:
-        add("author", author)
-        add("director", author)
-        add("studio", author)
+        _add(root, "author", author)
+        _add(root, "director", author)
+        _add(root, "studio", author)
 
     if date_only:
-        add("premiered", date_only)
-        add("releasedate", date_only)
-        add("year", date_only[:4])
-    add("published_at", getattr(task, "published_at", ""))
+        _add(root, "premiered", date_only)
+        _add(root, "releasedate", date_only)
+        _add(root, "year", date_only[:4])
+    _add(root, "published_at", getattr(task, "published_at", ""))
 
     runtime = duration_minutes(int(getattr(task, "duration", 0) or 0))
     if runtime:
-        add("runtime", runtime)
+        _add(root, "runtime", runtime)
 
     rating = getattr(task, "rating", "")
-    add("rating", rating)
-    add("mpaa", rating)
+    _add(root, "rating", rating)
+    _add(root, "mpaa", rating)
     if author_message:
-        add("plot", author_message)
-        add("outline", author_message.splitlines()[0][:240])
+        _add(root, "plot", author_message)
+        _add(root, "outline", author_message.splitlines()[0][:240])
 
     thumb_path = _thumbnail_ref(task)
     if thumb_path:
-        add("thumb", thumb_path, {"aspect": "poster"})
+        _add(root, "thumb", thumb_path, {"aspect": "poster"})
 
     for tag in tags:
-        add("genre", tag)
+        _add(root, "genre", tag)
     for tag in tags:
-        add("tag", tag)
+        _add(root, "tag", tag)
+
+
+def _add_runtime_and_stats(root: ET.Element, task: Any) -> None:
+    """Stream duration, view / like / comment counts and the raw tag payload."""
 
     duration_seconds = int(getattr(task, "duration", 0) or 0)
     if duration_seconds > 0:
         # ``duration`` is used by the older NFO files that are already known
         # to import correctly in Emby.  Keep the precise stream detail too.
-        add("duration", duration_seconds)
+        _add(root, "duration", duration_seconds)
         fileinfo = ET.SubElement(root, "fileinfo")
         streamdetails = ET.SubElement(fileinfo, "streamdetails")
         video = ET.SubElement(streamdetails, "video")
@@ -116,24 +137,19 @@ def build_nfo_text(task: Any, tags: list[str]) -> str:
     likes = getattr(task, "likes", 0)
     views = getattr(task, "views", 0)
     comments = getattr(task, "comments", 0)
-    add("likes", likes)
-    add("views", views)
-    add("comments", comments)
-    add("iwara_likes", likes)
-    add("iwara_views", views)
-    add("iwara_comments", comments)
+    _add(root, "likes", likes)
+    _add(root, "views", views)
+    _add(root, "comments", comments)
+    _add(root, "iwara_likes", likes)
+    _add(root, "iwara_views", views)
+    _add(root, "iwara_comments", comments)
 
     # Preserve the source tag payload when it is available.  This is an
     # optional compatibility field; the repeated ``genre``/``tag`` nodes
     # above remain the primary Emby-friendly representation.
     raw_tags_json = str(getattr(task, "tags_json", "") or "").strip()
     if raw_tags_json:
-        add("tags_json", raw_tags_json)
-
-    tree = ET.ElementTree(root)
-    ET.indent(tree, space="  ")
-    xml_body = ET.tostring(root, encoding="unicode", short_empty_elements=False)
-    return "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + xml_body + "\n"
+        _add(root, "tags_json", raw_tags_json)
 
 
 def duration_minutes(duration_seconds: int) -> int:
