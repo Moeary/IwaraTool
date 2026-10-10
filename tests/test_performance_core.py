@@ -14,7 +14,12 @@ from qfluentwidgets import Action, FluentIcon, ListWidget, PlainTextEdit
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_image_url, _subscription_item_from_video, download_manager
+from app.core.manager import DownloadManager, download_manager
+from app.core.task_metadata import (
+    _compact_video_raw_json,
+    _iwara_image_url,
+    _subscription_item_from_video,
+)
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.downloads.page import DownloadInterface
@@ -97,7 +102,7 @@ class ManagerPerformanceTests(unittest.TestCase):
         mgr = make_manager()
         with patch("app.core.manager.active_rule_id", return_value="search-rule"):
             with patch(
-                "app.core.manager.rule_store.find",
+                "app.core.rules.rule_store.find",
                 return_value={"payload": {"record_to_history": False}},
             ):
                 summary = mgr._enqueue_video_ids_bulk(

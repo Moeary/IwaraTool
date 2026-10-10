@@ -141,7 +141,7 @@ class CachedTokenExpiryTests(unittest.TestCase):
         self.manager = SimpleNamespace(api=IwaraAPI(), _auth_lock=threading.Lock())
 
     def _restore(self) -> bool:
-        with patch("app.core.manager.signal_bus"):
+        with patch("app.core.download.session.signal_bus"):
             return DownloadManager.restore_cached_login(self.manager)
 
     def test_token_expiry_helpers(self):

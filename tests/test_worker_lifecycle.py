@@ -138,7 +138,7 @@ class AuthSnapshotTests(unittest.TestCase):
             self.assertEqual(manager._current_token(), "tok")
             self.assertTrue(manager.is_logged_in())
             client = manager.create_worker_api_client()
-            with mock.patch("app.core.manager.app_config"):
+            with mock.patch("app.core.download.session.app_config"):
                 manager.set_login(False)
             self.assertLess(time.monotonic() - started, 0.2)
             self.assertEqual(client.token, "tok")
