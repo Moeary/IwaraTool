@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from unittest import TestCase
 
-from app.core.repair import (
+from app.core.repair.matching import (
     extract_iwara_video_id,
     filename_search_text,
     format_repair_filename,

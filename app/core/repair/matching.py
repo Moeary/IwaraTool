@@ -163,19 +163,8 @@ def candidate_match_score(path: str, candidate: dict[str, Any], *, author_hint: 
     return score
 
 
-def format_repair_filename(
-    template: str,
-    metadata: dict[str, Any],
-    original_path: str,
-) -> str:
-    """Expand a naming template into a safe relative repair path.
-
-    Directory segments are intentionally preserved. The caller decides which
-    output root to use, so ``{author}/...`` can organize repaired files below
-    the selected folder without allowing an absolute path or ``..`` segment to
-    escape it. The source extension is retained for webm/mkv and other local
-    video formats.
-    """
+def _repair_template_values(metadata: dict[str, Any], original_path: str) -> dict[str, str]:
+    """Placeholder -> value for a repair naming template."""
 
     published_at = str(metadata.get("published_at", "") or "").strip()
     date_text = published_at[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", published_at) else ""
@@ -221,6 +210,24 @@ def format_repair_filename(
         "{slug}": str(metadata.get("slug", "") or ""),
         "{rating}": str(metadata.get("rating", "") or ""),
     }
+    return values
+
+
+def format_repair_filename(
+    template: str,
+    metadata: dict[str, Any],
+    original_path: str,
+) -> str:
+    """Expand a naming template into a safe relative repair path.
+
+    Directory segments are intentionally preserved. The caller decides which
+    output root to use, so ``{author}/...`` can organize repaired files below
+    the selected folder without allowing an absolute path or ``..`` segment to
+    escape it. The source extension is retained for webm/mkv and other local
+    video formats.
+    """
+
+    values = _repair_template_values(metadata, original_path)
     raw_template = str(template or "").strip().replace("\\", "/")
     raw_template = raw_template or "{YYYY-MM-DD}_{title}_{id}"
     raw_segments = [

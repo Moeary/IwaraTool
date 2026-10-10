@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.models import DownloadTask
-from app.core.repair_manager import RepairManagerMixin
+from app.core.repair.manager import RepairManagerMixin
 from app.ui.repair.page import RepairInterface
 
 
@@ -112,7 +112,7 @@ class RepairTestFixture(TestCase):
         self.settings_patch.start()
         self.addCleanup(self.settings_patch.stop)
         self.api_patch = patch(
-            "app.core.repair_manager.IwaraAPI",
+            "app.core.repair.scanning.IwaraAPI",
             side_effect=lambda: FakeAPI(self.manager.videos),
         )
         self.api_patch.start()
@@ -314,7 +314,7 @@ class RepairWorkflowTests(RepairTestFixture):
         source = self.make_video("Alice", "VideoID01")
         target = source.with_name("cross-drive.mp4")
         native_method = "os.rename" if os.name == "nt" else "os.link"
-        with patch(f"app.core.repair_manager.{native_method}", side_effect=OSError(errno.EXDEV, "cross-device")):
+        with patch(f"app.core.repair.file_moves.{native_method}", side_effect=OSError(errno.EXDEV, "cross-device")):
             self.manager._move_repair_file(str(source), str(target))
             self.assertFalse(source.exists())
             self.assertEqual(target.read_bytes(), b"media:VideoID01")

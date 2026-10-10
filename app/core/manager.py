@@ -27,7 +27,7 @@ from .download.paths import DownloadPathMixin
 from .download.aria2 import Aria2DownloadMixin
 from .download.artifacts import DownloadArtifactsMixin
 from .download.runtime import DownloadRuntimeMixin
-from .repair_manager import RepairManagerMixin
+from .repair.manager import RepairManagerMixin
 from .rules import active_rule_id  # noqa: F401 - patch point, see download.task_rules.active_rule_id
 from .search_manager import SearchManagerMixin
 from .subscription.manager import SubscriptionManagerMixin
