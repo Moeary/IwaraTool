@@ -15,7 +15,7 @@ from ...signal_bus import signal_bus
 from ...core import shortcut_defs
 from ..home.workers import ApiCallWorker
 from ..formatting import _format_count
-from ..video_preview_window import VideoPlayer
+from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
 
 

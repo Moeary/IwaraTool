@@ -14,7 +14,8 @@ from PySide6.QtWidgets import QWidget
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...core.search import SearchVideo
 from ..home.workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
-from ..video_preview_window import VideoPlayer, create_backend
+from ..player.video_player import VideoPlayer
+from ..player.backend import create_backend
 from .comment_widget import CommentWidget
 from .gallery_image import GalleryImage
 from .detail_actions import DetailActionsMixin

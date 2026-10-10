@@ -27,7 +27,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..home.layout_dialog import HomeLayoutDialog
 from ..theme import set_secondary_text
-from ..ui_state import show_fluent_confirmation
+from ..fluent_dialogs import show_fluent_confirmation
 
 
 class HomeSettingsCards:

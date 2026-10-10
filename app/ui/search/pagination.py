@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...i18n import tr
-from ..ui_state import show_fluent_text_input
+from ..fluent_dialogs import show_fluent_text_input
 
 
 class SearchPaginationMixin:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 
-from ...core.download_runtime import format_speed, parse_speed
+from ...core.download.speed_format import format_speed, parse_speed
 from ...core.models import DownloadTask, TaskStatus
 from ...i18n import tr
 

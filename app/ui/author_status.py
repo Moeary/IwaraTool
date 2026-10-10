@@ -17,7 +17,8 @@ from ..i18n import tr
 from ..signal_bus import signal_bus
 from .chrome import StatusChip
 from .home.workers import ApiCallWorker, stop_workers
-from .ui_state import ResponsiveFlowLayout, show_fluent_confirmation
+from .flow_layout import ResponsiveFlowLayout
+from .fluent_dialogs import show_fluent_confirmation
 
 
 def clean_username(value: str) -> str:

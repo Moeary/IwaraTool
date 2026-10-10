@@ -33,8 +33,8 @@ from ...core.models import TaskStatus
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..flow_layout import ResponsiveFlowLayout
 from ..ui_state import (
-    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     fit_table_last_column,

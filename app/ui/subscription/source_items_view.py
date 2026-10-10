@@ -34,7 +34,7 @@ from ..navigation import has_focus_within, restore_scroll
 from ..rules.rule_picker import RulePicker
 from .helpers import _source_type_label
 from ..theme import PAGE_SPACING, set_secondary_text
-from ..ui_state import ResponsiveFlowLayout
+from ..flow_layout import ResponsiveFlowLayout
 from .cover_loader import CoverLoader, load_pixmap
 from .item_queries import downloadable_ids, filter_items, item_state, item_to_video, sort_items
 

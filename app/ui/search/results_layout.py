@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QHeaderView
 from ...config import app_config
 from ...i18n import tr
 from .grid_style import _grid_item_height
-from ..ui_state import open_table_column_dialog
+from ..table_column_dialog import open_table_column_dialog
 from ..media.card_size import CARD_WIDTH_MAX, CARD_WIDTH_MIN
 
 

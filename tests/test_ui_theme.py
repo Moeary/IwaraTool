@@ -24,7 +24,7 @@ from app.ui.theme import (
     summary_text,
     task_status_color,
 )
-from app.ui.ui_state import ResponsiveFlowLayout
+from app.ui.flow_layout import ResponsiveFlowLayout
 
 
 class ThemeTokenTests(unittest.TestCase):

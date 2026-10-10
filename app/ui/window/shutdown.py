@@ -13,7 +13,7 @@ from ...core import preview_stream, self_update
 from ...core import memory
 from ...core.manager import download_manager
 from ...logging_setup import get_logger
-from ..ui_state import show_fluent_confirmation
+from ..fluent_dialogs import show_fluent_confirmation
 from ..worker_lifecycle import ShutdownPoller
 
 logger = get_logger(__name__)

@@ -17,6 +17,16 @@ def _focus(edit) -> None:
 
 def install_shortcuts(window) -> None:
     """Bind every page-level action; called once the pages exist."""
+    _bind_window(window)
+    _bind_home(window._home_page)
+    _bind_download(window._download_page)
+    _bind_search(window._search_page)
+    _bind_subscriptions(window._subscription_page)
+    _bind_history(window._history_page)
+    _bind_tool_pages(window)
+
+
+def _bind_window(window) -> None:
     pages = [
         ("nav_home", window._home_page),
         ("nav_download", window._download_page),
@@ -53,7 +63,8 @@ def install_shortcuts(window) -> None:
     })
     registry.bind(window, handlers)
 
-    home = window._home_page
+
+def _bind_home(home) -> None:
     registry.bind(
         home,
         {
@@ -73,7 +84,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    download = window._download_page
+
+def _bind_download(download) -> None:
     tasks = download._task_center
     registry.bind(
         download,
@@ -86,7 +98,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    search = window._search_page
+
+def _bind_search(search) -> None:
     registry.bind(
         search,
         {
@@ -103,7 +116,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    subscriptions = window._subscription_page
+
+def _bind_subscriptions(subscriptions) -> None:
     registry.bind(
         subscriptions,
         {
@@ -120,7 +134,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    history = window._history_page
+
+def _bind_history(history) -> None:
     registry.bind(
         history,
         {
@@ -133,6 +148,10 @@ def install_shortcuts(window) -> None:
             "history_reload": history._load_history,
         },
     )
+
+
+def _bind_tool_pages(window) -> None:
+    """Repair, Rules and Settings have one or a few actions each."""
 
     repair = window._repair_page
     registry.bind(repair, {"repair_scan": repair._scan_folder, "repair_apply": repair._start_repair})

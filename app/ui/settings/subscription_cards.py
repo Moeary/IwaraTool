@@ -18,7 +18,7 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...core.download_policy import normalize_hhmm
+from ...core.download.policy import normalize_hhmm
 from ...core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
 from ...i18n import tr
 from ...signal_bus import signal_bus

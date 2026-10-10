@@ -48,7 +48,7 @@ from ..theme import (
     palette,
     set_secondary_text,
 )
-from ..ui_state import show_fluent_confirmation
+from ..fluent_dialogs import show_fluent_confirmation
 from .rule_form import RuleFormWidget
 from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary
 

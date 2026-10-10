@@ -10,7 +10,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...i18n import tr
 from ...core import video_player
-from ..video_preview_window import VideoPreviewWindow
+from ..player.preview_window import VideoPreviewWindow
 
 
 class WindowPreviewMixin:

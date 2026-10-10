@@ -10,12 +10,12 @@ import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import urlparse
 
-from ..config import app_config
-from ..i18n import tr
-from ..logging_setup import get_logger
-from ..signal_bus import signal_bus
-from .models import DownloadTask
-from .nfo import build_nfo_text, parse_tags as parse_nfo_tags
+from ...config import app_config
+from ...i18n import tr
+from ...logging_setup import get_logger
+from ...signal_bus import signal_bus
+from ..models import DownloadTask
+from ..nfo import build_nfo_text, parse_tags as parse_nfo_tags
 
 logger = get_logger(__name__)
 

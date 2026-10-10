@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import time
 
-from app.core.download_policy import SharedRateLimiter, is_time_in_window, normalize_hhmm
+from app.core.download.policy import SharedRateLimiter, is_time_in_window, normalize_hhmm
 
 
 class DownloadPolicyTests(unittest.TestCase):

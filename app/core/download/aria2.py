@@ -5,10 +5,10 @@ import os
 import time
 import uuid
 
-from ..config import app_config
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .download_runtime import _fmt_bytes, _fmt_speed
+from ...config import app_config
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from .speed_format import _fmt_bytes, _fmt_speed
 
 
 class Aria2DownloadMixin:

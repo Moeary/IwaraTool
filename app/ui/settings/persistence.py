@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...config import app_config
-from ...core.download_policy import normalize_hhmm
+from ...core.download.policy import normalize_hhmm
 from ...i18n import tr
 from .page_dependencies import download_manager
 

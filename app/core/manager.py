@@ -31,15 +31,15 @@ from ..config import app_config
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .api import IwaraAPI, token_is_expired
-from .download_paths import DownloadPathMixin
-from .download_aria2 import Aria2DownloadMixin
-from .download_artifacts import DownloadArtifactsMixin
-from .download_runtime import DownloadRuntimeMixin
+from .download.paths import DownloadPathMixin
+from .download.aria2 import Aria2DownloadMixin
+from .download.artifacts import DownloadArtifactsMixin
+from .download.runtime import DownloadRuntimeMixin
 from .repair_manager import RepairManagerMixin
 from .rules import active_rule_id, current_rule_payload, normalize_rule_payload, rule_store
 from .search_manager import SearchManagerMixin
 from .subscription_manager import SubscriptionManagerMixin
-from .download_policy import SharedRateLimiter
+from .download.policy import SharedRateLimiter
 from .history import DownloadHistory
 from .image_cache import SearchImageCache, SubscriptionImageCache
 from .manager_state import (

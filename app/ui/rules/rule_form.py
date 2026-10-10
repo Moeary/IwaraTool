@@ -21,7 +21,7 @@ from qfluentwidgets import (
 )
 
 from ...core.rules import default_rule_payload, normalize_rule_payload
-from ...core.download_paths import validate_filename_template
+from ...core.download.paths import validate_filename_template
 from ...core.manager import download_manager
 from ...i18n import tr
 from ..theme import set_secondary_text

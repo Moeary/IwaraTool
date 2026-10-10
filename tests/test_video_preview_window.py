@@ -10,11 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from app.core import preview_stream
-from app.ui import video_preview_window as vpw
-from app.ui.video_preview_window import Backend, VideoPreviewWindow, format_time, nearest_speed_index
+from app.ui.player import playback
+from app.ui.player.backend import Backend
+from app.ui.player.preview_window import VideoPreviewWindow, keep_normal_geometry
+from app.ui.player.playback import format_time, nearest_speed_index
+from app.ui.player.video_player import VideoPlayer
 
 
 class FakePlayer(QObject):
@@ -100,9 +103,9 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(format_time(-5), "00:00")
 
     def test_nearest_speed(self):
-        self.assertEqual(vpw.SPEEDS[nearest_speed_index(1.0)], 1.0)
-        self.assertEqual(vpw.SPEEDS[nearest_speed_index(1.9)], 2.0)
-        self.assertEqual(vpw.SPEEDS[nearest_speed_index(9)], 3.0)
+        self.assertEqual(playback.SPEEDS[nearest_speed_index(1.0)], 1.0)
+        self.assertEqual(playback.SPEEDS[nearest_speed_index(1.9)], 2.0)
+        self.assertEqual(playback.SPEEDS[nearest_speed_index(9)], 3.0)
 
 
 class WindowTests(unittest.TestCase):
@@ -167,7 +170,7 @@ class WindowTests(unittest.TestCase):
             QTest.qWait(20)
             if self.p._boosted:
                 break
-        self.assertEqual(self.player.playbackRate(), vpw.HOLD_BOOST_RATE)
+        self.assertEqual(self.player.playbackRate(), playback.HOLD_BOOST_RATE)
         self.assertTrue(self.p._boosted)
         QTest.mouseRelease(self.p._video, Qt.MouseButton.LeftButton)
         self.assertEqual(self.player.playbackRate(), 1.0)
@@ -251,10 +254,10 @@ class EmbeddedPlayerTests(_PlayerCase):
     def setUp(self):
         super().setUp()
         self.page = QWidget()
-        layout = vpw.QVBoxLayout(self.page)
+        layout = QVBoxLayout(self.page)
         self.above = QWidget(self.page)
         layout.addWidget(self.above)
-        self.player_widget = vpw.VideoPlayer(fake_backend, self.page, allow_popout=True)
+        self.player_widget = VideoPlayer(fake_backend, self.page, allow_popout=True)
         layout.addWidget(self.player_widget)
         layout.addWidget(QWidget(self.page))
         self.page.resize(800, 600)
@@ -353,7 +356,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
         self.addCleanup(self._close)
         self.view._kind, self.view._item_id = "video", "abc"
         self.view._video = SearchVideo(video_id="abc", title="Dance", author_username="bob")
-        self.remote = mock.patch.object(vpw.VideoPlayer, "play_remote").start()
+        self.remote = mock.patch.object(VideoPlayer, "play_remote").start()
         self.addCleanup(mock.patch.stopall)
 
     def _close(self):
@@ -430,7 +433,7 @@ class NormalGeometryTests(unittest.TestCase):
             self.skipTest("the fix is installed on Windows only")
         window = QWidget()
         self.addCleanup(window.deleteLater)
-        vpw.keep_normal_geometry(window)
+        keep_normal_geometry(window)
         window.setGeometry(300, 200, 640, 400)
         window.show()
         QApplication.processEvents()

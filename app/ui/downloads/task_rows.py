@@ -8,7 +8,8 @@ from PySide6.QtWidgets import QTableWidgetItem
 from ...core.models import DownloadTask, TaskStatus, status_label
 from ...i18n import tr
 from ..theme import link_color, summary_text, task_status_color
-from ..ui_state import fit_table_last_column, open_table_column_dialog
+from ..ui_state import fit_table_last_column
+from ..table_column_dialog import open_table_column_dialog
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES
 from .task_text import _video_url

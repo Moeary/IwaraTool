@@ -15,7 +15,7 @@ from .navigation import NavigationController
 from .notification_dispatcher import TaskNotificationBatch
 from .shortcut_bindings import install_shortcuts
 from .theme import install_accent
-from .video_preview_window import VideoPreviewWindow, keep_normal_geometry
+from .player.preview_window import VideoPreviewWindow, keep_normal_geometry
 from .window_drag import WindowsTitleBarDragFilter
 from .worker_lifecycle import ShutdownPoller
 from .window.commands import WindowCommandsMixin

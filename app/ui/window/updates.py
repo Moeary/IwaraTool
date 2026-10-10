@@ -13,7 +13,7 @@ from ...signal_bus import signal_bus
 from ...config import app_config
 from ...core import self_update
 from ...logging_setup import get_logger
-from ..ui_state import show_fluent_confirmation
+from ..fluent_dialogs import show_fluent_confirmation
 
 logger = get_logger(__name__)
 

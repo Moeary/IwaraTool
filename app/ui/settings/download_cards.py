@@ -26,7 +26,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..ui_state import show_fluent_confirmation
+from ..fluent_dialogs import show_fluent_confirmation
 from .page_dependencies import download_manager
 
 

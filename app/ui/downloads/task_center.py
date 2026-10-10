@@ -27,14 +27,14 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ...core.download_runtime import format_speed
+from ...core.download.speed_format import format_speed
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...core.models import DownloadTask
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..flow_layout import ResponsiveFlowLayout
 from ..ui_state import (
-    ResponsiveFlowLayout,
     connect_table_column_saver,
     connect_table_width_saver,
     fit_table_last_column,

@@ -42,8 +42,8 @@ from .components import (
 )
 from ..rules.rule_picker import RulePicker
 from ..theme import set_secondary_text
+from ..flow_layout import ResponsiveFlowLayout
 from ..ui_state import (
-    ResponsiveFlowLayout,
     connect_splitter_saver,
     connect_table_column_saver,
     connect_table_width_saver,

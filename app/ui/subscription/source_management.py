@@ -10,7 +10,7 @@ from ...i18n import tr
 from .components import SubscriptionImportAuthorsWorker
 from .helpers import _detect_source_input
 from .page_dependencies import InfoBar, download_manager
-from ..ui_state import show_fluent_confirmation, show_fluent_text_input
+from ..fluent_dialogs import show_fluent_confirmation, show_fluent_text_input
 
 
 class SubscriptionSourceManagementMixin:

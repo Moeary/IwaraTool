@@ -13,7 +13,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.download_runtime import format_speed, parse_speed
+from app.core.download.speed_format import format_speed, parse_speed
 from app.core.manager import DownloadManager
 from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
