@@ -13,7 +13,10 @@ from ...i18n import tr
 from ..card_list import CardGridList
 from ..media.pixmaps import PixmapLRU, read_pixmap
 from ..subscription.cover_loader import CoverLoader
-from ..theme import apply_scrollbars, cover_grid_qss, qcolor
+from ...signal_bus import signal_bus
+from ..media.card_size import saved_card_width
+from ..search.grid_style import _search_grid_style
+from ..theme import qcolor
 from .page_dependencies import download_manager
 from .record_state import _date_only
 
@@ -21,10 +24,12 @@ from .record_state import _date_only
 MODE_GRID = "grid"  # compact tiles with title, author, date and watch state
 MODE_COVER = "cover"  # big covers with only the title
 
-# mode -> (smallest card width, caption lines); a grid title may take two lines
-_MODE_LAYOUT = {MODE_GRID: (210, 4), MODE_COVER: (340, 1)}
-_SPACING = 8
-_MAX_COLUMNS = 10
+# mode -> (card width relative to the shared cover-size slider, caption lines);
+# a grid title may take two lines.
+_MODE_LAYOUT = {MODE_GRID: (1.0, 4), MODE_COVER: (1.6, 1)}
+_SPACING = 12  # as on the search page
+_CARD_CHROME = 12 + 4  # the card style's padding (6 px a side) and its 2 px selected border
+_MAX_COLUMNS = 12
 
 
 def _ellipsize(value: str, limit: int) -> str:
@@ -48,6 +53,8 @@ class HistoryCoverGrid(CardGridList):
         self._pixmaps = PixmapLRU(48 * 1024 * 1024)
         self._relayout_pending = False
         self._text_width = 200  # caption width of one card, set by _relayout
+        self._card_width = saved_card_width()  # follows the cover-size slider of every grid
+        self._stale = False  # the card size changed while hidden
         self.covers = CoverLoader(self)
         self.covers.cover_ready.connect(self._on_cover_ready)
         self._cover_timer = QTimer(self)
@@ -58,9 +65,9 @@ class HistoryCoverGrid(CardGridList):
 
     def _configure(self):
         self.setObjectName("HistoryCoverGrid")
-        self.setStyleSheet(cover_grid_qss("HistoryCoverGrid"))
+        self.setStyleSheet(_search_grid_style())  # the same cards as the search results
         self.viewport().setAutoFillBackground(False)
-        apply_scrollbars(self)
+        signal_bus.media_card_size_changed.connect(self.set_card_width)
         self.setViewMode(QListWidget.ViewMode.IconMode)
         self.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.setMovement(QListWidget.Movement.Static)
@@ -89,9 +96,20 @@ class HistoryCoverGrid(CardGridList):
         self._mode = mode
         self.set_records(self._records)  # captions differ between the modes
 
+    def set_card_width(self, width: int):
+        width = int(width)
+        if width == self._card_width:
+            return
+        self._card_width = width
+        if self.isVisible():
+            self.set_records(self._records)  # captions are elided to the new width
+        else:
+            self._stale = True
+
     def set_records(self, records: list[dict[str, Any]], *, file_ok=None):
         """Show ``records`` in order; ``file_ok(record)`` says whether its file is in place."""
 
+        self._stale = False
         selected = set(self.selected_video_ids())
         self._records = list(records)
         if file_ok is not None:
@@ -180,15 +198,17 @@ class HistoryCoverGrid(CardGridList):
         width = self.viewport().width()
         if width <= 0:
             return
-        min_width, lines = _MODE_LAYOUT[self._mode]
+        scale, lines = _MODE_LAYOUT[self._mode]
+        min_width = round(self._card_width * scale)
         reserve = max(8, int(self.verticalScrollBar().sizeHint().width()) - 1)
         available = max(1, width - reserve)
         columns = max(1, min(_MAX_COLUMNS, (available + _SPACING) // (min_width + _SPACING)))
         card_width = max(40, (available - _SPACING * (columns - 1)) // columns)
-        self._text_width = max(40, card_width - 12)
-        icon = QSize(max(32, card_width - 2), max(32, round((card_width - 2) * 9 / 16)))
-        text_height = QFontMetrics(self.font()).lineSpacing() * lines + 6
-        grid = QSize(card_width, icon.height() + text_height + 12)
+        self._text_width = max(40, card_width - _CARD_CHROME - 4)
+        icon_width = max(32, card_width - _CARD_CHROME)
+        icon = QSize(icon_width, max(32, round(icon_width * 9 / 16)))
+        text_height = QFontMetrics(self.font()).lineSpacing() * lines
+        grid = QSize(card_width, icon.height() + text_height + _CARD_CHROME + 10)
         if icon != self.iconSize():
             self.setIconSize(icon)
             # Covers and placeholders were drawn for the old size (QIcon never scales up).
@@ -213,7 +233,10 @@ class HistoryCoverGrid(CardGridList):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._relayout()
+        if self._stale:
+            self.set_records(self._records)
+        else:
+            self._relayout()
 
     # ── covers ───────────────────────────────────────────────────────────────
 
@@ -278,8 +301,7 @@ class HistoryCoverGrid(CardGridList):
         return QIcon(pixmap)
 
     def refresh_theme(self):
-        self.setStyleSheet(cover_grid_qss("HistoryCoverGrid"))
-        apply_scrollbars(self)
+        self.setStyleSheet(_search_grid_style())
         self.set_records(self._records)
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:

@@ -18,6 +18,7 @@ from .grid_style import _search_grid_style
 from .image_worker import SearchImageWorker
 from .author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
 from .oreno_workers import SearchOrenoLinkWorker, SearchQueueResolveWorker
+from ..downloads.queue_preview import QueuePreviewFlow
 from .search_worker import SearchWorker
 # read_pixmap is not used here: it is the patch point for page_dependencies.
 from ..media.pixmaps import PixmapLRU, read_pixmap  # noqa: F401
@@ -115,6 +116,9 @@ class SearchInterface(
         self._oreno_author_workers: list[SearchOrenoAuthorWorker] = []
         self._queue_resolve_worker: SearchQueueResolveWorker | None = None
         self._queue_resolve_rule_id = ""
+        self._queue_preview_flow = QueuePreviewFlow(self)  # look before queueing
+        self._queue_playlist_urls: list[str] = []
+        self._queue_videos: dict = {}  # download id -> SearchVideo of the selection being queued
         self._tag_popup: TagSuggestionPopup | None = None
         self._active_tag_edit: LineEdit | None = None
         self._pending_open_video_ids: set[str] = set()

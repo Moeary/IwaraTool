@@ -10,6 +10,7 @@ from qfluentwidgets import InfoBarPosition, PrimaryPushButton
 from ...config import app_config
 from ...i18n import tr
 from ..downloads.filter_dialog import FilterDialog, option_button_style
+from ..downloads.queue_preview import submissions_mark_only
 from .components import SubscriptionEnqueueWorker, _CONTROL_HEIGHT
 from .page_dependencies import InfoBar, download_manager, signal_bus
 
@@ -222,7 +223,20 @@ class SubscriptionDownloadingMixin:
             rule_id
             or (self._rule_picker.selected_rule_id() if hasattr(self, "_rule_picker") else "")
         )
-        worker = SubscriptionEnqueueWorker(ids, rule_id=selected_rule_id)
+        # Show the counts, the target folder and a file name first; queue on confirm.
+        self._queue_preview_flow.start(
+            lambda: download_manager.preview_subscription_items(
+                ids, rule_id=selected_rule_id, label=tr("Subscription videos", "订阅作品", "購読の動画"),
+            ),
+            lambda _preview, chosen: self._submit_ids([str(item["video_id"]) for item in chosen], selected_rule_id),
+            mark_only=submissions_mark_only(),
+        )
+
+    def _submit_ids(self, ids: list[str], rule_id: str):
+        if self._enqueue_worker and self._enqueue_worker.isRunning():
+            self._show_error(tr("Queue operation is still running", "队列操作仍在进行中", "キュー操作が実行中です"))
+            return
+        worker = SubscriptionEnqueueWorker(ids, rule_id=rule_id)
         worker.result_ready.connect(self._on_enqueue_finished)
         worker.finished.connect(lambda worker=worker: self._release_worker("_enqueue_worker", worker))
         self._enqueue_worker = worker

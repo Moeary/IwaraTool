@@ -810,10 +810,17 @@ class ManagerPerformanceTests(unittest.TestCase):
                 stream.write(b"local cover")
             with patch.object(mgr.history, "get_record", return_value={"thumbnail_path": path}), patch.object(
                 mgr, "_api_call"
-            ) as api, patch.object(mgr.subscription_image_cache, "get_or_fetch") as fetch:
-                self.assertEqual(mgr.cache_subscription_thumbnail("local-cover", ""), path)
+            ) as api, patch.object(mgr.subscription_image_cache, "get_or_fetch") as fetch, patch.object(
+                app_config, "_data_dir", os.path.join(root, "data")
+            ):
+                cached = mgr.cache_subscription_thumbnail("local-cover", "")
                 api.assert_not_called()
                 fetch.assert_not_called()
+            # The cover next to the download is copied into the cache, never handed out itself.
+            self.assertNotEqual(cached, path)
+            self.assertTrue(cached.startswith(os.path.join(root, "data")))
+            with open(cached, "rb") as stream:
+                self.assertEqual(stream.read(), b"local cover")
 
     def test_cache_subscription_thumbnail_resolves_missing_url_from_details(self):
         mgr = make_manager()

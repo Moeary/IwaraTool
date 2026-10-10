@@ -1,4 +1,4 @@
-"""Background lookups behind the workbench's link preview and "why not downloaded"."""
+"""Background lookup behind the workbench's "why not downloaded"."""
 
 from __future__ import annotations
 
@@ -6,25 +6,6 @@ from PySide6.QtCore import Signal
 
 from ..worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
-
-
-class ListingPreviewWorker(ManagedThread):
-    """Fetch every video behind an author / playlist link and classify it."""
-
-    result_ready = Signal(dict)
-
-    def __init__(self, url: str, rule_id: str):
-        super().__init__()
-        self._url = url
-        self._rule_id = rule_id
-
-    def run(self):
-        try:
-            result = download_manager.preview_listing(self._url, rule_id=self._rule_id)
-        except Exception as exc:  # a network or parsing error must still close the busy state
-            result = {"url": self._url, "error": str(exc), "items": []}
-        if not self.isInterruptionRequested():
-            self.result_ready.emit(result)
 
 
 class DiagnosisWorker(ManagedThread):

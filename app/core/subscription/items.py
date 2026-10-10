@@ -48,11 +48,7 @@ class SubscriptionItemsMixin:
             item["downloaded"] = bool(history_record)
             item["download_file_path"] = file_path
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
-            item["thumbnail_path"] = cached_thumbnail_path or (
-                history_thumbnail_path
-                if history_thumbnail_path and os.path.isfile(history_thumbnail_path)
-                else ""
-            )
+            item["thumbnail_path"] = cached_thumbnail_path  # always the cache, never the download's own cover
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
             item["download_state"] = download_state
@@ -75,7 +71,10 @@ class SubscriptionItemsMixin:
         cached = self._ensure_subscription_thumbnail_cache(video_id, str(thumbnail_url or ""), history_path)
         if cached:
             return cached
-        return history_path if history_path and os.path.isfile(history_path) else ""
+        # Never the cover next to the download itself: that file may be moved away.
+        return (self._cached_video_cover(video_id) if not thumbnail_url else "") or (
+            self._seed_cover_from_download(video_id, history_path)
+        )
 
     def get_subscription_recent_items(
         self, per_source: int = 8, *, resolve_thumbnails: bool = True,
@@ -110,11 +109,7 @@ class SubscriptionItemsMixin:
             )
             item["downloaded"] = bool(record)
             item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
-            item["thumbnail_path"] = cached or (
-                history_thumbnail_path
-                if resolve_thumbnails and history_thumbnail_path and os.path.isfile(history_thumbnail_path)
-                else ""
-            )
+            item["thumbnail_path"] = cached  # always the cache, never the download's own cover
             item["queued"] = bool(task_status_by_video_id.get(video_id.lower()))
         return recent
 

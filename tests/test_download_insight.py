@@ -102,6 +102,26 @@ class ListingPreviewTests(_ManagerCase):
         self.assertEqual([item["matches"] for item in items], [False, True])
         self.assertIn("likes", items[0]["match_reason"])
 
+    def test_subscription_selection_leaves_stat_filters_for_the_download(self):
+        self.mgr.subscriptions.get_items_by_video_ids = lambda ids: [
+            {"video_id": "fresh0000002", "title": "Brand new", "author": "bob", "published_at": "2026-09-02"},
+            {"video_id": "gone00000003", "title": "Gone", "download_state": "unavailable", "download_reason": "private"},
+        ]
+        with patch.object(DownloadManager, "_rule_payload_for_id", return_value={
+            "filter_enabled": True, "filter_min_likes_enabled": True, "filter_min_likes": 10,
+        }):
+            preview = self.mgr.preview_subscription_items(["fresh0000002", "gone00000003"])
+        fresh, gone = preview["items"]
+        self.assertIsNone(fresh["matches"])  # likes are unknown locally: checked on download
+        self.assertEqual(gone["unavailable"], "private")
+
+    def test_search_selection_merges_videos_and_playlists(self):
+        preview = self.mgr.preview_selection(
+            [{"id": "fresh0000002", "title": "Brand new"}], ["https://www.iwara.tv/playlist/abc"],
+        )
+        self.assertEqual(preview["error"], "")
+        self.assertEqual([item["video_id"] for item in preview["items"]], ["fresh0000002", "haveFile0001"])
+
     def test_a_listing_without_videos_reports_an_error(self):
         self.mgr._api_call = lambda name, *a, **k: ("uid", "") if name == "get_user_id" else []
         preview = self.mgr.preview_listing("https://www.iwara.tv/profile/nobody")
@@ -142,6 +162,26 @@ class DiagnosisTests(_ManagerCase):
         result = self.mgr.explain_not_downloaded("https://www.iwara.tv/profile/bob")
         self.assertEqual(result["video_id"], "")
         self.assertFalse(result["can_download"])
+
+
+class CoverCacheTests(_ManagerCase):
+    def test_the_cover_next_to_a_download_is_copied_never_shown(self):
+        data_dir = os.path.join(self.tmp, "data")
+        patcher = patch.object(app_config, "_data_dir", data_dir)  # the image cache lives under it
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        video = os.path.join(app_config.download_dir, "abc.mp4")
+        thumb = os.path.join(app_config.download_dir, "abc.jpg")
+        for path in (video, thumb):
+            with open(path, "wb") as fh:
+                fh.write(b"fake-cover")
+        self.mgr.history.upsert_downloaded({"video_id": "abc", "file_path": video, "thumbnail_path": thumb})
+        shown = self.mgr.subscription_cover_path("abc")
+        self.assertTrue(shown)
+        self.assertNotEqual(os.path.normcase(shown), os.path.normcase(thumb))
+        self.assertTrue(os.path.normcase(shown).startswith(os.path.normcase(data_dir)))
+        os.remove(thumb)  # the user moves the files into a media library
+        self.assertEqual(self.mgr.subscription_cover_path("abc"), shown)
 
 
 class WatchedHistoryTests(unittest.TestCase):
@@ -191,8 +231,8 @@ class HistoryBrowseTests(unittest.TestCase):
         self.page.resize(1200, 800)
         self.addCleanup(self.page.deleteLater)
         self.addCleanup(self.page.shutdown, 1000)
-        self.page._set_view_mode("list")
-        self.page._set_scope("all")
+        self.page._view_bar.items["list"].click()
+        self.page._scope_bar.items["all"].click()
 
     def _ids(self):
         return [record["video_id"] for record in self.page._visible_records]
@@ -210,6 +250,12 @@ class HistoryBrowseTests(unittest.TestCase):
         self.page._author_list.setCurrentRow(bob)
         self.assertEqual(sorted(self._ids()), ["vid4", "vid5"])
 
+    def test_the_view_bar_switches_back_and_forth(self):
+        for key, widget in (("grid", "_cover_grid"), ("list", "_table"), ("cover", "_cover_grid"), ("list", "_table")):
+            self.page._view_bar.items[key].click()  # clicks pass a bool to the handler
+            self.assertEqual(self.page._view_mode, key)
+            self.assertIs(self.page._view_stack.currentWidget(), getattr(self.page, widget))
+
     def test_grid_and_cover_views_show_the_same_records_and_selection(self):
         self.page._set_view_mode("grid")
         grid = self.page._cover_grid
@@ -222,6 +268,41 @@ class HistoryBrowseTests(unittest.TestCase):
         self.assertEqual(len(self.page._selected_video_ids()), 1)  # kept across the switch
         self.page._set_view_mode("list")
         self.assertEqual(self.page._table.rowCount(), 6)
+
+
+class QueuePreviewFlowTests(unittest.TestCase):
+    def _run(self, chosen_ids):
+        import time
+
+        from PySide6.QtWidgets import QWidget
+
+        from app.ui.downloads import queue_preview
+
+        host = QWidget()
+        host.resize(800, 600)
+        self.addCleanup(host.deleteLater)
+        preview = {"items": [{"video_id": "a", "have": "", "matches": True}, {"video_id": "b", "have": "", "matches": None}]}
+        picked = []
+
+        def choose(dialog):
+            return [item for item in dialog._items if item["video_id"] in chosen_ids]
+
+        with patch.object(queue_preview.ListingPreviewDialog, "choose", choose):
+            flow = queue_preview.QueuePreviewFlow(host)
+            self.assertTrue(flow.start(lambda: preview, lambda _p, items: picked.append([i["video_id"] for i in items])))
+            self.assertFalse(flow.start(lambda: preview, lambda *_: None))  # one at a time
+            deadline = time.time() + 5
+            while flow.busy() and time.time() < deadline:
+                APP.processEvents()
+            APP.processEvents()
+        self.assertFalse(flow.busy())
+        return picked
+
+    def test_confirmed_items_reach_the_callback(self):
+        self.assertEqual(self._run({"a", "b"}), [["a", "b"]])
+
+    def test_nothing_is_queued_when_the_dialog_is_cancelled(self):
+        self.assertEqual(self._run(set()), [])
 
 
 class ScrollTests(unittest.TestCase):

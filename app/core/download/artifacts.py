@@ -34,6 +34,36 @@ class DownloadArtifactsMixin:
         img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
         return os.path.join(img_dir, f"video_{video_id}_{fingerprint}{ext}")
 
+    def _cached_video_cover(self, video_id: str) -> str:
+        """Any cover already in the image cache for ``video_id``, whatever URL it came from."""
+
+        video_id = self._sanitize_path_segment(str(video_id or "").strip())
+        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
+        if not video_id or not os.path.isdir(img_dir):
+            return ""
+        prefix = f"video_{video_id}_"
+        try:
+            names = sorted(name for name in os.listdir(img_dir) if name.startswith(prefix))
+        except OSError:
+            return ""
+        for name in names:
+            path = os.path.join(img_dir, name)
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return path
+        return ""
+
+    def _seed_cover_from_download(self, video_id: str, history_thumbnail_path: str) -> str:
+        """Copy the cover saved next to a download into the image cache.
+
+        The app only ever shows the cache: the file next to the video may be
+        moved away (into an Emby library, say) at any time.
+        """
+
+        target = self._subscription_thumbnail_cache_path(video_id, f"local://download/{video_id}.jpg")
+        if target and self._copy_cached_image(str(history_thumbnail_path or ""), target):
+            return target
+        return ""
+
     def _legacy_subscription_v2_thumbnail_cache_path(
         self,
         video_id: str,

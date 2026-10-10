@@ -15,6 +15,7 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..flow_layout import ResponsiveFlowLayout
+from ..media.card_size import CardSizeControl
 from .cover_grid import MODE_COVER, MODE_GRID, HistoryCoverGrid
 
 
@@ -56,7 +57,8 @@ class HistoryBrowseMixin:
             )),
             (SCOPE_AUTHOR, tr("By author", "按作者", "作者別"), ""),
         ):
-            self._scope_bar.addItem(key, text, lambda key=key: self._set_scope(key))
+            # itemClicked passes a bool: keep it away from ``key``.
+            self._scope_bar.addItem(key, text, lambda _checked=False, key=key: self._set_scope(key))
             if tip:
                 self._scope_bar.items[key].setToolTip(tip)
         self._scope_bar.setCurrentItem(self._scope)
@@ -79,9 +81,11 @@ class HistoryBrowseMixin:
             (MODE_GRID, tr("Grid", "方格", "グリッド")),
             (MODE_COVER, tr("Covers", "封面", "カバー")),
         ):
-            self._view_bar.addItem(key, text, lambda key=key: self._set_view_mode(key))
+            self._view_bar.addItem(key, text, lambda _checked=False, key=key: self._set_view_mode(key))
         self._view_bar.setCurrentItem(self._view_mode)
         row.addWidget(self._view_bar)
+        self._card_size_control = CardSizeControl(self)
+        row.addWidget(self._card_size_control)
         return row
 
     def _grid_sort_choices(self) -> list[tuple[str, int]]:
@@ -112,7 +116,7 @@ class HistoryBrowseMixin:
     # ── state changes ────────────────────────────────────────────────────────
 
     def _set_scope(self, scope: str):
-        if scope == self._scope:
+        if scope not in (SCOPE_ALL, SCOPE_RECENT, SCOPE_UNWATCHED, SCOPE_AUTHOR) or scope == self._scope:
             return
         self._scope = scope
         app_config.set_ui_value(_SCOPE_KEY, scope)
@@ -120,7 +124,7 @@ class HistoryBrowseMixin:
         self._apply_filters()
 
     def _set_view_mode(self, mode: str):
-        if mode == self._view_mode:
+        if mode not in (VIEW_LIST, MODE_GRID, MODE_COVER) or mode == self._view_mode:
             return
         self._view_mode = mode
         app_config.set_ui_value(_VIEW_KEY, mode)
@@ -134,6 +138,7 @@ class HistoryBrowseMixin:
         self._view_stack.setCurrentWidget(self._cover_grid if cards else self._table)
         self._grid_sort_combo.setVisible(cards)
         self._grid_sort_dir_btn.setVisible(cards)
+        self._card_size_control.setVisible(cards)
         self._author_list.setVisible(self._scope == SCOPE_AUTHOR)
         index = next(
             (i for i, (_text, column) in enumerate(self._grid_sort_choices()) if column == self._sort_column), -1,

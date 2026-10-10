@@ -197,6 +197,7 @@ class SearchExecutionMixin:
             *self._author_profile_workers,
             self._download_status_worker,
             self._queue_resolve_worker,
+            self._queue_preview_flow.worker,
         ]
         return stop_qthreads(workers, timeout_ms=timeout_ms)
 

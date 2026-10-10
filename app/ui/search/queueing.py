@@ -15,6 +15,28 @@ from .page_dependencies import download_manager
 from .oreno_workers import SearchQueueResolveWorker
 
 
+def video_payload(video: SearchVideo, video_id: str) -> dict[str, Any]:
+    """An API-shaped dict for the queue preview (rule checks, file-name example)."""
+
+    raw = video.raw if isinstance(video.raw, dict) else {}
+    if video.source_kind == "iwara" and str(raw.get("id", "") or "") == video_id:
+        return raw
+    return {
+        "id": video_id,
+        "title": video.title,
+        "numLikes": video.likes,
+        "numViews": video.views,
+        "numComments": video.comments,
+        "createdAt": video.published_at,
+        "tags": list(video.tags),
+        "slug": video.slug,
+        "rating": video.rating,
+        "user": {"username": video.author_username, "name": video.author_name},
+        # Likes / views / tags of another site say nothing about the Iwara rule.
+        "_stats_known": video.source_kind == "iwara",
+    }
+
+
 class SearchQueueingMixin:
     """Add selected search results to the download queue."""
 
@@ -57,26 +79,9 @@ class SearchQueueingMixin:
 
         rule_id = self._rule_picker.selected_rule_id()
         self._rule_picker.apply_selected(show_notice=False)
-        if playlists:
-            # The manager expands each playlist URL into its videos, exactly
-            # as when the URL is pasted on the download page.
-            for playlist in playlists:
-                download_manager.add_url(playlist.source_url, rule_id=rule_id)
-            InfoBar.success(
-                title=tr("Added to queue", "已加入队列", "キューに追加"),
-                content=tr(
-                    f"Fetching videos from {len(playlists)} playlist(s)",
-                    f"正在获取 {len(playlists)} 个播放列表中的视频",
-                    f"{len(playlists)} 件のプレイリストから動画を取得中",
-                ),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self,
-            )
-            if not videos:
-                return
+        # Playlists are expanded into their videos inside the preview.
+        self._queue_playlist_urls = [playlist.source_url for playlist in playlists if playlist.source_url]
+        self._queue_videos = {video.download_video_id or video.video_id: video for video in videos}
 
         if any(video.source_kind == "oreno3d" for video in videos):
             if self._queue_resolve_worker is not None and self._queue_resolve_worker.isRunning():
@@ -115,7 +120,8 @@ class SearchQueueingMixin:
     ):
         ids = [str(video_id or "").strip() for video_id in ids if str(video_id or "").strip()]
         errors = errors or []
-        if not ids:
+        playlist_urls = list(self._queue_playlist_urls)
+        if not ids and not playlist_urls:
             message = tr(
                 "No selected item has an Iwara download link.",
                 "选中的项目没有可用的 Iwara 下载链接。",
@@ -127,10 +133,27 @@ class SearchQueueingMixin:
             self._sync_selection_buttons()
             return
         selected_rule_id = str(rule_id or self._rule_picker.selected_rule_id())
+        known = self._queue_videos
+        payloads = [
+            video_payload(known[video_id], video_id) if video_id in known else {"id": video_id, "title": video_id}
+            for video_id in ids
+        ]
+        label = tr("Search results", "搜索结果", "検索結果")
+        self._queue_preview_flow.start(
+            lambda: download_manager.preview_selection(payloads, playlist_urls, rule_id=selected_rule_id, label=label),
+            lambda preview, chosen: self._enqueue_chosen(
+                [str(item["video_id"]) for item in chosen], skipped=skipped, errors=errors, rule_id=selected_rule_id,
+            ),
+            mark_only=False,  # search results are always queued for download
+        )
+
+    def _enqueue_chosen(self, ids: list[str], *, skipped: int, errors: list[str], rule_id: str):
+        """Queue what the user kept in the preview dialog."""
+
         accepted = download_manager.enqueue_video_ids(
             ids,
             source_label=tr("Search", "搜索", "検索"),
-            rule_id=selected_rule_id,
+            rule_id=rule_id,
         )
         suffix = tr(
             f"; skipped {skipped} item(s)" if skipped else "",

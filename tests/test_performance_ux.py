@@ -475,7 +475,12 @@ class SubscriptionOverviewTests(_QtCase):
         with open(cover, "wb") as handle:
             handle.write(b"x")
         self.manager.history.upsert_downloaded({"video_id": "a0_0", "thumbnail_path": cover})
-        self.assertEqual(self.manager.subscription_cover_path("a0_0", ""), cover)
+        data_dir = os.path.join(self.tmp.name, "data")
+        with mock.patch.object(app_config, "_data_dir", data_dir):
+            cached = self.manager.subscription_cover_path("a0_0", "")
+        # A copy in the image cache, never the cover next to the download.
+        self.assertNotEqual(cached, cover)
+        self.assertTrue(cached.startswith(data_dir))
         self.assertEqual(self.manager.subscription_cover_path("unknown", ""), "")
         self.assertEqual(self.manager.subscription_cover_path("", ""), "")
 

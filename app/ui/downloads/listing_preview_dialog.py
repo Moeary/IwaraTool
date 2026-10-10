@@ -19,9 +19,9 @@ _COL_TITLE, _COL_DATE, _COL_LIKES, _COL_STATE = range(4)
 
 
 def suggested(item: dict[str, Any]) -> bool:
-    """Checked by default: not here yet in any form, and the rule keeps it."""
+    """Checked by default: not here yet in any form, downloadable, and the rule does not reject it."""
 
-    return not item.get("have") and bool(item.get("matches"))
+    return not item.get("have") and not item.get("unavailable") and item.get("matches") is not False
 
 
 def _state_text(item: dict[str, Any]) -> tuple[str, str, str]:
@@ -38,9 +38,13 @@ def _state_text(item: dict[str, Any]) -> tuple[str, str, str]:
             detail,
             "warning",
         )
-    if not item.get("matches"):
-        reason = str(item.get("match_reason", "") or "")
+    if item.get("unavailable"):
+        return tr("Not downloadable", "站点不可下载", "保存不可"), str(item["unavailable"]), "danger"
+    reason = str(item.get("match_reason", "") or "")
+    if item.get("matches") is False:
         return tr("Rule filters it out", "不符合规则", "ルール対象外"), reason, "warning"
+    if item.get("matches") is None:
+        return tr("Rule checked on download", "下载时核对规则", "保存時にルール確認"), reason, "info"
     return tr("New", "可下载", "新規"), "", ""
 
 
@@ -67,6 +71,8 @@ class ListingPreviewDialog(MessageBoxBase):
 
     def _heading(self) -> str:
         label = str(self._preview.get("label", "") or "")
+        if self._preview.get("kind") == "selection":
+            return label or tr("Selected videos", "所选作品", "選択した動画")
         if self._preview.get("kind") == "playlist":
             return tr(f"Playlist {label}", f"播放列表 {label}", f"プレイリスト {label}")
         return tr(f"Author {label}", f"作者 {label}", f"作者 {label}")
@@ -183,15 +189,19 @@ class ListingPreviewDialog(MessageBoxBase):
 
     def _refresh_counts(self):
         have = sum(1 for item in self._items if item.get("have"))
-        matching = sum(1 for item in self._items if item.get("matches"))
+        matching = sum(1 for item in self._items if item.get("matches") is True)
+        pending = sum(1 for item in self._items if item.get("matches") is None)
         chosen = len(self.checked_items())
         rule_name = str(self._preview.get("rule_name", "") or "")
-        self._summary.setText(summary_text([
+        parts = [
             (tr("Found", "发现作品", "検出"), len(self._items)),
             (tr("Already here", "已有", "保存済み等"), have),
             (tr(f"Match rule \"{rule_name}\"", f"符合规则“{rule_name}”", f"ルール「{rule_name}」に一致"), matching),
-            (tr("Checked", "已勾选", "選択中"), chosen),
-        ]))
+        ]
+        if pending:
+            parts.append((tr("Checked on download", "下载时核对", "保存時に確認"), pending))
+        parts.append((tr("Checked", "已勾选", "選択中"), chosen))
+        self._summary.setText(summary_text(parts))
         if self._mark_only:
             text = tr(f"Mark {chosen} as downloaded", f"标记 {chosen} 个为已下载", f"{chosen} 件を保存済みにする")
         else:

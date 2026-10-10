@@ -33,8 +33,12 @@ class SubscriptionMediaCacheMixin:
             reused = self._ensure_subscription_thumbnail_cache(video_id, thumbnail_url, history_path)
             if reused:
                 return reused
-            if history_path and os.path.isfile(history_path) and os.path.getsize(history_path) > 0:
-                return history_path
+            # Only cache files are handed out, never the cover next to a download.
+            reused = (self._cached_video_cover(video_id) if not thumbnail_url else "") or (
+                self._seed_cover_from_download(video_id, history_path)
+            )
+            if reused:
+                return reused
 
         # Author/feed list endpoints frequently return only a video stub.  In
         # that case there is no file ID yet, so derive the Iwara image URL from
