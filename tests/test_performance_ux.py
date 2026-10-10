@@ -789,7 +789,7 @@ class GlobalActionTests(_QtCase):
 
         signal_bus.content_rating_changed.connect(record)
         self.addCleanup(signal_bus.content_rating_changed.disconnect, record)
-        with mock.patch("app.ui.main_window.InfoBar.info"):
+        with mock.patch("qfluentwidgets.InfoBar.info"):
             for _ in range(3):
                 self._fire("rating_cycle")
         self.assertEqual(len(seen), 3)
@@ -842,13 +842,13 @@ class GlobalActionTests(_QtCase):
 
     def test_open_download_folder_only_when_it_exists(self):
         window = self.window
-        with mock.patch("app.ui.main_window.QDesktopServices.openUrl") as open_url, \
+        with mock.patch("PySide6.QtGui.QDesktopServices.openUrl") as open_url, \
                 mock.patch.object(window._home_page.__class__, "isVisible", return_value=True):
             with mock.patch.object(app_config.__class__, "download_dir", self.tmp.name, create=True):
                 window.open_download_folder()
             open_url.assert_called_once()
-        with mock.patch("app.ui.main_window.QDesktopServices.openUrl") as open_url, \
-                mock.patch("app.ui.main_window.InfoBar.warning") as warn:
+        with mock.patch("PySide6.QtGui.QDesktopServices.openUrl") as open_url, \
+                mock.patch("qfluentwidgets.InfoBar.warning") as warn:
             with mock.patch.object(app_config.__class__, "download_dir", os.path.join(self.tmp.name, "missing"), create=True):
                 window.open_download_folder()
             open_url.assert_not_called()

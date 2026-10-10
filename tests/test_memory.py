@@ -431,7 +431,7 @@ class IdleTrimTests(_QtCase):
         window = self.window
         window.show()
         self.app.processEvents()
-        with mock.patch("app.ui.main_window.memory.trim_memory") as trim:
+        with mock.patch("app.core.memory.trim_memory") as trim:
             window._trim_memory_if_idle()
             trim.assert_not_called()  # the window is on screen
             window.hide()
