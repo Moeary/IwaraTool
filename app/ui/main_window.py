@@ -38,7 +38,7 @@ from ..core.manager import download_manager
 from ..core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
 from ..logging_setup import get_logger
 from .downloads.page import DownloadInterface
-from .history_page import HistoryInterface
+from .history.page import HistoryInterface
 from .home_page import HomeInterface
 from .navigation import NavEntry, NavigationController, draft_of, restore_draft_into, restore_into, snapshot_of
 from .notification_dispatcher import (

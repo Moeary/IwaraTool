@@ -550,9 +550,9 @@ class HistoryLargeListTests(_QtCase):
         ]
 
     def _page(self, count):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
 
-        patcher = mock.patch("app.ui.history_page.download_manager")
+        patcher = mock.patch("app.ui.history.page.download_manager")
         manager = patcher.start()
         self.addCleanup(patcher.stop)
         manager.get_history_records.return_value = self._records(count)
@@ -617,7 +617,7 @@ class HistoryLargeListTests(_QtCase):
 
     def test_each_record_is_checked_on_disk_once_per_pass(self):
         page = self._page(60)
-        with mock.patch("app.ui.history_page.os.path.isfile", return_value=False) as isfile:
+        with mock.patch("os.path.isfile", return_value=False) as isfile:
             page._apply_filters()
         self.assertLessEqual(isfile.call_count, 60)  # was ~4 per record
 

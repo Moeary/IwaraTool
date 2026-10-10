@@ -18,7 +18,7 @@ from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_im
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.downloads.page import DownloadInterface
-from app.ui.history_page import HistoryInterface
+from app.ui.history.page import HistoryInterface
 from app.ui.repair_page import RepairInterface
 from app.ui.rules_page import RuleFormWidget, RulesInterface
 from app.ui.search.page import SearchInterface
@@ -1367,7 +1367,7 @@ class UiPerformanceTests(unittest.TestCase):
             {"video_id": "history02", "title": "History 02", "file_path": ""},
             {"video_id": "history03", "title": "History 03", "file_path": ""},
         ]
-        with patch("app.ui.history_page.download_manager") as manager:
+        with patch("app.ui.history.page.download_manager") as manager:
             manager.get_history_records.return_value = records
             page = HistoryInterface()
             self.assertEqual(

@@ -203,7 +203,7 @@ class MainWindowBindingTests(_OverridesMixin, unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_navigation_and_page_actions_are_bound(self):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
         from app.ui.main_window import MainWindow
 
         # Handlers are bound at construction, so patch the class first.

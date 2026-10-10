@@ -324,9 +324,9 @@ class SettingsLazyBuildTests(_QtCase):
 
 class HistoryRowIdTests(_QtCase):
     def _page(self, records):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
 
-        patcher = mock.patch("app.ui.history_page.download_manager")
+        patcher = mock.patch("app.ui.history.page.download_manager")
         manager = patcher.start()
         self.addCleanup(patcher.stop)
         manager.get_history_records.return_value = records
