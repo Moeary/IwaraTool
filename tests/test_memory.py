@@ -138,7 +138,7 @@ class GalleryLazyDecodeTests(_QtCase):
 class DetailReleaseTests(_QtCase):
     def setUp(self):
         from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.home.workers import CoverFetcher
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -394,7 +394,7 @@ class IdleTrimTests(_QtCase):
         cls.patchers = []
         for target, value in (
             ("app.config.app_config._qs", QSettings(os.path.join(cls.tmp.name, "config.ini"), QSettings.Format.IniFormat)),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.search.page.SearchInterface._load_initial_results", lambda page: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):

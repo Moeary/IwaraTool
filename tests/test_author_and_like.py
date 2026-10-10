@@ -25,7 +25,7 @@ class _QtCase(unittest.TestCase):
 def _sync_api_calls(case: unittest.TestCase, client: Mock):
     """Make ``ApiCallWorker`` run its call immediately against ``client``."""
 
-    from app.ui import home_workers
+    from app.ui.home import workers as home_workers
 
     manager = Mock()
     manager.create_worker_api_client.return_value = client
@@ -248,7 +248,7 @@ class AuthorStatusBarTests(_QtCase):
         self.assertEqual(self.bar.web_chip.tone(), "neutral")
 
     def test_a_late_follow_reply_for_a_previous_author_does_not_touch_the_next(self):
-        from app.ui import home_workers
+        from app.ui.home import workers as home_workers
 
         held = []
         with mock.patch.object(home_workers.ApiCallWorker, "start", lambda worker: held.append(worker)):
@@ -280,7 +280,7 @@ class AuthorStatusBarTests(_QtCase):
 class DetailLikeTests(_QtCase):
     def setUp(self):
         from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.home.workers import CoverFetcher
 
         self.module = media_detail
         self.manager = Mock()

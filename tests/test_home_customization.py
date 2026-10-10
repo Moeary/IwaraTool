@@ -33,6 +33,7 @@ from app.core.home_feed import (
     sanitize_specs,
     save_specs,
 )
+from app.ui.home.section_block import SectionBlock
 
 
 class _Store:
@@ -238,8 +239,8 @@ class SectionBlockCacheTests(_QtCase):
     """The row paints from cache and only asks the site when stale, changing cards only if posts changed."""
 
     def setUp(self):
-        from app.ui import home_page
-        from app.ui.home_workers import CoverFetcher, FeedWorker
+        from app.ui.home import page as home_page
+        from app.ui.home.workers import CoverFetcher, FeedWorker
 
         self.home_page = home_page
         self.tmp = tempfile.TemporaryDirectory()
@@ -257,7 +258,7 @@ class SectionBlockCacheTests(_QtCase):
         self.minutes = 15
         self.fetcher = CoverFetcher()
         self.section = home_sections([HomeSectionSpec("hot", MODE_BROWSE, "video", sort="trending")])[0]
-        self.block = home_page.SectionBlock(self.section, self.fetcher, cache=self.cache)
+        self.block = SectionBlock(self.section, self.fetcher, cache=self.cache)
         self.block.resize(1200, 400)
         self.block.show()
         self.addCleanup(self._discard)
@@ -272,7 +273,7 @@ class SectionBlockCacheTests(_QtCase):
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def _result(self, rows):
-        from app.ui.home_workers import FeedResult, items_from_rows
+        from app.ui.home.workers import FeedResult, items_from_rows
 
         return FeedResult(token=self.block._token, rows=rows, items=items_from_rows("video", rows))
 
@@ -336,7 +337,7 @@ class SectionBlockCacheTests(_QtCase):
         self.assertEqual(len(self.started), 1)
 
     def test_a_failed_check_keeps_what_is_on_screen(self):
-        from app.ui.home_workers import FeedResult
+        from app.ui.home.workers import FeedResult
 
         self.cache.put(self.block.cache_key(), _rows("a"), now=time.time() - 3600)
         self.block.reload()
@@ -345,7 +346,7 @@ class SectionBlockCacheTests(_QtCase):
         self.assertEqual(self.block._age.toolTip(), "HTTP 503")
 
     def test_failed_first_load_offers_a_retry(self):
-        from app.ui.home_workers import FeedResult
+        from app.ui.home.workers import FeedResult
 
         self.block.reload()
         self.block._on_result(FeedResult(token=self.block._token, error="offline"))
@@ -368,10 +369,10 @@ class SectionBlockCacheTests(_QtCase):
         self.assertEqual(len(self.started), 1)
 
     def test_each_tab_has_its_own_cache_entry(self):
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.home.workers import CoverFetcher
 
         section = home_sections([HomeSectionSpec("hv", MODE_BROWSE, "video")])[0]
-        block = self.home_page.SectionBlock(section, CoverFetcher(), cache=self.cache)
+        block = SectionBlock(section, CoverFetcher(), cache=self.cache)
         self.addCleanup(block.deleteLater)
         first = block.cache_key()
         block._select_tab("date")
@@ -395,8 +396,8 @@ class SectionBlockCacheTests(_QtCase):
 
 class BrowseViewQueryTests(_QtCase):
     def test_author_browse_forwards_the_author_to_the_worker(self):
-        from app.ui import home_page
-        from app.ui.home_workers import CoverFetcher, FeedWorker
+        from app.ui.home import page as home_page
+        from app.ui.home.workers import CoverFetcher, FeedWorker
 
         started: list = []
         with mock.patch.object(FeedWorker, "start", lambda worker: started.append(worker)):
@@ -419,7 +420,7 @@ class BrowseViewQueryTests(_QtCase):
 
 class FeedWorkerModeTests(unittest.TestCase):
     def _run(self, **kwargs):
-        from app.ui import home_workers
+        from app.ui.home import workers as home_workers
 
         client = Mock()
         manager = Mock()
@@ -458,7 +459,7 @@ class FeedWorkerModeTests(unittest.TestCase):
         self.assertEqual(len(result.rows), 2)  # the cache keeps every row
 
     def test_author_rows_look_up_the_user_id_once(self):
-        from app.ui import home_workers
+        from app.ui.home import workers as home_workers
 
         home_workers._AUTHOR_IDS.clear()
         result, manager, client = self._run(params={"sort": "date"}, mode=MODE_AUTHOR, value="Alice")
@@ -467,7 +468,7 @@ class FeedWorkerModeTests(unittest.TestCase):
         client.get_user_id.assert_called_once()  # remembered for the session
 
     def test_unknown_author_reports_an_error(self):
-        from app.ui import home_workers
+        from app.ui.home import workers as home_workers
 
         home_workers._AUTHOR_IDS.clear()
         with mock.patch.object(home_workers, "download_manager") as manager:
@@ -483,7 +484,7 @@ class FeedWorkerModeTests(unittest.TestCase):
 
 class LayoutDialogTests(_QtCase):
     def setUp(self):
-        from app.ui.home_layout_dialog import HomeLayoutDialog
+        from app.ui.home.layout_dialog import HomeLayoutDialog
 
         self.host = QWidget()
         self.host.resize(900, 700)
@@ -521,13 +522,13 @@ class LayoutDialogTests(_QtCase):
         signal_bus.home_layout_changed.connect(on_changed)
         self.addCleanup(signal_bus.home_layout_changed.disconnect, on_changed)
         self.dialog._list.item(1).setCheckState(Qt.CheckState.Unchecked)
-        with mock.patch("app.ui.home_layout_dialog.save_specs", side_effect=lambda specs: save_specs(specs, store)):
+        with mock.patch("app.ui.home.layout_dialog.save_specs", side_effect=lambda specs: save_specs(specs, store)):
             self.assertTrue(self.dialog.validate())
         self.assertEqual(announced, [True])
         self.assertEqual([(s.id, s.enabled) for s in load_specs(store)][1], ("hot_videos", False))
 
     def test_editor_requires_a_value_for_search_rows(self):
-        from app.ui.home_layout_dialog import SectionEditorDialog
+        from app.ui.home.layout_dialog import SectionEditorDialog
 
         editor = SectionEditorDialog(None, self.host)
         self.addCleanup(editor.deleteLater)
@@ -540,7 +541,7 @@ class LayoutDialogTests(_QtCase):
         self.assertTrue(spec.id.startswith("c-"))
 
     def test_editing_a_builtin_into_something_else_gives_it_a_new_identity(self):
-        from app.ui.home_layout_dialog import SectionEditorDialog
+        from app.ui.home.layout_dialog import SectionEditorDialog
 
         original = default_specs()[1]  # hot_videos
         editor = SectionEditorDialog(original, self.host)
@@ -553,7 +554,7 @@ class LayoutDialogTests(_QtCase):
         self.assertEqual(changed.mode, MODE_KEYWORD)
 
     def test_sort_choices_follow_the_source(self):
-        from app.ui.home_layout_dialog import SectionEditorDialog
+        from app.ui.home.layout_dialog import SectionEditorDialog
 
         editor = SectionEditorDialog(None, self.host)
         self.addCleanup(editor.deleteLater)
@@ -568,7 +569,7 @@ class LayoutDialogTests(_QtCase):
 
 class HomeInterfaceLayoutTests(_QtCase):
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -576,7 +577,7 @@ class HomeInterfaceLayoutTests(_QtCase):
         for target, value in (
             ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "cache.json"))),
-            ("app.ui.home_workers.FeedWorker.run", lambda self: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda self: None),
             ("app.ui.media_detail.DetailWorker.run", lambda self: None),
         ):
             patcher = mock.patch(target, value)

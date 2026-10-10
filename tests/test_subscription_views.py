@@ -262,8 +262,8 @@ class SubscriptionPageViewTests(_QtCase):
         """Keep the author page off the network and its status bar on the test manager."""
 
         for target, value in (
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.ApiCallWorker.run", lambda worker: None),
             ("app.ui.author_status.download_manager", self.manager),
         ):
             patcher = patch(target, value)
@@ -296,7 +296,7 @@ class SubscriptionPageViewTests(_QtCase):
         self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
 
     def _fill_author_list(self, prefix: str, count: int = 12):
-        from app.ui.home_workers import FeedResult
+        from app.ui.home.workers import FeedResult
 
         browse = self.page._author_view._browse
         videos = [SearchVideo(video_id=f"{prefix}{i}", title=f"{prefix} {i}") for i in range(count)]
@@ -503,7 +503,7 @@ class StartupPageTests(_QtCase):
 class DetailLayoutTests(_QtCase):
     def _view(self):
         from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.home.workers import CoverFetcher
 
         view = media_detail.DetailView(CoverFetcher())
         self.addCleanup(view.deleteLater)

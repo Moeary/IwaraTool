@@ -26,7 +26,7 @@ from app.core.search import (
     normalize_image,
     small_cover_url,
 )
-from app.ui.home_workers import normalize_items
+from app.ui.home.workers import normalize_items
 
 
 def _video(video_id="a", **kwargs) -> SearchVideo:
@@ -236,7 +236,7 @@ class HomeInterfaceTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.home_page = home_page
         # Never read (or write) the developer's real layout and cache.
@@ -249,13 +249,13 @@ class HomeInterfaceTests(unittest.TestCase):
             patch = mock.patch(target, value)
             patch.start()
             self.addCleanup(patch.stop)
-        patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
         detail = mock.patch("app.ui.media_detail.DetailWorker.run", lambda self: None)
         detail.start()
         self.addCleanup(detail.stop)
-        api_calls = mock.patch("app.ui.home_workers.ApiCallWorker.run", lambda self: None)  # author status, likes
+        api_calls = mock.patch("app.ui.home.workers.ApiCallWorker.run", lambda self: None)  # author status, likes
         api_calls.start()
         self.addCleanup(api_calls.stop)
         self.home = home_page.HomeInterface()
@@ -398,7 +398,7 @@ class DetailViewTests(unittest.TestCase):
 
     def test_related_posts_follow_the_rating_choice(self):
         from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.home.workers import CoverFetcher
 
         view = media_detail.DetailView(CoverFetcher())
         self.addCleanup(view.deleteLater)
@@ -459,7 +459,7 @@ class AuthorRoutingTests(unittest.TestCase):
         from app.signal_bus import signal_bus
         from app.ui.main_window import MainWindow
 
-        with mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None):
+        with mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None):
             previous = MainWindow._window_ref
             window = MainWindow()
             try:
@@ -490,7 +490,7 @@ class NavigationOrderTests(unittest.TestCase):
     def test_sidebar_order(self):
         from app.ui.main_window import MainWindow
 
-        with mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None):
+        with mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None):
             previous = MainWindow._window_ref
             window = MainWindow()
             try:
@@ -529,7 +529,7 @@ class CommentsWorkerTests(unittest.TestCase):
     def _run_started(self, **kwargs):
         import time
 
-        from app.ui.home_workers import CommentsWorker
+        from app.ui.home.workers import CommentsWorker
 
         calls = []
 
@@ -538,7 +538,7 @@ class CommentsWorkerTests(unittest.TestCase):
             return [{"id": "c9"}], 1, ""
 
         received = []
-        with mock.patch("app.ui.home_workers.download_manager") as manager:
+        with mock.patch("app.ui.home.workers.download_manager") as manager:
             manager.get_item_comments.side_effect = fake_comments
             worker = CommentsWorker(3, "video", "abc", **kwargs)
             worker.comments_ready.connect(lambda *args: received.append(args))

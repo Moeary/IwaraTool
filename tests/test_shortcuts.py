@@ -210,7 +210,7 @@ class MainWindowBindingTests(_OverridesMixin, unittest.TestCase):
         patcher = mock.patch.object(HistoryInterface, "_load_history")
         reload = patcher.start()
         self.addCleanup(patcher.stop)
-        feed_patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        feed_patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         feed_patcher.start()
         self.addCleanup(feed_patcher.stop)
         window = MainWindow()

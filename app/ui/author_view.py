@@ -35,9 +35,10 @@ from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
-from .home_page import BrowseState, BrowseView, queueable_ids
+from .home.browse_view import BrowseState, BrowseView
+from .home.section_block import queueable_ids
 from .media_card import read_pixmap
-from .home_workers import CoverFetcher
+from .home.workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 
 

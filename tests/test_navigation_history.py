@@ -66,8 +66,8 @@ class _WindowCase(unittest.TestCase):
         settings = QSettings(os.path.join(self.tmp.name, "config.ini"), QSettings.Format.IniFormat)
         for target, value in (
             ("app.config.app_config._qs", settings),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.ApiCallWorker.run", lambda worker: None),
             ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
             ("app.ui.search.image_worker.SearchImageWorker.run", lambda worker: None),
             ("app.ui.subscription.cover_loader.CoverLoader.request", lambda *args, **kwargs: None),

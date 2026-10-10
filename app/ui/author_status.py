@@ -16,7 +16,7 @@ from ..core.manager import download_manager
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .chrome import StatusChip
-from .home_workers import ApiCallWorker, stop_workers
+from .home.workers import ApiCallWorker, stop_workers
 from .ui_state import ResponsiveFlowLayout, show_fluent_confirmation
 
 

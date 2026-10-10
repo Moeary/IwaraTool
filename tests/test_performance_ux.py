@@ -212,7 +212,7 @@ class MediaGridReuseTests(_QtCase):
 
 class HomeIncrementalRebuildTests(_QtCase):
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -220,7 +220,7 @@ class HomeIncrementalRebuildTests(_QtCase):
         for target, value in (
             ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
@@ -728,7 +728,7 @@ class GlobalActionTests(_QtCase):
         cls.patchers = []
         for target, value in (
             ("app.config.app_config._qs", settings),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)
@@ -872,14 +872,14 @@ class GlobalActionTests(_QtCase):
 
 class HomeKeyboardActionTests(_QtCase):
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         for target, value in (
             ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
