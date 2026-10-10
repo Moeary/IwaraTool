@@ -19,7 +19,7 @@ from app.config import AppConfig, app_config
 from app.core import shortcut_defs as defs
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import MODE_TAGS, HomeSectionSpec, default_specs
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 
 
 class _QtCase(unittest.TestCase):

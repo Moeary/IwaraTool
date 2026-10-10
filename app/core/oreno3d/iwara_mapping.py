@@ -49,7 +49,8 @@ class Oreno3DResolvedEntity:
 def _bundled_mapping_path() -> str | None:
     """Find the mapping in source and Nuitka layouts."""
 
-    module_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # app/core/oreno3d/iwara_mapping.py -> app/
+    module_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     executable_root = os.path.dirname(os.path.abspath(sys.argv[0] or os.curdir))
     candidates = (
         os.path.join(module_root, MAPPING_BUNDLED_RELATIVE_PATH),

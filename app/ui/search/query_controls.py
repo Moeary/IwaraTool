@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import ComboBox, FluentIcon
 
 from ...config import app_config
-from ...core.search import playlist_reference, profile_reference
+from ...core.search.query_params import playlist_reference, profile_reference
 from ...core.rating import UI_RATING_KEY, normalize_rating
 from ...i18n import tr
 from .page_dependencies import signal_bus

@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.api.client import IwaraAPI
-from app.core.search import SearchFilters
-from app.core.search_manager import SearchManagerMixin
+from app.core.search.models import SearchFilters
+from app.core.search.manager import SearchManagerMixin
 from app.signal_bus import signal_bus
 from app.ui.search.page import SearchInterface
 from app.ui.search.search_worker import SearchWorker

@@ -18,15 +18,10 @@ from app.core import rating
 from app.core.api.client import IwaraAPI
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import default_specs, home_sections
-from app.core.search import (
-    SearchFilters,
-    SearchVideo,
-    build_image_query_params,
-    build_video_query_params,
-    filter_videos,
-    normalize_image,
-    small_cover_url,
-)
+from app.core.search.models import SearchFilters, SearchVideo
+from app.core.search.query_params import build_image_query_params, build_video_query_params
+from app.core.search.filtering import filter_videos
+from app.core.search.normalize import normalize_image, small_cover_url
 from app.ui.home.workers import normalize_items
 
 

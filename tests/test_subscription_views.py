@@ -17,7 +17,7 @@ from app.core.download.speed_format import format_speed, parse_speed
 from app.core.manager import DownloadManager
 from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 from app.core.subscription.store import SubscriptionStore
 from app.ui.subscription import item_queries, overview, source_items_view
 

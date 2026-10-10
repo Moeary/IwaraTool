@@ -9,7 +9,8 @@ from PySide6.QtCore import Qt
 
 from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ...core.search import SearchVideo, normalize_video
+from ...core.search.models import SearchVideo
+from ...core.search.normalize import normalize_video
 from ...i18n import tr
 from .result_authors import (
     _author_source_info,

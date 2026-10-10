@@ -7,7 +7,7 @@ import webbrowser
 from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtWidgets import QTableWidgetItem
 
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchAuthor, SearchPlaylist, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from .result_authors import (
     _author_source_info,

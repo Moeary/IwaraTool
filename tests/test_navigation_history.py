@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core import net_policy
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 
 
 def _videos(count: int, prefix: str = "v") -> list[SearchVideo]:

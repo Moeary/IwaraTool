@@ -6,25 +6,27 @@ from dataclasses import replace
 
 from PySide6.QtCore import Signal
 
-from ...core.oreno3d_search import map_oreno3d_sort, parse_oreno3d_query, parse_oreno3d_tag_ids
-from ...core.search import (
-    SearchFilters,
-    SearchPageResult,
-    SearchScope,
-    SearchVideo,
+from ...core.oreno3d.search_query import (
+    map_oreno3d_sort,
+    parse_oreno3d_query,
+    parse_oreno3d_tag_ids,
+)
+from ...core.search.models import SearchFilters, SearchPageResult, SearchScope, SearchVideo
+from ...core.search.query_params import (
     build_image_query_params,
     build_keyword_query_params,
     build_native_query_params,
     build_video_query_params,
-    filter_videos,
+    playlist_reference,
+    profile_reference,
+)
+from ...core.search.filtering import filter_videos, sort_videos
+from ...core.search.normalize import (
     normalize_author,
     normalize_image,
     normalize_oreno3d_listing,
     normalize_playlist,
     normalize_video,
-    playlist_reference,
-    profile_reference,
-    sort_videos,
 )
 from ...core.rating import filter_by_rating
 from ...i18n import tr

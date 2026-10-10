@@ -340,7 +340,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
 
     def setUp(self):
         super().setUp()
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
         from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 

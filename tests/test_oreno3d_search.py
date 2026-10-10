@@ -7,8 +7,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from app.core.oreno3d import Oreno3DClient, Oreno3DListing
-from app.core.oreno3d_search import (
+from app.core.oreno3d.client import Oreno3DClient
+from app.core.oreno3d.models import Oreno3DListing
+from app.core.oreno3d.search_query import (
     apply_tag_suggestion,
     intersect_oreno3d_listings,
     map_oreno3d_sort,
@@ -16,7 +17,7 @@ from app.core.oreno3d_search import (
     parse_oreno3d_tag_ids,
     tag_suggestion_query,
 )
-from app.core.search import SearchFilters
+from app.core.search.models import SearchFilters
 from app.ui.search.search_worker import SearchWorker
 from app.ui.search.widgets import TagSuggestionPopup
 

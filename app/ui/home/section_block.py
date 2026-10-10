@@ -29,7 +29,7 @@ from ...core.home_cache import (
 )
 from ...core.home_feed import HOME_PAGE_LIMIT, FeedSection
 from ...core.rating import RATING_ALL, normalize_rating
-from ...core.search import SearchVideo
+from ...core.search.models import SearchVideo
 from ...i18n import tr
 from ..chrome import SectionTitle, format_age
 from .workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows, stop_workers

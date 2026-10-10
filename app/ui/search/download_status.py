@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlsplit
 
 from PySide6.QtCore import QTimer, Signal
 
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
 from ..worker_lifecycle import ManagedThread
 

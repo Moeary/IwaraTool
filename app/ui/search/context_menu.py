@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
 
-from ...core.search import SearchPlaylist, SearchVideo
+from ...core.search.models import SearchPlaylist, SearchVideo
 from ...i18n import tr
 from .result_authors import _author_source_info, _oreno3d_video_url
 

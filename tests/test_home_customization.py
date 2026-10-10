@@ -644,7 +644,7 @@ class HomeInterfaceLayoutTests(_QtCase):
 
 class SkeletonAndCardTests(_QtCase):
     def test_placeholder_cards_show_until_real_ones_arrive(self):
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
         from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=False, max_rows=2)
@@ -667,7 +667,7 @@ class SkeletonAndCardTests(_QtCase):
     def test_a_cover_arriving_fades_in_instead_of_popping(self):
         from PySide6.QtGui import QColor, QPixmap
 
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
         from app.ui.media.card import MediaCard
 
         card = MediaCard(SearchVideo(video_id="a", title="A"))
@@ -684,7 +684,7 @@ class SkeletonAndCardTests(_QtCase):
         self.assertEqual(card._cover_alpha, 1.0)
 
     def test_hovering_animates_toward_one_and_back(self):
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
         from app.ui.media.card import MediaCard
 
         card = MediaCard(SearchVideo(video_id="a", title="A"))

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 from app.config import app_config
 from app.core.history import DownloadHistory
 from app.core.manager import download_manager
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 from app.core.subscription.store import SubscriptionStore
 from app.ui.main_window import MainWindow
 from app.ui.search.download_status import SearchDownloadStatus, download_status_text

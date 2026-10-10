@@ -4,12 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.core.oreno3d import (
-    Oreno3DClient,
-    parse_detail_page,
-    parse_listing_page,
-)
-from app.core.search import SearchAuthor, SearchFilters, SearchVideo, normalize_oreno3d_listing
+from app.core.oreno3d.client import Oreno3DClient
+from app.core.oreno3d.page_parsing import parse_detail_page, parse_listing_page
+from app.core.search.models import SearchAuthor, SearchFilters, SearchVideo
+from app.core.search.normalize import normalize_oreno3d_listing
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search.page import SearchInterface
 from app.ui.search.author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker

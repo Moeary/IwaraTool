@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem
 
-from ...core.search import SearchAuthor, SearchPlaylist, SearchVideo
+from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from .download_status import iwara_history_id
 from ..formatting import _format_count, _format_duration, _short_text

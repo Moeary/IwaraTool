@@ -20,7 +20,7 @@ from qfluentwidgets import (
 
 from ...core.home_feed import BROWSE_PAGE_LIMIT, FeedSection
 from ...core.rating import RATING_ALL, normalize_rating
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
 from .workers import CoverFetcher, FeedResult, FeedWorker, stop_workers
 from ..media.card_size import CardSizeControl

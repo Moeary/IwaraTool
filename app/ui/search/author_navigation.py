@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.search import SearchAuthor, SearchVideo
+from ...core.search.models import SearchAuthor, SearchVideo
 from ...i18n import tr
 from .result_authors import _author_source_info, _author_subscription_target
 from ..navigation import record_navigation

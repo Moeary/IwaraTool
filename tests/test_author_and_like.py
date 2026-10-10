@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from qfluentwidgets import InfoBar
 from app.core.api.client import IwaraAPI
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 
 
 class _QtCase(unittest.TestCase):

@@ -6,7 +6,8 @@ from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from ...core.search import SearchVideo, small_cover_url
+from ...core.search.models import SearchVideo
+from ...core.search.normalize import small_cover_url
 from ...signal_bus import signal_bus
 from ..click_dispatch import (
     ACTION_DETAIL,

@@ -24,7 +24,7 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ...core.search import SearchVideo
+from ...core.search.models import SearchVideo
 from ...i18n import tr
 from ..author_status import AuthorStatusBar
 from ..media.card_size import CardSizeControl

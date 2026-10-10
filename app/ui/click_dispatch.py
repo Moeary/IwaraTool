@@ -47,7 +47,7 @@ def double_click_action() -> str:
 def play_in_window(video) -> bool:
     """Ask for the player window for an Iwara video; False when there is nothing to play."""
 
-    from ..core.search import IWARA_IMAGE_SOURCE_KIND
+    from ..core.search.models import IWARA_IMAGE_SOURCE_KIND
     from ..signal_bus import signal_bus
 
     if getattr(video, "source_kind", "") == IWARA_IMAGE_SOURCE_KIND or not getattr(video, "downloadable", True):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.search import SearchVideo
+from ...core.search.models import SearchVideo
 from .helpers import _item_date_key, _title_matcher
 
 

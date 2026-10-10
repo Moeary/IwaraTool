@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QListWidgetItem, QWidget
 from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
 from ...core.manager import download_manager
-from ...core.search import SearchAuthor, SearchPlaylist, SearchVideo
+from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SearchActionsMixin

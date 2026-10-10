@@ -16,7 +16,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
 
 from app.config import app_config
-from app.core.search import SearchAuthor, SearchVideo, normalize_oreno3d_listing
+from app.core.search.models import SearchAuthor, SearchVideo
+from app.core.search.normalize import normalize_oreno3d_listing
 from app.ui.search.download_status import (
     SearchDownloadStatus,
     SearchDownloadStatusWorker,

@@ -20,7 +20,8 @@ from ...core.home_feed import MODE_AUTHOR
 from ...core.manager import download_manager
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ...core.rules import active_rule_id
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.search.normalize import avatar_url
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .workers import CoverFetcher

@@ -14,7 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
 from app.signal_bus import signal_bus
 from app.ui import click_dispatch
 from app.ui.click_dispatch import ClickDispatcher

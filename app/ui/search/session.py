@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 
 from ...config import app_config
-from ...core.search import SearchAuthor, SearchFilters, SearchPlaylist, SearchVideo
+from ...core.search.models import SearchAuthor, SearchFilters, SearchPlaylist, SearchVideo
 from ..navigation import has_focus_within, restore_scroll
 
 from .keyword_language import is_chinese_keyword

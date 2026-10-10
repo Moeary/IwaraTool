@@ -7,7 +7,7 @@ from typing import Any
 
 from PySide6.QtCore import Signal
 
-from ...core.search import SearchVideo
+from ...core.search.models import SearchVideo
 from ...i18n import tr
 from ..worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager

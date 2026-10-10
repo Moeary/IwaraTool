@@ -17,8 +17,9 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.api.client import IwaraAPI
-from app.core.search import SearchFilters, SearchPageResult, build_keyword_query_params
-from app.core.search_manager import SearchManagerMixin
+from app.core.search.models import SearchFilters, SearchPageResult
+from app.core.search.query_params import build_keyword_query_params
+from app.core.search.manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search.page import SearchInterface
 from app.ui.search.search_worker import SearchWorker
@@ -316,7 +317,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
 
     def test_loaded_covers_grow_with_the_grid(self):
         from PySide6.QtGui import QColor, QPixmap
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
 
         path = os.path.join(tempfile.mkdtemp(), "cover.png")
         source = QPixmap(640, 360)

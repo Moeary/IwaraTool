@@ -14,7 +14,8 @@ from PySide6.QtCore import QObject, Signal
 from ...core.home_feed import MODE_AUTHOR, MODE_BROWSE, MODE_KEYWORD, MODE_TAGS
 from ...core.manager import download_manager
 from ...core.rating import filter_by_rating
-from ...core.search import SearchVideo, normalize_image, normalize_video
+from ...core.search.models import SearchVideo
+from ...core.search.normalize import normalize_image, normalize_video
 from ..search.image_worker import SearchImageWorker
 from ..worker_lifecycle import ManagedThread, stop_qthreads
 

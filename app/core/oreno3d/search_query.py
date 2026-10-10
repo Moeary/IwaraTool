@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
-from .oreno3d_mapping import resolve_oreno3d_entity
+from .iwara_mapping import resolve_oreno3d_entity
 
 
 _ENTITY_PATHS = {

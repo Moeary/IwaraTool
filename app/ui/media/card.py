@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, Q
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ...core.rating import is_adult
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
 from ..formatting import _format_count, _format_duration
 from ..theme import palette, to_qcolor

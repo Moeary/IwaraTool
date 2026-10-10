@@ -7,7 +7,7 @@ from dataclasses import replace as dataclass_replace
 from PySide6.QtCore import QThread, QTimer
 
 from ...config import app_config
-from ...core.search import SearchFilters, SearchPageResult
+from ...core.search.models import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
 from ...i18n import tr
 from .worker_limits import (

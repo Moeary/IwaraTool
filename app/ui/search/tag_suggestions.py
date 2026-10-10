@@ -6,7 +6,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 
 from qfluentwidgets import LineEdit
 
-from ...core.oreno3d_search import apply_tag_suggestion, tag_suggestion_query
+from ...core.oreno3d.search_query import apply_tag_suggestion, tag_suggestion_query
 from ...core.tag_dictionary import complete_tag_query, tag_query_fragment
 from .page_dependencies import download_manager
 

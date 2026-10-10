@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 
 from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from ..worker_lifecycle import on_finished
 from .page_dependencies import download_manager

@@ -12,13 +12,8 @@ from qfluentwidgets import PushButton
 
 from ...config import app_config
 from ...core.rating import RATING_ALL, UI_RATING_KEY, filter_by_rating, is_adult, normalize_rating
-from ...core.search import (
-    SearchVideo,
-    avatar_url,
-    normalize_image,
-    normalize_video,
-    small_cover_url,
-)
+from ...core.search.models import SearchVideo
+from ...core.search.normalize import avatar_url, normalize_image, normalize_video, small_cover_url
 from ...i18n import current_language, tr
 from .pixmaps import read_pixmap
 from ..navigation import restore_scroll

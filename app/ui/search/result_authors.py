@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ...core.search import SearchAuthor, SearchVideo
+from ...core.search.models import SearchAuthor, SearchVideo
 
 
 def _extract_iwara_video_id(value: str) -> str:

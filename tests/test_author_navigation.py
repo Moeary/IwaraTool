@@ -10,15 +10,11 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.oreno3d import Oreno3DDetail, Oreno3DEntity, Oreno3DListing
-from app.core.search import (
-    SearchFilters,
-    SearchVideo,
-    build_video_query_params,
-    normalize_author,
-    normalize_video,
-)
-from app.core.search_manager import SearchManagerMixin
+from app.core.oreno3d.models import Oreno3DDetail, Oreno3DEntity, Oreno3DListing
+from app.core.search.models import SearchFilters, SearchVideo
+from app.core.search.query_params import build_video_query_params
+from app.core.search.normalize import normalize_author, normalize_video
+from app.core.search.manager import SearchManagerMixin
 from app.ui.search.page import SearchInterface
 from app.ui.search.author_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker
 from app.ui.search.oreno_workers import SearchOrenoLinkWorker
@@ -123,7 +119,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
 
     def test_saved_iwara_mapping_avoids_remote_lookup(self):
         mapping = {"id": "saved-id", "username": "saved-account", "name": "Saved author"}
-        with patch("app.core.search_manager.Oreno3DClient") as client:
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient") as client:
             result = self.manager.resolve_oreno3d_author(
                 "dead-source",
                 "https://oreno3d.com/movies/dead-source",
@@ -143,7 +139,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
             (None, "Video not found"),
             ({"id": "alive-id", "user": {"id": "user-42", "username": "real-account"}}, ""),
         ]
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author(
                 "unavailable-source",
                 "https://oreno3d.com/movies/unavailable-source",
@@ -164,7 +160,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
             (None, "Video not found"),
             ({"id": "alive-id", "user": {"id": "user-42", "username": "real-account"}}, ""),
         ]
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author("original", "https://oreno3d.com/movies/original")
         client.fetch_author_page.assert_called_once_with(self.author.url, page=1)
         self.assertEqual(result["iwara_author"]["id"], "user-42")
@@ -172,7 +168,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
     def test_source_author_url_survives_when_no_iwara_account_can_be_found(self):
         client = Mock()
         client.fetch_author_page.side_effect = RuntimeError("Source temporarily unavailable")
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author(
                 "deleted-source",
                 "https://oreno3d.com/movies/deleted-source",
@@ -421,8 +417,8 @@ class AuthorNavigationPageTests(unittest.TestCase):
         )
         self.page._all_videos = [video]
         with (
-            patch("app.core.search_manager.Oreno3DClient", return_value=client),
-            patch("app.core.search_manager.cloudscraper.create_scraper"),
+            patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client),
+            patch("app.core.search.oreno3d_bridge.cloudscraper.create_scraper"),
             patch.object(self.page, "_start_image_loading"),
         ):
             worker = SearchOrenoLinkWorker(self.page._generation, [video])

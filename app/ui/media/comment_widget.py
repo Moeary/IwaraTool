@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import AvatarWidget, BodyLabel, CaptionLabel, HyperlinkButton
 
-from ...core.search import avatar_url
+from ...core.search.normalize import avatar_url
 from ...i18n import tr
 from ..home.workers import CoverFetcher
 from .pixmaps import read_pixmap
