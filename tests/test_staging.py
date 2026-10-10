@@ -159,7 +159,7 @@ class StagingPanelTests(_StagingCase):
         panel.refresh()
         app.processEvents()
         self.assertFalse(panel.isHidden())
-        self.assertEqual([panel._tiles[k].value.text() for k in ("ready", "skip", "unavailable")], ["1", "1", "1"])
+        self.assertTrue(all(">1</b>" in panel._chips[k].text() for k in ("ready", "skip", "unavailable")))
         center.show_staged("unavailable")
         self.assertEqual([center._tasks_by_id[i].video_id for i in center._visible_task_ids], ["priv0000002"])
         panel._confirm()

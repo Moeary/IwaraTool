@@ -1,10 +1,10 @@
-"""The workbench's confirmation panel for videos waiting to be downloaded.
+"""The workbench's confirmation bar for videos waiting to be downloaded.
 
-Sits above the task list while anything waits: the batch, how many can
-download / are skipped / cannot download (each one filters the list), the
-rule (searchable; changing it re-checks the batch at once), where a random
-video would be saved and what it would be called, then Clear (left) and
-Confirm download (right).
+Two lines above the task list, shown while anything waits.  First the
+verdict and the decision: how many can download / are skipped / cannot
+download (each filters the list), then Clear and Confirm download.  Then the
+batch's settings: which batch, which rule (searchable; changing it re-checks
+at once) and where a random video would be saved under which name.
 """
 
 from __future__ import annotations
@@ -12,11 +12,10 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
-from PySide6.QtWidgets import QCompleter, QFrame, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCompleter, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
-    CaptionLabel,
     CardWidget,
     ComboBox,
     EditableComboBox,
@@ -24,9 +23,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     PrimaryPushButton,
-    PushButton,
-    SubtitleLabel,
-    TitleLabel,
+    StrongBodyLabel,
     TransparentToolButton,
 )
 
@@ -37,35 +34,52 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..fluent_dialogs import show_fluent_confirmation
 from ..rules.rule_text import _rule_display_name
-from ..theme import CARD_MARGINS, set_secondary_text, set_status_text
+from ..theme import qcolor, set_secondary_text
 from .page_dependencies import download_manager
 
 
-class _CountTile(QFrame):
-    """A big number with a caption; a click filters the task list."""
+class _CountChip(BodyLabel):
+    """"11 can download" with a colored number; a click filters the task list."""
 
     clicked = Signal()
 
     def __init__(self, caption: str, role: str, tooltip: str, parent: QWidget):
         super().__init__(parent)
+        self._caption, self._role = caption, role
+        self.setTextFormat(Qt.TextFormat.RichText)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
-        self.setObjectName("StagingTile")
-        self.setStyleSheet("#StagingTile { border: 1px solid rgba(128,128,128,0.25); border-radius: 8px; }")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(0)
-        self.value = TitleLabel("0", self)
-        set_status_text(self.value, role)
-        label = CaptionLabel(caption, self)
-        set_secondary_text(label)
-        layout.addWidget(self.value)
-        layout.addWidget(label)
+
+    def set_count(self, count: int):
+        color = qcolor(self._role).name() if count else qcolor("text_secondary").name()
+        self.setText(f'<b style="color:{color}">{count}</b>&nbsp;{self._caption}')
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
+
+
+class _ElidedLabel(BodyLabel):
+    """One line, cut with "…" to the width it gets; the full text is in the tooltip."""
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+    def set_full_text(self, text: str, tooltip: str = ""):
+        self._full = text
+        self.setToolTip(tooltip or text)
+        self._elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        self.setText(self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideMiddle, max(20, self.width())))
 
 
 class StagingPanel(CardWidget):
@@ -78,91 +92,73 @@ class StagingPanel(CardWidget):
         self._syncing = False
         self._last_total = 0  # more waiting than last time: show them in the list
         root = QVBoxLayout(self)
-        root.setContentsMargins(*CARD_MARGINS)
-        root.setSpacing(10)
-        root.addLayout(self._build_header())
-        root.addLayout(self._build_tiles())
-        root.addLayout(self._build_rule_row())
-        root.addLayout(self._build_example())
-        root.addLayout(self._build_buttons())
+        root.setContentsMargins(16, 10, 12, 10)
+        root.setSpacing(6)
+        root.addLayout(self._build_decision_row())
+        root.addLayout(self._build_settings_row())
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(80)
         self._refresh_timer.timeout.connect(self.refresh)
         signal_bus.staging_changed.connect(self._refresh_timer.start)
         signal_bus.rules_changed.connect(self._reload_rules)
-        self.refresh()
+        self._reload_rules()
 
     # ── building ─────────────────────────────────────────────────────────────
 
-    def _build_header(self) -> QHBoxLayout:
+    def _build_decision_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        self._title = SubtitleLabel("", self)
+        row.setSpacing(14)
+        self._title = StrongBodyLabel("", self)
         row.addWidget(self._title)
+        self._chips: dict[str, _CountChip] = {}
+        for verdict, caption, role, tip in (
+            (STAGE_READY, tr("can download", "可下载", "保存可"), "success",
+             tr("Show the videos that will download", "只看将要下载的作品", "保存予定のみ表示")),
+            (STAGE_SKIP, tr("skipped", "跳过", "スキップ"), "warning",
+             tr("Already here, already queued, or stopped by the rule; right-click a row to allow it",
+                "已有文件、已在队列或被规则拦住；可在行上右键放行", "保存済み・キュー内・ルール除外。行を右クリックで許可")),
+            (STAGE_UNAVAILABLE, tr("cannot download", "不能下", "保存不可"), "danger",
+             tr("The site does not offer the file (private, embedded…); the reason is on each row",
+                "站点不提供文件（私有、外链等），每行有原因", "サイトがファイルを提供していません（理由は各行）")),
+        ):
+            chip = _CountChip(caption, role, tip, self)
+            chip.clicked.connect(lambda verdict=verdict: self.show_requested.emit(verdict, self._batch_id()))
+            self._chips[verdict] = chip
+            row.addWidget(chip)
         row.addStretch(1)
+        clear_btn = TransparentToolButton(FluentIcon.DELETE, self)
+        clear_btn.setToolTip(tr("Clear the waiting videos (this batch)", "清空待确认（当前批次）", "確認待ちをクリア"))
+        clear_btn.clicked.connect(self._clear)
+        row.addWidget(clear_btn)
+        self._confirm_btn = PrimaryPushButton("", self, FluentIcon.DOWNLOAD)
+        self._confirm_btn.setMinimumWidth(150)
+        self._confirm_btn.clicked.connect(self._confirm)
+        row.addWidget(self._confirm_btn)
+        return row
+
+    def _build_settings_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
         self._batch_combo = ComboBox(self)
-        self._batch_combo.setMinimumWidth(260)
+        self._batch_combo.setFixedWidth(190)
+        self._batch_combo.setToolTip(tr("Which batch", "批次", "バッチ"))
         self._batch_combo.currentIndexChanged.connect(self._on_batch_changed)
         row.addWidget(self._batch_combo)
-        return row
-
-    def _build_tiles(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        self._tiles: dict[str, _CountTile] = {}
-        for verdict, caption, role, tip in (
-            (STAGE_READY, tr("can download", "可以下载", "保存可能"), "success",
-             tr("Show the videos that will download", "只看将要下载的作品", "保存予定のみ表示")),
-            (STAGE_SKIP, tr("skipped (already here / rule)", "跳过（已有 / 被规则拦住）", "スキップ（保存済み・ルール）"), "warning",
-             tr("Already here, or stopped by the rule; right-click to allow", "已有文件、已在队列或被规则拦住；右键可放行", "保存済み・ルール除外。右クリックで許可")),
-            (STAGE_UNAVAILABLE, tr("cannot download (private…)", "不能下（私有等）", "保存不可（非公開など）"), "danger",
-             tr("The site does not offer the file", "站点不提供文件（私有、外链等）", "サイトがファイルを提供していません")),
-        ):
-            tile = _CountTile(caption, role, tip, self)
-            tile.clicked.connect(lambda verdict=verdict: self.show_requested.emit(verdict, self._batch_id()))
-            self._tiles[verdict] = tile
-            row.addWidget(tile, 1)
-        return row
-
-    def _build_rule_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(BodyLabel(tr("Download rule", "下载规则", "ダウンロードルール"), self))
         self._rule_combo = EditableComboBox(self)
-        self._rule_combo.setPlaceholderText(tr("Search a rule…", "搜索下载规则…", "ルールを検索…"))
+        self._rule_combo.setFixedWidth(200)
+        self._rule_combo.setPlaceholderText(tr("Download rule…", "下载规则…", "ルール…"))
+        self._rule_combo.setToolTip(tr("Download rule; changing it re-checks the batch", "下载规则；更换后立即重新预解析", "ルール。変更すると再確認します"))
         self._rule_combo.currentIndexChanged.connect(self._on_rule_changed)
-        row.addWidget(self._rule_combo, 1)
-        self._reload_rules()
-        return row
-
-    def _build_example(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        column = QVBoxLayout()
-        column.setSpacing(2)
-        self._example_title = CaptionLabel("", self)
-        set_secondary_text(self._example_title)
-        self._example_folder = BodyLabel("", self)
-        self._example_name = BodyLabel("", self)
-        for label in (self._example_title, self._example_folder, self._example_name):
-            label.setWordWrap(True)
-            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            column.addWidget(label)
-        row.addLayout(column, 1)
+        row.addWidget(self._rule_combo)
+        self._example = _ElidedLabel(self)
+        set_secondary_text(self._example)
+        row.addWidget(self._example, 1)
         reroll = TransparentToolButton(FluentIcon.SYNC, self)
-        reroll.setToolTip(tr("Another random video", "随机换一个", "別の動画を表示"))
+        reroll.setToolTip(tr("Another random example", "换一个示例", "別の例"))
         reroll.clicked.connect(self._show_example)
-        row.addWidget(reroll, 0, Qt.AlignmentFlag.AlignTop)
-        return row
-
-    def _build_buttons(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        self._clear_btn = PushButton(tr("Clear", "清空待确认", "クリア"), self, FluentIcon.DELETE)
-        self._clear_btn.clicked.connect(self._clear)
-        self._confirm_btn = PrimaryPushButton("", self, FluentIcon.DOWNLOAD)
-        self._confirm_btn.clicked.connect(self._confirm)
-        row.addWidget(self._clear_btn, 1)
-        row.addWidget(self._confirm_btn, 1)
+        row.addWidget(reroll)
         return row
 
     # ── state ────────────────────────────────────────────────────────────────
@@ -183,8 +179,7 @@ class StagingPanel(CardWidget):
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self._rule_combo.setCompleter(completer)
         self._syncing = False
-        if hasattr(self, "_batch_combo"):
-            self.refresh()
+        self.refresh()
 
     def refresh(self):
         batches = download_manager.staged_batches()
@@ -196,15 +191,14 @@ class StagingPanel(CardWidget):
         if grew:
             QTimer.singleShot(0, lambda: self.show_requested.emit("", self._batch_id()))
         self._fill_batches(batches, total)
-        self._title.setText(tr(f"To confirm ({total})", f"待确认（{total}）", f"確認待ち（{total}）"))
+        self._title.setText(tr(f"To confirm {total}", f"待确认 {total}", f"確認待ち {total}"))
         current = self._batch_id()
         counts = download_manager.staged_counts(current)
-        for verdict, tile in self._tiles.items():
-            tile.value.setText(str(counts[verdict]))
-        rule_id = next((b["rule_id"] for b in batches if not current or b["batch_id"] == current), "")
-        self._select_rule(rule_id)
+        for verdict, chip in self._chips.items():
+            chip.set_count(counts[verdict])
+        self._select_rule(next((b["rule_id"] for b in batches if not current or b["batch_id"] == current), ""))
         ready = counts[STAGE_READY]
-        self._confirm_btn.setText(tr(f"Confirm download ({ready})", f"确认下载（{ready}）", f"保存する（{ready}）"))
+        self._confirm_btn.setText(tr(f"Download ({ready})", f"确认下载 ({ready})", f"保存する ({ready})"))
         self._confirm_btn.setEnabled(ready > 0)
         self._show_example()
 
@@ -231,14 +225,16 @@ class StagingPanel(CardWidget):
     def _show_example(self):
         example = download_manager.staged_example(self._batch_id())
         if not example:
-            self._example_title.setText(tr("Nothing here would download yet.", "这里还没有将要下载的作品。", "保存予定の動画はまだありません。"))
-            self._example_folder.setText("")
-            self._example_name.setText("")
+            self._example.set_full_text(tr("Nothing here would download yet.", "这里还没有将要下载的作品。", "保存予定の動画はまだありません。"))
             return
         full = os.path.join(app_config.download_dir, example["relative_path"])
-        self._example_title.setText(tr(f"For example: {example['title']}", f"示例（随机）：{example['title']}", f"例: {example['title']}"))
-        self._example_folder.setText(tr(f"Saved in: {os.path.dirname(full)}", f"保存到：{os.path.dirname(full)}", f"保存先: {os.path.dirname(full)}"))
-        self._example_name.setText(tr(f"Named: {os.path.basename(full)}", f"重命名为：{os.path.basename(full)}", f"ファイル名: {os.path.basename(full)}"))
+        title = example["title"]
+        self._example.set_full_text(
+            tr(f"e.g. {title} → {full}", f"示例：{title} → {full}", f"例: {title} → {full}"),
+            tr(f"Random example\n{title}\nSaved in: {os.path.dirname(full)}\nNamed: {os.path.basename(full)}",
+               f"随机示例\n{title}\n保存到：{os.path.dirname(full)}\n重命名为：{os.path.basename(full)}",
+               f"ランダムな例\n{title}\n保存先: {os.path.dirname(full)}\nファイル名: {os.path.basename(full)}"),
+        )
 
     # ── actions ──────────────────────────────────────────────────────────────
 

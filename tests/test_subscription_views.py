@@ -228,6 +228,18 @@ class SubscriptionPageViewTests(_QtCase):
             view._download_all()
             self.assertEqual(len(enqueue.call_args.args[0]), 10)
 
+    def test_downloading_from_the_grid_stages_on_the_workbench(self):
+        # The real page method, not a mock: it once read a removed attribute.
+        view = self.page._source_view
+        view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+        view._grid.select_all(True)
+        with patch.object(self.page._staging_flow, "start", return_value=True) as start:
+            view._download_selected()
+            start.assert_called_once()
+            with patch.object(self.page._staging_flow, "busy", return_value=True):
+                view._download_selected()  # still checking the previous batch: no second start
+            start.assert_called_once()
+
     def test_background_reload_keeps_the_selection_and_page(self):
         view = self.page._source_view
         view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))

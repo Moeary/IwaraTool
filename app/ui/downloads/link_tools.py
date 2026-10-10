@@ -4,17 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
-
-from qfluentwidgets import InfoBar, InfoBarPosition
-
 from ...i18n import tr
 from ..worker_lifecycle import on_finished
 from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
 from .page_dependencies import download_manager
 from .staging_flow import StagingFlow
-from .submitted_urls import split_submitted_urls
 
 
 class DownloadLinkToolsMixin:
@@ -27,27 +22,11 @@ class DownloadLinkToolsMixin:
 
     # ── why not downloaded ─────────────────────────────────────────────────
 
-    def _explain_current_url(self):
-        urls = split_submitted_urls(self._url_edit.text())
-        if not urls:
-            InfoBar.warning(
-                title=tr("Notice", "提示", "お知らせ"),
-                content=tr("Paste a video link or ID first", "请先粘贴视频链接或 ID", "先に動画のリンクまたは ID を貼り付けてください"),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=4000,
-                parent=self,
-            )
-            return
-        self.explain_video(urls[0])
-
     def explain_video(self, text: str):
-        """Look up why ``text`` (a video link or id) was not downloaded, then show the answer."""
+        """Why a task's video was not downloaded (task list: right-click), shown in a dialog."""
 
         if self._diagnosis_worker is not None:
             return
-        self._why_btn.setEnabled(False)
         worker = DiagnosisWorker(str(text or ""), self._rule_picker.selected_rule_id())
         worker.result_ready.connect(self._on_diagnosis_ready)
         on_finished(worker, self, self._on_diagnosis_finished)
@@ -57,7 +36,6 @@ class DownloadLinkToolsMixin:
     def _on_diagnosis_finished(self, worker):
         if worker is self._diagnosis_worker:
             self._diagnosis_worker = None
-            self._why_btn.setEnabled(True)
         worker.deleteLater()
 
     def _on_diagnosis_ready(self, result: dict[str, Any]):

@@ -10,7 +10,6 @@ from qfluentwidgets import (
     CardWidget,
     FluentIcon,
     HyperlinkButton,
-    PushButton,
     InfoBar,
     InfoBarPosition,
     LineEdit,
@@ -222,20 +221,7 @@ class DownloadInterface(
             FluentIcon.DOWNLOAD,
         )
         self._submit_btn.clicked.connect(self._submit)
-        submit_row = QHBoxLayout()
-        submit_row.setSpacing(8)
-        submit_row.addWidget(self._submit_btn, 1)
-        self._why_btn = PushButton(tr("Why not downloaded?", "为什么没下载？", "なぜ保存されない？"), url_card, FluentIcon.HELP)
-        self._why_btn.setToolTip(
-            tr(
-                "Check the video link in the box: queue, history, files on disk, the site and the rule",
-                "检查输入框中的视频：任务队列、历史记录、本地文件、站点状态与下载规则",
-                "入力欄の動画を確認します：キュー・履歴・ローカルファイル・サイト・ルール",
-            )
-        )
-        self._why_btn.clicked.connect(self._explain_current_url)
-        submit_row.addWidget(self._why_btn)
-        url_layout.addLayout(submit_row)
+        url_layout.addWidget(self._submit_btn)
         return url_card
 
     def _build_log_card(self, left_panel: QWidget) -> CardWidget:
@@ -373,3 +359,5 @@ class DownloadInterface(
             apply_scrollbars(self._log_edit)
         if hasattr(self, "_task_center"):
             self._task_center.refresh_theme_styles()
+        if hasattr(self, "_staging_panel"):
+            self._staging_panel.refresh()  # the counts' colors are baked into their text

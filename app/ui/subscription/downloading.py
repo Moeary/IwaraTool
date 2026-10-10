@@ -215,8 +215,8 @@ class SubscriptionDownloadingMixin:
         if not ids:
             self._show_error(tr("No downloadable videos in current selection", "当前选择没有可下载视频", "保存可能な動画がありません"))
             return
-        if self._enqueue_worker and self._enqueue_worker.isRunning():
-            self._show_error(tr("Queue operation is still running", "队列操作仍在进行中", "キュー操作が実行中です"))
+        if self._staging_flow.busy():
+            self._show_error(tr("Still checking the previous selection", "上一批仍在预解析中", "前の選択を確認中です"))
             return
         selected_rule_id = str(
             rule_id
