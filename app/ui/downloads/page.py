@@ -39,7 +39,6 @@ from ..theme import (
 )
 from .download_options import DownloadOptionsMixin
 from .link_tools import DownloadLinkToolsMixin
-from .pending_panel import PendingStacksCard
 from .staging_panel import StagingPanel
 from .log_panel import DownloadLogMixin
 from .submitted_urls import split_submitted_urls
@@ -109,9 +108,6 @@ class DownloadInterface(
 
         self._build_legacy_option_buttons(left_panel)
         left_layout.addWidget(self._build_url_card(left_panel))
-        self._pending_card = PendingStacksCard(left_panel)
-        self._pending_card.open_requested.connect(self._preview_flow.open_stack)
-        left_layout.addWidget(self._pending_card)
         left_layout.addWidget(self._build_log_card(left_panel), stretch=1)
 
         right_layout.setSpacing(8)

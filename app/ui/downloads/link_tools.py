@@ -13,7 +13,6 @@ from ..worker_lifecycle import on_finished
 from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
 from .page_dependencies import download_manager
-from .queue_preview import QueuePreviewFlow
 from .staging_flow import StagingFlow
 from .submitted_urls import split_submitted_urls
 
@@ -23,7 +22,6 @@ class DownloadLinkToolsMixin:
 
     def _init_link_tools(self):
         self._diagnosis_worker: DiagnosisWorker | None = None
-        self._preview_flow = QueuePreviewFlow(self)  # re-opens pending batches from before
         self._staging_flow = StagingFlow(self)
         self._staging_flow.busy_changed.connect(lambda busy: self._submit_btn.setEnabled(not busy))
 

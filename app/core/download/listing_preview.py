@@ -33,30 +33,6 @@ _STAT_FILTERS = (
 )
 
 
-def is_downloadable(item: dict[str, Any]) -> bool:
-    """Not here yet in any form, offered by the site, and not rejected by the rule."""
-
-    return not item.get("have") and not item.get("unavailable") and item.get("matches") is not False
-
-
-def preview_counts(items: list[dict[str, Any]]) -> dict[str, int]:
-    """Total, unavailable on the site, stopped by the rule, already here, and downloadable."""
-
-    unavailable = sum(1 for item in items if item.get("unavailable"))
-    have = sum(1 for item in items if item.get("have") and not item.get("unavailable"))
-    blocked = sum(
-        1 for item in items
-        if not item.get("unavailable") and not item.get("have") and item.get("matches") is False
-    )
-    return {
-        "total": len(items),
-        "unavailable": unavailable,
-        "blocked": blocked,
-        "have": have,
-        "downloadable": sum(1 for item in items if is_downloadable(item)),
-    }
-
-
 class ListingPreviewMixin:
     """Look inside an author or playlist link before anything is queued."""
 
@@ -153,16 +129,6 @@ class ListingPreviewMixin:
             "_stats_known": bool(row.get("stats_known")),
             "_unavailable": str(row.get("download_reason", "") or "") if row.get("download_state") else "",
         }
-
-    def reclassify_preview(self, preview: dict[str, Any], rule_id: str) -> dict[str, Any]:
-        """The same videos under another rule (and with fresh "already here" states); no network."""
-
-        result, payload = self._preview_result(
-            rule_id, url=str(preview.get("url", "") or ""), kind=str(preview.get("kind", "") or ""),
-            label=str(preview.get("label", "") or ""),
-        )
-        result["items"] = self._preview_items([item["raw"] for item in preview.get("items") or []], payload)
-        return result
 
     def _preview_result(self, rule_id: str, *, url: str = "", kind: str = "", label: str = ""):
         rule_id = self._normalize_rule_id(rule_id)

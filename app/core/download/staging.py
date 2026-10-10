@@ -10,10 +10,12 @@ batch is re-checked at once, offline.
 from __future__ import annotations
 
 import json
+import os
 import random
 import uuid
 from typing import Any
 
+from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
@@ -276,6 +278,30 @@ class StagingMixin:
             self._schedule_task_persist()
             signal_bus.staging_changed.emit()
         return len(removed)
+
+    def migrate_pending_stacks(self) -> int:
+        """Batches put off with the old confirmation dialog become waiting batches (once)."""
+
+        path = os.path.join(app_config.app_data_dir, "pending_downloads.json")
+        if not os.path.isfile(path):
+            return 0
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                stacks = json.load(fh)
+        except (OSError, ValueError):
+            stacks = []
+        staged = 0
+        for stack in stacks if isinstance(stacks, list) else []:
+            items = [item for item in (stack.get("items") or []) if isinstance(item, dict) and item.get("checked")]
+            raws = [item.get("raw") or {"id": item.get("video_id", "")} for item in items]
+            if raws:
+                preview = self.preview_videos(raws, rule_id=str(stack.get("rule_id", "") or ""), label=str(stack.get("label", "") or ""))
+                staged += int(self.stage_preview(preview).get("staged", 0) or 0)
+        try:
+            os.replace(path, path + ".migrated")  # kept for reference, never read again
+        except OSError:
+            pass
+        return staged
 
     def staged_rule_name(self, rule_id: str) -> str:
         rule = rule_store.find(self._normalize_rule_id(rule_id)) or {}

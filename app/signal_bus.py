@@ -51,9 +51,6 @@ class TaskSignalBus(QObject):
     # Download history or its local file paths changed after a committed write.
     history_changed = Signal()
 
-    # A put-off download confirmation was saved, re-opened, finished or cleared.
-    pending_stacks_changed = Signal()
-
     # Videos waiting for confirmation on the download workbench were added,
     # re-checked, confirmed or discarded.
     staging_changed = Signal()

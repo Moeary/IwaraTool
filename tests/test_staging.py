@@ -123,6 +123,21 @@ class StagingTests(_StagingCase):
         self.assertEqual(self.mgr.discard_staged(), 2)
         self.assertEqual(self.mgr.get_tasks(), [])
 
+    def test_old_pending_batches_are_migrated_once(self):
+        import json
+
+        data_dir = os.path.join(self.tmp, "data")
+        os.makedirs(data_dir)
+        with open(os.path.join(data_dir, "pending_downloads.json"), "w", encoding="utf-8") as fh:
+            json.dump([{"id": "s1", "label": "old", "rule_id": "", "items": [
+                {"video_id": "new00000003", "raw": {"id": "new00000003", "title": "Fresh"}, "checked": True},
+                {"video_id": "priv0000002", "raw": {"id": "priv0000002"}, "checked": False},
+            ]}], fh)
+        with patch.object(app_config, "_data_dir", data_dir):
+            self.assertEqual(self.mgr.migrate_pending_stacks(), 1)
+            self.assertEqual(self.mgr.migrate_pending_stacks(), 0)  # the file is moved aside
+        self.assertEqual([b["label"] for b in self.mgr.staged_batches()], ["old"])
+
 
 class StagingPanelTests(_StagingCase):
     def test_the_panel_counts_filters_and_confirms(self):
