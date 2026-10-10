@@ -1,10 +1,12 @@
 """Iwara API client using cloudscraper to bypass Cloudflare protection."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import re
+import time
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -63,6 +65,34 @@ def x_version_salts() -> tuple[str, ...]:
         if salt not in merged:
             merged.append(salt)
     return tuple(merged)
+
+
+def token_expires_at(token: str | None) -> float | None:
+    """Unix ``exp`` of an Iwara JWT, or ``None`` when it cannot be read."""
+
+    parts = str(token or "").split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        exp = claims.get("exp") if isinstance(claims, dict) else None
+        return float(exp) if isinstance(exp, (int, float)) else None
+    except Exception:
+        return None
+
+
+def token_is_expired(token: str | None, *, margin_seconds: float = 0.0) -> bool:
+    """Whether a JWT is past (or within ``margin_seconds`` of) its expiry.
+
+    Iwara does not reject an expired or invalid bearer token on public
+    listings: it silently answers as a guest, hiding videos that need an
+    account. A stale cached token therefore has to be caught on our side.
+    Tokens without a readable ``exp`` are trusted.
+    """
+
+    exp = token_expires_at(token)
+    return exp is not None and exp - margin_seconds <= time.time()
 
 
 # Orders accepted by ``/search`` per type (verified against the live API:

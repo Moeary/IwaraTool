@@ -1,7 +1,18 @@
+import base64
+import json
+import os
+import tempfile
+import threading
+import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from PySide6.QtCore import QSettings
 
 from app.config import app_config
-from app.core.api import IwaraAPI
+from app.core.api import IwaraAPI, token_is_expired
+from app.core.manager import DownloadManager
 
 
 _MISSING = object()
@@ -103,6 +114,58 @@ class IwaraAPILoginTests(unittest.TestCase):
         self.assertIn("HTTP 200", msg)
         self.assertNotIn("Expecting value", msg)
         self.assertTrue(response.closed)
+
+
+def _jwt(exp: float | None) -> str:
+    def part(data: dict) -> str:
+        raw = json.dumps(data).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    claims = {"type": "refresh_token"}
+    if exp is not None:
+        claims["exp"] = int(exp)
+    return f"{part({'alg': 'HS256'})}.{part(claims)}.signature"
+
+
+class CachedTokenExpiryTests(unittest.TestCase):
+    """Issue #19: Iwara answers an expired token as a guest instead of 401."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        settings = QSettings(os.path.join(self.temp.name, "settings.ini"), QSettings.Format.IniFormat)
+        patcher = patch.object(app_config, "_qs", settings)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app_config.auth_enabled = True
+        self.manager = SimpleNamespace(api=IwaraAPI(), _auth_lock=threading.Lock())
+
+    def _restore(self) -> bool:
+        with patch("app.core.manager.signal_bus"):
+            return DownloadManager.restore_cached_login(self.manager)
+
+    def test_token_expiry_helpers(self):
+        self.assertTrue(token_is_expired(_jwt(time.time() - 60)))
+        self.assertFalse(token_is_expired(_jwt(time.time() + 7 * 86400)))
+        self.assertTrue(token_is_expired(_jwt(time.time() + 3600), margin_seconds=86400))
+        self.assertFalse(token_is_expired("opaque-token"))
+        self.assertFalse(token_is_expired(_jwt(None)))
+
+    def test_valid_cached_token_is_restored(self):
+        token = _jwt(time.time() + 20 * 86400)
+        app_config.auth_token = token
+
+        self.assertTrue(self._restore())
+        self.assertEqual(self.manager.api.token, token)
+
+    def test_expired_cached_token_is_dropped(self):
+        app_config.auth_token = _jwt(time.time() - 60)
+        app_config.auth_token_saved_at = "2026-01-01T00:00:00"
+
+        self.assertFalse(self._restore())
+        self.assertIsNone(self.manager.api.token)
+        self.assertEqual(app_config.auth_token, "")
+        self.assertEqual(app_config.auth_token_saved_at, "")
 
 
 if __name__ == "__main__":

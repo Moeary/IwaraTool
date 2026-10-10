@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, urlparse
 from ..config import app_config
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .api import IwaraAPI
+from .api import IwaraAPI, token_is_expired
 from .download_paths import DownloadPathMixin
 from .download_aria2 import Aria2DownloadMixin
 from .download_artifacts import DownloadArtifactsMixin
@@ -739,6 +739,22 @@ class DownloadManager(DownloadRuntimeMixin, Aria2DownloadMixin, DownloadArtifact
     def restore_cached_login(self) -> bool:
         token = (app_config.auth_token or "").strip()
         if not (app_config.auth_enabled and token):
+            return False
+        # An expired token is not rejected by Iwara; it just turns every
+        # request into a guest request (issue #19: an author's account-only
+        # videos vanish). Drop it so startup signs in again with credentials.
+        if token_is_expired(token, margin_seconds=24 * 3600):
+            with self._auth_lock:
+                self.api.token = None
+                app_config.auth_token = ""
+                app_config.auth_token_saved_at = ""
+            signal_bus.log_message.emit(
+                tr(
+                    "[Login] Cached token expired, signing in again",
+                    "[登录] 缓存的 Token 已过期，将重新登录",
+                    "[ログイン] 保存済み Token の期限が切れたため再ログインします",
+                )
+            )
             return False
         with self._auth_lock:
             self.api.token = token
