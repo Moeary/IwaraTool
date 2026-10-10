@@ -20,14 +20,14 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..config import app_config
-from ..core.home_cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
-from ..core.home_feed import default_specs, load_specs, save_specs
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .home_layout_dialog import HomeLayoutDialog
-from .theme import set_secondary_text
-from .ui_state import show_fluent_confirmation
+from ...config import app_config
+from ...core.home_cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
+from ...core.home_feed import default_specs, load_specs, save_specs
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from ..home_layout_dialog import HomeLayoutDialog
+from ..theme import set_secondary_text
+from ..ui_state import show_fluent_confirmation
 
 
 class HomeSettingsCards:

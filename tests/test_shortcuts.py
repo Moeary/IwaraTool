@@ -15,8 +15,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 from app.config import app_config
 from app.core import shortcut_defs as defs
 from app.ui import shortcuts
-from app.ui.settings_sections import settings_categories
-from app.ui.settings_shortcuts_cards import ShortcutCaptureButton, shortcut_card_keys
+from app.ui.settings.sections import settings_categories
+from app.ui.settings.shortcuts_cards import ShortcutCaptureButton, shortcut_card_keys
 
 
 class _OverridesMixin:

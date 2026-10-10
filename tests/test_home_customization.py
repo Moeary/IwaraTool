@@ -705,7 +705,7 @@ class SkeletonAndCardTests(_QtCase):
 
 class SettingsHomeTests(_QtCase):
     def test_settings_have_a_home_category_with_both_cards(self):
-        from app.ui.settings_sections import settings_categories
+        from app.ui.settings.sections import settings_categories
 
         home = next(c for c in settings_categories() if c[0] == "home")
         self.assertEqual(home[4], ("home_layout", "home_cache"))

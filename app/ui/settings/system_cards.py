@@ -24,12 +24,12 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
-from ..config import app_config
-from ..core import autostart, backup, video_player
-from ..i18n import tr
-from ..logging_setup import get_logger, log_dir
-from .click_dispatch import ACTIONS as CLICK_ACTIONS, action_label
-from .ui_state import show_fluent_confirmation
+from ...config import app_config
+from ...core import autostart, backup, video_player
+from ...i18n import tr
+from ...logging_setup import get_logger, log_dir
+from ..click_dispatch import ACTIONS as CLICK_ACTIONS, action_label
+from ..ui_state import show_fluent_confirmation
 
 logger = get_logger(__name__)
 

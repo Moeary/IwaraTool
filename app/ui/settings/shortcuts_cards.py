@@ -15,10 +15,10 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ..core import shortcut_defs
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .shortcuts import sequence_from_event
+from ...core import shortcut_defs
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from ..shortcuts import sequence_from_event
 
 CARD_PREFIX = "shortcuts_"
 GENERAL_CARD = "shortcuts_general"

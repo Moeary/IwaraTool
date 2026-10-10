@@ -22,18 +22,25 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..config import app_config
-from ..i18n import tr
-from .settings_shortcuts_cards import shortcut_card_keys
-from .theme import set_secondary_text
+from ...config import app_config
+from ...i18n import tr
+from .shortcuts_cards import shortcut_card_keys
+from ..theme import set_secondary_text
 
 
-def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, ...]], ...]:
+SettingsCategory = tuple[str, FluentIcon, str, str, tuple[str, ...]]
+
+
+def settings_categories() -> tuple[SettingsCategory, ...]:
     """Settings grouped by what they control: (key, icon, title, summary, cards).
 
     Built on demand so the labels follow the language chosen at startup.
     """
 
+    return _app_categories() + _feature_categories()
+
+
+def _app_categories() -> tuple[SettingsCategory, ...]:
     return (
         (
             "general",
@@ -79,6 +86,11 @@ def settings_categories() -> tuple[tuple[str, FluentIcon, str, str, tuple[str, .
             ),
             ("download_dir", "quality", "behavior", "concurrency", "download_policy", "aria2"),
         ),
+    )
+
+
+def _feature_categories() -> tuple[SettingsCategory, ...]:
+    return (
         (
             "search",
             FluentIcon.SEARCH,

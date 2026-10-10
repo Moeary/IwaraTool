@@ -261,7 +261,7 @@ class SettingsLazyBuildTests(_QtCase):
         self.addCleanup(patcher.stop)
 
     def _page(self, *, cached_login):
-        from app.ui import settings_page
+        from app.ui.settings import page as settings_page
 
         manager = Mock()
         manager.restore_cached_login.return_value = cached_login
@@ -310,7 +310,7 @@ class SettingsLazyBuildTests(_QtCase):
         self.assertEqual(page._settings_board.current_category(), "shortcuts")
 
     def test_a_saved_password_login_builds_the_form_it_reads(self):
-        from app.ui import settings_page
+        from app.ui.settings import page as settings_page
 
         app_config.auth_enabled = True
         app_config.username = "alice"
