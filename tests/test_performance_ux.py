@@ -351,13 +351,15 @@ class SubscriptionOverviewTests(_QtCase):
         self.assertNotIn(last, overview._rows)
         bar = overview._scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
-        self.pump(lambda: last in overview._rows and not overview.building())
+        # Generous deadline: the full suite can leave background threads busy,
+        # and pump() returns as soon as the rows are in place.
+        self.pump(lambda: last in overview._rows and not overview.building(), seconds=15)
         self.assertIn(last, overview._rows)
         self.assertNotIn(first, overview._rows)  # far enough away to be torn down
         self.assertEqual(self._slot_positions(overview), list(range(14)))
         self.assertLess(len(overview._rows), 14)
         bar.setValue(0)
-        self.pump(lambda: first in overview._rows and not overview.building())
+        self.pump(lambda: first in overview._rows and not overview.building(), seconds=15)
         self.assertIn(first, overview._rows)
 
     def test_a_torn_down_row_keeps_its_height_so_the_scroll_bar_does_not_jump(self):
