@@ -21,7 +21,7 @@ from app.ui.download_page import DownloadInterface
 from app.ui.history_page import HistoryInterface
 from app.ui.repair_page import RepairInterface
 from app.ui.rules_page import RuleFormWidget, RulesInterface
-from app.ui.search_page import SearchInterface
+from app.ui.search.page import SearchInterface
 from app.ui.subscription_page import (
     SubscriptionInterface,
     _source_search_text,

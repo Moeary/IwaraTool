@@ -20,7 +20,8 @@ from app.core.api import IwaraAPI
 from app.core.search import SearchFilters, SearchPageResult, build_keyword_query_params
 from app.core.search_manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary
-from app.ui.search_page import SearchInterface, SearchWorker
+from app.ui.search.page import SearchInterface
+from app.ui.search.workers import SearchWorker
 
 
 def _set_columns(page, columns: int):
@@ -48,7 +49,7 @@ class SearchRouteTests(unittest.TestCase):
         self.manager = SearchManagerMixin()
         self.manager.tag_dictionary = TagDictionary(str(self.root))
         self.manager._api_call = lambda method, *args, **kwargs: getattr(self.api, method)(*args, **kwargs)
-        self.context.enter_context(patch("app.ui.search_page.download_manager", self.manager))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", self.manager))
 
     def search(self, keyword, *, scope="videos", sort="date", page=0, **options):
         results = []
@@ -263,7 +264,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
         manager = Mock()
         manager.history.get_records.return_value = {}
         manager.get_search_tag_suggestions.return_value = []
-        self.context.enter_context(patch("app.ui.search_page.download_manager", manager))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", manager))
         self.context.enter_context(patch("app.ui.rules_page.RulePicker.refresh_rules"))
         self.page = SearchInterface()
         self.addCleanup(self.close_page)

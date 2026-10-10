@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import sys
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import replace
@@ -10,13 +9,12 @@ from typing import Any
 
 from PySide6.QtCore import Signal
 
-from ..core.manager import download_manager as _default_download_manager
-from ..core.oreno3d_search import (
+from ...core.oreno3d_search import (
     map_oreno3d_sort,
     parse_oreno3d_query,
     parse_oreno3d_tag_ids,
 )
-from ..core.search import (
+from ...core.search import (
     SearchAuthor,
     SearchFilters,
     SearchPageResult,
@@ -36,21 +34,12 @@ from ..core.search import (
     profile_reference,
     sort_videos,
 )
-from ..core.rating import filter_by_rating
-from ..i18n import tr
-from .worker_lifecycle import ManagedThread
+from ...core.rating import filter_by_rating
+from ...i18n import tr
+from ..worker_lifecycle import ManagedThread
+from .page_dependencies import download_manager
 
 
-class _SearchManagerProxy:
-    """Resolve the page's manager lazily, preserving lightweight test fakes."""
-
-    def __getattr__(self, name: str):
-        page_module = sys.modules.get("app.ui.search_page")
-        manager = getattr(page_module, "download_manager", _default_download_manager)
-        return getattr(manager, name)
-
-
-download_manager = _SearchManagerProxy()
 
 
 # ``/search`` ignores the SFW/NSFW rating, so with a rating chosen the worker

@@ -15,7 +15,7 @@ from ..core.home_feed import MODE_AUTHOR, MODE_BROWSE, MODE_KEYWORD, MODE_TAGS
 from ..core.manager import download_manager
 from ..core.rating import filter_by_rating
 from ..core.search import SearchVideo, normalize_image, normalize_video
-from .search_workers import SearchImageWorker
+from .search.workers import SearchImageWorker
 from .worker_lifecycle import ManagedThread, stop_qthreads
 
 

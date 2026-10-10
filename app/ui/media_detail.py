@@ -56,7 +56,7 @@ from .shortcuts import attach_hint
 from .home_workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
 from .media_card import MediaGrid, image_size, read_pixmap, transparent_scroll_area
 from .navigation import restore_scroll
-from .search_widgets import _format_count, _format_duration
+from .search.widgets import _format_count, _format_duration
 from .theme import PAGE_MARGINS, PAGE_SPACING, palette, set_secondary_text, to_qcolor
 from .ui_state import ResponsiveFlowLayout
 from .video_preview_window import VideoPlayer, create_backend

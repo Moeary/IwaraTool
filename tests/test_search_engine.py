@@ -14,7 +14,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.signal_bus import signal_bus
-from app.ui.search_page import SearchInterface, is_chinese_keyword
+from app.ui.search.page import SearchInterface
+from app.ui.search.keyword_language import is_chinese_keyword
 
 
 class ChineseKeywordTests(unittest.TestCase):
@@ -41,7 +42,7 @@ class _PageCase(unittest.TestCase):
         manager = Mock()
         manager.history.get_records.return_value = {}
         manager.get_search_tag_suggestions.return_value = []
-        self.context.enter_context(patch("app.ui.search_page.download_manager", manager))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", manager))
         self.context.enter_context(patch("app.ui.rules_page.RulePicker.refresh_rules"))
 
     def _page(self) -> SearchInterface:
@@ -156,7 +157,7 @@ class InitialLoadTests(_PageCase):
 
 class SearchHistoryUpsertTests(unittest.TestCase):
     def test_an_entry_not_worth_keeping_leaves_the_history_alone(self):
-        from app.ui.search_widgets import _upsert_search_history
+        from app.ui.search.widgets import _upsert_search_history
 
         history = [{"keyword": "miku", "source": "iwara", "scope": "videos", "sort": "date"}]
         kept = _upsert_search_history(history, {"keyword": "", "source": "iwara", "scope": "images"})

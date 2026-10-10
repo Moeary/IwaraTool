@@ -17,7 +17,8 @@ from app.core.oreno3d_search import (
     tag_suggestion_query,
 )
 from app.core.search import SearchFilters
-from app.ui.search_page import SearchWorker, TagSuggestionPopup
+from app.ui.search.workers import SearchWorker
+from app.ui.search.widgets import TagSuggestionPopup
 
 
 class _FakeResponse:
@@ -179,7 +180,7 @@ class Oreno3DSearchWorkerTests(unittest.TestCase):
 
         manager = _FakeManager()
         results = []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchWorker(
                 SearchFilters(keyword="tag:genshin", sort="date"),
                 "videos",
@@ -211,7 +212,7 @@ class Oreno3DSearchWorkerTests(unittest.TestCase):
                 return [], 1
 
         manager = _FakeManager()
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchWorker(
                 SearchFilters(keyword="azur_lane, rape", sort="date"),
                 "tags",

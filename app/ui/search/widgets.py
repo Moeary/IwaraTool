@@ -15,10 +15,10 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import LineEdit, ListWidget
 
-from ..core.search import SearchAuthor, SearchVideo
-from ..core.tag_dictionary import TagSuggestion
-from ..i18n import tr
-from .theme import palette, popup_list_qss, scrollbar_qss
+from ...core.search import SearchAuthor, SearchVideo
+from ...core.tag_dictionary import TagSuggestion
+from ...i18n import tr
+from ..theme import palette, popup_list_qss, scrollbar_qss
 
 
 DEFAULT_SEARCH_HISTORY_LIMIT = 20

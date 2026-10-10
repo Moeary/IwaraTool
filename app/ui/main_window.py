@@ -48,7 +48,7 @@ from .notification_dispatcher import (
 )
 from .rules_page import RulesInterface
 from .repair_page import RepairInterface
-from .search_page import SearchInterface
+from .search.page import SearchInterface
 from .settings_page import SettingsInterface
 from .shortcut_bindings import install_shortcuts
 from .subscription_page import SubscriptionInterface

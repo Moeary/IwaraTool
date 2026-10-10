@@ -14,9 +14,9 @@ from PySide6.QtWidgets import QApplication
 from app.core import video_player
 from app.core.search import SearchVideo
 from app.ui import main_window as main_window_module
-from app.ui import search_actions
+from app.ui.search import actions as search_actions
 from app.ui.main_window import MainWindow
-from app.ui.search_actions import SearchActionsMixin
+from app.ui.search.actions import SearchActionsMixin
 
 
 def _video(**kwargs) -> SearchVideo:

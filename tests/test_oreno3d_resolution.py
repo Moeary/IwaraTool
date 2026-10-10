@@ -12,8 +12,8 @@ from requests.exceptions import Timeout
 from app.core.oreno3d import Oreno3DClient, extract_iwara_video_id, parse_detail_page
 from app.core.search import SearchVideo
 from app.core.search_manager import SearchManagerMixin
-from app.ui.search_page import SearchInterface
-from app.ui.search_workers import SearchOrenoAuthorWorker, SearchOrenoLinkWorker
+from app.ui.search.page import SearchInterface
+from app.ui.search.workers import SearchOrenoAuthorWorker, SearchOrenoLinkWorker
 
 
 SOURCE = "https://oreno3d.com/movies/123"
@@ -160,7 +160,7 @@ class AuthorResolutionTests(unittest.TestCase):
         video.download_video_id = "known-id"
         manager = Mock()
         manager.resolve_oreno3d_author.return_value = {}
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             SearchOrenoAuthorWorker(1, video).run()
         call = manager.resolve_oreno3d_author.call_args
         self.assertEqual(call.args, ("123", SOURCE))
@@ -180,7 +180,7 @@ class ResolutionPipelineTests(unittest.TestCase):
             **({"iwara_author": PROFILE} if author_found else {"error": "All candidates unavailable"}),
         }
         items, results = [], []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchOrenoLinkWorker(4, videos, concurrency=2, hydrate_metadata=hydrate)
             worker.item_ready.connect(items.append)
             worker.result_ready.connect(results.append)

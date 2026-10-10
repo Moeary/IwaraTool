@@ -185,14 +185,14 @@ class DetailReleaseTests(_QtCase):
 
 class SearchCoverMemoryTests(_QtCase):
     def setUp(self):
-        from app.ui.search_page import SearchInterface
+        from app.ui.search.page import SearchInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         settings = QSettings(os.path.join(self.tmp.name, "config.ini"), QSettings.Format.IniFormat)
         for target, value in (
             ("app.config.app_config._qs", settings),
-            ("app.ui.search_page.download_manager", Mock(history=Mock(get_records=Mock(return_value={})), get_search_tag_suggestions=Mock(return_value=[]))),
+            ("app.ui.search.page.download_manager", Mock(history=Mock(get_records=Mock(return_value={})), get_search_tag_suggestions=Mock(return_value=[]))),
             ("app.ui.rules_page.RulePicker.refresh_rules", lambda *a, **k: None),
         ):
             patcher = mock.patch(target, value)
@@ -230,7 +230,7 @@ class SearchCoverMemoryTests(_QtCase):
     def test_a_file_smaller_than_asked_is_not_re_read_every_time(self):
         tiny = _jpg(self.tmp.name, "tiny.jpg", 120, 68)
         self.page._grid_icon_size = QSize(600, 340)
-        with mock.patch("app.ui.search_page.read_pixmap", wraps=read_pixmap) as reader:
+        with mock.patch("app.ui.search.page.read_pixmap", wraps=read_pixmap) as reader:
             for _ in range(5):
                 self.page._image_icon(tiny)
         self.assertEqual(reader.call_count, 1)
@@ -395,7 +395,7 @@ class IdleTrimTests(_QtCase):
         for target, value in (
             ("app.config.app_config._qs", QSettings(os.path.join(cls.tmp.name, "config.ini"), QSettings.Format.IniFormat)),
             ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.search_page.SearchInterface._load_initial_results", lambda page: None),
+            ("app.ui.search.page.SearchInterface._load_initial_results", lambda page: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)

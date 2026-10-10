@@ -17,13 +17,13 @@ from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
 
 from app.config import app_config
 from app.core.search import SearchAuthor, SearchVideo, normalize_oreno3d_listing
-from app.ui.search_download_status import (
+from app.ui.search.download_status import (
     SearchDownloadStatus,
     SearchDownloadStatusWorker,
     iwara_history_id,
     query_download_statuses,
 )
-from app.ui.search_page import SearchInterface
+from app.ui.search.page import SearchInterface
 
 
 def _set_columns(page, columns: int):
@@ -82,7 +82,7 @@ class SearchDownloadStatusQueryTests(unittest.TestCase):
                 "missing": {"file_path": os.path.join(temp_dir, "missing.mp4")},
                 "empty": {"file_path": ""},
             })
-            with patch("app.ui.search_download_status.os.path.isfile", wraps=os.path.isfile) as isfile:
+            with patch("app.ui.search.download_status.os.path.isfile", wraps=os.path.isfile) as isfile:
                 statuses = query_download_statuses(history, ["one", "same-file", "one", "missing", "empty", "new"])
             self.assertEqual(history.calls, [("one", "same-file", "missing", "empty", "new")])
             self.assertEqual(isfile.call_count, 2)
@@ -118,7 +118,7 @@ class SearchDownloadStatusQueryTests(unittest.TestCase):
                 return real_isfile(path)
 
             worker = SearchDownloadStatusWorker(history, ["one"], 1, 1)
-            with patch("app.ui.search_download_status.os.path.isfile", side_effect=check_file):
+            with patch("app.ui.search.download_status.os.path.isfile", side_effect=check_file):
                 worker.start()
                 self.assertTrue(worker.wait(3000))
             self.assertEqual(len(history.calls), 1)
@@ -142,8 +142,8 @@ class SearchDownloadStatusPageTests(unittest.TestCase):
         self.bus.log_message.connect(self.logs.append)
         self.patches = [
             patch.object(app_config, "_qs", self.settings),
-            patch("app.ui.search_page.download_manager", SimpleNamespace(history=self.history)),
-            patch("app.ui.search_page.signal_bus", self.bus),
+            patch("app.ui.search.page.download_manager", SimpleNamespace(history=self.history)),
+            patch("app.ui.search.page.signal_bus", self.bus),
         ]
         for patcher in self.patches:
             patcher.start()

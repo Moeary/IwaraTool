@@ -1,8 +1,7 @@
 """User actions for search results, kept separate from page layout."""
 from __future__ import annotations
 
-import sys
-import webbrowser as _default_webbrowser
+import webbrowser
 from typing import Any
 
 from PySide6.QtCore import QItemSelectionModel, Qt
@@ -11,52 +10,34 @@ from PySide6.QtWidgets import QTableWidgetItem
 from qfluentwidgets import (
     Action,
     FluentIcon,
-    InfoBar as _DefaultInfoBar,
+    InfoBar,
     InfoBarPosition,
     RoundMenu,
 )
 
-from ..core.manager import download_manager as _default_download_manager
-from ..core.search import (
+from ...core.search import (
     IWARA_IMAGE_SOURCE_KIND,
     SearchAuthor,
     SearchPlaylist,
     SearchVideo,
     normalize_video,
 )
-from ..i18n import tr
-from ..signal_bus import signal_bus as _default_signal_bus
-from .search_widgets import (
+from ...i18n import tr
+from .widgets import (
     _author_source_info,
     _author_subscription_target,
     _extract_iwara_video_id,
     _oreno3d_video_url,
 )
-from .navigation import record_navigation
-from .worker_lifecycle import on_finished
-from .search_workers import (
+from ..navigation import record_navigation
+from ..worker_lifecycle import on_finished
+from .page_dependencies import download_manager, signal_bus
+from .workers import (
     SearchAuthorProfileWorker,
     SearchIwaraAuthorWorker,
     SearchOrenoAuthorWorker,
     SearchQueueResolveWorker,
 )
-
-
-class _PageDependencyProxy:
-    def __init__(self, name: str, fallback: object):
-        self.name = name
-        self.fallback = fallback
-
-    def __getattr__(self, attribute: str):
-        page_module = sys.modules.get("app.ui.search_page")
-        target = getattr(page_module, self.name, self.fallback)
-        return getattr(target, attribute)
-
-
-download_manager = _PageDependencyProxy("download_manager", _default_download_manager)
-signal_bus = _PageDependencyProxy("signal_bus", _default_signal_bus)
-InfoBar = _PageDependencyProxy("InfoBar", _DefaultInfoBar)
-webbrowser = _PageDependencyProxy("webbrowser", _default_webbrowser)
 
 
 class SearchActionsMixin:
@@ -432,7 +413,7 @@ class SearchActionsMixin:
     def _perform_result_click(self, action: str, item):
         """One Settings click action on a result (``item``: grid item or the row's first cell)."""
 
-        from .click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT
+        from ..click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT
 
         if action == ACTION_SELECT:
             self._toggle_result_selected(item)

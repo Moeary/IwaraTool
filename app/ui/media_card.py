@@ -28,7 +28,7 @@ from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, small_cover_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT, ClickDispatcher, play_in_window
-from .search_widgets import _format_count, _format_duration
+from .search.widgets import _format_count, _format_duration
 from .theme import palette, to_qcolor
 
 COVER_RATIO = 9 / 16

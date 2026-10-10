@@ -21,7 +21,7 @@ from app.core.manager import download_manager
 from app.core.search import SearchVideo
 from app.core.subscriptions import SubscriptionStore
 from app.ui.main_window import MainWindow
-from app.ui.search_download_status import SearchDownloadStatus, download_status_text
+from app.ui.search.download_status import SearchDownloadStatus, download_status_text
 from app.ui.subscription_page import SubscriptionInterface
 
 
@@ -45,11 +45,11 @@ class Issue13AcceptanceTests(unittest.TestCase):
         self.context.enter_context(patch.object(download_manager, "_tasks", {}))
         self.context.enter_context(patch.object(SubscriptionInterface, "_start_avatar_worker_for_missing_sources"))
         self.refresh = self.context.enter_context(patch.object(SubscriptionInterface, "_start_refresh"))
-        self.context.enter_context(patch("app.ui.search_page.InfoBar.success"))
+        self.context.enter_context(patch("qfluentwidgets.InfoBar.success"))
         # Home loads its feeds on first show; keep the test off the network.
         self.context.enter_context(patch("app.ui.home_workers.FeedWorker.run", lambda self: None))
         # So does an empty Search page; these tests start their own searches.
-        self.context.enter_context(patch("app.ui.search_page.SearchInterface._load_initial_results"))
+        self.context.enter_context(patch("app.ui.search.page.SearchInterface._load_initial_results"))
         self.previous_window = MainWindow._window_ref
         self.window = MainWindow()
         self.window.stackedWidget.setAnimationEnabled(False)
