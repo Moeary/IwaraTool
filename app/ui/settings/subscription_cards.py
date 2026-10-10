@@ -170,6 +170,18 @@ class SettingsSubscriptionCardsMixin:
         enqueue_row.addWidget(self._auto_enqueue_switch)
         automation_layout.addLayout(enqueue_row)
 
+        confirm_row = QHBoxLayout()
+        confirm_row.addWidget(
+            BodyLabel(
+                tr("Auto queued videos also wait for confirmation", "自动入队也需在下载工作台确认", "自動追加も確認待ちにする"),
+                automation_card,
+            )
+        )
+        confirm_row.addStretch()
+        self._auto_enqueue_confirm_switch = SwitchButton(automation_card)
+        confirm_row.addWidget(self._auto_enqueue_confirm_switch)
+        automation_layout.addLayout(confirm_row)
+
         rule_row = QHBoxLayout()
         rule_row.addWidget(BodyLabel(tr("Matching rule", "匹配规则", "照合ルール"), automation_card))
         self._auto_enqueue_rule_combo = ComboBox(automation_card)
@@ -266,6 +278,7 @@ class SettingsSubscriptionCardsMixin:
         app_config.subscription_refresh_interval_minutes = self._auto_refresh_interval_spin.value()
         app_config.desktop_notifications_enabled = self._desktop_notification_switch.isChecked()
         app_config.subscription_auto_enqueue_enabled = self._auto_enqueue_switch.isChecked()
+        app_config.subscription_auto_enqueue_confirm = self._auto_enqueue_confirm_switch.isChecked()
         app_config.subscription_auto_enqueue_rule_id = str(
             self._auto_enqueue_rule_combo.currentData() or BUILTIN_DEFAULT_RULE_ID
         )

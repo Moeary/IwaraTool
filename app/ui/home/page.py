@@ -31,7 +31,7 @@ from ..navigation import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView
 from .feed_view import HomeFeedView
 from .section_block import queueable_ids
-from ..downloads.queue_preview import confirm_videos
+from ..downloads.staging_flow import stage_videos
 
 
 @dataclass
@@ -307,9 +307,9 @@ class HomeInterface(QWidget):
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return
-        # Confirm first: counts, where the files go, and the rule.
+        # They wait on the download workbench for confirmation.
         wanted = set(ids)
-        confirm_videos(
+        stage_videos(
             self,
             [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
             label=tr("Home", "首页", "ホーム"),

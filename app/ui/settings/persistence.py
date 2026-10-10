@@ -50,6 +50,7 @@ class SettingsPersistenceMixin:
         self._auto_refresh_interval_spin.setValue(app_config.subscription_refresh_interval_minutes)
         self._desktop_notification_switch.setChecked(app_config.desktop_notifications_enabled)
         self._auto_enqueue_switch.setChecked(app_config.subscription_auto_enqueue_enabled)
+        self._auto_enqueue_confirm_switch.setChecked(bool(app_config.subscription_auto_enqueue_confirm))
         self._reload_auto_enqueue_rules(app_config.subscription_auto_enqueue_rule_id)
         self._speed_limit_switch.setChecked(app_config.global_speed_limit_enabled)
         self._speed_limit_spin.setValue(max(1, app_config.global_speed_limit_kib or 1024))
@@ -58,6 +59,7 @@ class SettingsPersistenceMixin:
         self._schedule_end_edit.setText(normalize_hhmm(app_config.download_schedule_end))
         self._update_check_switch.setChecked(app_config.update_check_enabled)
         self._skip_existing_switch.setChecked(app_config.skip_existing_files)
+        self._direct_single_switch.setChecked(bool(app_config.direct_download_single))
 
     def _load_display_settings(self):
         self._sync_theme_combo()
@@ -163,6 +165,7 @@ class SettingsPersistenceMixin:
         app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
         app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
+        app_config.direct_download_single = self._direct_single_switch.isChecked()
         app_config.completed_task_click_action = (
             "player" if self._completed_click_combo.currentIndex() == 1 else "folder"
         )

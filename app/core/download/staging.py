@@ -259,16 +259,12 @@ class StagingMixin:
         return result
 
     def _mark_staged(self, tasks: list[DownloadTask]) -> int:
-        raws = []
-        for task in tasks:
-            try:
-                raw = json.loads(task.stage_raw_json or "{}")
-            except ValueError:
-                raw = {}
-            raws.append(raw if isinstance(raw, dict) and raw.get("id") else {"id": task.video_id, "title": task.title})
-        marked = self.mark_video_items_downloaded(raws)
+        """A mark-only rule: record them (cover / NFO / history as the rule says) in the background."""
+
+        ids = [t.video_id for t in tasks]
         self.discard_staged(task_ids=[t.task_id for t in tasks])
-        return marked
+        self._parse_executor.submit(self._process_subscription_items_metadata_only, ids, rule_id=tasks[0].rule_id)
+        return len(ids)
 
     def discard_staged(self, *, batch_id: str = "", task_ids: list[str] | None = None) -> int:
         """Drop videos still waiting for confirmation; returns how many."""

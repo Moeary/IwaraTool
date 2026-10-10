@@ -10,7 +10,7 @@ from qfluentwidgets import InfoBarPosition, PrimaryPushButton
 from ...config import app_config
 from ...i18n import tr
 from ..downloads.filter_dialog import FilterDialog, option_button_style
-from .components import SubscriptionEnqueueWorker, _CONTROL_HEIGHT
+from .components import _CONTROL_HEIGHT
 from .page_dependencies import InfoBar, download_manager, signal_bus
 
 
@@ -222,63 +222,9 @@ class SubscriptionDownloadingMixin:
             rule_id
             or (self._rule_picker.selected_rule_id() if hasattr(self, "_rule_picker") else "")
         )
-        # Show the counts, the target folder and a file name first; queue on confirm.
-        self._queue_preview_flow.start(
-            lambda: download_manager.preview_subscription_items(
-                ids, rule_id=selected_rule_id, label=tr("Subscription videos", "订阅作品", "購読の動画"),
-            ),
-            lambda preview, chosen: self._submit_ids(
-                [str(item["video_id"]) for item in chosen], str(preview.get("rule_id") or selected_rule_id),
-            ),
-        )
-
-    def _submit_ids(self, ids: list[str], rule_id: str):
-        if self._enqueue_worker and self._enqueue_worker.isRunning():
-            self._show_error(tr("Queue operation is still running", "队列操作仍在进行中", "キュー操作が実行中です"))
-            return
-        worker = SubscriptionEnqueueWorker(ids, rule_id=rule_id)
-        worker.result_ready.connect(self._on_enqueue_finished)
-        worker.finished.connect(lambda worker=worker: self._release_worker("_enqueue_worker", worker))
-        self._enqueue_worker = worker
-        worker.start()
-
-    def _on_enqueue_finished(self, result: dict):
-        queued = int(result.get("queued", 0) or 0)
-        marked = int(result.get("marked", 0) or 0)
-        thumbnail = int(result.get("thumbnail", 0) or 0)
-        nfo = int(result.get("nfo", 0) or 0)
-        failed = int(result.get("failed", 0) or 0)
-        skipped_unavailable = int(result.get("skipped_unavailable", 0) or 0)
-        mode = str(result.get("mode", "") or "")
-        self._refresh_sources_keep_current_items()
-        if mode == "metadata":
-            title = tr("Processed", "已处理", "処理完了")
-            content = tr(
-                f"Marked {marked}, thumbnails {thumbnail}, NFO {nfo}, failed {failed}, skipped unavailable {skipped_unavailable}",
-                f"已标记 {marked}，封面 {thumbnail}，NFO {nfo}，失败 {failed}，跳过不可下载 {skipped_unavailable}",
-                f"記録 {marked}、サムネイル {thumbnail}、NFO {nfo}、失敗 {failed}、保存不可スキップ {skipped_unavailable}",
-            )
-        elif mode == "empty" and skipped_unavailable:
-            title = tr("Skipped", "已跳过", "スキップ")
-            content = tr(
-                f"Skipped {skipped_unavailable} unavailable videos",
-                f"已跳过 {skipped_unavailable} 个不可下载视频",
-                f"保存不可の動画を {skipped_unavailable} 件スキップしました",
-            )
-        else:
-            title = tr("Added To Queue", "已加入队列", "キューに追加")
-            content = tr(
-                f"Queued {queued} videos, skipped unavailable {skipped_unavailable}",
-                f"已加入 {queued} 个视频，跳过不可下载 {skipped_unavailable}",
-                f"{queued} 件を追加、保存不可スキップ {skipped_unavailable}",
-            )
-        bar = InfoBar.warning if (mode == "empty" and skipped_unavailable) else InfoBar.success
-        bar(
-            title=title,
-            content=content,
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.TOP,
-            duration=3000,
-            parent=self,
+        # Pre-checked locally, then they wait on the download workbench for confirmation.
+        source = next((s for s in self._all_sources if int(s.get("id", 0) or 0) == self._current_source_id), {})
+        label = str(source.get("title", "") or "") or tr("Subscription videos", "订阅作品", "購読の動画")
+        self._staging_flow.start(
+            lambda: download_manager.preview_subscription_items(ids, rule_id=selected_rule_id, label=label),
         )

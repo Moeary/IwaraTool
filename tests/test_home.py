@@ -347,9 +347,9 @@ class HomeInterfaceTests(unittest.TestCase):
         home.go_back()  # no history left here: the Back button goes up to the feed
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_queue_confirms_with_the_given_rule_and_ignores_images(self):
+    def test_queue_stages_with_the_given_rule_and_ignores_images(self):
         home = self.home
-        with mock.patch.object(self.home_page, "confirm_videos") as confirm,                 mock.patch.object(self.home_page.InfoBar, "warning") as warning:
+        with mock.patch.object(self.home_page, "stage_videos") as confirm,                 mock.patch.object(self.home_page.InfoBar, "warning") as warning:
             home._queue([_video("v1", source_kind="iwara", downloadable=True)], "rule-7")
             confirm.assert_called_once()
             self.assertEqual([v.video_id for v in confirm.call_args.args[1]], ["v1"])

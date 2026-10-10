@@ -23,6 +23,7 @@ from ..repair.page import RepairInterface
 from ..search.page import SearchInterface
 from ..settings.page import SettingsInterface
 from ..subscription.page import SubscriptionInterface
+from .staging_badge import StagingBadge
 
 
 class WindowNavigationMixin:
@@ -45,6 +46,7 @@ class WindowNavigationMixin:
 
         self._add_main_pages()
         self._add_bottom_items()
+        self._staging_badge = StagingBadge(self.navigationInterface, self._download_nav_item)
 
         self.switchTo(self._startup_page())
 
@@ -65,7 +67,7 @@ class WindowNavigationMixin:
             icon=FluentIcon.SEARCH,
             text=tr("Search", "搜索", "検索"),
         )
-        self.addSubInterface(
+        self._download_nav_item = self.addSubInterface(
             self._download_page,
             icon=FluentIcon.DOWNLOAD,
             text=tr("Download Hub", "下载工作台", "ダウンロードハブ"),

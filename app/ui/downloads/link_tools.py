@@ -13,7 +13,8 @@ from ..worker_lifecycle import on_finished
 from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
 from .page_dependencies import download_manager
-from .queue_preview import QueuePreviewFlow, queue_chosen
+from .queue_preview import QueuePreviewFlow
+from .staging_flow import StagingFlow
 from .submitted_urls import split_submitted_urls
 
 
@@ -22,8 +23,9 @@ class DownloadLinkToolsMixin:
 
     def _init_link_tools(self):
         self._diagnosis_worker: DiagnosisWorker | None = None
-        self._preview_flow = QueuePreviewFlow(self)
-        self._preview_flow.busy_changed.connect(lambda busy: self._submit_btn.setEnabled(not busy))
+        self._preview_flow = QueuePreviewFlow(self)  # re-opens pending batches from before
+        self._staging_flow = StagingFlow(self)
+        self._staging_flow.busy_changed.connect(lambda busy: self._submit_btn.setEnabled(not busy))
 
     # ── why not downloaded ─────────────────────────────────────────────────
 
@@ -72,16 +74,22 @@ class DownloadLinkToolsMixin:
     # ── author / playlist preview ───────────────────────────────────────────
 
     def _start_listing_preview(self, url: str, rule_id: str) -> bool:
-        """Fetch what ``url`` contains in the background; False if a preview is already running."""
+        """List what ``url`` holds in the background; the videos then wait for confirmation here."""
 
-        def chosen(preview: dict[str, Any], items: list[dict[str, Any]]):
-            self._maybe_add_download_source_to_subscription(url)
-            queue_chosen(self, preview, items)
-            if self._url_edit.text().strip() == url:
-                self._url_edit.clear()
+        def staged(result: dict[str, Any]):
+            if result.get("staged") or result.get("direct"):
+                self._maybe_add_download_source_to_subscription(url)
+                if self._url_edit.text().strip() == url:
+                    self._url_edit.clear()
 
-        return self._preview_flow.start(
+        flow = self._staging_flow
+        try:
+            flow.staged.disconnect()
+        except (RuntimeError, TypeError):
+            pass  # nothing connected yet
+        flow.staged.connect(staged)
+        return flow.start(
             lambda: download_manager.preview_listing(url, rule_id=rule_id),
-            chosen,
-            busy_text=tr("Listing every video behind the link…", "正在列出链接中的全部作品…", "リンク内の動画を一覧にしています…"),
+            busy_text=tr("Listing every video behind the link…", "正在列出链接中的全部作品并预解析…", "リンク内の動画を一覧にしています…"),
+            allow_direct=False,
         )

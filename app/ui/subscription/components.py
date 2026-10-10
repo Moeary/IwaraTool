@@ -98,23 +98,6 @@ class SubscriptionImportAuthorsWorker(ManagedThread):
         self.result_ready.emit(download_manager.import_followed_author_subscriptions())
 
 
-class SubscriptionEnqueueWorker(ManagedThread):
-    result_ready = Signal(dict)
-
-    def __init__(self, video_ids: list[str], *, rule_id: str = ""):
-        super().__init__()
-        self._video_ids = list(video_ids)
-        self._rule_id = str(rule_id or "")
-
-    def run(self):
-        self.result_ready.emit(
-            download_manager.submit_subscription_items(
-                self._video_ids,
-                rule_id=self._rule_id,
-            )
-        )
-
-
 class SubscriptionAvatarWorker(ManagedThread):
     avatar_ready = Signal(int, str, str)
 

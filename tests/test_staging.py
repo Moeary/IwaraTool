@@ -153,5 +153,47 @@ class StagingPanelTests(_StagingCase):
         self.assertEqual([t.status for t in self.mgr.get_tasks()], [TaskStatus.RESOLVING])
 
 
+class StagingFlowTests(_StagingCase):
+    def _run(self, videos, *, direct_setting: bool):
+        import time
+
+        from PySide6.QtWidgets import QApplication, QWidget
+
+        from app.ui.downloads import staging_flow, task_center
+
+        app = QApplication.instance() or QApplication([])
+        manager = patch.object(task_center, "download_manager", self.mgr)
+        manager.start()
+        self.addCleanup(manager.stop)
+        saved = app_config.direct_download_single
+        self.addCleanup(setattr, app_config, "direct_download_single", saved)
+        app_config.direct_download_single = direct_setting
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        flow = staging_flow.StagingFlow(host)
+        results = []
+        flow.staged.connect(results.append)
+        payloads = [dict(v) for v in videos]
+        self.assertTrue(flow.start(lambda: self.mgr.preview_videos(payloads, label="page")))
+        deadline = time.time() + 5
+        while flow.busy() and time.time() < deadline:
+            app.processEvents()
+        app.processEvents()
+        return results
+
+    def test_a_batch_waits_on_the_workbench(self):
+        results = self._run(VIDEOS, direct_setting=True)
+        self.assertEqual(results[0]["staged"], 3)
+        self.assertEqual(self.mgr.staged_counts()["ready"], 1)
+
+    def test_a_single_video_downloads_at_once_when_allowed(self):
+        self.assertEqual(self._run(VIDEOS[2:], direct_setting=True), [])  # no "staged" result: it went straight in
+        self.assertEqual([t.status for t in self.mgr.get_tasks()], [TaskStatus.RESOLVING])
+
+    def test_a_single_video_waits_when_direct_download_is_off(self):
+        self._run(VIDEOS[2:], direct_setting=False)
+        self.assertEqual([t.status for t in self.mgr.get_tasks()], [TaskStatus.STAGED])
+
+
 if __name__ == "__main__":
     unittest.main()

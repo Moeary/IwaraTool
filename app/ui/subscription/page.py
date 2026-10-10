@@ -17,10 +17,9 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SubscriptionActionsMixin
 from .helpers import _parse_ui_bool
-from ..downloads.queue_preview import QueuePreviewFlow
+from ..downloads.staging_flow import StagingFlow
 from .components import (
     SubscriptionAvatarWorker,
-    SubscriptionEnqueueWorker,
     SubscriptionImportAuthorsWorker,
     SubscriptionRefreshWorker,
     SubscriptionThumbnailWorker,
@@ -86,8 +85,7 @@ class SubscriptionInterface(
         self.setObjectName("SubscriptionInterface")
         self._worker: SubscriptionRefreshWorker | None = None
         self._import_worker: SubscriptionImportAuthorsWorker | None = None
-        self._enqueue_worker: SubscriptionEnqueueWorker | None = None
-        self._queue_preview_flow = QueuePreviewFlow(self)  # look before queueing
+        self._staging_flow = StagingFlow(self)  # adds wait on the download workbench
         self._avatar_worker: SubscriptionAvatarWorker | None = None
         self._thumbnail_worker: SubscriptionThumbnailWorker | None = None
         self._cover_cache_worker: SubscriptionThumbnailWorker | None = None
@@ -217,8 +215,7 @@ class SubscriptionInterface(
         workers: list[QThread | None] = [
             self._worker,
             self._import_worker,
-            self._enqueue_worker,
-            self._queue_preview_flow.worker,
+            self._staging_flow.worker,
             self._avatar_worker,
             self._thumbnail_worker,
             self._cover_cache_worker,

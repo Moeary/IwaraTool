@@ -6,7 +6,7 @@ from typing import Any
 
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
-from ..downloads.queue_preview import queue_chosen, video_payload
+from ..downloads.staging_flow import video_payload
 from ..worker_lifecycle import on_finished
 from .page_dependencies import download_manager
 from .oreno_workers import SearchQueueResolveWorker
@@ -114,15 +114,10 @@ class SearchQueueingMixin:
             for video_id in ids
         ]
         label = tr("Search results", "搜索结果", "検索結果")
-        self._queue_preview_flow.start(
+        self._staging_flow.start(
             lambda: download_manager.preview_selection(payloads, playlist_urls, rule_id=selected_rule_id, label=label),
-            lambda preview, chosen: self._enqueue_chosen(preview, chosen, skipped=skipped, errors=errors),
+            allow_direct=not playlist_urls,
         )
-
-    def _enqueue_chosen(self, preview: dict, chosen: list[dict], *, skipped: int, errors: list[str]):
-        """Queue what the user kept in the confirmation, under the rule confirmed there."""
-
-        queue_chosen(self, preview, chosen, source_label=tr("Search", "搜索", "検索"))
         if skipped:
             self._show_warning(tr(
                 f"Skipped {skipped} item(s) without an Iwara download link",

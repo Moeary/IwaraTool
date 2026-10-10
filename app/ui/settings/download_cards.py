@@ -109,6 +109,21 @@ class SettingsDownloadCardsMixin:
         skip_row.addWidget(self._skip_existing_switch)
         name_layout.addLayout(skip_row)
 
+        direct_row = QHBoxLayout()
+        direct_label = BodyLabel(
+            tr(
+                "Download a single video at once (batches wait for confirmation on the workbench)",
+                "单个可下载视频直接下载（批量添加仍在下载工作台待确认）",
+                "1 本だけなら即保存（まとめて追加した分は確認待ち）",
+            ),
+            name_card,
+        )
+        direct_label.setWordWrap(True)
+        direct_row.addWidget(direct_label, 1)
+        self._direct_single_switch = SwitchButton(name_card)
+        direct_row.addWidget(self._direct_single_switch)
+        name_layout.addLayout(direct_row)
+
         click_row = QHBoxLayout()
         click_row.addWidget(BodyLabel(tr("Completed card click action", "已完成任务卡片单击行为", "完了カードのクリック動作"), name_card))
         click_row.addStretch()

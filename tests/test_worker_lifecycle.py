@@ -74,7 +74,6 @@ class SubscriptionWorkerSignalTests(unittest.TestCase):
         for cls in (
             sc.SubscriptionRefreshWorker,
             sc.SubscriptionImportAuthorsWorker,
-            sc.SubscriptionEnqueueWorker,
             sc.SubscriptionAvatarWorker,
         ):
             self.assertIs(cls.finished, QThread.finished, cls.__name__)
