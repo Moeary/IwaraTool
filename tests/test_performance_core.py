@@ -19,8 +19,9 @@ from app.core.models import DownloadTask, TaskStatus
 from app.core.subscriptions import SubscriptionStore
 from app.ui.downloads.page import DownloadInterface
 from app.ui.history.page import HistoryInterface
-from app.ui.repair_page import RepairInterface
-from app.ui.rules_page import RuleFormWidget, RulesInterface
+from app.ui.repair.page import RepairInterface
+from app.ui.rules.rule_form import RuleFormWidget
+from app.ui.rules.page import RulesInterface
 from app.ui.search.page import SearchInterface
 from app.ui.subscription.page import SubscriptionInterface
 from app.ui.subscription.helpers import (

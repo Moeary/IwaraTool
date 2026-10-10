@@ -25,7 +25,7 @@ from ...config import app_config
 from ...core.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..rules_page import RulePicker
+from ..rules.rule_picker import RulePicker
 from .task_center import TaskCenterInterface
 from ..theme import (
     CARD_MARGINS,

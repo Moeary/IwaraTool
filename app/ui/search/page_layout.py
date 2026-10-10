@@ -32,7 +32,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating, rating_options
 from ...i18n import tr
-from ..rules_page import RulePicker
+from ..rules.rule_picker import RulePicker
 from ..click_dispatch import ClickDispatcher
 from .widgets import SearchHistoryPopup, SearchKeywordEdit, TagSuggestionPopup
 from .grid_style import _search_grid_style

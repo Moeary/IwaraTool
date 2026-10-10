@@ -40,7 +40,7 @@ from .components import (
     _style_inline_label,
     _thumbnail_list_style,
 )
-from ..rules_page import RulePicker
+from ..rules.rule_picker import RulePicker
 from ..theme import set_secondary_text
 from ..ui_state import (
     ResponsiveFlowLayout,

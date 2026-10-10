@@ -160,7 +160,7 @@ class SearchResultClickTests(_ConfigCase):
         manager.history.get_records.return_value = {}
         manager.get_search_tag_suggestions.return_value = []
         self.context.enter_context(patch("app.ui.search.page.download_manager", manager))
-        self.context.enter_context(patch("app.ui.rules_page.RulePicker.refresh_rules"))
+        self.context.enter_context(patch("app.ui.rules.rule_picker.RulePicker.refresh_rules"))
         from app.ui.search.page import SearchInterface
 
         self.context.enter_context(patch.object(SearchInterface, "_load_initial_results"))

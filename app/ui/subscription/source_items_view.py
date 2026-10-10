@@ -31,7 +31,7 @@ from ..media.card_size import CardSizeControl
 from ..media.grid import MediaGrid, transparent_scroll_area
 from ..media.pixmaps import PixmapLRU
 from ..navigation import has_focus_within, restore_scroll
-from ..rules_page import RulePicker
+from ..rules.rule_picker import RulePicker
 from .helpers import _source_type_label
 from ..theme import PAGE_SPACING, set_secondary_text
 from ..ui_state import ResponsiveFlowLayout

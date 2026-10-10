@@ -202,7 +202,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
         self.manager.add_author_subscription.return_value = 42
         self.manager_patch = patch("app.ui.search.page.download_manager", self.manager)
         self.manager_patch.start()
-        self.rules_patch = patch("app.ui.rules_page.RulePicker.refresh_rules")
+        self.rules_patch = patch("app.ui.rules.rule_picker.RulePicker.refresh_rules")
         self.rules_patch.start()
         self.bus = Mock()
         self.bus_patch = patch("app.ui.search.page.signal_bus", self.bus)

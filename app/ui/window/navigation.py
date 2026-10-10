@@ -18,8 +18,8 @@ from ...config import app_config
 from ..downloads.page import DownloadInterface
 from ..history.page import HistoryInterface
 from ..home.page import HomeInterface
-from ..rules_page import RulesInterface
-from ..repair_page import RepairInterface
+from ..rules.page import RulesInterface
+from ..repair.page import RepairInterface
 from ..search.page import SearchInterface
 from ..settings.page import SettingsInterface
 from ..subscription.page import SubscriptionInterface

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 from app.config import app_config
 from app.core.models import DownloadTask
 from app.core.repair_manager import RepairManagerMixin
-from app.ui.repair_page import RepairInterface
+from app.ui.repair.page import RepairInterface
 
 
 TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}"
@@ -385,7 +385,7 @@ class RepairInterfaceModeTests(RepairTestFixture):
 
     def setUp(self):
         super().setUp()
-        self.ui_manager_patch = patch("app.ui.repair_page.download_manager", self.manager)
+        self.ui_manager_patch = patch("app.ui.repair.page.download_manager", self.manager)
         self.ui_manager_patch.start()
         self.addCleanup(self.ui_manager_patch.stop)
         self.rules_patch = patch.object(RepairInterface, "_load_rules")

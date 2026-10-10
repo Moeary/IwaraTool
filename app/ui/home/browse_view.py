@@ -26,7 +26,7 @@ from .workers import CoverFetcher, FeedResult, FeedWorker, stop_workers
 from ..media.card_size import CardSizeControl
 from ..media.grid import MediaGrid, transparent_scroll_area
 from ..navigation import has_focus_within, restore_scroll
-from ..rules_page import RulePicker
+from ..rules.rule_picker import RulePicker
 from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from .section_block import queueable_ids
 

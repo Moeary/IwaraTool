@@ -193,7 +193,7 @@ class SearchCoverMemoryTests(_QtCase):
         for target, value in (
             ("app.config.app_config._qs", settings),
             ("app.ui.search.page.download_manager", Mock(history=Mock(get_records=Mock(return_value={})), get_search_tag_suggestions=Mock(return_value=[]))),
-            ("app.ui.rules_page.RulePicker.refresh_rules", lambda *a, **k: None),
+            ("app.ui.rules.rule_picker.RulePicker.refresh_rules", lambda *a, **k: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
