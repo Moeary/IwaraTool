@@ -30,7 +30,7 @@ from .download.runtime import DownloadRuntimeMixin
 from .repair_manager import RepairManagerMixin
 from .rules import active_rule_id  # noqa: F401 - patch point, see download.task_rules.active_rule_id
 from .search_manager import SearchManagerMixin
-from .subscription_manager import SubscriptionManagerMixin
+from .subscription.manager import SubscriptionManagerMixin
 from .download.policy import SharedRateLimiter
 from .history import DownloadHistory
 from .image_cache import SearchImageCache, SubscriptionImageCache
@@ -40,7 +40,7 @@ from .manager_state import (
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
 from .models import DownloadTask, TaskStatus
-from .subscriptions import SubscriptionStore
+from .subscription.store import SubscriptionStore
 from .tag_dictionary import TagDictionary
 from .task_queue import TaskPersistenceCoordinator, TaskQueueStore
 from .download.enqueueing import EnqueueingMixin

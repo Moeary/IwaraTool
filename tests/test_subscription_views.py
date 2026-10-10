@@ -18,7 +18,7 @@ from app.core.manager import DownloadManager
 from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
 from app.core.search import SearchVideo
-from app.core.subscriptions import SubscriptionStore
+from app.core.subscription.store import SubscriptionStore
 from app.ui.subscription import item_queries, overview, source_items_view
 
 

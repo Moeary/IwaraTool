@@ -286,7 +286,7 @@ class SubscriptionOverviewTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
-        from app.core.subscriptions import SubscriptionStore
+        from app.core.subscription.store import SubscriptionStore
         from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()
@@ -936,7 +936,7 @@ class SubscriptionKeyboardActionTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
-        from app.core.subscriptions import SubscriptionStore
+        from app.core.subscription.store import SubscriptionStore
         from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()

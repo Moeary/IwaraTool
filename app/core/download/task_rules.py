@@ -15,7 +15,7 @@ from ..rules import (
     normalize_rule_payload,
     rule_store,
 )
-from ..subscription_automation import matches_rule_metadata
+from ..subscription.automation import matches_rule_metadata
 
 
 def active_rule_id() -> str:

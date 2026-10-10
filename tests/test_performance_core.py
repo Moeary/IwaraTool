@@ -21,7 +21,7 @@ from app.core.task_metadata import (
     _subscription_item_from_video,
 )
 from app.core.models import DownloadTask, TaskStatus
-from app.core.subscriptions import SubscriptionStore
+from app.core.subscription.store import SubscriptionStore
 from app.ui.downloads.page import DownloadInterface
 from app.ui.history.page import HistoryInterface
 from app.ui.repair.page import RepairInterface
