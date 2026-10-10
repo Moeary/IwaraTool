@@ -31,6 +31,8 @@ class TaskSortingMixin:
             return False
         if state_idx == 6 and task.status != TaskStatus.SKIPPED:
             return False
+        if state_idx == 7 and not self._passes_stage_filters(task):
+            return False
 
         query = self._search_edit.text().strip().lower() if hasattr(self, "_search_edit") else ""
         if query and query not in self._task_search_text(task):
@@ -45,7 +47,7 @@ class TaskSortingMixin:
             order = self._task_order.get(task.task_id, 0)
             progress = self._progress_ratio(task)
             if self._sort_column == self._SORT_DEFAULT:
-                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)
+                return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), self._stage_rank(task), -task.priority, order)
             if self._sort_column == self._SORT_ADDED:
                 return order
             if self._sort_column == self._COL_STATE:

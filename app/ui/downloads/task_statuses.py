@@ -6,6 +6,7 @@ from ...core.models import TaskStatus
 
 
 _DEFAULT_STATUS_PRIORITY: dict[TaskStatus, int] = {
+    TaskStatus.STAGED: -1,  # waiting for confirmation: on top
     TaskStatus.DOWNLOADING: 0,
     TaskStatus.RESOLVING: 1,
     TaskStatus.CANCELLING: 2,

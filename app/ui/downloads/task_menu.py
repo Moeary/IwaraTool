@@ -17,6 +17,8 @@ class TaskMenuMixin:
     """Row clicks, selection and the right-click menu of the task table."""
 
     def _primary_action(self, task: DownloadTask):
+        if task.status == TaskStatus.STAGED:
+            return self._staged_primary_action(task)
         if task.status == TaskStatus.FAILED:
             return (
                 "retry",
@@ -65,6 +67,8 @@ class TaskMenuMixin:
         task_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
         action = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
         if not task_id or not action:
+            return
+        if self._run_staged_action(action, task_id):
             return
         if action == "open_url":
             self._open_url(str(item.data(Qt.ItemDataRole.UserRole + 2) or ""))
@@ -128,6 +132,7 @@ class TaskMenuMixin:
         ]
 
         menu = RoundMenu(parent=self)
+        self._add_staged_actions(menu, grouped.get(TaskStatus.STAGED, []))
         if completed_ids:
             self._add_completed_task_actions(menu, completed_ids)
         if completed_ids and (

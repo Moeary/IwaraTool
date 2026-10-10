@@ -40,6 +40,7 @@ from ..theme import (
 from .download_options import DownloadOptionsMixin
 from .link_tools import DownloadLinkToolsMixin
 from .pending_panel import PendingStacksCard
+from .staging_panel import StagingPanel
 from .log_panel import DownloadLogMixin
 from .submitted_urls import split_submitted_urls
 from .subscription_prompt import DownloadSubscriptionPromptMixin
@@ -113,8 +114,12 @@ class DownloadInterface(
         left_layout.addWidget(self._pending_card)
         left_layout.addWidget(self._build_log_card(left_panel), stretch=1)
 
+        right_layout.setSpacing(8)
+        self._staging_panel = StagingPanel(right_panel)  # hidden while nothing waits
+        right_layout.addWidget(self._staging_panel)
         self._task_center = TaskCenterInterface(right_panel, embedded=True)
         self._task_center.explain_requested.connect(self.explain_video)
+        self._staging_panel.show_requested.connect(self._task_center.show_staged)
         right_layout.addWidget(self._task_center, stretch=1)
 
     def _build_title_row(self) -> QHBoxLayout:

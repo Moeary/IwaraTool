@@ -29,7 +29,7 @@ VIDEOS = [
 ]
 
 
-class StagingTests(unittest.TestCase):
+class _StagingCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="iwaratool-staging-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -58,6 +58,8 @@ class StagingTests(unittest.TestCase):
     def _verdicts(self):
         return {t.video_id: t.stage_verdict for t in self.mgr.get_tasks() if t.status == TaskStatus.STAGED}
 
+
+class StagingTests(_StagingCase):
     def test_staged_videos_wait_with_their_verdicts(self):
         result = self._stage()
         self.assertEqual((result["ready"], result["skip"], result["unavailable"]), (1, 1, 1))
@@ -120,6 +122,35 @@ class StagingTests(unittest.TestCase):
         self.assertNotIn("priv0000002", self._verdicts())
         self.assertEqual(self.mgr.discard_staged(), 2)
         self.assertEqual(self.mgr.get_tasks(), [])
+
+
+class StagingPanelTests(_StagingCase):
+    def test_the_panel_counts_filters_and_confirms(self):
+        from PySide6.QtWidgets import QApplication
+
+        from app.ui.downloads import task_center
+        from app.ui.downloads.page import DownloadInterface
+
+        app = QApplication.instance() or QApplication([])
+        manager = patch.object(task_center, "download_manager", self.mgr)
+        manager.start()
+        self.addCleanup(manager.stop)
+        page = DownloadInterface()
+        self.addCleanup(page.deleteLater)
+        panel, center = page._staging_panel, page._task_center
+        self.assertTrue(panel.isHidden())
+        self._stage()
+        center._refresh_tasks()
+        panel.refresh()
+        app.processEvents()
+        self.assertFalse(panel.isHidden())
+        self.assertEqual([panel._tiles[k].value.text() for k in ("ready", "skip", "unavailable")], ["1", "1", "1"])
+        center.show_staged("unavailable")
+        self.assertEqual([center._tasks_by_id[i].video_id for i in center._visible_task_ids], ["priv0000002"])
+        panel._confirm()
+        panel.refresh()
+        self.assertTrue(panel.isHidden())
+        self.assertEqual([t.status for t in self.mgr.get_tasks()], [TaskStatus.RESOLVING])
 
 
 if __name__ == "__main__":

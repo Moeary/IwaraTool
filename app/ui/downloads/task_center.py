@@ -46,6 +46,7 @@ from .task_live_updates import TaskLiveUpdatesMixin
 from .task_menu import TaskMenuMixin
 from .task_rows import TaskRowsMixin
 from .task_sorting import TaskSortingMixin
+from .task_staging import STATE_FILTER_STAGED, TaskStagingMixin
 from .task_text import TaskTextMixin
 
 
@@ -56,6 +57,7 @@ class TaskCenterInterface(
     TaskMenuMixin,
     TaskActionsMixin,
     TaskLiveUpdatesMixin,
+    TaskStagingMixin,
     QWidget,
 ):
     """Single-list task center with filters, sorting, and row actions."""
@@ -92,6 +94,7 @@ class TaskCenterInterface(
         self._pending_progress_ids: set[str] = set()
         self._sort_column = self._SORT_DEFAULT
         self._sort_reverse = False
+        self._init_stage_filters()
 
         self._build_ui()
         self._connect_signals()
@@ -195,10 +198,11 @@ class TaskCenterInterface(
                 tr("Completed", "已完成", "完了"),
                 tr("Cancelled", "已中断", "中断済み"),
                 tr("Skipped", "已跳过", "スキップ"),
+                tr("To confirm", "待确认", "確認待ち"),  # STATE_FILTER_STAGED
             ]
         )
         self._state_combo.setFixedWidth(130)
-        self._state_combo.currentIndexChanged.connect(self._apply_filters)
+        self._state_combo.currentIndexChanged.connect(self._on_state_filter_changed)
         filter_row.addWidget(self._state_combo)
 
         self._sort_combo = ComboBox(self)
@@ -342,6 +346,11 @@ class TaskCenterInterface(
         super().resizeEvent(event)
         if hasattr(self, "_table"):
             fit_table_last_column(self._table)
+
+    def _on_state_filter_changed(self, _index: int):
+        if self._state_combo.currentIndex() != STATE_FILTER_STAGED:
+            self._stage_verdict_filter = self._stage_batch_filter = ""  # those belong to "To confirm"
+        self._apply_filters()
 
     def refresh_theme_styles(self):
         """Repaint status/link colors that were baked into table items."""

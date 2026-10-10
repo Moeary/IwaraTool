@@ -12,6 +12,7 @@ from ..ui_state import fit_table_last_column
 from ..table_column_dialog import open_table_column_dialog
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES
+from .task_staging import staged_detail, staged_state_color, staged_state_text
 from .task_text import _video_url
 
 
@@ -74,6 +75,10 @@ class TaskRowsMixin:
             task.video_id,
         ]
 
+        staged = task.status == TaskStatus.STAGED
+        if staged:
+            values[self._COL_STATE] = staged_state_text(task)
+            values[self._COL_PROGRESS] = staged_detail(task)
         for col_idx, value in enumerate(values):
             item = self._table.item(row_idx, col_idx)
             if item is None:
@@ -81,10 +86,12 @@ class TaskRowsMixin:
                 self._table.setItem(row_idx, col_idx, item)
             item.setText(value)
             item.setData(Qt.ItemDataRole.UserRole, task.task_id)
-            item.setToolTip(self._cell_tooltip(task, col_idx, value))
+            item.setToolTip(self._staged_tooltip(task) if staged and col_idx in (self._COL_STATE, self._COL_PROGRESS) else self._cell_tooltip(task, col_idx, value))
             if col_idx == self._COL_STATE:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setForeground(task_status_color(task.status))
+                item.setForeground(staged_state_color(task) if staged else task_status_color(task.status))
+            elif staged and col_idx == self._COL_PROGRESS:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             elif col_idx in (self._COL_PROGRESS, self._COL_SIZE, self._COL_SPEED):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             elif col_idx == self._COL_PRIORITY:
@@ -155,10 +162,12 @@ class TaskRowsMixin:
         cancelled = sum(1 for task in tasks if task.status == TaskStatus.CANCELLED)
         skipped = sum(1 for task in tasks if task.status == TaskStatus.SKIPPED)
         completed = sum(1 for task in tasks if task.status == TaskStatus.COMPLETED)
+        staged = sum(1 for task in tasks if task.status == TaskStatus.STAGED)
         self._summary_label.setText(
             summary_text(
                 [
                     (tr("Tasks", "任务", "タスク"), len(tasks)),
+                    (tr("To confirm", "待确认", "確認待ち"), staged),
                     (tr("Visible", "当前显示", "表示"), len(visible)),
                     (tr("Active", "进行中", "実行中"), active),
                     (tr("Queued", "排队", "待機"), queued),
