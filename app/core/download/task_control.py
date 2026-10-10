@@ -276,7 +276,7 @@ class TaskControlMixin:
         should_cancel = False
         with self._lock:
             task = self._tasks.get(task_id)
-            if task and task.status not in _TERMINAL_STATUSES:
+            if task and task.status not in _TERMINAL_STATUSES and task.status != TaskStatus.STAGED:
                 should_cancel = True
                 removed = None
             else:

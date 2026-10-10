@@ -93,6 +93,7 @@ class ListingPreviewTests(_ManagerCase):
 
     def test_queued_and_moved_videos_are_told_apart(self):
         self._downloaded("haveFile0001", with_file=False)  # history only, the file moved away
+        self.mgr._tasks["task"] = DownloadTask(task_id="task", url="u", video_id="fresh0000002")
         self.mgr._task_id_by_video_id["fresh0000002"] = "task"
         items = self.mgr.preview_listing("https://www.iwara.tv/profile/bob")["items"]
         self.assertEqual([item["have"] for item in items], ["history", "queued"])

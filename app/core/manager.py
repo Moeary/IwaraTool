@@ -47,6 +47,7 @@ from .download.diagnosis import DownloadDiagnosisMixin
 from .download.enqueueing import EnqueueingMixin
 from .download.listing_preview import ListingPreviewMixin
 from .download.pending_stacks import PendingStackStore, PendingStacksMixin
+from .download.staging import StagingMixin
 from .download.history_actions import HistoryActionsMixin
 from .download.session import SessionMixin
 from .download.task_control import TaskControlMixin
@@ -63,6 +64,7 @@ class DownloadManager(
     UrlIntakeMixin,
     ListingPreviewMixin,
     PendingStacksMixin,
+    StagingMixin,
     DownloadDiagnosisMixin,
     EnqueueingMixin,
     DownloadRuntimeMixin,
@@ -172,7 +174,7 @@ class DownloadManager(
             return sum(
                 1
                 for task in self._tasks.values()
-                if task.status not in _TERMINAL_STATUSES
+                if task.status not in _TERMINAL_STATUSES and task.status != TaskStatus.STAGED
             )
 
     def flush_task_queue(self):

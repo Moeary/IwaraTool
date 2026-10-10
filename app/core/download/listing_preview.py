@@ -8,6 +8,7 @@ from typing import Any
 
 from ...config import app_config
 from ...i18n import tr
+from ..models import TaskStatus
 from ..rules import normalize_rule_payload, rule_store
 from ..subscription.automation import matches_rule_video
 from ..task_metadata import (
@@ -258,7 +259,12 @@ class ListingPreviewMixin:
         records = self.history.get_records(video_ids)
         index = self._get_existing_file_index()
         with self._lock:
-            queued = {vid.lower() for vid in video_ids if vid.lower() in self._task_id_by_video_id}
+            # A video waiting for confirmation is not "already queued": it is the one being checked.
+            queued = {
+                vid.lower() for vid in video_ids
+                if (task := self._tasks.get(self._task_id_by_video_id.get(vid.lower(), ""))) is not None
+                and task.status != TaskStatus.STAGED
+            }
         for video_id in video_ids:
             key = video_id.lower()
             record = records.get(video_id) or {}

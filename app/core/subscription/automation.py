@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from ...config import app_config
 from ...i18n import tr
 from ..rules import BUILTIN_DEFAULT_RULE_ID, normalize_rule_payload, rule_store
 from ..task_metadata import extract_date_text, normalize_video_tags, split_filter_tags
@@ -123,12 +124,19 @@ def auto_enqueue_subscription_videos(
         finally:
             manager.close_worker_api_client(client)
 
-    queued = manager.enqueue_video_ids(
-        matched,
-        source_label=tr("Subscription automation", "订阅自动化", "購読自動化"),
-        priority=priority,
-        rule_id=selected_rule_id,
-    )
+    if app_config.subscription_auto_enqueue_confirm and matched:
+        # Wait on the download workbench like any other addition.
+        staged = manager.stage_preview(manager.preview_subscription_items(
+            matched, rule_id=selected_rule_id, label=tr("Subscription automation", "订阅自动化", "購読自動化"),
+        ))
+        queued = int(staged.get("staged", 0) or 0)
+    else:
+        queued = manager.enqueue_video_ids(
+            matched,
+            source_label=tr("Subscription automation", "订阅自动化", "購読自動化"),
+            priority=priority,
+            rule_id=selected_rule_id,
+        )
     return {
         "discovered": len(unique_ids),
         "eligible": len(candidates),

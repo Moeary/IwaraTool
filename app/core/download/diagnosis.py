@@ -101,6 +101,12 @@ class DownloadDiagnosisMixin:
         if title and title != video_id:
             result["title"] = title
         label = status_label(status)
+        if status == TaskStatus.STAGED:
+            return [_finding(BLOCK, tr(
+                "It is waiting on the download workbench for you to confirm it (Confirm download).",
+                "它在下载工作台的“待确认”里，等汝点“确认下载”。",
+                "ダウンロード画面で確認待ちです（「保存する」を押してください）。",
+            ))]
         if status in (TaskStatus.SKIPPED, TaskStatus.FAILED, TaskStatus.CANCELLED):
             return self._ended_task_findings(status, error)
         if status == TaskStatus.COMPLETED:

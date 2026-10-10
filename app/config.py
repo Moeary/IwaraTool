@@ -106,6 +106,9 @@ class AppConfig:
         "desktop_notifications_enabled": True,
         "subscription_auto_enqueue_enabled": False,
         "subscription_auto_enqueue_rule_id": "__builtin_default__",
+        # Added videos wait on the download workbench for confirmation, except:
+        "direct_download_single": True,  # one downloadable video starts at once
+        "subscription_auto_enqueue_confirm": False,  # automation also waits for confirmation
         "global_speed_limit_enabled": False,
         "global_speed_limit_kib": 0,
         "download_schedule_enabled": False,
@@ -508,6 +511,10 @@ class AppConfig:
     desktop_notifications_enabled = _Setting()
 
     subscription_auto_enqueue_enabled = _Setting()
+
+    direct_download_single = _Setting()
+
+    subscription_auto_enqueue_confirm = _Setting()
 
     @property
     def subscription_auto_enqueue_rule_id(self) -> str:

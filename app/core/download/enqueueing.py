@@ -60,9 +60,13 @@ class EnqueueingMixin:
         existing_paths = self._existing_paths_for(normalized)
         skipped_existing = len(existing_paths)
         limit = app_config.max_concurrent
-        added_infos, skipped_duplicate, queued_count, active_count = self._add_queued_tasks(
+        added_infos, skipped_duplicate, queued_count, active_count, promoted = self._add_queued_tasks(
             normalized, existing_paths, priority=priority, rule_id=rule_id, rule_payload_json=rule_payload_json,
         )
+        for task_id in promoted:  # waiting for confirmation until now: same row, new state
+            signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        if promoted:
+            signal_bus.staging_changed.emit()
 
         if added_infos:
             signal_bus.tasks_added.emit(added_infos)
@@ -79,11 +83,11 @@ class EnqueueingMixin:
                 f"[キュー] 追加 {len(added_infos)} 件{label}; 重複 {skipped_duplicate + skipped_input_duplicate}; 既存 {skipped_existing}; 待機 {queued_count}; 稼働 {active_count}/{limit}",
             )
         )
-        if added_infos:
+        if added_infos or promoted:
             self._schedule_task_persist()
         self._try_activate()
         return {
-            "queued": len(added_infos),
+            "queued": len(added_infos) + len(promoted),
             "duplicates": skipped_duplicate + skipped_input_duplicate,
             "existing": skipped_existing,
             "empty": skipped_empty,
@@ -97,15 +101,29 @@ class EnqueueingMixin:
         priority: int,
         rule_id: str,
         rule_payload_json: str,
-    ) -> tuple[list[dict[str, Any]], int, int, int]:
-        """Create tasks under the lock; returns ``(added infos, duplicates, queued, active)``."""
+    ) -> tuple[list[dict[str, Any]], int, int, int, list[str]]:
+        """Create tasks under the lock.
+
+        Returns ``(added infos, duplicates, queued, active, promoted ids)``; a
+        video waiting for confirmation (STAGED) is promoted in place.
+        """
 
         added_infos: list[dict[str, Any]] = []
+        promoted: list[str] = []
         skipped_duplicate = 0
         with self._lock:
             for video_id, original_url in normalized:
                 key = video_id.lower()
                 if key in existing_paths:
+                    continue
+                existing = self._tasks.get(self._task_id_by_video_id.get(key, ""))
+                if existing is not None and existing.status == TaskStatus.STAGED:
+                    existing.status = TaskStatus.QUEUED_META
+                    existing.priority = max(-100, min(100, int(priority)))
+                    existing.rule_id = str(rule_id or "")
+                    existing.rule_payload_json = rule_payload_json
+                    self._queued_meta_ids.append(existing.task_id)
+                    promoted.append(existing.task_id)
                     continue
                 if key in self._task_id_by_video_id:
                     skipped_duplicate += 1
@@ -134,7 +152,7 @@ class EnqueueingMixin:
                 )
             queued_count = len(self._queued_meta_ids)
             active_count = len(self._active_task_ids)
-        return added_infos, skipped_duplicate, queued_count, active_count
+        return added_infos, skipped_duplicate, queued_count, active_count, promoted
 
     @staticmethod
     def _normalize_enqueue_items(items: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], int, int]:

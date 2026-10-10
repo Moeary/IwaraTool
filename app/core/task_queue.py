@@ -16,6 +16,7 @@ TASK_QUEUE_SCHEMA_VERSION = 1
 
 _PERSISTED_STATUSES = frozenset(
     {
+        TaskStatus.STAGED,
         TaskStatus.QUEUED_META,
         TaskStatus.RESOLVING,
         TaskStatus.QUEUED_DOWNLOAD,

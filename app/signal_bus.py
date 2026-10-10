@@ -54,6 +54,10 @@ class TaskSignalBus(QObject):
     # A put-off download confirmation was saved, re-opened, finished or cleared.
     pending_stacks_changed = Signal()
 
+    # Videos waiting for confirmation on the download workbench were added,
+    # re-checked, confirmed or discarded.
+    staging_changed = Signal()
+
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 
