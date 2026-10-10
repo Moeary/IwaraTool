@@ -226,32 +226,8 @@ class DownloadArtifactsMixin:
                     pass
 
     def _download_thumbnail(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
-        if not task.file_path:
-            return False
-        if require_video_file:
-            if not os.path.exists(task.file_path):
-                return False
-            if os.path.getsize(task.file_path) <= 0:
-                return False
-        if not task.file_id or not task.file_url:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [Thumbnail] \"{task.title}\" missing file_id/file_url, skipped",
-                    f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过",
-                    f"  [サムネイル] 「{task.title}」file_id/file_url 欠落のためスキップ",
-                )
-            )
-            return False
-
-        host = urlparse(task.file_url).netloc
+        host = self._thumbnail_host(task, require_video_file=require_video_file)
         if not host:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  [Thumbnail] \"{task.title}\" invalid file_url, skipped",
-                    f"  [封面] 《{task.title}》 无效 file_url，跳过",
-                    f"  [サムネイル] 「{task.title}」無効な file_url のためスキップ",
-                )
-            )
             return False
 
         thumbnail_path = os.path.splitext(task.file_path)[0] + ".jpg"
@@ -309,6 +285,38 @@ class DownloadArtifactsMixin:
                 except Exception:
                     pass
         return False
+
+    @staticmethod
+    def _thumbnail_host(task: DownloadTask, *, require_video_file: bool) -> str:
+        """The image host for the task's cover, or "" when the cover cannot be fetched."""
+
+        if not task.file_path:
+            return ""
+        if require_video_file:
+            if not os.path.exists(task.file_path):
+                return ""
+            if os.path.getsize(task.file_path) <= 0:
+                return ""
+        if not task.file_id or not task.file_url:
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [Thumbnail] \"{task.title}\" missing file_id/file_url, skipped",
+                    f"  [封面] 《{task.title}》 缺少 file_id/file_url，跳过",
+                    f"  [サムネイル] 「{task.title}」file_id/file_url 欠落のためスキップ",
+                )
+            )
+            return ""
+
+        host = urlparse(task.file_url).netloc
+        if not host:
+            signal_bus.log_message.emit(
+                tr(
+                    f"  [Thumbnail] \"{task.title}\" invalid file_url, skipped",
+                    f"  [封面] 《{task.title}》 无效 file_url，跳过",
+                    f"  [サムネイル] 「{task.title}」無効な file_url のためスキップ",
+                )
+            )
+        return host
 
     def _write_nfo(self, task: DownloadTask, *, require_video_file: bool = True) -> bool:
         if not task.file_path:

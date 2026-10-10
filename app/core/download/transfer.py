@@ -23,11 +23,7 @@ class TransferMixin:
         task = self._tasks.get(task_id)
         if not task:
             return
-        if self._is_cancel_requested(task_id):
-            self._cancel_task_terminal(
-                task_id,
-                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-            )
+        if self._cancel_if_requested(task_id):
             return
 
         # Determine save path
@@ -78,11 +74,7 @@ class TransferMixin:
             )
         )
 
-        if self._is_cancel_requested(task_id):
-            self._cancel_task_terminal(
-                task_id,
-                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-            )
+        if self._cancel_if_requested(task_id):
             return
 
         if app_config.aria2_rpc_enabled:
@@ -106,201 +98,26 @@ class TransferMixin:
         task = self._tasks.get(task_id)
         if not task:
             return
-        if self._is_cancel_requested(task_id):
-            self._cancel_task_terminal(
-                task_id,
-                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-            )
+        if self._cancel_if_requested(task_id):
             return
 
         resp = None
         try:
             self._touch_task_activity(task_id)
-            headers: dict[str, str] = {}
-            token = self._current_token()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-
-            # Resume support
-            existing_size = 0
-            if os.path.exists(temp_path):
-                existing_size = os.path.getsize(temp_path)
-                if existing_size > 0:
-                    headers["Range"] = f"bytes={existing_size}-"
-                    signal_bus.log_message.emit(
-                        tr(
-                            f"  Resume download: existing {_fmt_bytes(existing_size)}",
-                            f"  断点续传: 已有 {_fmt_bytes(existing_size)}",
-                            f"  レジューム: 既存 {_fmt_bytes(existing_size)}",
-                        )
-                    )
-
-            resp = self.api.scraper.get(
-                task.download_url,
-                headers=headers,
-                stream=True,
-                timeout=60,
-                proxies=self._download_request_proxies(),
-            )
+            resp, existing_size = self._open_download_response(task, task_id, temp_path)
             self._touch_task_activity(task_id)
-            if self._is_cancel_requested(task_id):
-                self._cancel_task_terminal(
-                    task_id,
-                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                )
+            if self._cancel_if_requested(task_id):
                 return
             signal_bus.log_message.emit(
                 f"  HTTP {resp.status_code}  Content-Length: {resp.headers.get('Content-Length', '?')}"
             )
-
-            if resp.status_code == 416 and classify_416(resp.headers, existing_size) == "corrupt":
-                self._discard_temp_file(temp_path)
-                self._fail_task(
-                    task_id,
-                    tr(
-                        "Local partial file does not match the server file; it was removed. Retry to download again.",
-                        "本地缓存与服务器文件不一致，已清除；请重试以重新下载。",
-                        "ローカルの一時ファイルがサーバー側と一致しないため削除しました。再試行してください。",
-                    ),
-                )
+            if not self._accept_download_response(task_id, resp, existing_size, temp_path, final_path):
                 return
-
-            if resp.status_code == 416:
-                signal_bus.log_message.emit(
-                    tr(
-                        "  File already complete, mark as completed",
-                        "  文件已完整，标记完成",
-                        "  ファイルは既に完全です。完了扱いにします",
-                    )
-                )
-                if not self._finalize_temp_file(
-                    task_id,
-                    temp_path=temp_path,
-                    final_path=final_path,
-                ):
-                    return
-                self._complete_task(task_id)
+            total, existing_size = self._start_progress(task, task_id, resp, existing_size)
+            downloaded = self._stream_to_temp(task, task_id, resp, temp_path, existing_size, total)
+            if downloaded is None:
                 return
-
-            if resp.status_code not in (200, 206):
-                self._fail_task(task_id, f"HTTP {resp.status_code}: {resp.text[:200]}")
-                return
-
-            if resp.status_code == 206:
-                mismatch = resume_offset_mismatch(resp.headers, existing_size)
-                if mismatch:
-                    self._discard_temp_file(temp_path)
-                    self._fail_task(
-                        task_id,
-                        tr(
-                            f"Resume failed ({mismatch}); partial file removed. Retry to download again.",
-                            f"断点续传失败（{mismatch}），已清除缓存；请重试以重新下载。",
-                            f"レジュームに失敗しました（{mismatch}）。一時ファイルを削除しました。再試行してください。",
-                        ),
-                    )
-                    return
-
-            # Compute total size
-            content_length = int(resp.headers.get("Content-Length", 0) or 0)
-            if resp.status_code == 206:
-                total = existing_size + content_length
-            else:
-                total = content_length
-                existing_size = 0  # Server ignored Range header
-
-            with self._lock:
-                task.total_bytes = total
-                task.downloaded_bytes = existing_size
-                self._touch_task_activity_locked(task_id)
-
-            signal_bus.log_message.emit(
-                tr(
-                    f"  Total size: {_fmt_bytes(total)}",
-                    f"  文件总大小: {_fmt_bytes(total)}",
-                    f"  合計サイズ: {_fmt_bytes(total)}",
-                )
-            )
-
-            mode = "ab" if existing_size > 0 else "wb"
-            downloaded = existing_size
-            last_time = time.monotonic()
-            last_bytes = downloaded
-
-            with open(temp_path, mode) as fh:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if self._is_cancel_requested(task_id):
-                        self._cancel_task_terminal(
-                            task_id,
-                            tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                        )
-                        return
-                    if not chunk:
-                        continue
-                    if not self._rate_limiter.throttle(
-                        len(chunk),
-                        cancelled=lambda: self._is_cancel_requested(task_id),
-                        on_wait=lambda: self._touch_task_activity(task_id),
-                    ):
-                        self._cancel_task_terminal(
-                            task_id,
-                            tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                        )
-                        return
-                    fh.write(chunk)
-                    downloaded += len(chunk)
-                    self._touch_task_activity(task_id)
-
-                    now = time.monotonic()
-                    if now - last_time >= 0.5:
-                        elapsed = now - last_time
-                        speed = (downloaded - last_bytes) / elapsed
-                        speed_str = _fmt_speed(speed)
-                        last_time = now
-                        last_bytes = downloaded
-
-                        with self._lock:
-                            task.downloaded_bytes = downloaded
-                            task.speed_str = speed_str
-
-                        signal_bus.task_progress_updated.emit(
-                            task_id, downloaded, total, speed_str
-                        )
-
-            # Final progress update
-            if self._is_cancel_requested(task_id):
-                self._cancel_task_terminal(
-                    task_id,
-                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                )
-                return
-            with self._lock:
-                task.downloaded_bytes = downloaded
-            signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
-
-            short = incomplete_reason(downloaded, total, resp.headers)
-            if short:
-                # Keep the temp file: a retry resumes from what we have.
-                self._fail_task(
-                    task_id,
-                    tr(
-                        f"Incomplete download ({short}). Retry to resume.",
-                        f"下载不完整（{short}），重试可继续。",
-                        f"ダウンロードが不完全です（{short}）。再試行で再開できます。",
-                    ),
-                )
-                return
-
-            if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
-                return
-
-            signal_bus.log_message.emit(
-                tr(
-                    f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
-                    f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
-                    f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
-                )
-            )
-            self._complete_task(task_id)
+            self._finish_native_download(task, task_id, resp, downloaded, total, temp_path, final_path)
 
         except Exception as exc:
             logger.exception("Native download failed for task %s", task_id)
@@ -318,6 +135,191 @@ class TransferMixin:
                     resp.close()
                 except Exception:
                     pass
+
+    def _open_download_response(self, task, task_id: str, temp_path: str):
+        """GET the file, resuming from a partial temp file; returns ``(response, existing_size)``."""
+
+        headers: dict[str, str] = {}
+        token = self._current_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        # Resume support
+        existing_size = 0
+        if os.path.exists(temp_path):
+            existing_size = os.path.getsize(temp_path)
+            if existing_size > 0:
+                headers["Range"] = f"bytes={existing_size}-"
+                signal_bus.log_message.emit(
+                    tr(
+                        f"  Resume download: existing {_fmt_bytes(existing_size)}",
+                        f"  断点续传: 已有 {_fmt_bytes(existing_size)}",
+                        f"  レジューム: 既存 {_fmt_bytes(existing_size)}",
+                    )
+                )
+
+        resp = self.api.scraper.get(
+            task.download_url,
+            headers=headers,
+            stream=True,
+            timeout=60,
+            proxies=self._download_request_proxies(),
+        )
+        return resp, existing_size
+
+    def _accept_download_response(self, task_id: str, resp, existing_size: int, temp_path: str, final_path: str) -> bool:
+        """True to stream the body; False once the status code has finished the task."""
+
+        if resp.status_code == 416 and classify_416(resp.headers, existing_size) == "corrupt":
+            self._discard_temp_file(temp_path)
+            self._fail_task(
+                task_id,
+                tr(
+                    "Local partial file does not match the server file; it was removed. Retry to download again.",
+                    "本地缓存与服务器文件不一致，已清除；请重试以重新下载。",
+                    "ローカルの一時ファイルがサーバー側と一致しないため削除しました。再試行してください。",
+                ),
+            )
+            return False
+
+        if resp.status_code == 416:
+            signal_bus.log_message.emit(
+                tr(
+                    "  File already complete, mark as completed",
+                    "  文件已完整，标记完成",
+                    "  ファイルは既に完全です。完了扱いにします",
+                )
+            )
+            if self._finalize_temp_file(
+                task_id,
+                temp_path=temp_path,
+                final_path=final_path,
+            ):
+                self._complete_task(task_id)
+            return False
+
+        if resp.status_code not in (200, 206):
+            self._fail_task(task_id, f"HTTP {resp.status_code}: {resp.text[:200]}")
+            return False
+
+        if resp.status_code == 206:
+            mismatch = resume_offset_mismatch(resp.headers, existing_size)
+            if mismatch:
+                self._discard_temp_file(temp_path)
+                self._fail_task(
+                    task_id,
+                    tr(
+                        f"Resume failed ({mismatch}); partial file removed. Retry to download again.",
+                        f"断点续传失败（{mismatch}），已清除缓存；请重试以重新下载。",
+                        f"レジュームに失敗しました（{mismatch}）。一時ファイルを削除しました。再試行してください。",
+                    ),
+                )
+                return False
+        return True
+
+    def _start_progress(self, task, task_id: str, resp, existing_size: int) -> tuple[int, int]:
+        """Record the total size; returns ``(total, bytes already on disk)``."""
+
+        content_length = int(resp.headers.get("Content-Length", 0) or 0)
+        if resp.status_code == 206:
+            total = existing_size + content_length
+        else:
+            total = content_length
+            existing_size = 0  # Server ignored Range header
+
+        with self._lock:
+            task.total_bytes = total
+            task.downloaded_bytes = existing_size
+            self._touch_task_activity_locked(task_id)
+
+        signal_bus.log_message.emit(
+            tr(
+                f"  Total size: {_fmt_bytes(total)}",
+                f"  文件总大小: {_fmt_bytes(total)}",
+                f"  合計サイズ: {_fmt_bytes(total)}",
+            )
+        )
+        return total, existing_size
+
+    def _stream_to_temp(self, task, task_id: str, resp, temp_path: str, existing_size: int, total: int) -> int | None:
+        """Write the body to the temp file; returns the bytes on disk, or None if cancelled."""
+
+        mode = "ab" if existing_size > 0 else "wb"
+        downloaded = existing_size
+        last_time = time.monotonic()
+        last_bytes = downloaded
+
+        with open(temp_path, mode) as fh:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if self._cancel_if_requested(task_id):
+                    return None
+                if not chunk:
+                    continue
+                if not self._rate_limiter.throttle(
+                    len(chunk),
+                    cancelled=lambda: self._is_cancel_requested(task_id),
+                    on_wait=lambda: self._touch_task_activity(task_id),
+                ):
+                    self._cancel_task_terminal(
+                        task_id,
+                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+                    )
+                    return None
+                fh.write(chunk)
+                downloaded += len(chunk)
+                self._touch_task_activity(task_id)
+
+                now = time.monotonic()
+                if now - last_time >= 0.5:
+                    elapsed = now - last_time
+                    speed = (downloaded - last_bytes) / elapsed
+                    speed_str = _fmt_speed(speed)
+                    last_time = now
+                    last_bytes = downloaded
+
+                    with self._lock:
+                        task.downloaded_bytes = downloaded
+                        task.speed_str = speed_str
+
+                    signal_bus.task_progress_updated.emit(
+                        task_id, downloaded, total, speed_str
+                    )
+        return downloaded
+
+    def _finish_native_download(
+        self, task, task_id: str, resp, downloaded: int, total: int, temp_path: str, final_path: str,
+    ):
+        # Final progress update
+        if self._cancel_if_requested(task_id):
+            return
+        with self._lock:
+            task.downloaded_bytes = downloaded
+        signal_bus.task_progress_updated.emit(task_id, downloaded, total, "")
+
+        short = incomplete_reason(downloaded, total, resp.headers)
+        if short:
+            # Keep the temp file: a retry resumes from what we have.
+            self._fail_task(
+                task_id,
+                tr(
+                    f"Incomplete download ({short}). Retry to resume.",
+                    f"下载不完整（{short}），重试可继续。",
+                    f"ダウンロードが不完全です（{short}）。再試行で再開できます。",
+                ),
+            )
+            return
+
+        if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
+            return
+
+        signal_bus.log_message.emit(
+            tr(
+                f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
+                f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
+                f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
+            )
+        )
+        self._complete_task(task_id)
 
     @staticmethod
     def _discard_temp_file(temp_path: str) -> None:

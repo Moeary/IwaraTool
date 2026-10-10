@@ -34,6 +34,36 @@ class Aria2DownloadMixin:
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
 
+        options = self._aria2_options(temp_path)
+        self._apply_aria2_global_speed_limit()
+
+        signal_bus.log_message.emit(
+            tr(
+                f"  Download via aria2 RPC: {rpc_url}",
+                f"  使用 aria2 RPC 下载: {rpc_url}",
+                f"  aria2 RPC でダウンロード: {rpc_url}",
+            )
+        )
+        gid, add_err = self._aria2_rpc_add_uri(task.download_url, options)
+        if not gid:
+            signal_bus.log_message.emit(
+                tr(
+                    f"  aria2 RPC submit failed, fallback to built-in downloader: {add_err}",
+                    f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}",
+                    f"  aria2 RPC 送信失敗、内蔵ダウンローダーへフォールバック: {add_err}",
+                )
+            )
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+            return
+
+        with self._lock:
+            task.aria2_gid = gid
+            self._touch_task_activity_locked(task_id)
+        if self._aria2_cancel_if_requested(task_id, gid):
+            return
+        self._follow_aria2_download(task, task_id, gid, temp_path, final_path)
+
+    def _aria2_options(self, temp_path: str) -> dict[str, str | list[str]]:
         save_dir = os.path.dirname(temp_path)
         filename = os.path.basename(temp_path)
         headers: list[str] = []
@@ -59,49 +89,28 @@ class Aria2DownloadMixin:
             options["header"] = headers
         if app_config.download_proxy_enabled and app_config.download_proxy_url:
             options["all-proxy"] = app_config.download_proxy_url
+        return options
 
-        self._apply_aria2_global_speed_limit()
+    def _aria2_cancel_if_requested(self, task_id: str, gid: str) -> bool:
+        """Cancel the aria2 download and end the task when the user asked; True if so."""
 
-        signal_bus.log_message.emit(
-            tr(
-                f"  Download via aria2 RPC: {rpc_url}",
-                f"  使用 aria2 RPC 下载: {rpc_url}",
-                f"  aria2 RPC でダウンロード: {rpc_url}",
-            )
+        if not self._is_cancel_requested(task_id):
+            return False
+        self._aria2_rpc_cancel(gid)
+        self._cancel_task_terminal(
+            task_id,
+            tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
         )
-        gid, add_err = self._aria2_rpc_add_uri(task.download_url, options)
-        if not gid:
-            signal_bus.log_message.emit(
-                tr(
-                    f"  aria2 RPC submit failed, fallback to built-in downloader: {add_err}",
-                    f"  aria2 RPC 提交失败，回退到内置下载器: {add_err}",
-                    f"  aria2 RPC 送信失敗、内蔵ダウンローダーへフォールバック: {add_err}",
-                )
-            )
-            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
-            return
+        return True
 
-        with self._lock:
-            task.aria2_gid = gid
-            self._touch_task_activity_locked(task_id)
-        if self._is_cancel_requested(task_id):
-            self._aria2_rpc_cancel(gid)
-            self._cancel_task_terminal(
-                task_id,
-                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-            )
-            return
+    def _follow_aria2_download(self, task, task_id: str, gid: str, temp_path: str, final_path: str):
+        """Poll aria2 until the download completes, fails or is cancelled."""
 
         last_emit = 0.0
         last_done = -1
         last_status = ""
         while True:
-            if self._is_cancel_requested(task_id):
-                self._aria2_rpc_cancel(gid)
-                self._cancel_task_terminal(
-                    task_id,
-                    tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                )
+            if self._aria2_cancel_if_requested(task_id, gid):
                 return
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
@@ -135,52 +144,56 @@ class Aria2DownloadMixin:
                 last_emit = now
 
             if status == "complete":
-                if self._is_cancel_requested(task_id):
-                    self._aria2_rpc_cancel(gid)
-                    self._cancel_task_terminal(
-                        task_id,
-                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                    )
-                    return
-                downloaded = os.path.getsize(temp_path) if os.path.exists(temp_path) else done
-                if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
-                    return
-                with self._lock:
-                    task.downloaded_bytes = downloaded
-                    task.total_bytes = max(total, downloaded)
-                    task.speed_str = ""
-                signal_bus.task_progress_updated.emit(task_id, downloaded, max(total, downloaded), "")
-                signal_bus.log_message.emit(
-                    tr(
-                        f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
-                        f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
-                        f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
-                    )
-                )
-                self._complete_task(task_id)
-                self._aria2_rpc_remove_result(gid)
+                self._finish_aria2_download(task, task_id, gid, done, total, temp_path, final_path)
                 return
-
             if status in ("error", "removed"):
-                if self._is_cancel_requested(task_id):
-                    self._cancel_task_terminal(
-                        task_id,
-                        tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
-                    )
-                    self._aria2_rpc_remove_result(gid)
-                    return
-                err_msg = str(
-                    status_info.get(
-                        "errorMessage",
-                        tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー"),
-                    )
-                    or tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー")
-                )
-                self._fail_task(task_id, f"aria2 {status}: {err_msg}")
-                self._aria2_rpc_remove_result(gid)
+                self._end_failed_aria2_download(task_id, gid, status, status_info)
                 return
 
             time.sleep(0.5)
+
+    def _finish_aria2_download(
+        self, task, task_id: str, gid: str, done: int, total: int, temp_path: str, final_path: str,
+    ):
+        if self._aria2_cancel_if_requested(task_id, gid):
+            return
+        downloaded = os.path.getsize(temp_path) if os.path.exists(temp_path) else done
+        if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
+            return
+        with self._lock:
+            task.downloaded_bytes = downloaded
+            task.total_bytes = max(total, downloaded)
+            task.speed_str = ""
+        signal_bus.task_progress_updated.emit(task_id, downloaded, max(total, downloaded), "")
+        signal_bus.log_message.emit(
+            tr(
+                f"[Done] \"{task.title}\" total size {_fmt_bytes(downloaded)}",
+                f"[完成] 《{task.title}》 总大小 {_fmt_bytes(downloaded)}",
+                f"[完了] 「{task.title}」 合計サイズ {_fmt_bytes(downloaded)}",
+            )
+        )
+        self._complete_task(task_id)
+        self._aria2_rpc_remove_result(gid)
+
+    def _end_failed_aria2_download(self, task_id: str, gid: str, status: str, status_info: dict):
+        """aria2 reported ``error`` / ``removed``: cancelled by the user, or a failure."""
+
+        if self._is_cancel_requested(task_id):
+            self._cancel_task_terminal(
+                task_id,
+                tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
+            )
+            self._aria2_rpc_remove_result(gid)
+            return
+        err_msg = str(
+            status_info.get(
+                "errorMessage",
+                tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー"),
+            )
+            or tr("aria2 unknown error", "aria2 未知错误", "aria2 不明エラー")
+        )
+        self._fail_task(task_id, f"aria2 {status}: {err_msg}")
+        self._aria2_rpc_remove_result(gid)
 
     def _apply_aria2_global_speed_limit(self):
         limit = (
