@@ -107,7 +107,7 @@ class DispatcherTests(_ConfigCase):
 
 class MediaGridClickTests(_ConfigCase):
     def _grid(self, *, configurable: bool):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=True, configurable_clicks=configurable)
         self.addCleanup(grid.deleteLater)

@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
+from qfluentwidgets import InfoBar
 from app.core.api import IwaraAPI
 from app.core.search import SearchVideo
 
@@ -279,7 +280,7 @@ class AuthorStatusBarTests(_QtCase):
 
 class DetailLikeTests(_QtCase):
     def setUp(self):
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
         self.module = media_detail
@@ -292,7 +293,7 @@ class DetailLikeTests(_QtCase):
         self.client.set_liked.return_value = (True, "")
         _sync_api_calls(self, self.client)
         for target in ("success", "error", "warning"):
-            infobar = mock.patch.object(media_detail.InfoBar, target)
+            infobar = mock.patch.object(InfoBar, target)
             self.infobars = getattr(self, "infobars", {})
             self.infobars[target] = infobar.start()
             self.addCleanup(infobar.stop)

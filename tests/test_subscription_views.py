@@ -417,33 +417,33 @@ class CardSizeTests(_QtCase):
         self.addCleanup(patcher.stop)
 
     def test_every_resizable_grid_follows_the_slider(self):
-        from app.ui import media_card
+        from app.ui.media import card_size, grid
 
-        grid_a = media_card.MediaGrid(resizable=True)
-        grid_b = media_card.MediaGrid(resizable=True, max_rows=2)
-        fixed = media_card.MediaGrid(min_card_width=300)
+        grid_a = grid.MediaGrid(resizable=True)
+        grid_b = grid.MediaGrid(resizable=True, max_rows=2)
+        fixed = grid.MediaGrid(min_card_width=300)
         for widget in (grid_a, grid_b, fixed):
             self.addCleanup(widget.deleteLater)
-        control = media_card.CardSizeControl()
+        control = card_size.CardSizeControl()
         self.addCleanup(control.deleteLater)
         control._slider.setValue(360)
         control._apply()  # the slider applies after a short debounce
         self.assertEqual(grid_a._min_card_width, 360)
         self.assertEqual(grid_b._min_card_width, 360)
         self.assertEqual(fixed._min_card_width, 300)
-        self.assertEqual(media_card.saved_card_width(), 360)
-        self.assertEqual(media_card.MediaGrid(resizable=True)._min_card_width, 360)
+        self.assertEqual(card_size.saved_card_width(), 360)
+        self.assertEqual(grid.MediaGrid(resizable=True)._min_card_width, 360)
 
     def test_width_is_clamped(self):
-        from app.ui import media_card
+        from app.ui.media import card_size
 
-        app_config.set_ui_value(media_card.CARD_WIDTH_KEY, 5000)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MAX)
-        app_config.set_ui_value(media_card.CARD_WIDTH_KEY, "oops")
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_DEFAULT)
+        app_config.set_ui_value(card_size.CARD_WIDTH_KEY, 5000)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MAX)
+        app_config.set_ui_value(card_size.CARD_WIDTH_KEY, "oops")
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_DEFAULT)
 
     def test_compact_cards_are_shorter_and_local_cards_hide_zero_stats(self):
-        from app.ui.media_card import MediaCard
+        from app.ui.media.card import MediaCard
 
         video = SearchVideo("v", "title", raw={"_state": "new"})
         full = MediaCard(video)
@@ -502,7 +502,7 @@ class StartupPageTests(_QtCase):
 
 class DetailLayoutTests(_QtCase):
     def _view(self):
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
         view = media_detail.DetailView(CoverFetcher())

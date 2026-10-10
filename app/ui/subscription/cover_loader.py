@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QPixmap
 
 from ...config import app_config
-from ..media_card import read_pixmap
+from ..media.pixmaps import read_pixmap
 from .components import SubscriptionThumbnailWorker
 from ..worker_lifecycle import stop_qthreads
 

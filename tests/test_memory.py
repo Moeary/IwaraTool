@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from app.config import app_config
 from app.core import memory
-from app.ui.media_card import image_size, read_pixmap
+from app.ui.media.pixmaps import image_size, read_pixmap
 
 
 def _jpg(directory: str, name: str, width: int, height: int) -> str:
@@ -85,7 +85,7 @@ class ReadPixmapTests(_QtCase):
 
 class GalleryLazyDecodeTests(_QtCase):
     def setUp(self):
-        from app.ui.media_detail import GalleryImage
+        from app.ui.media.gallery_image import GalleryImage
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -102,7 +102,7 @@ class GalleryLazyDecodeTests(_QtCase):
         self.assertTrue(self.image.is_decoded())
 
     def test_the_decoded_picture_is_capped_and_sized_for_display(self):
-        from app.ui.media_detail import GALLERY_DECODE_WIDTH
+        from app.ui.media.gallery_image import GALLERY_DECODE_WIDTH
 
         self.image.set_source(self.path, final=True)
         self.image.grab()
@@ -137,7 +137,7 @@ class GalleryLazyDecodeTests(_QtCase):
 
 class DetailReleaseTests(_QtCase):
     def setUp(self):
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
         self.tmp = tempfile.TemporaryDirectory()
@@ -242,7 +242,7 @@ class SearchCoverMemoryTests(_QtCase):
         self.assertTrue(self.page._image_icon(broken).isNull())
 
     def test_the_cover_cache_stays_within_its_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         self.page._source_pixmaps = PixmapLRU(max_bytes=3 * 300 * 170 * 4)
         for index in range(20):

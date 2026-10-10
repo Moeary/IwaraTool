@@ -338,7 +338,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
     def setUp(self):
         super().setUp()
         from app.core.search import SearchVideo
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
         patcher = mock.patch.object(media_detail.DetailView, "player_backend_factory", staticmethod(fake_backend))

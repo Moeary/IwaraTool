@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
+from app.config import app_config
 from app.core import rating
 from app.core.api import IwaraAPI
 from app.core.home_cache import HomeFeedCache
@@ -160,7 +161,7 @@ class WidgetTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_grid_follows_width_and_selection(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10)
         grid.resize(640, 10)
@@ -182,7 +183,7 @@ class WidgetTests(unittest.TestCase):
         from PySide6.QtCore import QPoint, Qt
         from PySide6.QtTest import QTest
 
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10)
         grid.resize(640, 10)
@@ -204,7 +205,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(activated, ["a"])
 
     def test_row_limit_shows_two_rows_of_cards(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10, max_rows=2)
         grid.resize(640, 10)
@@ -220,7 +221,7 @@ class WidgetTests(unittest.TestCase):
     def test_wrap_lines_elides_the_last_line(self):
         from PySide6.QtGui import QFontMetrics
 
-        from app.ui.media_card import wrap_lines
+        from app.ui.media.card import wrap_lines
 
         metrics = QFontMetrics(self.app.font())
         lines = wrap_lines("word " * 80, metrics, 120, 2)
@@ -252,7 +253,7 @@ class HomeInterfaceTests(unittest.TestCase):
         patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
-        detail = mock.patch("app.ui.media_detail.DetailWorker.run", lambda self: None)
+        detail = mock.patch("app.ui.media.detail_view.DetailWorker.run", lambda self: None)
         detail.start()
         self.addCleanup(detail.stop)
         api_calls = mock.patch("app.ui.home.workers.ApiCallWorker.run", lambda self: None)  # author status, likes
@@ -289,7 +290,7 @@ class HomeInterfaceTests(unittest.TestCase):
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
     def test_back_to_a_post_rebuilds_it_from_the_record_without_loading(self):
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
 
         home = self.home
         detail = home._detail
@@ -397,17 +398,17 @@ class DetailViewTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_related_posts_follow_the_rating_choice(self):
-        from app.ui import media_detail
+        from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
         view = media_detail.DetailView(CoverFetcher())
         self.addCleanup(view.deleteLater)
         view._token = 3
         related = [_video("s", rating="general"), _video("n", rating="ecchi")]
-        with mock.patch.object(media_detail.app_config, "get_ui_value", return_value="general"):
+        with mock.patch.object(app_config, "get_ui_value", return_value="general"):
             view._on_related(3, related)
         self.assertEqual([v.video_id for v in view._related_grid.videos()], ["s"])
-        with mock.patch.object(media_detail.app_config, "get_ui_value", return_value="all"):
+        with mock.patch.object(app_config, "get_ui_value", return_value="all"):
             view._on_related(3, related)
         self.assertEqual(len(view._related_grid.videos()), 2)
         view._on_related(2, [])  # a stale answer is ignored
@@ -417,7 +418,8 @@ class DetailViewTests(unittest.TestCase):
         from PySide6.QtCore import QPoint, Qt
         from PySide6.QtTest import QTest
 
-        from app.ui.media_detail import GalleryImage, MediaStage
+        from app.ui.media.gallery_image import GalleryImage
+        from app.ui.media.stage import MediaStage
 
         stage = MediaStage()
         self.addCleanup(stage.deleteLater)
@@ -441,7 +443,7 @@ class DetailViewTests(unittest.TestCase):
         self.assertEqual(opened, ["https://i.iwara.tv/image/original/f1/f1.png"])
 
     def test_linkify_escapes_html_and_links_urls(self):
-        from app.ui.media_detail import linkify
+        from app.ui.media.detail_text import linkify
 
         text = linkify("<b>hi</b>\nsee https://example.com/a?b=1&c=2")
         self.assertNotIn("<b>", text)

@@ -134,7 +134,7 @@ class _SettingsProxy:
 
 class MediaGridReuseTests(_QtCase):
     def _grid(self, **kwargs):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=True, **kwargs)
         self.addCleanup(grid.deleteLater)
@@ -175,9 +175,9 @@ class MediaGridReuseTests(_QtCase):
         self.assertTrue(before.isdisjoint(set(map(id, grid._cards))))
 
     def test_hidden_grids_do_not_relayout_while_the_slider_moves(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
-        size = mock.patch("app.ui.media_card.saved_card_width", lambda: 200)
+        size = mock.patch("app.ui.media.grid.saved_card_width", lambda: 200)
         size.start()
         self.addCleanup(size.stop)
         grid = MediaGrid(selectable=True, max_rows=2, resizable=True)
@@ -205,7 +205,7 @@ class MediaGridReuseTests(_QtCase):
         pixmap = QPixmap(8, 8)
         pixmap.fill(QColor("#123456"))
         grid.set_cover("v0", pixmap)
-        with mock.patch("app.ui.media_card.QPixmap") as decode:
+        with mock.patch("app.ui.media.pixmaps.QPixmap") as decode:
             grid._on_fetched_cover("video", "v0", "/does/not/matter.jpg")
             decode.assert_not_called()
 
@@ -221,7 +221,7 @@ class HomeIncrementalRebuildTests(_QtCase):
             ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
+            ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -497,7 +497,7 @@ class PixmapLRUTests(_QtCase):
         return pixmap
 
     def test_evicts_the_least_recently_used_beyond_the_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=3 * 100 * 100 * 4)
         for key in "abc":
@@ -510,7 +510,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 3)
 
     def test_replacing_a_key_does_not_double_count(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=2 * 100 * 100 * 4)
         for _ in range(5):
@@ -519,7 +519,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 2)
 
     def test_the_newest_item_stays_even_when_it_alone_is_over_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=10)
         cache["big"] = self._pixmap(200)
@@ -532,7 +532,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 0)
 
     def test_a_grid_keeps_its_decoded_covers_inside_the_budget(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=False)
         self.addCleanup(grid.deleteLater)
@@ -626,7 +626,7 @@ class DetailScaleCacheTests(_QtCase):
     def test_the_stage_scales_a_cover_once_per_size(self):
         from PySide6.QtGui import QColor, QPixmap
 
-        from app.ui.media_detail import MediaStage
+        from app.ui.media.stage import MediaStage
 
         stage = MediaStage()
         self.addCleanup(stage.deleteLater)
@@ -642,7 +642,7 @@ class DetailScaleCacheTests(_QtCase):
     def test_gallery_pictures_are_scaled_once_per_size_while_painting(self):
         from PySide6.QtGui import QColor, QPixmap
 
-        from app.ui.media_detail import GalleryImage
+        from app.ui.media.gallery_image import GalleryImage
 
         image = GalleryImage({"id": "f", "name": "f.png", "width": 400, "height": 300})
         self.addCleanup(image.deleteLater)
@@ -797,7 +797,7 @@ class GlobalActionTests(_QtCase):
 
     def test_cover_size_steps_and_resets_and_stays_in_range(self):
         from app.signal_bus import signal_bus
-        from app.ui import media_card
+        from app.ui.media import card_size
 
         seen = []
 
@@ -807,18 +807,18 @@ class GlobalActionTests(_QtCase):
         signal_bus.media_card_size_changed.connect(record)
         self.addCleanup(signal_bus.media_card_size_changed.disconnect, record)
         self._fire("card_size_reset")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT)
         self._fire("card_size_up")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT + media_card.CARD_WIDTH_STEP)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT + card_size.CARD_WIDTH_STEP)
         self._fire("card_size_down")
         self._fire("card_size_down")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT - media_card.CARD_WIDTH_STEP)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT - card_size.CARD_WIDTH_STEP)
         for _ in range(40):
-            media_card.step_card_width(-1)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MIN)
+            card_size.step_card_width(-1)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MIN)
         for _ in range(40):
-            media_card.step_card_width(1)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MAX)
+            card_size.step_card_width(1)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MAX)
 
     def test_toggle_theme_and_fullscreen_are_wired(self):
         with mock.patch.object(self.window, "_toggle_dark_mode") as toggle:
@@ -880,7 +880,7 @@ class HomeKeyboardActionTests(_QtCase):
             ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
+            ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -1006,7 +1006,7 @@ class SubscriptionKeyboardActionTests(_QtCase):
 
 class GridKeyboardTests(_QtCase):
     def setUp(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         self.host = QWidget()
         self.host.resize(1000, 700)

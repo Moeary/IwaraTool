@@ -1,7 +1,7 @@
 """Wires the shortcut catalogue to the main window and its pages."""
 from __future__ import annotations
 
-from .media_card import reset_card_width, step_card_width
+from .media.card_size import reset_card_width, step_card_width
 from .shortcuts import registry
 
 

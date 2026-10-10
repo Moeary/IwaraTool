@@ -33,7 +33,7 @@ from ...core.search import SearchVideo
 from ...i18n import tr
 from ..chrome import SectionTitle, format_age
 from .workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows, stop_workers
-from ..media_card import MediaGrid
+from ..media.grid import MediaGrid
 from ..theme import set_secondary_text
 from .page_dependencies import download_manager
 

@@ -341,7 +341,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
         self.assertEqual(icon.availableSizes()[0], large)
 
     def test_grid_density_uses_the_shared_cover_size_slider(self):
-        from app.ui.media_card import CardSizeControl
+        from app.ui.media.card_size import CardSizeControl
 
         page = self.page
         self.assertFalse(hasattr(page, "_grid_columns_combo"))

@@ -27,7 +27,9 @@ from qfluentwidgets import (
 from ...core.search import SearchVideo
 from ...i18n import tr
 from ..author_status import AuthorStatusBar
-from ..media_card import CardSizeControl, MediaGrid, PixmapLRU, transparent_scroll_area
+from ..media.card_size import CardSizeControl
+from ..media.grid import MediaGrid, transparent_scroll_area
+from ..media.pixmaps import PixmapLRU
 from ..navigation import has_focus_within, restore_scroll
 from ..rules_page import RulePicker
 from .helpers import _source_type_label

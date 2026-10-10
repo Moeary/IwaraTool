@@ -21,7 +21,7 @@ from .helpers import (
     _source_type_label,
     _source_url,
 )
-from ..media_card import read_pixmap
+from ..media.pixmaps import read_pixmap
 from .components import SubscriptionAvatarWorker, _SOURCE_SORT_FIELDS
 from .item_queries import is_feed_source
 from ..theme import qcolor

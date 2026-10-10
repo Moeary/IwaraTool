@@ -30,7 +30,7 @@ from qfluentwidgets import (
 )
 
 from ...i18n import tr
-from ..media_card import CARD_WIDTH_MIN, CardSizeControl, saved_card_width
+from ..media.card_size import CARD_WIDTH_MIN, CardSizeControl, saved_card_width
 from .components import (
     ResponsiveCoverList,
     _CONTROL_HEIGHT,

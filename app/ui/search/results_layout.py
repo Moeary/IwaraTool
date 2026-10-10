@@ -9,7 +9,7 @@ from ...config import app_config
 from ...i18n import tr
 from .grid_style import _grid_item_height
 from ..ui_state import open_table_column_dialog
-from ..media_card import CARD_WIDTH_MAX, CARD_WIDTH_MIN
+from ..media.card_size import CARD_WIDTH_MAX, CARD_WIDTH_MIN
 
 
 _VIDEO_ICON_SIZE = QSize(260, 146)

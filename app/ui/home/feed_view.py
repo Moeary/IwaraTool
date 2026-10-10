@@ -14,7 +14,8 @@ from ...core.rating import RATING_ALL, normalize_rating, rating_options
 from ...i18n import tr
 from ..chrome import EmptyState, PageHeader
 from .workers import CoverFetcher
-from ..media_card import CardSizeControl, transparent_scroll_area
+from ..media.card_size import CardSizeControl
+from ..media.grid import transparent_scroll_area
 from ..shortcuts import attach_hint
 from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from .section_block import SectionBlock

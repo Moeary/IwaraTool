@@ -42,7 +42,7 @@ from ..ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
-from ..media_card import CardSizeControl, saved_card_width
+from ..media.card_size import CardSizeControl, saved_card_width
 from ..shortcuts import attach_hint
 from ..theme import CARD_MARGINS, PAGE_MARGINS, set_secondary_text
 

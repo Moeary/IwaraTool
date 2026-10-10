@@ -24,7 +24,8 @@ from ...core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .workers import CoverFetcher
-from ..media_detail import DetailState, DetailView
+from ..media.detail_state import DetailState
+from ..media.detail_view import DetailView
 from ..navigation import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView
 from .feed_view import HomeFeedView

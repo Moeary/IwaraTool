@@ -25,7 +25,9 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..chrome import EmptyState
-from ..media_card import CardSizeControl, PixmapLRU, saved_card_width, transparent_scroll_area
+from ..media.card_size import CardSizeControl, saved_card_width
+from ..media.pixmaps import PixmapLRU
+from ..media.grid import transparent_scroll_area
 from .helpers import _source_search_text, _source_sort_key, _source_sort_label
 from ..theme import PAGE_SPACING, set_secondary_text, summary_text
 from ..ui_state import ResponsiveFlowLayout

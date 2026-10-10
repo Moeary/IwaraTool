@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QListWidgetItem
 from ...config import app_config
 from ...i18n import tr
 from .helpers import _date_only, _ellipsize, _item_state_text
-from ..media_card import CARD_WIDTH_MIN, PixmapLRU, read_pixmap
+from ..media.card_size import CARD_WIDTH_MIN
+from ..media.pixmaps import PixmapLRU, read_pixmap
 from .components import (
     SubscriptionThumbnailWorker,
     _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,

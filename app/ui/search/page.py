@@ -20,7 +20,7 @@ from .author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
 from .oreno_workers import SearchOrenoLinkWorker, SearchQueueResolveWorker
 from .search_worker import SearchWorker
 # read_pixmap is not used here: it is the patch point for page_dependencies.
-from ..media_card import PixmapLRU, read_pixmap  # noqa: F401
+from ..media.pixmaps import PixmapLRU, read_pixmap  # noqa: F401
 from ..theme import qcolor
 from .covers import SearchCoversMixin
 from .execution import SearchExecutionMixin

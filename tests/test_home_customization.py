@@ -578,7 +578,7 @@ class HomeInterfaceLayoutTests(_QtCase):
             ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "cache.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda self: None),
-            ("app.ui.media_detail.DetailWorker.run", lambda self: None),
+            ("app.ui.media.detail_view.DetailWorker.run", lambda self: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -645,7 +645,7 @@ class HomeInterfaceLayoutTests(_QtCase):
 class SkeletonAndCardTests(_QtCase):
     def test_placeholder_cards_show_until_real_ones_arrive(self):
         from app.core.search import SearchVideo
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=False, max_rows=2)
         self.addCleanup(grid.deleteLater)
@@ -668,7 +668,7 @@ class SkeletonAndCardTests(_QtCase):
         from PySide6.QtGui import QColor, QPixmap
 
         from app.core.search import SearchVideo
-        from app.ui.media_card import MediaCard
+        from app.ui.media.card import MediaCard
 
         card = MediaCard(SearchVideo(video_id="a", title="A"))
         self.addCleanup(card.deleteLater)
@@ -685,7 +685,7 @@ class SkeletonAndCardTests(_QtCase):
 
     def test_hovering_animates_toward_one_and_back(self):
         from app.core.search import SearchVideo
-        from app.ui.media_card import MediaCard
+        from app.ui.media.card import MediaCard
 
         card = MediaCard(SearchVideo(video_id="a", title="A"))
         self.addCleanup(card.deleteLater)

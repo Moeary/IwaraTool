@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ...core.manager import download_manager as _default_download_manager
 from ...signal_bus import signal_bus as _default_signal_bus
-from ..media_card import read_pixmap as _default_read_pixmap
+from ..media.pixmaps import read_pixmap as _default_read_pixmap
 from ..page_dependency import PageDependency
 
 PAGE_MODULE = "app.ui.search.page"
