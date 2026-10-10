@@ -10,13 +10,13 @@ from ...config import app_config
 from ...core.search import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
 from ...i18n import tr
-from .workers import (
+from .worker_limits import (
     DEFAULT_COVER_DOWNLOAD_CONCURRENCY as _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
     DEFAULT_SEARCH_RESOLUTION_CONCURRENCY as _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
     MAX_COVER_DOWNLOAD_CONCURRENCY as _MAX_COVER_DOWNLOAD_CONCURRENCY,
     MAX_SEARCH_RESOLUTION_CONCURRENCY as _MAX_SEARCH_RESOLUTION_CONCURRENCY,
-    SearchWorker,
 )
+from .search_worker import SearchWorker
 from ..worker_lifecycle import on_finished, stop_qthreads
 
 

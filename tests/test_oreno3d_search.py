@@ -17,7 +17,7 @@ from app.core.oreno3d_search import (
     tag_suggestion_query,
 )
 from app.core.search import SearchFilters
-from app.ui.search.workers import SearchWorker
+from app.ui.search.search_worker import SearchWorker
 from app.ui.search.widgets import TagSuggestionPopup
 
 

@@ -21,7 +21,7 @@ from app.core.search import SearchFilters, SearchPageResult, build_keyword_query
 from app.core.search_manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search.page import SearchInterface
-from app.ui.search.workers import SearchWorker
+from app.ui.search.search_worker import SearchWorker
 
 
 def _set_columns(page, columns: int):

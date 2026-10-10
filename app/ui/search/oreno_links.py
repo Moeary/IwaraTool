@@ -11,8 +11,8 @@ from qfluentwidgets import LineEdit
 
 from ...core.search import SearchVideo, normalize_video
 from ...i18n import tr
-from .widgets import _author_subscription_target
-from .workers import SearchOrenoLinkWorker
+from .result_authors import _author_subscription_target
+from .oreno_workers import SearchOrenoLinkWorker
 from ..worker_lifecycle import on_finished
 from .page_dependencies import signal_bus
 

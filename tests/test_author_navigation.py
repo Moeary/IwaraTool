@@ -20,12 +20,9 @@ from app.core.search import (
 )
 from app.core.search_manager import SearchManagerMixin
 from app.ui.search.page import SearchInterface
-from app.ui.search.workers import (
-    SearchAuthorProfileWorker,
-    SearchOrenoAuthorWorker,
-    SearchOrenoLinkWorker,
-    SearchWorker,
-)
+from app.ui.search.author_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
+from app.ui.search.search_worker import SearchWorker
 
 
 class AuthorSearchWorkerTests(unittest.TestCase):
@@ -257,7 +254,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
 
     def test_missing_user_id_is_resolved_in_a_background_worker(self):
         author = normalize_author({"user": {"username": "creator", "name": "Creator"}})
-        with self.selected(author), patch("app.ui.search.actions.SearchAuthorProfileWorker") as worker_type:
+        with self.selected(author), patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()
@@ -273,7 +270,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
 
     def test_keyword_edit_invalidates_a_pending_profile_navigation(self):
         author = normalize_author({"user": {"username": "creator"}})
-        with self.selected(author), patch("app.ui.search.actions.SearchAuthorProfileWorker") as worker_type:
+        with self.selected(author), patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()
@@ -292,7 +289,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
         author = normalize_author({"user": {"username": "creator"}})
         with (
             self.selected(author),
-            patch("app.ui.search.actions.SearchAuthorProfileWorker") as worker_type,
+            patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type,
             patch("qfluentwidgets.InfoBar.success"),
         ):
             worker = worker_type.return_value
@@ -310,7 +307,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
     def test_video_without_author_metadata_is_hydrated_before_viewing_works(self):
         video = SearchVideo("work-1", "Title")
         self.page._all_videos = [video]
-        with self.selected(video), patch("app.ui.search.actions.SearchIwaraAuthorWorker") as worker_type:
+        with self.selected(video), patch("app.ui.search.author_subscription.SearchIwaraAuthorWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()

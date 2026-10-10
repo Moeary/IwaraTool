@@ -69,7 +69,7 @@ class _WindowCase(unittest.TestCase):
             ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
             ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
             ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
-            ("app.ui.search.workers.SearchImageWorker.run", lambda worker: None),
+            ("app.ui.search.image_worker.SearchImageWorker.run", lambda worker: None),
             ("app.ui.subscription_views.CoverLoader.request", lambda *args, **kwargs: None),
             ("app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources", lambda page: None),
         ):
@@ -300,7 +300,7 @@ class SearchRestoreValidityTests(_WindowCase):
             while not release.is_set() and not worker.isInterruptionRequested():
                 time.sleep(0.01)
 
-        patcher = mock.patch("app.ui.search.workers.SearchWorker.run", fake_run)
+        patcher = mock.patch("app.ui.search.search_worker.SearchWorker.run", fake_run)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.page = self.window._search_page

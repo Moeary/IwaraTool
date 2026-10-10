@@ -157,7 +157,7 @@ class InitialLoadTests(_PageCase):
 
 class SearchHistoryUpsertTests(unittest.TestCase):
     def test_an_entry_not_worth_keeping_leaves_the_history_alone(self):
-        from app.ui.search.widgets import _upsert_search_history
+        from app.ui.search.history_entries import _upsert_search_history
 
         history = [{"keyword": "miku", "source": "iwara", "scope": "videos", "sort": "date"}]
         kept = _upsert_search_history(history, {"keyword": "", "source": "iwara", "scope": "images"})

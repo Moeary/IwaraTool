@@ -34,7 +34,8 @@ from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating, rating_o
 from ...i18n import tr
 from ..rules_page import RulePicker
 from ..click_dispatch import ClickDispatcher
-from .widgets import SearchHistoryPopup, SearchKeywordEdit, TagSuggestionPopup, _search_grid_style
+from .widgets import SearchHistoryPopup, SearchKeywordEdit, TagSuggestionPopup
+from .grid_style import _search_grid_style
 from ..ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,

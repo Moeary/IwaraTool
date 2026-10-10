@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
-from .workers import SearchImageWorker
+from .image_worker import SearchImageWorker
 from ..theme import qcolor
 from ..worker_lifecycle import on_finished
 

@@ -13,7 +13,8 @@ from app.core.oreno3d import Oreno3DClient, extract_iwara_video_id, parse_detail
 from app.core.search import SearchVideo
 from app.core.search_manager import SearchManagerMixin
 from app.ui.search.page import SearchInterface
-from app.ui.search.workers import SearchOrenoAuthorWorker, SearchOrenoLinkWorker
+from app.ui.search.author_workers import SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
 
 
 SOURCE = "https://oreno3d.com/movies/123"

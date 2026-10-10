@@ -8,7 +8,7 @@ from PySide6.QtCore import QPoint, QTimer
 
 from ...config import app_config
 from ...i18n import tr
-from .widgets import _decode_search_history, _upsert_search_history
+from .history_entries import _decode_search_history, _upsert_search_history
 
 
 _SEARCH_HISTORY_KEY = "search_history_v1"

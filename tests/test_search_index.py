@@ -12,19 +12,15 @@ from app.core.oreno3d import (
 from app.core.search import SearchAuthor, SearchFilters, SearchVideo, normalize_oreno3d_listing
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search.page import SearchInterface
-from app.ui.search.workers import (
-    SearchIwaraAuthorWorker,
-    SearchOrenoAuthorWorker,
-    SearchOrenoLinkWorker,
-    SearchWorker,
-)
-from app.ui.search.widgets import (
+from app.ui.search.author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
+from app.ui.search.search_worker import SearchWorker
+from app.ui.search.result_authors import (
     _author_source_info,
     _author_subscription_target,
-    _decode_search_history,
     _oreno3d_video_url,
-    _upsert_search_history,
 )
+from app.ui.search.history_entries import _decode_search_history, _upsert_search_history
 
 
 class _FakeResponse:

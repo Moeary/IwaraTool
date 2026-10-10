@@ -18,7 +18,7 @@ from app.core.search import SearchFilters
 from app.core.search_manager import SearchManagerMixin
 from app.signal_bus import signal_bus
 from app.ui.search.page import SearchInterface
-from app.ui.search.workers import SearchWorker
+from app.ui.search.search_worker import SearchWorker
 
 
 def _rows(*ratings: str) -> list[dict]:

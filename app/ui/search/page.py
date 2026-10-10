@@ -13,15 +13,12 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SearchActionsMixin
 from .download_status import SearchDownloadStatusMixin
-from .widgets import TagSuggestionPopup, _search_grid_style
-from .workers import (
-    SearchImageWorker,
-    SearchIwaraAuthorWorker,
-    SearchOrenoAuthorWorker,
-    SearchOrenoLinkWorker,
-    SearchQueueResolveWorker,
-    SearchWorker,
-)
+from .widgets import TagSuggestionPopup
+from .grid_style import _search_grid_style
+from .image_worker import SearchImageWorker
+from .author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
+from .oreno_workers import SearchOrenoLinkWorker, SearchQueueResolveWorker
+from .search_worker import SearchWorker
 # read_pixmap is not used here: it is the patch point for page_dependencies.
 from ..media_card import PixmapLRU, read_pixmap  # noqa: F401
 from ..theme import qcolor

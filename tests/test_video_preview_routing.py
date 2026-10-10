@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from app.core import video_player
 from app.core.search import SearchVideo
 from app.ui import main_window as main_window_module
-from app.ui.search import actions as search_actions
+from app.ui.search import opening as search_opening
 from app.ui.main_window import MainWindow
 from app.ui.search.actions import SearchActionsMixin
 
@@ -39,7 +39,7 @@ class SearchPreviewTests(unittest.TestCase):
     def test_iwara_result_requests_a_preview(self):
         page = self._page()
         bus = mock.Mock()
-        with mock.patch.object(search_actions, "signal_bus", bus):
+        with mock.patch.object(search_opening, "signal_bus", bus):
             SearchActionsMixin._preview_video(page, _video())
         bus.video_preview_requested.emit.assert_called_once_with("abc", "T", "")
 
@@ -47,7 +47,7 @@ class SearchPreviewTests(unittest.TestCase):
         page = self._page()
         bus = mock.Mock()
         video = _video(video_id="oreno-1", source_kind="oreno3d", iwara_url="https://www.iwara.tv/video/XyZ123abc")
-        with mock.patch.object(search_actions, "signal_bus", bus):
+        with mock.patch.object(search_opening, "signal_bus", bus):
             SearchActionsMixin._preview_video(page, video)
         self.assertEqual(bus.video_preview_requested.emit.call_args.args[0], "XyZ123abc")
 
@@ -55,7 +55,7 @@ class SearchPreviewTests(unittest.TestCase):
         page = self._page()
         bus = mock.Mock()
         video = _video(video_id="oreno-1", source_kind="oreno3d")
-        with mock.patch.object(search_actions, "signal_bus", bus):
+        with mock.patch.object(search_opening, "signal_bus", bus):
             SearchActionsMixin._preview_video(page, video)
         bus.video_preview_requested.emit.assert_not_called()
         self.assertEqual(page._pending_preview_video_ids, {"oreno-1"})
@@ -65,7 +65,7 @@ class SearchPreviewTests(unittest.TestCase):
         page = self._page()
         bus = mock.Mock()
         video = _video(downloadable=False)
-        with mock.patch.object(search_actions, "signal_bus", bus):
+        with mock.patch.object(search_opening, "signal_bus", bus):
             SearchActionsMixin._preview_video(page, video)
         bus.video_preview_requested.emit.assert_not_called()
         page._open_video.assert_called_once_with(video)
