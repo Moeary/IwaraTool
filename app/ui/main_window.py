@@ -86,6 +86,7 @@ class MainWindow(
             switch_to=lambda page: FluentWindow.switchTo(self, page),
         )
         self._quitting = False
+        self._console_interrupted = False  # Ctrl+C: exit without the pending-queue prompt
         self._tray_hint_shown = False
         self._pending_update_path = ""
         self._update_in_progress = False

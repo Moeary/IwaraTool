@@ -28,6 +28,7 @@ from ..chrome import EmptyState
 from ..media.card_size import CardSizeControl, saved_card_width
 from ..media.pixmaps import PixmapLRU
 from ..media.grid import transparent_scroll_area
+from ..scroll_intent import UserScrollWatcher
 from .helpers import _source_search_text, _source_sort_key, _source_sort_label
 from ..theme import PAGE_SPACING, set_secondary_text, summary_text
 from ..flow_layout import ResponsiveFlowLayout
@@ -87,7 +88,8 @@ class SubscriptionOverview(OverviewRowsMixin, QWidget):
         self._realize_timer.setInterval(60)
         self._realize_timer.timeout.connect(self._realize)
         self._todo: list = []
-        self._scroll_target = 0
+        self._scroll_target: int | None = None  # where a reload found the page, until its rows are built
+        self._scroll_serial = 0  # user scroll input count when that reload started
         self._build_timer = QTimer(self)
         self._build_timer.setSingleShot(True)
         self._build_timer.timeout.connect(lambda: self._build_rows(sliced=True))
@@ -106,6 +108,7 @@ class SubscriptionOverview(OverviewRowsMixin, QWidget):
         self._column.setSpacing(12)
         self._column.addStretch(1)
         self._scroll.setWidget(holder)
+        self._scroll_watcher = UserScrollWatcher(self._scroll)
         root.addWidget(self._scroll, 1)
 
         self._empty = EmptyState(
@@ -267,6 +270,7 @@ class SubscriptionOverview(OverviewRowsMixin, QWidget):
             if self._empty.button is not None:
                 self._empty.button.setVisible(not has_any)
         self._scroll_target = scroll_value
+        self._scroll_serial = self._scroll_watcher.serial
         self._sync_order()
         self._realize()
 
@@ -286,14 +290,22 @@ class SubscriptionOverview(OverviewRowsMixin, QWidget):
                 self._build_timer.start(0)
                 return
         self._sync_order()
-        QTimer.singleShot(0, lambda: self._restore_scroll(self._scroll_target))
+        target, self._scroll_target = self._scroll_target, None
+        if target is not None:
+            # Only the build a reload started puts the page back, and only when
+            # the user has not scrolled since: rows built later because the user
+            # scrolled must never drag the page back to the old spot.
+            serial = self._scroll_serial
+            QTimer.singleShot(0, lambda: self._restore_scroll(target, serial))
         self._cover_timer.start()
 
     def building(self) -> bool:
         return bool(self._todo)
 
-    def _restore_scroll(self, value: int):
+    def _restore_scroll(self, value: int, serial: int):
         try:
+            if serial != self._scroll_watcher.serial:
+                return  # the user scrolled meanwhile; where they went wins
             self._scroll.verticalScrollBar().setValue(value)
         except RuntimeError:
             pass  # the page was closed before the deferred call ran

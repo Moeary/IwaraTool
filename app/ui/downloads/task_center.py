@@ -1,7 +1,7 @@
 """Task Center Interface — table-based download task list."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -59,6 +59,8 @@ class TaskCenterInterface(
     QWidget,
 ):
     """Single-list task center with filters, sorting, and row actions."""
+
+    explain_requested = Signal(str)  # video id: "why was this not downloaded?"
 
     _COL_STATE = 0
     _COL_TITLE = 1

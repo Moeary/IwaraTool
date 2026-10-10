@@ -135,6 +135,7 @@ class TaskMenuMixin:
         ):
             menu.addSeparator()
         self._add_task_state_actions(menu, failed_ids, cancelled_ids, interruptible_ids, cancelling_ids)
+        self._add_explain_action(menu, task_ids, completed_ids)
         if menu.actions():
             menu.addSeparator()
         menu.addAction(
@@ -150,6 +151,24 @@ class TaskMenuMixin:
             )
         )
         menu.exec(self._table.viewport().mapToGlobal(position))
+
+    def _add_explain_action(self, menu: RoundMenu, task_ids: list[str], completed_ids: list[str]):
+        """One task that has not finished: ask the workbench why."""
+
+        if len(task_ids) != 1 or completed_ids:
+            return
+        task = self._tasks_by_id.get(task_ids[0])
+        video_id = task.video_id if task else ""
+        if not video_id:
+            return
+        menu.addAction(
+            Action(
+                FluentIcon.HELP,
+                tr("Why not downloaded?", "为什么没下载？", "なぜ保存されない？"),
+                self,
+                triggered=lambda _checked=False, vid=video_id: self.explain_requested.emit(vid),
+            )
+        )
 
     def _add_completed_task_actions(self, menu: RoundMenu, completed_ids: list[str]):
         if len(completed_ids) == 1:

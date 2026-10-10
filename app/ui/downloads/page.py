@@ -10,6 +10,7 @@ from qfluentwidgets import (
     CardWidget,
     FluentIcon,
     HyperlinkButton,
+    PushButton,
     InfoBar,
     InfoBarPosition,
     LineEdit,
@@ -37,6 +38,7 @@ from ..theme import (
     set_status_text,
 )
 from .download_options import DownloadOptionsMixin
+from .link_tools import DownloadLinkToolsMixin
 from .log_panel import DownloadLogMixin
 from .submitted_urls import split_submitted_urls
 from .subscription_prompt import DownloadSubscriptionPromptMixin
@@ -45,6 +47,7 @@ from .subscription_prompt import DownloadSubscriptionPromptMixin
 # ── Download Interface ────────────────────────────────────────────────────────
 
 class DownloadInterface(
+    DownloadLinkToolsMixin,
     DownloadSubscriptionPromptMixin,
     DownloadOptionsMixin,
     DownloadLogMixin,
@@ -62,6 +65,7 @@ class DownloadInterface(
         self._log_flush_timer = QTimer(self)
         self._log_flush_timer.setInterval(200)
         self._log_flush_timer.timeout.connect(self._flush_logs)
+        self._init_link_tools()
 
         self._build_ui()
         signal_bus.log_message.connect(self._append_log)
@@ -106,6 +110,7 @@ class DownloadInterface(
         left_layout.addWidget(self._build_log_card(left_panel), stretch=1)
 
         self._task_center = TaskCenterInterface(right_panel, embedded=True)
+        self._task_center.explain_requested.connect(self.explain_video)
         right_layout.addWidget(self._task_center, stretch=1)
 
     def _build_title_row(self) -> QHBoxLayout:
@@ -212,7 +217,20 @@ class DownloadInterface(
             FluentIcon.DOWNLOAD,
         )
         self._submit_btn.clicked.connect(self._submit)
-        url_layout.addWidget(self._submit_btn)
+        submit_row = QHBoxLayout()
+        submit_row.setSpacing(8)
+        submit_row.addWidget(self._submit_btn, 1)
+        self._why_btn = PushButton(tr("Why not downloaded?", "为什么没下载？", "なぜ保存されない？"), url_card, FluentIcon.HELP)
+        self._why_btn.setToolTip(
+            tr(
+                "Check the video link in the box: queue, history, files on disk, the site and the rule",
+                "检查输入框中的视频：任务队列、历史记录、本地文件、站点状态与下载规则",
+                "入力欄の動画を確認します：キュー・履歴・ローカルファイル・サイト・ルール",
+            )
+        )
+        self._why_btn.clicked.connect(self._explain_current_url)
+        submit_row.addWidget(self._why_btn)
+        url_layout.addLayout(submit_row)
         return url_card
 
     def _build_log_card(self, left_panel: QWidget) -> CardWidget:
@@ -278,6 +296,10 @@ class DownloadInterface(
         rule_id = self._rule_picker.selected_rule_id()
         self._rule_picker.apply_selected(show_notice=False)
         mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
+        if len(urls) == 1 and download_manager.listing_kind(urls[0]):
+            # An author / playlist: show what it holds before queueing anything.
+            self._start_listing_preview(urls[0], rule_id, mark_only=mark_only)
+            return
         for url in urls:
             self._maybe_add_download_source_to_subscription(url)
             if mark_only:

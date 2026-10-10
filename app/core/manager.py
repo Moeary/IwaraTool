@@ -43,7 +43,9 @@ from .models import DownloadTask, TaskStatus
 from .subscription.store import SubscriptionStore
 from .tag_dictionary import TagDictionary
 from .task_queue import TaskPersistenceCoordinator, TaskQueueStore
+from .download.diagnosis import DownloadDiagnosisMixin
 from .download.enqueueing import EnqueueingMixin
+from .download.listing_preview import ListingPreviewMixin
 from .download.history_actions import HistoryActionsMixin
 from .download.session import SessionMixin
 from .download.task_control import TaskControlMixin
@@ -58,6 +60,8 @@ class DownloadManager(
     HistoryActionsMixin,
     SessionMixin,
     UrlIntakeMixin,
+    ListingPreviewMixin,
+    DownloadDiagnosisMixin,
     EnqueueingMixin,
     DownloadRuntimeMixin,
     Aria2DownloadMixin,

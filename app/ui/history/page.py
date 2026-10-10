@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -32,7 +33,7 @@ from ...core.manager import download_manager
 from ...core.models import TaskStatus
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, set_secondary_text
 from ..flow_layout import ResponsiveFlowLayout
 from ..ui_state import (
     connect_table_column_saver,
@@ -41,6 +42,7 @@ from ..ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
+from .browse import HistoryBrowseMixin
 from .csv_export import HistoryCsvExportMixin
 from .record_actions import HistoryRecordActionsMixin
 from .record_state import HistoryRecordStateMixin
@@ -50,6 +52,7 @@ from .table import HistoryTableMixin
 
 
 class HistoryInterface(
+    HistoryBrowseMixin,
     HistoryCsvExportMixin,
     HistoryRecordStateMixin,
     HistoryTableMixin,
@@ -100,10 +103,14 @@ class HistoryInterface(
         self._render_next = 0
         self._render_deferred = False
         self._state_memo: dict[int, tuple[str, str, str, bool]] | None = None
+        self._init_browse_state()
 
         self._build_ui()
+        self._sync_browse_controls()
         self._load_history()
         signal_bus.task_status_changed.connect(self._on_task_status_changed)
+        # Marked watched / downloaded elsewhere: re-read when next looked at.
+        signal_bus.history_changed.connect(self._schedule_history_refresh)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -134,6 +141,7 @@ class HistoryInterface(
         set_secondary_text(self._db_label)
         root.addWidget(self._db_label)
 
+        root.addLayout(self._build_browse_row())
         root.addLayout(self._build_filter_row())
 
         self._summary_label = CaptionLabel("", self)
@@ -142,7 +150,17 @@ class HistoryInterface(
         set_secondary_text(self._summary_label)
         root.addWidget(self._summary_label)
 
-        root.addWidget(self._build_table(), stretch=1)
+        body = FluentSplitter(Qt.Orientation.Horizontal, self)
+        body.setChildrenCollapsible(False)
+        body.addWidget(self._build_author_panel(body))
+        self._view_stack = QStackedWidget(body)
+        self._view_stack.addWidget(self._build_table())
+        self._view_stack.addWidget(self._build_cover_grid(self._view_stack))
+        body.addWidget(self._view_stack)
+        body.setStretchFactor(0, 0)
+        body.setStretchFactor(1, 1)
+        body.setSizes([220, 1200])
+        root.addWidget(body, stretch=1)
 
     def _build_filter_row(self) -> ResponsiveFlowLayout:
         filter_row = ResponsiveFlowLayout()
@@ -333,9 +351,14 @@ class HistoryInterface(
             if str(row.get("video_id", "") or "")
         }
         self._history_dirty = False
+        self._rebuild_author_list()
         self._apply_filters()
 
-    def _schedule_history_refresh(self):
+    def shutdown(self, timeout_ms: int = 30_000) -> bool:
+        """Stop the cover downloads of the grid views."""
+        return self._cover_grid.shutdown(timeout_ms)
+
+    def _schedule_history_refresh(self, *_args):
         self._history_dirty = True
         # HistoryInterface is constructed with the main window even when its
         # navigation page is hidden.  Avoid reading SQLite and rebuilding a
@@ -383,6 +406,8 @@ class HistoryInterface(
 
     def refresh_theme_styles(self):
         """Re-render rows so baked status/link colors follow the new theme."""
+        if hasattr(self, "_cover_grid"):
+            self._cover_grid.refresh_theme()
         if hasattr(self, "_table"):
             self._apply_filters()
 

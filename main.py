@@ -14,6 +14,7 @@ apply_pending_restore(str(Path(sys.argv[0]).resolve().parent / "data"))
 
 from app.config import app_config  # noqa: E402
 from app.logging_setup import get_logger, setup_logging
+from app.qt_runtime import install_console_interrupt
 from app.signal_bus import signal_bus
 from app.core.manager import download_manager
 from app.core.background_services import background_service
@@ -58,6 +59,7 @@ def main():
     if icon_path.exists():
         window.setWindowIcon(QIcon(str(icon_path)))
     window.show()
+    install_console_interrupt(window.quit_from_console, app)
 
     sys.exit(app.exec())
 

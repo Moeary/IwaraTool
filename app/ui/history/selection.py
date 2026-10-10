@@ -10,6 +10,7 @@ from qfluentwidgets import Action, FluentIcon, RoundMenu
 
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from .page_dependencies import download_manager
 from .record_state import _video_url
 
 
@@ -23,6 +24,8 @@ class HistorySelectionMixin:
     def _selected_video_ids(self) -> list[str]:
         if not hasattr(self, "_table"):
             return []
+        if self._view_mode != "list":
+            return self._cover_grid.selected_video_ids()
 
         rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
         video_ids: list[str] = []
@@ -52,6 +55,10 @@ class HistorySelectionMixin:
                 self._table.clearSelection()
                 self._table.selectRow(item.row())
                 self._table.setCurrentCell(item.row(), self._COL_ID)
+        self._exec_record_menu(self._table.viewport().mapToGlobal(position))
+
+    def _exec_record_menu(self, global_position):
+        """The right-click menu for the selected records, in either view."""
 
         video_ids = self._selected_video_ids()
         if not video_ids:
@@ -83,6 +90,7 @@ class HistorySelectionMixin:
                     triggered=lambda _checked=False, ids=tuple(moved_ids): self._clean_selected_records(ids),
                 )
             )
+        self._add_watched_actions(menu, video_ids, records)
         menu.addAction(
             Action(
                 FluentIcon.DELETE,
@@ -95,7 +103,25 @@ class HistorySelectionMixin:
                 triggered=lambda _checked=False, ids=tuple(video_ids): self._remove_records(ids),
             )
         )
-        menu.exec(self._table.viewport().mapToGlobal(position))
+        menu.exec(global_position)
+
+    def _add_watched_actions(self, menu: RoundMenu, video_ids: list[str], records: list[dict]):
+        unwatched = [vid for vid, record in zip(video_ids, records) if not str(record.get("watched_at", "") or "")]
+        watched = [vid for vid in video_ids if vid not in unwatched]
+        if unwatched:
+            menu.addAction(Action(
+                FluentIcon.ACCEPT,
+                tr(f"Mark as watched ({len(unwatched)})", f"标记为已观看（{len(unwatched)}）", f"視聴済みにする（{len(unwatched)}）"),
+                self,
+                triggered=lambda _checked=False, ids=tuple(unwatched): download_manager.set_videos_watched(list(ids), True),
+            ))
+        if watched:
+            menu.addAction(Action(
+                FluentIcon.HIDE,
+                tr(f"Mark as unwatched ({len(watched)})", f"标记为未观看（{len(watched)}）", f"未視聴にする（{len(watched)}）"),
+                self,
+                triggered=lambda _checked=False, ids=tuple(watched): download_manager.set_videos_watched(list(ids), False),
+            ))
 
     def _add_single_record_actions(self, menu: RoundMenu, video_id: str, record: dict):
         file_path = str(record.get("file_path", "") or "")

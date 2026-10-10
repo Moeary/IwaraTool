@@ -45,14 +45,22 @@ class HistoryActionsMixin:
             )
         return self._open_system_path(os.path.dirname(file_path))
 
+    def set_videos_watched(self, video_ids: list[str], watched: bool = True) -> int:
+        """Mark downloaded videos as played (or not) for the history's "unwatched" view."""
+        return self.history.set_watched(video_ids, watched)
+
     def _open_video_file(self, path: str, *, video_id: str = "", title: str = "") -> tuple[bool, str]:
         """Open a downloaded video in the player chosen in Settings."""
         from ..video_player import MODE_BUILTIN, open_local_video, player_mode
 
         if player_mode() == MODE_BUILTIN:
+            # The preview window marks it watched when it plays the local file.
             signal_bus.video_preview_requested.emit(video_id, title, path)
             return True, ""
-        return open_local_video(path)
+        ok, message = open_local_video(path)
+        if ok and video_id:
+            self.set_videos_watched([video_id])
+        return ok, message
 
     def rename_history_file(
         self, video_id: str, new_filename: str

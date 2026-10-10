@@ -76,7 +76,7 @@ class WindowShutdownMixin:
             return
 
         pending = download_manager.pending_task_count()
-        if pending and not show_fluent_confirmation(
+        if pending and not self._console_interrupted and not show_fluent_confirmation(
             self,
             tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了"),
             tr(
@@ -104,6 +104,18 @@ class WindowShutdownMixin:
         event.ignore()
         self._hide_while_stopping()
 
+    def quit_from_console(self):
+        """Ctrl+C in the terminal: save the queue and exit without asking."""
+
+        if self._closing or self._close_complete:
+            return
+        logger.info("Interrupted from the console; saving the queue and exiting")
+        self._console_interrupted = True
+        self._quitting = True
+        self.close()
+        if not self._closing:
+            QApplication.quit()  # every page stopped at once; nothing left to wait for
+
     def _page_shutdown_steps(self) -> list:
         return [
             page.shutdown
@@ -112,6 +124,7 @@ class WindowShutdownMixin:
                 getattr(self, "_search_page", None),
                 getattr(self, "_subscription_page", None),
                 getattr(self, "_repair_page", None),
+                getattr(self, "_history_page", None),
                 getattr(self, "_settings_page", None),
             )
             if callable(getattr(page, "shutdown", None))

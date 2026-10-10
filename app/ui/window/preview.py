@@ -10,6 +10,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...i18n import tr
 from ...core import video_player
+from ...core.manager import download_manager
 from ..player.preview_window import VideoPreviewWindow
 
 
@@ -20,6 +21,8 @@ class WindowPreviewMixin:
         """Play locally when the file is on disk, otherwise stream it in a window."""
         video_id = str(video_id or "").strip()
         local = path if path and os.path.isfile(path) else video_player.local_video_path(video_id)
+        if local and video_id:
+            download_manager.set_videos_watched([video_id])  # feeds the history's "unwatched" view
         if local and video_player.player_mode() != video_player.MODE_BUILTIN:
             ok, message = video_player.open_local_video(local)
             if not ok:

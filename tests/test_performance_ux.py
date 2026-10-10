@@ -387,6 +387,19 @@ class SubscriptionOverviewTests(_QtCase):
         self.pump(lambda: not overview.building())
         self.assertGreaterEqual(len(overview._rows), wanted)
 
+    def test_a_reload_never_drags_the_page_back_after_the_user_scrolled(self):
+        overview = self.page._overview
+        bar = overview._scroll.verticalScrollBar()
+        overview.reload()  # e.g. one subscription finished refreshing
+        reload_value = bar.value()
+        overview._scroll_watcher.serial += 1  # the user turns the wheel...
+        bar.setValue(bar.maximum())  # ...and the page moves down
+        last = max(overview._order, key=overview._order.get)
+        self.pump(lambda: last in overview._rows and not overview.building(), seconds=15)
+        self.pump(seconds=0.2)
+        self.assertNotEqual(bar.value(), reload_value)
+        self.assertGreater(bar.value(), bar.maximum() // 2)
+
     def test_reloading_unchanged_data_keeps_every_row(self):
         overview = self.page._overview
         before = dict(overview._rows)

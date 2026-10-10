@@ -33,6 +33,7 @@ from ...config import app_config
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating, rating_options
 from ...i18n import tr
 from ..rules.rule_picker import RulePicker
+from ..card_list import CardGridList
 from ..click_dispatch import ClickDispatcher
 from .widgets import SearchHistoryPopup, SearchKeywordEdit, TagSuggestionPopup
 from .grid_style import _search_grid_style
@@ -322,7 +323,7 @@ class SearchPageLayoutMixin:
         return result_card
 
     def _build_results_grid(self, result_card: QWidget) -> ListWidget:
-        self._results = ListWidget(result_card)
+        self._results = CardGridList(result_card)
         self._results.setFrameShape(QFrame.Shape.NoFrame)
         self._results.setStyleSheet(_search_grid_style())
         self._results.setContentsMargins(0, 0, 0, 0)

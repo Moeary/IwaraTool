@@ -31,6 +31,7 @@ from ..media.card_size import CardSizeControl
 from ..media.grid import MediaGrid, transparent_scroll_area
 from ..media.pixmaps import PixmapLRU
 from ..navigation import has_focus_within, restore_scroll
+from ..scroll_intent import UserScrollWatcher
 from ..rules.rule_picker import RulePicker
 from .helpers import _source_type_label
 from ..theme import PAGE_SPACING, set_secondary_text
@@ -214,6 +215,7 @@ class SourceItemsView(QWidget):
         column.addLayout(footer)
         column.addStretch(1)
         self._scroll.setWidget(body)
+        self._scroll_watcher = UserScrollWatcher(self._scroll)
         root.addWidget(self._scroll, 1)
 
     # ── data ─────────────────────────────────────────────────────────────────
@@ -296,7 +298,10 @@ class SourceItemsView(QWidget):
         self._stale = False
         if not self.source_id:
             return
-        self._items = self._page._source_items(self.source_id)
+        items = self._page._source_items(self.source_id)
+        if items == self._items:
+            return  # a refresh of another subscription: nothing here changed, keep every card
+        self._items = items
         # Download-state changes land here: keep what the user selected and
         # where they were scrolled to, instead of jumping back to the top.
         self._apply(reset_page=False, keep_view=True)
@@ -349,8 +354,12 @@ class SourceItemsView(QWidget):
             self._grid.select_ids(selected_ids)
         bar.setValue(scroll_value)
         if scroll_value:
-            # The scroll range may only grow once the rebuilt grid is laid out.
-            QTimer.singleShot(0, bar, lambda: bar.setValue(scroll_value))
+            # The scroll range may only grow once the rebuilt grid is laid out;
+            # a wheel turn in between (a refresh reloading this grid) wins.
+            serial = self._scroll_watcher.serial
+            QTimer.singleShot(
+                0, bar, lambda: serial == self._scroll_watcher.serial and bar.setValue(scroll_value),
+            )
         self._request_covers(videos)
         self._prev_btn.setEnabled(self._page_index > 0)
         self._next_btn.setEnabled(self._page_index < self._page_count() - 1)

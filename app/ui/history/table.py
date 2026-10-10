@@ -37,14 +37,19 @@ class HistoryTableMixin:
         state_idx = self._state_combo.currentIndex() if hasattr(self, "_state_combo") else 0
 
         visible_records: list[dict[str, Any]] = []
-        ok_count = moved_count = 0
+        ok_count = moved_count = unwatched_count = 0
+        recent_cutoff = self._recent_cutoff()
         for record in self._all_records:
             _, state_key, _ = self._record_state(record)
             if state_key == "ok":
                 ok_count += 1
+                if not str(record.get("watched_at", "") or ""):
+                    unwatched_count += 1
             else:
                 moved_count += 1
 
+            if not self._scope_accepts(record, state_key, recent_cutoff):
+                continue
             if state_idx == 1 and state_key != "ok":
                 continue
             if state_idx == 2 and state_key != "moved":
@@ -55,7 +60,7 @@ class HistoryTableMixin:
 
         visible_records = self._sort_records(visible_records)
         self._visible_records = visible_records
-        self._render_table(visible_records)
+        self._render_current_view(visible_records)
         self._summary_label.setText(
             summary_text(
                 [
@@ -63,6 +68,7 @@ class HistoryTableMixin:
                     (tr("Visible", "当前显示", "表示"), len(visible_records)),
                     (tr("OK", "正常", "正常"), ok_count),
                     (tr("Moved", "已移走", "移動済み"), moved_count),
+                    (tr("Unwatched", "未观看", "未視聴"), unwatched_count),
                 ]
             )
         )

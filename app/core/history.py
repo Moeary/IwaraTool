@@ -33,6 +33,7 @@ class DownloadHistory:
         "thumbnail_path",
         "quality",
         "downloaded_at",
+        "watched_at",
     )
     _HEAVY_COLUMNS = frozenset(("tags_json", "raw_json"))
     _LIGHT_COLUMNS = (
@@ -51,6 +52,7 @@ class DownloadHistory:
         "thumbnail_path",
         "quality",
         "downloaded_at",
+        "watched_at",
     )
 
     def __init__(self, db_path: str | None = None):
@@ -115,6 +117,7 @@ class DownloadHistory:
             "file_path": "TEXT DEFAULT ''",
             "thumbnail_path": "TEXT DEFAULT ''",
             "quality": "TEXT DEFAULT ''",
+            "watched_at": "TEXT DEFAULT ''",  # last time the file was played; '' = never
         }
         for col, ddl in required.items():
             if col not in existing:
@@ -224,6 +227,30 @@ class DownloadHistory:
                     conn.commit()
 
         signal_bus.history_changed.emit()
+
+    def set_watched(self, video_ids: list[str], watched: bool = True) -> int:
+        """Stamp (or clear) when the videos were last played; returns how many rows changed."""
+
+        ids = list(dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()))
+        if not ids:
+            return 0
+        value = "CURRENT_TIMESTAMP" if watched else "''"
+        changed = 0
+        with self._lock:
+            self._ensure_db_ready()
+            with closing(_sqlite_connect(self._db_path)) as conn:
+                for start in range(0, len(ids), 500):
+                    chunk = ids[start:start + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor = conn.execute(
+                        f"UPDATE downloaded SET watched_at={value} WHERE video_id IN ({placeholders})",
+                        chunk,
+                    )
+                    changed += max(0, int(cursor.rowcount or 0))
+                conn.commit()
+        if changed:
+            signal_bus.history_changed.emit()
+        return changed
 
     def remove(self, video_id: str):
         self.remove_many([video_id])
