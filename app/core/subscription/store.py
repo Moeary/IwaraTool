@@ -297,23 +297,47 @@ class SubscriptionStore(StoreSchemaMixin, LegacyMigrationMixin, SourcesBackupMix
                                 params[1],
                             ),
                         )
+                        self._write_item_stats(conn, params[0], params[1], item)
                         continue
                     conn.execute(
                         "UPDATE items SET title=?, author=?, published_at=?, source_url=?, thumbnail_url=COALESCE(NULLIF(?, ''), thumbnail_url), updated_at=CURRENT_TIMESTAMP "
                         "WHERE source_id=? AND video_id=?",
                         (params[2], params[3], params[4], params[5], params[6], params[0], params[1]),
                     )
+                    self._write_item_stats(conn, params[0], params[1], item)
                     continue
                 conn.execute(
                     "INSERT INTO items (source_id, video_id, title, author, published_at, source_url, thumbnail_url, download_state, download_reason, download_checked_at, is_new) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
                     (*params, download_state, download_reason, checked_at),
                 )
+                self._write_item_stats(conn, params[0], params[1], item)
                 new_count += 1
             conn.commit()
 
         total_count = self.count_items(source_id)
         return new_count, total_count
+
+    @staticmethod
+    def _write_item_stats(conn, source_id: int, video_id: str, item: dict[str, Any]):
+        """Keep the latest likes / views / tags; a stub without them leaves the old ones."""
+
+        if not item.get("stats_known"):
+            return
+        conn.execute(
+            "UPDATE items SET likes=?, views=?, comments=?, duration=?, rating=?, tags_json=?, stats_known=1 "
+            "WHERE source_id=? AND video_id=?",
+            (
+                int(item.get("likes", 0) or 0),
+                int(item.get("views", 0) or 0),
+                int(item.get("comments", 0) or 0),
+                int(item.get("duration", 0) or 0),
+                str(item.get("rating", "") or ""),
+                str(item.get("tags_json", "") or ""),
+                source_id,
+                video_id,
+            ),
+        )
 
     def count_items(self, source_id: int) -> int:
         with self._lock, closing(_sqlite_connect(self._db_path)) as conn:

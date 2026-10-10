@@ -31,6 +31,7 @@ from ..navigation import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView
 from .feed_view import HomeFeedView
 from .section_block import queueable_ids
+from ..downloads.queue_preview import confirm_videos
 
 
 @dataclass
@@ -306,13 +307,13 @@ class HomeInterface(QWidget):
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return
-        accepted = download_manager.enqueue_video_ids(
-            ids, source_label=tr("Home", "首页", "ホーム"), rule_id=rule_id or active_rule_id(),
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(f"Accepted {accepted} video(s)", f"已接受 {accepted} 个视频", f"{accepted} 件を追加しました"),
-            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self.window(),
+        # Confirm first: counts, where the files go, and the rule.
+        wanted = set(ids)
+        confirm_videos(
+            self,
+            [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
+            label=tr("Home", "首页", "ホーム"),
+            rule_id=rule_id or active_rule_id(),
         )
 
     def _author_target(self, video: SearchVideo) -> tuple[str, str, str, str] | None:

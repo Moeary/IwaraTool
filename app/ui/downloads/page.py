@@ -39,6 +39,7 @@ from ..theme import (
 )
 from .download_options import DownloadOptionsMixin
 from .link_tools import DownloadLinkToolsMixin
+from .pending_panel import PendingStacksCard
 from .log_panel import DownloadLogMixin
 from .submitted_urls import split_submitted_urls
 from .subscription_prompt import DownloadSubscriptionPromptMixin
@@ -107,6 +108,9 @@ class DownloadInterface(
 
         self._build_legacy_option_buttons(left_panel)
         left_layout.addWidget(self._build_url_card(left_panel))
+        self._pending_card = PendingStacksCard(left_panel)
+        self._pending_card.open_requested.connect(self._preview_flow.open_stack)
+        left_layout.addWidget(self._pending_card)
         left_layout.addWidget(self._build_log_card(left_panel), stretch=1)
 
         self._task_center = TaskCenterInterface(right_panel, embedded=True)
@@ -295,11 +299,11 @@ class DownloadInterface(
             return
         rule_id = self._rule_picker.selected_rule_id()
         self._rule_picker.apply_selected(show_notice=False)
-        mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
         if len(urls) == 1 and download_manager.listing_kind(urls[0]):
             # An author / playlist: show what it holds before queueing anything.
-            self._start_listing_preview(urls[0], rule_id, mark_only=mark_only)
+            self._start_listing_preview(urls[0], rule_id)
             return
+        mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
         for url in urls:
             self._maybe_add_download_source_to_subscription(url)
             if mark_only:

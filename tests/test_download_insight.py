@@ -13,6 +13,8 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QListWidgetItem
 
 from app.config import app_config
+from app.core.download.listing_preview import is_downloadable, preview_counts
+from app.core.download.pending_stacks import PendingStackStore
 from app.core.history import DownloadHistory
 from app.core.manager import DownloadManager
 from app.core.models import DownloadTask, TaskStatus
@@ -56,6 +58,7 @@ class _ManagerCase(unittest.TestCase):
         self.mgr.subscriptions = SubscriptionStore(os.path.join(self.tmp, "subscriptions.db"))
         self.mgr._api_call = fake_api
         self.mgr._existing_file_index_built_at = 0
+        self.mgr.pending_stacks = PendingStackStore(os.path.join(self.tmp, "pending.json"))
 
     def _restore_config(self):
         app_config.download_dir, app_config.skip_existing_files = self._saved
@@ -122,6 +125,38 @@ class ListingPreviewTests(_ManagerCase):
         self.assertEqual(preview["error"], "")
         self.assertEqual([item["video_id"] for item in preview["items"]], ["fresh0000002", "haveFile0001"])
 
+    def test_private_videos_are_counted_as_not_downloadable(self):
+        videos = [dict(VIDEOS[1]), {"id": "private00003", "title": "Secret", "private": True}]
+        counts = preview_counts(self.mgr.preview_videos(videos)["items"])
+        self.assertEqual((counts["total"], counts["unavailable"], counts["downloadable"]), (2, 1, 1))
+
+    def test_switching_the_rule_recounts_without_the_network(self):
+        preview = self.mgr.preview_videos([dict(VIDEOS[0]), dict(VIDEOS[1])])
+        self.assertEqual(preview_counts(preview["items"])["blocked"], 0)
+        strict = {"filter_enabled": True, "filter_min_likes_enabled": True, "filter_min_likes": 10,
+                  "filename_template": "{author}/{id}.mp4"}
+        self.mgr._api_call = lambda *a, **k: self.fail("no network on a rule change")
+        with patch.object(DownloadManager, "_rule_payload_for_id", return_value=strict):
+            again = self.mgr.reclassify_preview(preview, "strict")
+        self.assertEqual(again["rule_id"], "strict")
+        self.assertEqual(preview_counts(again["items"])["blocked"], 1)
+        self.assertEqual(again["items"][1]["relative_path"], os.path.join("bob", "fresh0000002.mp4"))
+
+    def test_subscription_rows_keep_stats_for_the_rule(self):
+        source_id = self.mgr.subscriptions.add_source("author", "bob", "Bob")
+        from app.core.task_metadata import subscription_item_from_video
+
+        self.mgr.subscriptions.upsert_items(source_id, [subscription_item_from_video(dict(VIDEOS[1], tags=[{"id": "dance"}]))])
+        row = self.mgr.subscriptions.get_items_by_video_ids(["fresh0000002"])[0]
+        self.assertEqual((row["likes"], row["stats_known"], row["tags_json"]), (50, 1, '["dance"]'))
+        self.mgr.subscriptions.upsert_items(source_id, [{"video_id": "fresh0000002", "title": "stub"}])
+        self.assertEqual(self.mgr.subscriptions.get_items_by_video_ids(["fresh0000002"])[0]["likes"], 50)
+        with patch.object(DownloadManager, "_rule_payload_for_id", return_value={
+            "filter_enabled": True, "filter_min_likes_enabled": True, "filter_min_likes": 100,
+        }):
+            item = self.mgr.preview_subscription_items(["fresh0000002"])["items"][0]
+        self.assertIs(item["matches"], False)  # judged locally now that likes are stored
+
     def test_a_listing_without_videos_reports_an_error(self):
         self.mgr._api_call = lambda name, *a, **k: ("uid", "") if name == "get_user_id" else []
         preview = self.mgr.preview_listing("https://www.iwara.tv/profile/nobody")
@@ -182,6 +217,37 @@ class CoverCacheTests(_ManagerCase):
         self.assertTrue(os.path.normcase(shown).startswith(os.path.normcase(data_dir)))
         os.remove(thumb)  # the user moves the files into a media library
         self.assertEqual(self.mgr.subscription_cover_path("abc"), shown)
+
+
+class PendingStackTests(_ManagerCase):
+    def _preview(self):
+        self._downloaded("haveFile0001")
+        return self.mgr.preview_videos([dict(v) for v in VIDEOS[:2]], label="bob")
+
+    def test_a_stack_survives_on_disk_and_reopens_with_its_checks(self):
+        preview = self._preview()
+        stack_id = self.mgr.save_pending_stack(preview, ["fresh0000002"])
+        again = PendingStackStore(self.mgr.pending_stacks.path).load()
+        self.assertEqual([s["id"] for s in again], [stack_id])
+        summary = self.mgr.list_pending_stacks()[0]
+        self.assertEqual((summary["label"], summary["total"], summary["wanted"]), ("bob", 2, 1))
+        reopened = self.mgr.open_pending_stack(stack_id)
+        self.assertEqual([i["video_id"] for i in reopened["items"] if i["checked"]], ["fresh0000002"])
+        self.assertEqual(reopened["stack_id"], stack_id)
+
+    def test_the_stack_goes_once_its_videos_are_downloaded(self):
+        stack_id = self.mgr.save_pending_stack(self._preview(), ["fresh0000002"])
+        self.assertEqual(self.mgr.prune_pending_stacks(), 0)
+        self._downloaded("fresh0000002")
+        self.assertEqual(self.mgr.prune_pending_stacks(), 1)
+        self.assertIsNone(self.mgr.open_pending_stack(stack_id))
+
+    def test_remove_and_clear(self):
+        first = self.mgr.save_pending_stack(self._preview(), ["fresh0000002"])
+        self.mgr.save_pending_stack(self._preview(), ["fresh0000002"])
+        self.assertTrue(self.mgr.remove_pending_stack(first))
+        self.assertEqual(self.mgr.clear_pending_stacks(), 1)
+        self.assertEqual(self.mgr.list_pending_stacks(), [])
 
 
 class WatchedHistoryTests(unittest.TestCase):
@@ -270,39 +336,75 @@ class HistoryBrowseTests(unittest.TestCase):
         self.assertEqual(self.page._table.rowCount(), 6)
 
 
+class _FakeDialog:
+    """Stands in for QueueConfirmDialog: answers with the configured outcome and checks."""
+
+    outcome = "confirm"
+    checked: set = set()
+
+    def __init__(self, preview, **_kwargs):
+        self.preview = preview
+
+    def ask(self):
+        return self.outcome
+
+    def checked_items(self):
+        return [item for item in self.preview["items"] if item["video_id"] in self.checked]
+
+    def checked_ids(self):
+        return [item["video_id"] for item in self.checked_items()]
+
+    def deleteLater(self):
+        pass
+
+
 class QueuePreviewFlowTests(unittest.TestCase):
-    def _run(self, chosen_ids):
+    PREVIEW = {"label": "x", "items": [
+        {"video_id": "a", "have": "", "matches": True, "unavailable": ""},
+        {"video_id": "b", "have": "", "matches": None, "unavailable": ""},
+    ]}
+
+    def _run(self, outcome, checked):
         import time
 
         from PySide6.QtWidgets import QWidget
 
-        from app.ui.downloads import queue_preview
+        from app.ui.downloads import queue_preview, task_center
 
         host = QWidget()
-        host.resize(800, 600)
         self.addCleanup(host.deleteLater)
-        preview = {"items": [{"video_id": "a", "have": "", "matches": True}, {"video_id": "b", "have": "", "matches": None}]}
         picked = []
-
-        def choose(dialog):
-            return [item for item in dialog._items if item["video_id"] in chosen_ids]
-
-        with patch.object(queue_preview.ListingPreviewDialog, "choose", choose):
+        fake_dialog = type("Dialog", (_FakeDialog,), {"outcome": outcome, "checked": set(checked)})
+        manager = patch.object(task_center, "download_manager")
+        fake_manager = manager.start()
+        self.addCleanup(manager.stop)
+        with patch.object(queue_preview, "QueueConfirmDialog", fake_dialog):
             flow = queue_preview.QueuePreviewFlow(host)
-            self.assertTrue(flow.start(lambda: preview, lambda _p, items: picked.append([i["video_id"] for i in items])))
-            self.assertFalse(flow.start(lambda: preview, lambda *_: None))  # one at a time
+            self.assertTrue(flow.start(lambda: self.PREVIEW, lambda _p, items: picked.append([i["video_id"] for i in items])))
+            self.assertFalse(flow.start(lambda: self.PREVIEW, lambda *_: None))  # one at a time
             deadline = time.time() + 5
             while flow.busy() and time.time() < deadline:
                 APP.processEvents()
             APP.processEvents()
         self.assertFalse(flow.busy())
-        return picked
+        return picked, fake_manager
 
     def test_confirmed_items_reach_the_callback(self):
-        self.assertEqual(self._run({"a", "b"}), [["a", "b"]])
+        picked, manager = self._run("confirm", {"a", "b"})
+        self.assertEqual(picked, [["a", "b"]])
+        manager.save_pending_stack.assert_not_called()
 
-    def test_nothing_is_queued_when_the_dialog_is_cancelled(self):
-        self.assertEqual(self._run(set()), [])
+    def test_cancel_keeps_the_batch_as_a_pending_stack(self):
+        picked, manager = self._run("cancel", {"a"})
+        self.assertEqual(picked, [])
+        manager.save_pending_stack.assert_called_once()
+        self.assertEqual(manager.save_pending_stack.call_args.args[1], ["a"])
+
+    def test_is_downloadable_follows_the_three_checks(self):
+        self.assertTrue(is_downloadable({"matches": None}))
+        self.assertFalse(is_downloadable({"matches": False}))
+        self.assertFalse(is_downloadable({"matches": True, "unavailable": "private"}))
+        self.assertFalse(is_downloadable({"matches": True, "have": "file"}))
 
 
 class ScrollTests(unittest.TestCase):

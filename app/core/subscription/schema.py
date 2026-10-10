@@ -111,6 +111,14 @@ class StoreSchemaMixin:
             "download_state": "TEXT DEFAULT ''",
             "download_reason": "TEXT DEFAULT ''",
             "download_checked_at": "TEXT DEFAULT ''",
+            # Site stats, so download rules (likes / views / tags) can be applied locally.
+            "likes": "INTEGER DEFAULT 0",
+            "views": "INTEGER DEFAULT 0",
+            "comments": "INTEGER DEFAULT 0",
+            "duration": "INTEGER DEFAULT 0",
+            "rating": "TEXT DEFAULT ''",
+            "tags_json": "TEXT DEFAULT ''",
+            "stats_known": "INTEGER DEFAULT 0",  # 0: saved before the stats were kept
         }
         for col, ddl in required.items():
             if col not in existing:

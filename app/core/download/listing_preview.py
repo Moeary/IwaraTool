@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -9,7 +10,11 @@ from ...config import app_config
 from ...i18n import tr
 from ..rules import normalize_rule_payload, rule_store
 from ..subscription.automation import matches_rule_video
-from ..task_metadata import _author_fields_from_user, _dict_or_empty
+from ..task_metadata import (
+    _author_fields_from_user,
+    _dict_or_empty,
+    _subscription_download_block_from_video_info,
+)
 
 
 HAVE_FILE = "file"  # the video file is on disk
@@ -18,13 +23,37 @@ HAVE_QUEUED = "queued"  # already in the task list
 
 PREVIEW_KINDS = frozenset(("user", "playlist"))
 
-# Rule switches that need likes / views / tags, which a subscription list does not store.
+# Rule switches that need likes / views / tags (unknown for old subscription rows).
 _STAT_FILTERS = (
     "filter_min_likes_enabled",
     "filter_min_views_enabled",
     "filter_include_tags_enabled",
     "filter_exclude_tags_enabled",
 )
+
+
+def is_downloadable(item: dict[str, Any]) -> bool:
+    """Not here yet in any form, offered by the site, and not rejected by the rule."""
+
+    return not item.get("have") and not item.get("unavailable") and item.get("matches") is not False
+
+
+def preview_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Total, unavailable on the site, stopped by the rule, already here, and downloadable."""
+
+    unavailable = sum(1 for item in items if item.get("unavailable"))
+    have = sum(1 for item in items if item.get("have") and not item.get("unavailable"))
+    blocked = sum(
+        1 for item in items
+        if not item.get("unavailable") and not item.get("have") and item.get("matches") is False
+    )
+    return {
+        "total": len(items),
+        "unavailable": unavailable,
+        "blocked": blocked,
+        "have": have,
+        "downloadable": sum(1 for item in items if is_downloadable(item)),
+    }
 
 
 class ListingPreviewMixin:
@@ -50,14 +79,13 @@ class ListingPreviewMixin:
         result["items"] = self._preview_items(videos, payload)
         return result
 
-    def preview_videos(
-        self, videos: list[dict[str, Any]], *, rule_id: str = "", label: str = "", stats_known: bool = True,
-    ) -> dict[str, Any]:
+    def preview_videos(self, videos: list[dict[str, Any]], *, rule_id: str = "", label: str = "") -> dict[str, Any]:
         """The same preview for videos the caller already has (search results, a selection).
 
         ``videos`` are API-shaped dicts (``id``, ``title``, ``numLikes``, ...).
-        With ``stats_known=False`` likes / views / tag filters are left for the
-        download to check instead of failing every video.
+        A video with ``_stats_known: False`` leaves likes / views / tag filters
+        to the download instead of failing them; ``_unavailable`` marks one the
+        site does not offer.
         """
 
         result, payload = self._preview_result(rule_id, kind="selection", label=label)
@@ -65,7 +93,7 @@ class ListingPreviewMixin:
         if not videos:
             result["error"] = tr("Nothing to download in the selection.", "所选内容中没有可下载的作品。", "選択に保存できる動画がありません。")
             return result
-        result["items"] = self._preview_items(videos, payload, stats_known=stats_known)
+        result["items"] = self._preview_items(videos, payload)
         return result
 
     def preview_selection(
@@ -92,28 +120,53 @@ class ListingPreviewMixin:
         result["error"] = "" if result["items"] else (errors[0] if errors else tr(
             "Nothing to download in the selection.", "所选内容中没有可下载的作品。", "選択に保存できる動画がありません。",
         ))
-        result["notes"] = errors if result["items"] else []
         return result
 
     def preview_subscription_items(self, video_ids: list[str], *, rule_id: str = "", label: str = "") -> dict[str, Any]:
         """Preview subscription videos from the local list (no network)."""
 
         rows = {str(row.get("video_id", "") or ""): row for row in self.subscriptions.get_items_by_video_ids(video_ids)}
-        videos = []
-        for video_id in dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip()):
-            row = rows.get(video_id, {})
-            videos.append({
-                "id": video_id,
-                "title": str(row.get("title", "") or video_id),
-                "createdAt": str(row.get("published_at", "") or ""),
-                "user": {"username": str(row.get("author", "") or ""), "name": str(row.get("username", "") or "")},
-                "_unavailable": str(row.get("download_reason", "") or "") if row.get("download_state") else "",
-            })
-        return self.preview_videos(videos, rule_id=rule_id, label=label, stats_known=False)
+        videos = [
+            self._subscription_row_video(video_id, rows.get(video_id, {}))
+            for video_id in dict.fromkeys(str(v or "").strip() for v in video_ids if str(v or "").strip())
+        ]
+        return self.preview_videos(videos, rule_id=rule_id, label=label)
+
+    @staticmethod
+    def _subscription_row_video(video_id: str, row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            tags = json.loads(str(row.get("tags_json", "") or "[]"))
+        except ValueError:
+            tags = []
+        return {
+            "id": video_id,
+            "title": str(row.get("title", "") or video_id),
+            "createdAt": str(row.get("published_at", "") or ""),
+            "user": {"username": str(row.get("author", "") or ""), "name": str(row.get("username", "") or "")},
+            "numLikes": int(row.get("likes", 0) or 0),
+            "numViews": int(row.get("views", 0) or 0),
+            "numComments": int(row.get("comments", 0) or 0),
+            "rating": str(row.get("rating", "") or ""),
+            "tags": tags if isinstance(tags, list) else [],
+            "file": {"duration": int(row.get("duration", 0) or 0)},
+            "_stats_known": bool(row.get("stats_known")),
+            "_unavailable": str(row.get("download_reason", "") or "") if row.get("download_state") else "",
+        }
+
+    def reclassify_preview(self, preview: dict[str, Any], rule_id: str) -> dict[str, Any]:
+        """The same videos under another rule (and with fresh "already here" states); no network."""
+
+        result, payload = self._preview_result(
+            rule_id, url=str(preview.get("url", "") or ""), kind=str(preview.get("kind", "") or ""),
+            label=str(preview.get("label", "") or ""),
+        )
+        result["items"] = self._preview_items([item["raw"] for item in preview.get("items") or []], payload)
+        return result
 
     def _preview_result(self, rule_id: str, *, url: str = "", kind: str = "", label: str = ""):
         rule_id = self._normalize_rule_id(rule_id)
         rule = rule_store.find(rule_id) or {}
+        payload = self._rule_payload_for_id(rule_id)
         result: dict[str, Any] = {
             "url": url,
             "kind": kind,
@@ -122,9 +175,11 @@ class ListingPreviewMixin:
             "items": [],
             "rule_id": rule_id,
             "rule_name": str(rule.get("name", "") or rule_id),
+            # The rule decides whether a confirmed video is fetched or only recorded.
+            "mark_only": bool(payload.get("mark_submitted_as_downloaded") or not payload.get("download_video_file", True)),
             "save_dir": os.path.abspath(app_config.download_dir),
         }
-        return result, self._rule_payload_for_id(rule_id)
+        return result, payload
 
     def _listing_videos(self, url: str, result: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
         parsed = self._parse_iwara_url(str(url or "").strip())
@@ -149,9 +204,7 @@ class ListingPreviewMixin:
             )
         return videos, ""
 
-    def _preview_items(
-        self, videos: list[dict[str, Any]], payload: dict[str, Any], *, stats_known: bool = True,
-    ) -> list[dict[str, Any]]:
+    def _preview_items(self, videos: list[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
         seen: set[str] = set()
         ordered: list[dict[str, Any]] = []
         for video in videos:
@@ -164,12 +217,13 @@ class ListingPreviewMixin:
         for video in ordered:
             video_id = str(video.get("id", "") or "").strip()
             state, detail = have.get(video_id.lower(), ("", ""))
-            passed, reason = self._preview_match(video, payload, stats_known)
+            passed, reason = self._preview_match(video, payload)
+            unavailable = str(video.get("_unavailable", "") or "") or _subscription_download_block_from_video_info(video)[1]
             items.append({
                 **self._preview_fields(video),
                 "have": state,
                 "have_detail": detail,
-                "unavailable": str(video.get("_unavailable", "") or ""),
+                "unavailable": unavailable,
                 "matches": passed,
                 "match_reason": reason,
                 "relative_path": self._preview_relative_path(video, payload),
@@ -178,10 +232,10 @@ class ListingPreviewMixin:
         return items
 
     @staticmethod
-    def _preview_match(video: dict[str, Any], payload: dict[str, Any], stats_known: bool) -> tuple[bool | None, str]:
+    def _preview_match(video: dict[str, Any], payload: dict[str, Any]) -> tuple[bool | None, str]:
         """``(True | False | None, reason)``; None: the rule needs data only the download will see."""
 
-        if stats_known and video.get("_stats_known", True):
+        if video.get("_stats_known", True):
             passed, reason = matches_rule_video(video, payload)
             return bool(passed), reason
         rule = normalize_rule_payload(payload)

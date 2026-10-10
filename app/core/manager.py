@@ -46,6 +46,7 @@ from .task_queue import TaskPersistenceCoordinator, TaskQueueStore
 from .download.diagnosis import DownloadDiagnosisMixin
 from .download.enqueueing import EnqueueingMixin
 from .download.listing_preview import ListingPreviewMixin
+from .download.pending_stacks import PendingStackStore, PendingStacksMixin
 from .download.history_actions import HistoryActionsMixin
 from .download.session import SessionMixin
 from .download.task_control import TaskControlMixin
@@ -61,6 +62,7 @@ class DownloadManager(
     SessionMixin,
     UrlIntakeMixin,
     ListingPreviewMixin,
+    PendingStacksMixin,
     DownloadDiagnosisMixin,
     EnqueueingMixin,
     DownloadRuntimeMixin,
@@ -81,6 +83,7 @@ class DownloadManager(
         self.api = IwaraAPI()
         self.history = DownloadHistory()
         self.subscriptions = SubscriptionStore()
+        self.pending_stacks = PendingStackStore()  # put-off download confirmations
         self.search_image_cache = SearchImageCache()
         self.subscription_image_cache = SubscriptionImageCache()
         self.tag_dictionary = TagDictionary()

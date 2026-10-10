@@ -28,7 +28,6 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.home_feed import MODE_AUTHOR, FeedSection, FeedTab
-from ..core.manager import download_manager
 from ..core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ..core.rules import active_rule_id
 from ..core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
@@ -38,6 +37,7 @@ from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
 from .home.browse_view import BrowseState, BrowseView
 from .home.section_block import queueable_ids
+from .downloads.queue_preview import confirm_videos
 from .media.pixmaps import read_pixmap
 from .home.workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
@@ -190,13 +190,13 @@ class AuthorView(QWidget):
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return
-        accepted = download_manager.enqueue_video_ids(
-            ids, source_label=f"@{self._username}", rule_id=rule_id or active_rule_id(),
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(f"Accepted {accepted} video(s)", f"已接受 {accepted} 个视频", f"{accepted} 件を追加しました"),
-            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self.window(),
+        # Confirm first: counts, where the files go, and the rule.
+        wanted = set(ids)
+        confirm_videos(
+            self,
+            [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
+            label=f"@{self._username}",
+            rule_id=rule_id or active_rule_id(),
         )
 
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):

@@ -10,7 +10,6 @@ from qfluentwidgets import InfoBarPosition, PrimaryPushButton
 from ...config import app_config
 from ...i18n import tr
 from ..downloads.filter_dialog import FilterDialog, option_button_style
-from ..downloads.queue_preview import submissions_mark_only
 from .components import SubscriptionEnqueueWorker, _CONTROL_HEIGHT
 from .page_dependencies import InfoBar, download_manager, signal_bus
 
@@ -228,8 +227,9 @@ class SubscriptionDownloadingMixin:
             lambda: download_manager.preview_subscription_items(
                 ids, rule_id=selected_rule_id, label=tr("Subscription videos", "订阅作品", "購読の動画"),
             ),
-            lambda _preview, chosen: self._submit_ids([str(item["video_id"]) for item in chosen], selected_rule_id),
-            mark_only=submissions_mark_only(),
+            lambda preview, chosen: self._submit_ids(
+                [str(item["video_id"]) for item in chosen], str(preview.get("rule_id") or selected_rule_id),
+            ),
         )
 
     def _submit_ids(self, ids: list[str], rule_id: str):

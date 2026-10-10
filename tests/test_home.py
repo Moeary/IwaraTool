@@ -347,20 +347,16 @@ class HomeInterfaceTests(unittest.TestCase):
         home.go_back()  # no history left here: the Back button goes up to the feed
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_queue_uses_the_given_rule_and_ignores_images(self):
+    def test_queue_confirms_with_the_given_rule_and_ignores_images(self):
         home = self.home
-        manager = Mock()
-        manager.enqueue_video_ids.return_value = 1
-        with mock.patch.object(self.home_page, "download_manager", manager), \
-                mock.patch.object(self.home_page.InfoBar, "success"), \
-                mock.patch.object(self.home_page.InfoBar, "warning") as warning:
+        with mock.patch.object(self.home_page, "confirm_videos") as confirm,                 mock.patch.object(self.home_page.InfoBar, "warning") as warning:
             home._queue([_video("v1", source_kind="iwara", downloadable=True)], "rule-7")
-            manager.enqueue_video_ids.assert_called_once()
-            self.assertEqual(manager.enqueue_video_ids.call_args.args[0], ["v1"])
-            self.assertEqual(manager.enqueue_video_ids.call_args.kwargs["rule_id"], "rule-7")
+            confirm.assert_called_once()
+            self.assertEqual([v.video_id for v in confirm.call_args.args[1]], ["v1"])
+            self.assertEqual(confirm.call_args.kwargs["rule_id"], "rule-7")
             home._queue([_video("i1", source_kind="iwara_image", downloadable=False)])
             warning.assert_called_once()
-            self.assertEqual(manager.enqueue_video_ids.call_count, 1)
+            self.assertEqual(confirm.call_count, 1)
 
     def test_subscription_row_asks_to_sign_in_when_logged_out(self):
         block = next(b for b in self.home._feed.blocks if b.section.id == "subscriptions")

@@ -10,6 +10,8 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...core.rules import active_rule_id
+from ...core.search.models import SearchVideo
+from ..downloads.queue_preview import confirm_videos
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ...core import shortcut_defs
@@ -76,14 +78,10 @@ class DetailActionsMixin:
     def _queue(self):
         if self._kind != "video" or not self._item_id:
             return
-        accepted = download_manager.enqueue_video_ids(
-            [self._item_id], source_label=tr("Home", "首页", "ホーム"), rule_id=active_rule_id(),
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(f"Accepted {accepted} video(s)", f"已接受 {accepted} 个视频", f"{accepted} 件を追加しました"),
-            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self.window(),
-        )
+        # Confirm first: where the file goes, what it is called, and the rule.
+        video = self._video if self._video is not None and self._video.video_id == self._item_id else None
+        videos = [video] if video is not None else [SearchVideo(video_id=self._item_id, title=self._item_id)]
+        confirm_videos(self, videos, label=video.title if video is not None else self._item_id, rule_id=active_rule_id())
 
     def _open_in_browser(self):
         webbrowser.open(self._page_url())

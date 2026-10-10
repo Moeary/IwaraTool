@@ -4,37 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
-
-from qfluentwidgets import InfoBar, InfoBarPosition
-
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
+from ..downloads.queue_preview import queue_chosen, video_payload
 from ..worker_lifecycle import on_finished
 from .page_dependencies import download_manager
 from .oreno_workers import SearchQueueResolveWorker
-
-
-def video_payload(video: SearchVideo, video_id: str) -> dict[str, Any]:
-    """An API-shaped dict for the queue preview (rule checks, file-name example)."""
-
-    raw = video.raw if isinstance(video.raw, dict) else {}
-    if video.source_kind == "iwara" and str(raw.get("id", "") or "") == video_id:
-        return raw
-    return {
-        "id": video_id,
-        "title": video.title,
-        "numLikes": video.likes,
-        "numViews": video.views,
-        "numComments": video.comments,
-        "createdAt": video.published_at,
-        "tags": list(video.tags),
-        "slug": video.slug,
-        "rating": video.rating,
-        "user": {"username": video.author_username, "name": video.author_name},
-        # Likes / views / tags of another site say nothing about the Iwara rule.
-        "_stats_known": video.source_kind == "iwara",
-    }
 
 
 class SearchQueueingMixin:
@@ -141,38 +116,19 @@ class SearchQueueingMixin:
         label = tr("Search results", "搜索结果", "検索結果")
         self._queue_preview_flow.start(
             lambda: download_manager.preview_selection(payloads, playlist_urls, rule_id=selected_rule_id, label=label),
-            lambda preview, chosen: self._enqueue_chosen(
-                [str(item["video_id"]) for item in chosen], skipped=skipped, errors=errors, rule_id=selected_rule_id,
-            ),
-            mark_only=False,  # search results are always queued for download
+            lambda preview, chosen: self._enqueue_chosen(preview, chosen, skipped=skipped, errors=errors),
         )
 
-    def _enqueue_chosen(self, ids: list[str], *, skipped: int, errors: list[str], rule_id: str):
-        """Queue what the user kept in the preview dialog."""
+    def _enqueue_chosen(self, preview: dict, chosen: list[dict], *, skipped: int, errors: list[str]):
+        """Queue what the user kept in the confirmation, under the rule confirmed there."""
 
-        accepted = download_manager.enqueue_video_ids(
-            ids,
-            source_label=tr("Search", "搜索", "検索"),
-            rule_id=rule_id,
-        )
-        suffix = tr(
-            f"; skipped {skipped} item(s)" if skipped else "",
-            f"；已跳过 {skipped} 个无下载链接的项目" if skipped else "",
-            f"；{skipped}件をスキップ" if skipped else "",
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(
-                f"Accepted {accepted} video(s){suffix}",
-                f"已接受 {accepted} 个视频{suffix}",
-                f"{accepted} 件を追加しました{suffix}",
-            ),
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.TOP,
-            duration=3000,
-            parent=self,
-        )
+        queue_chosen(self, preview, chosen, source_label=tr("Search", "搜索", "検索"))
+        if skipped:
+            self._show_warning(tr(
+                f"Skipped {skipped} item(s) without an Iwara download link",
+                f"已跳过 {skipped} 个无下载链接的项目",
+                f"Iwara のリンクがない {skipped} 件をスキップしました",
+            ))
         if errors:
             self._show_warning(errors[0])
 
