@@ -318,7 +318,8 @@ class SearchPageLayoutMixin:
         self._result_clicks = ClickDispatcher(self._perform_result_click, self)
         self._results_stack = QStackedWidget(result_card)
         self._results_stack.addWidget(self._build_results_grid(result_card))
-        self._results_stack.addWidget(self._build_results_table(result_card))
+        # Built inside the stack: moving a finished table into another parent resets its column widths.
+        self._results_stack.addWidget(self._build_results_table(self._results_stack))
         result_layout.addWidget(self._results_stack)
         return result_card
 

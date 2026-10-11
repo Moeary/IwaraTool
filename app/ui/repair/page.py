@@ -36,6 +36,7 @@ from qfluentwidgets import (
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..ui_state import keep_table_widths
 from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, apply_scrollbars, set_secondary_text
 from .controls import RepairControlsMixin
 from .folder_input import FolderDropLineEdit
@@ -379,12 +380,7 @@ class RepairInterface(
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for column in (self._COL_FILE, self._COL_TITLE, self._COL_TARGET, self._COL_DETAIL):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
-        for column, width in {
-            self._COL_STATE: 78,
-            self._COL_ID: 125,
-            self._COL_DATE: 105,
-        }.items():
-            self._table.setColumnWidth(column, width)
+        keep_table_widths(self._table, {self._COL_STATE: 78, self._COL_ID: 125, self._COL_DATE: 105})
         list_layout.addWidget(self._table, stretch=1)
         right_layout.addWidget(list_card, stretch=1)
         return right_panel

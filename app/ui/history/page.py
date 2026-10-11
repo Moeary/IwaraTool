@@ -154,7 +154,8 @@ class HistoryInterface(
         body.setChildrenCollapsible(False)
         body.addWidget(self._build_author_panel(body))
         self._view_stack = QStackedWidget(body)
-        self._view_stack.addWidget(self._build_table())
+        # Built inside the stack: moving a finished table into another parent resets its column widths.
+        self._view_stack.addWidget(self._build_table(self._view_stack))
         self._view_stack.addWidget(self._build_cover_grid(self._view_stack))
         body.addWidget(self._view_stack)
         body.setStretchFactor(0, 0)
@@ -258,8 +259,8 @@ class HistoryInterface(
         columns_btn.clicked.connect(self._configure_columns)
         filter_row.addWidget(columns_btn)
 
-    def _build_table(self) -> TableWidget:
-        self._table = TableWidget(self)
+    def _build_table(self, parent: QWidget | None = None) -> TableWidget:
+        self._table = TableWidget(parent or self)
         self._table.setMinimumWidth(0)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("historyTable")

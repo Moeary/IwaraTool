@@ -1,6 +1,7 @@
 """The workbench's confirmation bar for videos waiting to be downloaded.
 
-Two lines above the task list, shown while anything waits.  First the
+A section of the task center's controls card, between its actions and its
+filters (set off by thin lines), shown while anything waits.  First the
 verdict and the decision: how many can download / are skipped / cannot
 download (each filters the list), then Clear and Confirm download.  Then the
 batch's settings: which batch, which rule (searchable; changing it re-checks
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import QCompleter, QHBoxLayout, QSizePolicy, QVBoxLayout,
 
 from qfluentwidgets import (
     BodyLabel,
-    CardWidget,
+    HorizontalSeparator,
     ComboBox,
     EditableComboBox,
     FluentIcon,
@@ -82,7 +83,7 @@ class _ElidedLabel(BodyLabel):
         self.setText(self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideMiddle, max(20, self.width())))
 
 
-class StagingPanel(CardWidget):
+class StagingPanel(QWidget):
     """Confirm (or clear) the videos waiting on the workbench, one batch or all."""
 
     show_requested = Signal(str, str)  # verdict ("" = all), batch id ("" = all)
@@ -92,10 +93,12 @@ class StagingPanel(CardWidget):
         self._syncing = False
         self._last_total = 0  # more waiting than last time: show them in the list
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 10, 12, 10)
-        root.setSpacing(6)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+        root.addWidget(HorizontalSeparator(self))
         root.addLayout(self._build_decision_row())
         root.addLayout(self._build_settings_row())
+        root.addWidget(HorizontalSeparator(self))
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)

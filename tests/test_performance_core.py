@@ -1205,21 +1205,55 @@ class UiPerformanceTests(unittest.TestCase):
             ]
         )
 
-    def test_table_width_saver_records_resize_immediately(self):
+    def _forget_ui_key(self, key: str):
+        # These tests run against the real settings file: leave nothing behind.
+        self.addCleanup(lambda: app_config._qs.remove(f"ui/{key}"))
+
+    def test_table_width_saver_records_a_user_drag_immediately(self):
         key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
         table = QTableWidget()
         table.setColumnCount(3)
         restore_table_widths(table, key, {0: 50, 1: 60, 2: 70})
         connect_table_width_saver(table, key)
 
-        table.setColumnWidth(1, 234)
+        with patch("app.ui.ui_state._user_dragging", return_value=True):
+            table.setColumnWidth(1, 234)
         self.app.processEvents()
         raw = str(app_config.get_ui_value(key, "") or "")
 
         self.assertEqual(raw.split(","), [str(table.columnWidth(i)) for i in range(3)])
 
+    def test_qt_resetting_a_restyled_table_neither_sticks_nor_gets_saved(self):
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+        key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
+        host = QWidget()
+        table = QTableWidget(host)
+        table.setColumnCount(4)
+        table.setStyleSheet("QHeaderView::section { padding: 4px; }")  # what makes Qt reset the sizes
+        restore_table_widths(table, key, {0: 60, 1: 320, 2: 90, 3: 80})
+        connect_table_width_saver(table, key)
+        other = QWidget(host)
+        QVBoxLayout(other).addWidget(table)  # moved into another parent: Qt resets every column
+        for _ in range(3):
+            self.app.processEvents()
+        self.assertEqual([table.columnWidth(c) for c in range(3)], [60, 320, 90])
+        self.assertEqual(str(app_config.get_ui_value(key, "") or ""), "")  # the reset was not saved
+
+    def test_widths_saved_after_a_reset_are_ignored(self):
+        key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
+        app_config.set_ui_value(key, "100,100,0,100,213")  # what the old saver stored
+        table = QTableWidget()
+        table.setColumnCount(5)
+        restore_table_widths(table, key, {0: 60, 1: 320, 2: 90, 3: 80, 4: 70})
+        self.assertEqual([table.columnWidth(c) for c in range(5)], [60, 320, 90, 80, 70])
+
     def test_table_column_layout_persists_order_and_visibility(self):
         key = f"test_table_columns_{id(self)}"
+        self._forget_ui_key(key)
         table = QTableWidget()
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["A", "B", "C", "D"])

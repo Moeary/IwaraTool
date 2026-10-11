@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QHeaderView, QSplitter, QTableWidget
 
 from ..config import app_config
@@ -19,12 +19,109 @@ def connect_splitter_saver(splitter: QSplitter, key: str):
     splitter.splitterMoved.connect(lambda *_args: app_config.set_ui_value(key, ",".join(str(v) for v in splitter.sizes())))
 
 
+def _user_dragging() -> bool:
+    return QApplication.mouseButtons() != Qt.MouseButton.NoButton
+
+
+def _looks_reset(table: QTableWidget, widths: list[int]) -> bool:
+    """Every visible column at the header's default size: Qt reset them, nobody chose that."""
+
+    header = table.horizontalHeader()
+    default = header.defaultSectionSize()
+    shown = [
+        (header.visualIndex(col) if col < table.columnCount() else col, w)
+        for col, w in enumerate(widths)
+        if w > 0 and (col >= table.columnCount() or not table.isColumnHidden(col))  # 0: a hidden column
+    ]
+    shown = [w for _visual, w in sorted(shown)][:-1]  # the last column is stretched to the edge
+    return len(shown) > 1 and all(w == default for w in shown)
+
+
 def restore_table_widths(table: QTableWidget, key: str, default_widths: dict[int, int]):
     raw = str(app_config.get_ui_value(key, "") or "")
     widths = _parse_int_list(raw)
+    if _looks_reset(table, widths):
+        widths = []  # saved after Qt had reset the table: worthless, use the defaults
+    wanted = {}
     for col, default in default_widths.items():
-        width = widths[col] if 0 <= col < len(widths) and widths[col] > 0 else default
-        table.setColumnWidth(col, width)
+        wanted[col] = widths[col] if 0 <= col < len(widths) and widths[col] > 0 else default
+        table.setColumnWidth(col, wanted[col])
+    _StickyWidths.attach(table, wanted)
+
+
+def keep_table_widths(table: QTableWidget, widths: dict[int, int]):
+    """Set column widths that survive Qt's reset on re-style / reparent (no saving)."""
+
+    for column, width in widths.items():
+        table.setColumnWidth(column, width)
+    _StickyWidths.attach(table, widths)
+
+
+class _StickyWidths(QObject):
+    """Put a table's column widths back after Qt resets them.
+
+    A header with a style sheet goes back to the default section size whenever
+    the table is re-styled: moved into a card, a stack or the main window, or
+    on a theme switch.  The intended widths are kept here (and follow the
+    user's own resizing) and re-applied after such an event.
+    """
+
+    _EVENTS = (QEvent.Type.StyleChange, QEvent.Type.ParentChange, QEvent.Type.Show)
+
+    @classmethod
+    def attach(cls, table: QTableWidget, wanted: dict[int, int]):
+        sticky = getattr(table, "_ui_sticky_widths", None)
+        if sticky is None:
+            sticky = cls(table)
+            table._ui_sticky_widths = sticky
+        sticky.wanted = dict(wanted)
+
+    def __init__(self, table: QTableWidget):
+        super().__init__(table)
+        self._table = table
+        self._applying = False
+        self.wanted: dict[int, int] = {}
+        table.installEventFilter(self)
+        table.horizontalHeader().installEventFilter(self)  # the reset comes with the header's re-style
+        table.horizontalHeader().sectionResized.connect(self._remember)
+
+    def _remember(self, column: int, _old: int, new: int):
+        # Only the user's own dragging counts: Qt's reset arrives column by column.
+        if self._applying or new <= 0 or not _user_dragging():
+            return
+        self.wanted[column] = new
+
+    def _is_reset(self) -> bool:
+        """The columns we size are all back at the header default (the stretched last one aside)."""
+
+        table = self._table
+        header = table.horizontalHeader()
+        default = header.defaultSectionSize()
+        visible = [c for c in range(table.columnCount()) if not table.isColumnHidden(c)]
+        last = max(visible, key=header.visualIndex) if visible else -1
+        sized = [c for c in self.wanted if c in visible and c != last and header.sectionResizeMode(c) != QHeaderView.ResizeMode.Stretch]
+        return bool(sized) and all(table.columnWidth(c) == default for c in sized) and any(
+            self.wanted[c] != default for c in sized
+        )
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
+        if event.type() in self._EVENTS:
+            QTimer.singleShot(0, self.reapply)
+        return super().eventFilter(watched, event)
+
+    def reapply(self):
+        try:
+            if not self._is_reset():
+                return
+        except RuntimeError:  # the table is already gone
+            return
+        self._applying = True
+        try:
+            for column, width in self.wanted.items():
+                if not self._table.isColumnHidden(column):
+                    self._table.setColumnWidth(column, width)
+        finally:
+            self._applying = False
 
 
 def fit_table_last_column(table: QTableWidget):
@@ -131,7 +228,8 @@ class _TableWidthSaver(QObject):
         self._sync_pending = False
         table.installEventFilter(self)
         header = table.horizontalHeader()
-        header.sectionResized.connect(lambda *_args: self.save(sync=False))
+        # A drag by the user; Qt's own resets (re-style, reparent) must not be saved.
+        header.sectionResized.connect(lambda *_args: _user_dragging() and self.save(sync=False))
         header.sectionMoved.connect(lambda *_args: self.save(sync=False))
         app = QApplication.instance()
         if app is not None:
@@ -157,8 +255,10 @@ class _TableWidthSaver(QObject):
                 return
         except RuntimeError:  # the table is already gone
             return
-        widths = [str(self._table.columnWidth(col)) for col in range(self._table.columnCount())]
-        app_config.set_ui_value(self._key, ",".join(widths), sync=sync)
+        columns = [self._table.columnWidth(col) for col in range(self._table.columnCount())]
+        if _looks_reset(self._table, columns):
+            return  # Qt reset them (re-style / reparent); the real widths come back shortly
+        app_config.set_ui_value(self._key, ",".join(str(width) for width in columns), sync=sync)
         if sync:
             self._sync_pending = False
             return

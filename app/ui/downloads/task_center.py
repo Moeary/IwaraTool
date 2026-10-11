@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
-    BodyLabel,
     CaptionLabel,
+    CardWidget,
     ComboBox,
     FluentIcon,
     IconWidget,
@@ -25,6 +25,8 @@ from qfluentwidgets import (
     TableWidget,
     TitleLabel,
     ToolButton,
+    TransparentPushButton,
+    TransparentToolButton,
 )
 
 from ...core.download.speed_format import format_speed
@@ -32,7 +34,7 @@ from ...core.manager import download_manager  # noqa: F401 - patch point, see pa
 from ...core.models import DownloadTask
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..theme import CARD_MARGINS, PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from ..flow_layout import ResponsiveFlowLayout
 from ..ui_state import (
     connect_table_column_saver,
@@ -103,33 +105,62 @@ class TaskCenterInterface(
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        """Two cards: the controls (title, speed, actions, waiting videos, filters), then the list."""
+
         root = QVBoxLayout(self)
         if self._embedded:
             root.setContentsMargins(0, 0, 0, 0)
-            root.setSpacing(8)
         else:
             root.setContentsMargins(*PAGE_MARGINS)
-            root.setSpacing(PAGE_SPACING)
+        root.setSpacing(PAGE_SPACING)
 
-        root.addLayout(self._build_title_row())
-        root.addLayout(self._build_filter_row())
-        root.addLayout(self._build_speed_row())
-
-        self._summary_label = CaptionLabel("", self)
+        self._header_card = CardWidget(self)
+        header = QVBoxLayout(self._header_card)
+        header.setContentsMargins(*CARD_MARGINS)
+        header.setSpacing(10)
+        header.addLayout(self._build_title_row())
+        self._staging_slot = QVBoxLayout()  # the download page puts the confirmation bar here
+        self._staging_slot.setContentsMargins(0, 0, 0, 0)
+        header.addLayout(self._staging_slot)
+        header.addLayout(self._build_filter_row())
+        self._summary_label = CaptionLabel("", self._header_card)
         self._summary_label.setWordWrap(True)
         self._summary_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         set_secondary_text(self._summary_label)
-        root.addWidget(self._summary_label)
-        root.addWidget(self._build_table(), stretch=1)
+        header.addWidget(self._summary_label)
+        root.addWidget(self._header_card)
 
-    def _build_title_row(self) -> ResponsiveFlowLayout:
-        title_row = ResponsiveFlowLayout()
+        table_card = CardWidget(self)
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(4, 4, 4, 4)
+        # Built inside its card: moving a finished table into another parent resets its column widths.
+        table_layout.addWidget(self._build_table(table_card))
+        root.addWidget(table_card, stretch=1)
+
+    def set_staging_widget(self, widget: QWidget):
+        """Show the waiting-for-confirmation bar inside the controls card, between actions and filters."""
+
+        self._staging_slot.addWidget(widget)
+
+    def _build_title_row(self) -> QHBoxLayout:
+        """Title and live speed on the left, the bulk actions as quiet buttons on the right."""
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
         title_text = tr("Task Center", "任务中心", "タスクセンター")
         # The workbench already shows a page title; a second TitleLabel made
         # the embedded header compete with it.
-        title_row.addWidget(SubtitleLabel(title_text, self) if self._embedded else TitleLabel(title_text, self))
+        row.addWidget(SubtitleLabel(title_text, self) if self._embedded else TitleLabel(title_text, self))
+        row.addLayout(self._build_speed_row())
+        row.addStretch(1)
+        actions = ResponsiveFlowLayout()
+        actions.setSpacing(4)
+        self._add_bulk_actions(actions)
+        row.addLayout(actions)
+        return row
 
-        retry_all_btn = PushButton(
+    def _add_bulk_actions(self, title_row: ResponsiveFlowLayout):
+        retry_all_btn = TransparentPushButton(
             tr("Retry Failed", "重试失败", "失敗を再試行"), self, FluentIcon.SYNC
         )
         retry_all_btn.setToolTip(tr("Retry every failed task", "重试全部失败任务", "失敗したタスクをすべて再試行"))
@@ -150,21 +181,21 @@ class TaskCenterInterface(
         )
         title_row.addWidget(self._exclude_downloaded_switch)
 
-        restore_all_btn = PushButton(
+        restore_all_btn = TransparentPushButton(
             tr("Restore All", "全部恢复", "全件復元"), self, FluentIcon.RETURN
         )
         restore_all_btn.setToolTip(tr("Re-queue every cancelled task", "将全部已中断任务重新排队", "中断済みタスクをすべて再キュー"))
         restore_all_btn.clicked.connect(self._restore_all_cancelled)
         title_row.addWidget(restore_all_btn)
 
-        cancel_all_btn = PushButton(
+        cancel_all_btn = TransparentPushButton(
             tr("Cancel All", "全部中断", "全件中断"), self, FluentIcon.PAUSE
         )
         cancel_all_btn.setToolTip(tr("Interrupt every active task", "中断全部进行中的任务", "実行中のタスクをすべて中断"))
         cancel_all_btn.clicked.connect(self._cancel_all_active)
         title_row.addWidget(cancel_all_btn)
 
-        clear_btn = PushButton(
+        clear_btn = TransparentPushButton(
             tr("Clear Done", "清除完成项", "完了項目をクリア"),
             self,
             FluentIcon.BROOM,
@@ -172,11 +203,10 @@ class TaskCenterInterface(
         clear_btn.clicked.connect(self._clear_done)
         title_row.addWidget(clear_btn)
 
-        columns_btn = ToolButton(FluentIcon.SETTING, self)
+        columns_btn = TransparentToolButton(FluentIcon.SETTING, self)
         columns_btn.setToolTip(tr("Fields", "字段设置", "列設定"))
         columns_btn.clicked.connect(self._configure_columns)
         title_row.addWidget(columns_btn)
-        return title_row
 
     def _build_filter_row(self) -> ResponsiveFlowLayout:
         filter_row = ResponsiveFlowLayout()
@@ -261,18 +291,17 @@ class TaskCenterInterface(
         self._speed_icon = IconWidget(FluentIcon.SPEED_HIGH, self)
         self._speed_icon.setFixedSize(18, 18)
         speed_row.addWidget(self._speed_icon)
-        speed_row.addWidget(BodyLabel(tr("Total speed", "总下载速度", "合計速度"), self))
+        self._speed_icon.setToolTip(tr("Total speed", "总下载速度", "合計速度"))
         self._total_speed_label = StrongBodyLabel(format_speed(0), self)
         self._total_speed_label.setMinimumWidth(96)
         speed_row.addWidget(self._total_speed_label)
         self._speed_hint = CaptionLabel("", self)
         set_secondary_text(self._speed_hint)
         speed_row.addWidget(self._speed_hint)
-        speed_row.addStretch(1)
         return speed_row
 
-    def _build_table(self) -> TableWidget:
-        self._table = TableWidget(self)
+    def _build_table(self, parent: QWidget | None = None) -> TableWidget:
+        self._table = TableWidget(parent or self)
         self._table.setMinimumWidth(0)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._table.setObjectName("taskTable")
@@ -299,8 +328,7 @@ class TaskCenterInterface(
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
-        self._table.setBorderVisible(True)
-        self._table.setBorderRadius(8)
+        self._table.setBorderVisible(False)  # the card around it draws the frame
         self._table.setWordWrap(False)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setVisible(False)

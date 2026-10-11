@@ -110,10 +110,10 @@ class DownloadInterface(
         left_layout.addWidget(self._build_log_card(left_panel), stretch=1)
 
         right_layout.setSpacing(8)
-        self._staging_panel = StagingPanel(right_panel)  # hidden while nothing waits
-        right_layout.addWidget(self._staging_panel)
         self._task_center = TaskCenterInterface(right_panel, embedded=True)
         self._task_center.explain_requested.connect(self.explain_video)
+        self._staging_panel = StagingPanel(right_panel)  # hidden while nothing waits
+        self._task_center.set_staging_widget(self._staging_panel)
         self._staging_panel.show_requested.connect(self._task_center.show_staged)
         right_layout.addWidget(self._task_center, stretch=1)
 
