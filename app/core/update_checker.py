@@ -10,7 +10,6 @@ import cloudscraper
 from ..config import app_config
 from ..logging_setup import get_logger
 from ..version import __version__
-from .self_update import resolve_update_asset
 
 logger = get_logger(__name__)
 
@@ -45,9 +44,6 @@ class ReleaseCheckResult:
     notes: str = ""
     published_at: str = ""
     error: str = ""
-    asset_name: str = ""
-    asset_url: str = ""
-    asset_sha256: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,22 +80,6 @@ class GitHubReleaseChecker:
             if not version or not url:
                 raise ValueError("GitHub Release is missing tag_name or html_url")
             available = is_newer_version(version, self.current_version)
-            asset = None
-            if available:
-                def fetch_text(asset_url: str) -> str:
-                    reply = session.get(asset_url, timeout=15, proxies=proxies)
-                    try:
-                        reply.raise_for_status()
-                        return reply.text
-                    finally:
-                        reply.close()
-
-                try:
-                    asset = resolve_update_asset(
-                        list(payload.get("assets") or []), fetch_text=fetch_text
-                    )
-                except Exception:
-                    logger.warning("Could not resolve release asset", exc_info=True)
             return ReleaseCheckResult(
                 ok=True,
                 available=available,
@@ -109,9 +89,6 @@ class GitHubReleaseChecker:
                 url=url,
                 notes=str(payload.get("body", "") or ""),
                 published_at=str(payload.get("published_at", "") or ""),
-                asset_name=asset.name if asset else "",
-                asset_url=asset.url if asset else "",
-                asset_sha256=asset.sha256 if asset else "",
             )
         except Exception as exc:
             return ReleaseCheckResult(
