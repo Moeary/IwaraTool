@@ -263,6 +263,10 @@ class MediaGrid(QWidget):
             if card.isHidden():
                 card.show()
         self._cursor = min(self._cursor, len(cards) - 1)
+        # Cocoa can focus an empty grid before its data arrives; no second
+        # focusInEvent follows when the first cards are populated.
+        if cards and self.hasFocus() and self._cursor < 0:
+            self._cursor = 0
         self._paint_cursor()
         self._request_covers()
         self.selection_changed.emit()

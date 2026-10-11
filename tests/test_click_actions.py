@@ -243,6 +243,18 @@ class SearchResultClickTests(_ConfigCase):
         QTest.keyClick(self.page._results, Qt.Key.Key_Return)
         self.assertEqual(opened, [("video", "v1")])
 
+    def test_keypad_enter_opens_the_current_table_row_once(self):
+        self._show(_videos(2))
+        opened = self._listen(signal_bus.media_detail_requested)
+        self.page._set_combo_data(self.page._view_combo, "list")
+        table = self.page._results_table
+        table.setCurrentItem(table.item(1, 1))
+        activate_window(self.page)
+        table.setFocus()
+        wait_until(table.hasFocus)
+        QTest.keyClick(table, Qt.Key.Key_Enter)
+        self.assertEqual(opened, [("video", "v1")])
+
     def test_resolved_oreno3d_card_opens_the_iwara_post_not_the_card_id(self):
         video = SearchVideo(
             video_id="oreno3d:12345", title="t", source_kind="oreno3d",

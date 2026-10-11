@@ -22,6 +22,7 @@ class _ResultClickFilter(QObject):
         self._dispatcher = dispatcher
         self._pressed = None
         self._swallow_release = False
+        view.installEventFilter(self)
         view.viewport().installEventFilter(self)
 
     def _target(self, event):
@@ -34,6 +35,16 @@ class _ResultClickFilter(QObject):
 
     def eventFilter(self, obj, event):
         kind = event.type()
+        # Cocoa does not activate QListWidget / QTableWidget items on Return.
+        if obj is self._view and kind == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                item = self._view.currentItem()
+                if item is not None:
+                    self._view.itemActivated.emit(item)
+                return True
+            return False
+        if obj is self._view:
+            return False
         if kind not in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick):
             return False
         if event.button() != Qt.MouseButton.LeftButton:

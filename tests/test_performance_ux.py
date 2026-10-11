@@ -1073,6 +1073,14 @@ class GridKeyboardTests(_QtCase):
         self.assertEqual(flags.count(True), 1)
         self.assertTrue(flags[1])
 
+    def test_populating_an_already_focused_empty_grid_initializes_the_cursor(self):
+        self.grid.set_videos([])
+        self.assertTrue(self.grid.hasFocus())
+        self.assertEqual(self.grid.cursor_index(), -1)
+        self.grid.set_videos(_videos(2))
+        self.assertEqual(self.grid.cursor_index(), 0)
+        self.assertTrue(self.grid._cards[0]._current)
+
     def test_enter_opens_and_space_ticks(self):
         self.key(Qt.Key.Key_Right)
         self.key(Qt.Key.Key_Return)

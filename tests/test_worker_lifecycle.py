@@ -174,6 +174,7 @@ class ManagedThreadTests(unittest.TestCase):
 
     def test_destroying_the_parent_or_dropping_every_reference_does_not_kill_it(self):
         import gc
+        import threading
         import weakref
 
         from PySide6.QtCore import QCoreApplication, QEvent
@@ -181,9 +182,13 @@ class ManagedThreadTests(unittest.TestCase):
 
         from app.ui.worker_lifecycle import ManagedThread
 
+        release = threading.Event()
+
         class Slow(ManagedThread):
             def run(self):
-                self.msleep(300)
+                release.wait(10)
+
+        self.addCleanup(release.set)
 
         parent = QWidget()
         worker = Slow(parent)
@@ -199,6 +204,7 @@ class ManagedThreadTests(unittest.TestCase):
         from app.ui import worker_lifecycle
 
         self.assertIn(alive(), worker_lifecycle._RUNNING)
+        release.set()
         self.assertTrue(self._spin(lambda: alive() not in worker_lifecycle._RUNNING))  # let go once finished
         self.assertTrue(alive().isFinished())
         alive().deleteLater()

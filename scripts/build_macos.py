@@ -22,6 +22,23 @@ def smoke_test(command: list[str]) -> None:
         )
 
 
+def build_icon(build_dir: Path) -> Path:
+    """Use Apple's tools to preserve all icon sizes without extra Python packages."""
+    iconset = build_dir / "IwaraTool.iconset"
+    iconset.mkdir(exist_ok=True)
+    source = ROOT / "docs" / "iwaratool_logo.png"
+    for size in (16, 32, 128, 256, 512):
+        for scale in (1, 2):
+            suffix = "@2x" if scale == 2 else ""
+            subprocess.run([
+                "/usr/bin/sips", "--resampleHeightWidth", str(size * scale), str(size * scale),
+                str(source), "--out", str(iconset / f"icon_{size}x{size}{suffix}.png"),
+            ], check=True)
+    icon = build_dir / "IwaraTool.icns"
+    subprocess.run(["/usr/bin/iconutil", "-c", "icns", str(iconset), "-o", str(icon)], check=True)
+    return icon
+
+
 def main() -> None:
     if sys.platform != "darwin":
         raise SystemExit("This build task requires macOS.")
@@ -31,12 +48,13 @@ def main() -> None:
     smoke_test([sys.executable, str(ROOT / "main.py")])
     build_dir = ROOT / "build" / "macos"
     build_dir.mkdir(parents=True, exist_ok=True)
+    icon = build_icon(build_dir)
     subprocess.run([
         sys.executable, "-m", "nuitka",
         "--assume-yes-for-downloads", "--standalone", "--macos-create-app-bundle",
         "--static-libpython=no",
         "--macos-app-name=IwaraTool", "--macos-signed-app-name=io.github.moeary.iwaratool",
-        f"--macos-app-version={__version__}", "--macos-app-icon=docs/iwaratool_logo.png",
+        f"--macos-app-version={__version__}", f"--macos-app-icon={icon}",
         "--enable-plugin=pyside6", "--include-qt-plugins=multimedia",
         "--include-package-data=cloudscraper",
         "--include-data-file=app/icon.ico=app/icon.ico",
