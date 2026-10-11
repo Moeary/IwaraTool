@@ -16,7 +16,7 @@ from app.version import __version__  # noqa: E402
 def smoke_test(command: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="iwaratool-smoke-") as home:
         subprocess.run(
-            [*command, "--smoke-test"],
+            [*command, "--smoke-test", "--smoke-media", str(ROOT / "tests" / "fixtures" / "video-smoke.mp4")],
             env={**os.environ, "HOME": home, "QT_QPA_PLATFORM": "cocoa"},
             timeout=90, check=True,
         )

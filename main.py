@@ -9,8 +9,9 @@ from PySide6.QtWidgets import QApplication
 
 def smoke_test():
     """Check packaged Qt and assets before opening databases or network jobs."""
-    from PySide6.QtCore import QCoreApplication, QEvent
-    from PySide6.QtMultimedia import QMediaPlayer
+    import time
+    from PySide6.QtCore import QCoreApplication, QEvent, QUrl
+    from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
     from PySide6.QtMultimediaWidgets import QVideoWidget
     from app.qt_runtime import ensure_multimedia_plugins
     from app.version import __version__
@@ -31,6 +32,25 @@ def smoke_test():
         if not (root / relative).is_file():
             raise RuntimeError(f"Missing bundled resource: {relative}")
     app.processEvents()
+    if "--smoke-media" in sys.argv:
+        media_index = sys.argv.index("--smoke-media") + 1
+        media = Path(sys.argv[media_index]).resolve()
+        decoded = []
+        sink = QVideoSink(app)
+        sink.videoFrameChanged.connect(lambda frame: decoded.append(True) if frame.isValid() else None)
+        player.setVideoOutput(sink)
+        player.setSource(QUrl.fromLocalFile(str(media)))
+        player.play()
+        deadline = time.monotonic() + 15
+        while not decoded and time.monotonic() < deadline:
+            app.processEvents()
+            if player.error() != QMediaPlayer.Error.NoError:
+                raise RuntimeError(f"Smoke video playback failed: {player.errorString()}")
+            time.sleep(0.01)
+        if not decoded:
+            raise RuntimeError("Smoke video did not produce a decoded frame")
+        player.stop()
+        print("H.264/MP4 video decode OK", flush=True)
     print(f"IwaraTool {__version__}: Qt multimedia and bundled resources OK", flush=True)
     player.setVideoOutput(None)
     player.deleteLater()

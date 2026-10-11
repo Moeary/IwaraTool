@@ -17,9 +17,20 @@ build = "python scripts/build_macos.py"
 [target.osx-64.tasks]
 build = "python scripts/build_macos.py"
 
+[target.osx-arm64.pypi-dependencies]
+pyside6 = "==6.6.2"
+
+[target.osx-64.pypi-dependencies]
+pyside6 = "==6.6.2"
+
+[target.win-64.dependencies]
+pyside6 = "==6.6.2"
+
+[target.linux-64.dependencies]
+pyside6 = "==6.6.2"
+
 [dependencies]
 python = "3.11.*"
-pyside6 = "==6.6.2"
 requests = ">=2.32.5,<3"
 #下面是编译要用的 Following are for build dependencies
 zstandard = ">=0.25.0,<0.26" 
