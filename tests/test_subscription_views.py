@@ -517,8 +517,13 @@ class DetailLayoutTests(_QtCase):
         from app.ui.media import detail_view as media_detail
         from app.ui.home.workers import CoverFetcher
 
-        view = media_detail.DetailView(CoverFetcher())
-        self.addCleanup(view.deleteLater)
+        from PySide6.QtWidgets import QWidget
+
+        # A child can exercise wide layouts even on a small native CI display.
+        host = QWidget()
+        view = media_detail.DetailView(CoverFetcher(), host)
+        self.addCleanup(host.deleteLater)
+        host.show()
         return view
 
     def test_stage_follows_the_viewport_height_on_wide_windows(self):

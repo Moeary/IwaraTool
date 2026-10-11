@@ -18,6 +18,7 @@ from app.core.search.models import SearchVideo
 from app.signal_bus import signal_bus
 from app.ui import click_dispatch
 from app.ui.click_dispatch import ClickDispatcher
+from qt_helpers import activate_window, wait_until
 
 
 def _videos(count: int, *, source_kind: str = "iwara") -> list[SearchVideo]:
@@ -85,7 +86,7 @@ class DispatcherTests(_ConfigCase):
         QTest.qWait(30)
         self.assertEqual(calls, [("detail", "a")])  # the click never also played it
         dispatcher.click("b")
-        QTest.qWait(30)
+        wait_until(lambda: calls[-1] == ("play", "b"))
         self.assertEqual(calls[-1], ("play", "b"))
 
     def test_without_a_double_click_action_a_click_is_immediate(self):
@@ -236,7 +237,9 @@ class SearchResultClickTests(_ConfigCase):
         opened = self._listen(signal_bus.media_detail_requested)
         item, _point = self._grid_point("video:v1")
         self.page._results.setCurrentItem(item)
+        activate_window(self.page)
         self.page._results.setFocus()
+        wait_until(self.page._results.hasFocus)
         QTest.keyClick(self.page._results, Qt.Key.Key_Return)
         self.assertEqual(opened, [("video", "v1")])
 

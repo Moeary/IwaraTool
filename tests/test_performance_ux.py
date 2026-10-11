@@ -20,6 +20,7 @@ from app.core import shortcut_defs as defs
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import MODE_TAGS, HomeSectionSpec, default_specs
 from app.core.search.models import SearchVideo
+from qt_helpers import activate_window, wait_until
 
 
 class _QtCase(unittest.TestCase):
@@ -1035,8 +1036,9 @@ class GridKeyboardTests(_QtCase):
         self.host.show()
         self.grid.set_videos(_videos(10))
         self.app.processEvents()
+        activate_window(self.host)
         self.grid.setFocus()
-        self.app.processEvents()
+        wait_until(self.grid.hasFocus)
         self.activated = []
         self.grid.card_activated.connect(lambda video: self.activated.append(video.video_id))
         self.addCleanup(self.host.deleteLater)

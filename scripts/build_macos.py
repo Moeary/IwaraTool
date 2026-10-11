@@ -13,12 +13,22 @@ sys.path.insert(0, str(ROOT))
 from app.version import __version__  # noqa: E402
 
 
+def smoke_test(command: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="iwaratool-smoke-") as home:
+        subprocess.run(
+            [*command, "--smoke-test"],
+            env={**os.environ, "HOME": home, "QT_QPA_PLATFORM": "cocoa"},
+            timeout=90, check=True,
+        )
+
+
 def main() -> None:
     if sys.platform != "darwin":
         raise SystemExit("This build task requires macOS.")
     arch = {"arm64": "ARM64", "x86_64": "AMD64"}.get(platform.machine().lower())
     if not arch:
         raise SystemExit(f"Unsupported macOS architecture: {platform.machine()}")
+    smoke_test([sys.executable, str(ROOT / "main.py")])
     build_dir = ROOT / "build" / "macos"
     build_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run([
@@ -37,12 +47,7 @@ def main() -> None:
         "main.py",
     ], cwd=ROOT, check=True)
     target = build_dir / "IwaraTool.app"
-    with tempfile.TemporaryDirectory(prefix="iwaratool-smoke-") as home:
-        subprocess.run(
-            [str(target / "Contents" / "MacOS" / "IwaraTool"), "--smoke-test"],
-            env={**os.environ, "HOME": home, "QT_QPA_PLATFORM": "cocoa"},
-            timeout=90, check=True,
-        )
+    smoke_test([str(target / "Contents" / "MacOS" / "IwaraTool")])
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     archive = dist / f"IwaraTool-macOS-{arch}-v{__version__}.zip"

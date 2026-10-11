@@ -23,6 +23,7 @@ from app.core.search.manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary
 from app.ui.search.page import SearchInterface
 from app.ui.search.search_worker import SearchWorker
+from qt_helpers import wait_until
 
 
 def _set_columns(page, columns: int):
@@ -405,7 +406,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
         self.page._start_search()
         self.page._navigate_to_page(2)
         self.page._set_combo_data(self.page._sort_combo, "likes")
-        QTest.qWait(180)
+        wait_until(lambda: self.run_search.call_args.args[0].sort == "likes")
         self.assertEqual(self.run_search.call_args.args[0].keyword, "dance")
         self.assertEqual(self.run_search.call_args.args[0].sort, "likes")
         self.assertEqual(self.run_search.call_args.kwargs["page"], 0)

@@ -15,6 +15,11 @@ class ResponsiveFlowLayout(QLayout):
         self._spacing = spacing
 
     def addItem(self, item: QLayoutItem):
+        widget = item.widget()
+        if widget is not None:
+            # Cocoa buttons have extra style margins; align the actual widget
+            # rectangles like the other platforms, including fixed heights.
+            widget.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect, True)
         self._items.append(item)
         self.invalidate()
 
