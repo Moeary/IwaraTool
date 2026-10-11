@@ -40,7 +40,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="iwaratool-smoke-") as home:
         subprocess.run(
             [str(target / "Contents" / "MacOS" / "IwaraTool"), "--smoke-test"],
-            env={**os.environ, "HOME": home, "QT_QPA_PLATFORM": "offscreen"},
+            env={**os.environ, "HOME": home, "QT_QPA_PLATFORM": "cocoa"},
             timeout=90, check=True,
         )
     dist = ROOT / "dist"

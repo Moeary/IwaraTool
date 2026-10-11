@@ -48,5 +48,5 @@ jobs:
       - name: Run tests (macOS)
         if: runner.os == 'macOS'
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORM: cocoa
         run: pixi run test
