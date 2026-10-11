@@ -16,11 +16,14 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.api import IwaraAPI
-from app.core.search import SearchFilters, SearchPageResult, build_keyword_query_params
-from app.core.search_manager import SearchManagerMixin
+from app.core.api.client import IwaraAPI
+from app.core.search.models import SearchFilters, SearchPageResult
+from app.core.search.query_params import build_keyword_query_params
+from app.core.search.manager import SearchManagerMixin
 from app.core.tag_dictionary import TagDictionary
-from app.ui.search_page import SearchInterface, SearchWorker
+from app.ui.search.page import SearchInterface
+from app.ui.search.search_worker import SearchWorker
+from qt_helpers import wait_until
 
 
 def _set_columns(page, columns: int):
@@ -48,7 +51,7 @@ class SearchRouteTests(unittest.TestCase):
         self.manager = SearchManagerMixin()
         self.manager.tag_dictionary = TagDictionary(str(self.root))
         self.manager._api_call = lambda method, *args, **kwargs: getattr(self.api, method)(*args, **kwargs)
-        self.context.enter_context(patch("app.ui.search_page.download_manager", self.manager))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", self.manager))
 
     def search(self, keyword, *, scope="videos", sort="date", page=0, **options):
         results = []
@@ -263,8 +266,8 @@ class SearchModeInterfaceTests(unittest.TestCase):
         manager = Mock()
         manager.history.get_records.return_value = {}
         manager.get_search_tag_suggestions.return_value = []
-        self.context.enter_context(patch("app.ui.search_page.download_manager", manager))
-        self.context.enter_context(patch("app.ui.rules_page.RulePicker.refresh_rules"))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", manager))
+        self.context.enter_context(patch("app.ui.rules.rule_picker.RulePicker.refresh_rules"))
         self.page = SearchInterface()
         self.addCleanup(self.close_page)
         self.run_search = self.context.enter_context(patch.object(self.page, "_run_search"))
@@ -315,7 +318,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
 
     def test_loaded_covers_grow_with_the_grid(self):
         from PySide6.QtGui import QColor, QPixmap
-        from app.core.search import SearchVideo
+        from app.core.search.models import SearchVideo
 
         path = os.path.join(tempfile.mkdtemp(), "cover.png")
         source = QPixmap(640, 360)
@@ -340,7 +343,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
         self.assertEqual(icon.availableSizes()[0], large)
 
     def test_grid_density_uses_the_shared_cover_size_slider(self):
-        from app.ui.media_card import CardSizeControl
+        from app.ui.media.card_size import CardSizeControl
 
         page = self.page
         self.assertFalse(hasattr(page, "_grid_columns_combo"))
@@ -403,7 +406,7 @@ class SearchModeInterfaceTests(unittest.TestCase):
         self.page._start_search()
         self.page._navigate_to_page(2)
         self.page._set_combo_data(self.page._sort_combo, "likes")
-        QTest.qWait(180)
+        wait_until(lambda: self.run_search.call_args.args[0].sort == "likes")
         self.assertEqual(self.run_search.call_args.args[0].keyword, "dance")
         self.assertEqual(self.run_search.call_args.args[0].sort, "likes")
         self.assertEqual(self.run_search.call_args.kwargs["page"], 0)

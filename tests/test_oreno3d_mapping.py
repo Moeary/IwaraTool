@@ -1,6 +1,6 @@
 import unittest
 
-from app.core.oreno3d_mapping import Oreno3DIwaraMapping, normalize_mapping_key
+from app.core.oreno3d.iwara_mapping import Oreno3DIwaraMapping, normalize_mapping_key
 
 
 class Oreno3DIwaraMappingTests(unittest.TestCase):

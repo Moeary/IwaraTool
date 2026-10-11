@@ -9,6 +9,7 @@ from ..i18n import tr
 
 
 class TaskStatus(Enum):
+    STAGED = "staged"                  # 待确认：已预解析，等用户在下载工作台确认
     QUEUED_META = "queued_meta"        # 仅有元数据，未解析直链
     RESOLVING = "resolving"            # 正在解析真实下载直链
     QUEUED_DOWNLOAD = "queued_download"  # 已拿到直链，等待下载槽位
@@ -21,6 +22,7 @@ class TaskStatus(Enum):
 
 
 _STATUS_LABEL_TEXTS: dict[TaskStatus, tuple[str, str, str]] = {
+    TaskStatus.STAGED: ("To confirm", "待确认", "確認待ち"),
     TaskStatus.QUEUED_META: ("Queued", "排队中", "待機中"),
     TaskStatus.RESOLVING: ("Resolving", "解析中", "解析中"),
     TaskStatus.QUEUED_DOWNLOAD: ("Waiting", "待下载", "待機"),
@@ -80,3 +82,11 @@ class DownloadTask:
     # Stable profile handle is stored in ``author``; this is the mutable
     # display name used by the {username} filename token.
     username: str = ""
+    # Staging (status STAGED): which batch the video came in with, and what the
+    # pre-check found.  ``stage_verdict`` is one of STAGE_* in download.staging.
+    batch_id: str = ""
+    batch_label: str = ""
+    stage_verdict: str = ""
+    stage_reason: str = ""
+    stage_path: str = ""  # where it would be saved, relative to the download folder
+    stage_raw_json: str = ""  # the video's API data, to re-check under another rule offline

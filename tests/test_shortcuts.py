@@ -15,8 +15,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 from app.config import app_config
 from app.core import shortcut_defs as defs
 from app.ui import shortcuts
-from app.ui.settings_sections import settings_categories
-from app.ui.settings_shortcuts_cards import ShortcutCaptureButton, shortcut_card_keys
+from app.ui.settings.sections import settings_categories
+from app.ui.settings.shortcuts_cards import ShortcutCaptureButton, shortcut_card_keys
 
 
 class _OverridesMixin:
@@ -203,14 +203,14 @@ class MainWindowBindingTests(_OverridesMixin, unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_navigation_and_page_actions_are_bound(self):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
         from app.ui.main_window import MainWindow
 
         # Handlers are bound at construction, so patch the class first.
         patcher = mock.patch.object(HistoryInterface, "_load_history")
         reload = patcher.start()
         self.addCleanup(patcher.stop)
-        feed_patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        feed_patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         feed_patcher.start()
         self.addCleanup(feed_patcher.stop)
         window = MainWindow()

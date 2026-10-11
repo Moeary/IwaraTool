@@ -162,16 +162,7 @@ def _write_markdown(path: Path, tags: list[dict[str, Any]], filters: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Crawl Iwara tags from /tags endpoint.")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Tags endpoint URL")
-    parser.add_argument("--filters", default=DEFAULT_FILTERS, help="Filter characters (A-Z0-9)")
-    parser.add_argument("--max-pages-per-filter", type=int, default=80, help="Max pages for each filter")
-    parser.add_argument("--sleep", type=float, default=0.15, help="Sleep seconds between requests")
-    parser.add_argument("--translation-map", default="", help="Optional JSON map: {key: {en, zh, ja}}")
-    parser.add_argument("--output-json", default="data/iwara_tags.json", help="Output JSON path")
-    parser.add_argument("--output-md", default="docs/iwara_tags.md", help="Output Markdown path")
-    args = parser.parse_args()
-
+    args = _parse_args()
     filters = "".join([c for c in args.filters if c.isalnum()]).upper()
     if not filters:
         filters = DEFAULT_FILTERS
@@ -180,6 +171,32 @@ def main():
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
+    tags_by_key = _crawl_tags(scraper, args, filters)
+    tags_out = _translated_rows(tags_by_key, translation_map)
+
+    output_json = Path(args.output_json)
+    _write_json(output_json, args.base_url, filters, tags_out)
+    print(f"[ok] json: {output_json}")
+
+    output_md = Path(args.output_md)
+    _write_markdown(output_md, tags_out, filters)
+    print(f"[ok] markdown: {output_md}")
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Crawl Iwara tags from /tags endpoint.")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Tags endpoint URL")
+    parser.add_argument("--filters", default=DEFAULT_FILTERS, help="Filter characters (A-Z0-9)")
+    parser.add_argument("--max-pages-per-filter", type=int, default=80, help="Max pages for each filter")
+    parser.add_argument("--sleep", type=float, default=0.15, help="Sleep seconds between requests")
+    parser.add_argument("--translation-map", default="", help="Optional JSON map: {key: {en, zh, ja}}")
+    parser.add_argument("--output-json", default="data/iwara_tags.json", help="Output JSON path")
+    parser.add_argument("--output-md", default="docs/iwara_tags.md", help="Output Markdown path")
+    return parser.parse_args()
+
+
+def _crawl_tags(scraper, args, filters: str) -> dict[str, dict[str, Any]]:
+    """Every tag reachable through the first-letter filters, keyed by tag key."""
 
     tags_by_key: dict[str, dict[str, Any]] = {}
     for fch in filters:
@@ -197,30 +214,36 @@ def main():
 
             for raw in results:
                 item = _tag_item(raw)
-                if not item:
-                    continue
-                key = item["key"]
-                row = tags_by_key.setdefault(
-                    key,
-                    {
-                        "key": key,
-                        "id": item["id"],
-                        "slug": item["slug"],
-                        "name": item["name"],
-                        "seen_filters": set(),
-                    },
-                )
-                if not row.get("id"):
-                    row["id"] = item["id"]
-                if not row.get("slug"):
-                    row["slug"] = item["slug"]
-                if not row.get("name"):
-                    row["name"] = item["name"]
-                row["seen_filters"].add(fch)
+                if item:
+                    _merge_tag(tags_by_key, item, fch)
 
             print(f"[page] filter={fch} page={page} total_tags={len(tags_by_key)}")
             time.sleep(max(0.0, args.sleep))
+    return tags_by_key
 
+
+def _merge_tag(tags_by_key: dict[str, dict[str, Any]], item: dict[str, Any], fch: str) -> None:
+    key = item["key"]
+    row = tags_by_key.setdefault(
+        key,
+        {
+            "key": key,
+            "id": item["id"],
+            "slug": item["slug"],
+            "name": item["name"],
+            "seen_filters": set(),
+        },
+    )
+    if not row.get("id"):
+        row["id"] = item["id"]
+    if not row.get("slug"):
+        row["slug"] = item["slug"]
+    if not row.get("name"):
+        row["name"] = item["name"]
+    row["seen_filters"].add(fch)
+
+
+def _translated_rows(tags_by_key: dict[str, dict[str, Any]], translation_map: dict) -> list[dict[str, Any]]:
     tags_out: list[dict[str, Any]] = []
     for key in sorted(tags_by_key):
         row = tags_by_key[key]
@@ -238,14 +261,16 @@ def main():
                 "seen_filters": sorted(list(row.get("seen_filters", set()))),
             }
         )
+    return tags_out
 
-    output_json = Path(args.output_json)
+
+def _write_json(output_json: Path, base_url: str, filters: str, tags_out: list[dict[str, Any]]) -> None:
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(
         json.dumps(
             {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "source": args.base_url,
+                "source": base_url,
                 "filters": filters,
                 "count": len(tags_out),
                 "tags": tags_out,
@@ -255,11 +280,6 @@ def main():
         ),
         encoding="utf-8",
     )
-    print(f"[ok] json: {output_json}")
-
-    output_md = Path(args.output_md)
-    _write_markdown(output_md, tags_out, filters)
-    print(f"[ok] markdown: {output_md}")
 
 
 if __name__ == "__main__":

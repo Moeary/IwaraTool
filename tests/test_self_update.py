@@ -4,6 +4,7 @@ import hashlib
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from app.core import self_update
 from app.core.self_update import UpdateAsset, UpdateError
@@ -54,6 +55,21 @@ class AssetSelectionTests(unittest.TestCase):
         resolved = self_update.resolve_update_asset(self.ASSETS, platform="win32")
         self.assertEqual(resolved.sha256, DIGEST)
         self.assertEqual(resolved.url, "https://x/win")
+
+    def test_macos_selects_native_archive_and_its_checksum(self):
+        assets = [
+            {"name": "IwaraTool-macOS-ARM64-v1.1.0.zip.sha256", "browser_download_url": "https://x/arm.sha256"},
+            {"name": "IwaraTool-macOS-AMD64-v1.1.0.zip", "browser_download_url": "https://x/intel"},
+            {"name": "IwaraTool-macOS-ARM64-v1.1.0.zip", "browser_download_url": "https://x/arm"},
+        ]
+        with mock.patch.object(self_update.platform_info, "machine", return_value="arm64"):
+            selected = self_update.resolve_update_asset(
+                assets, platform="darwin", fetch_text=lambda _: DIGEST,
+            )
+        self.assertEqual((selected.url, selected.sha256), ("https://x/arm", DIGEST))
+        with mock.patch.object(self_update.platform_info, "machine", return_value="x86_64"):
+            self.assertEqual(self_update.pick_asset(assets, platform="darwin")["browser_download_url"], "https://x/intel")
+            self.assertIsNone(self_update.pick_asset([assets[2]], platform="darwin"))
 
     def test_falls_back_to_checksum_file(self):
         assets = [dict(self.ASSETS[1]), self.ASSETS[2]]

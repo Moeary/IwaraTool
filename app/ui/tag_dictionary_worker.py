@@ -1,12 +1,13 @@
 """Background worker used to refresh the localized search-tag dictionary."""
 from __future__ import annotations
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
 from ..core.manager import download_manager
+from .worker_lifecycle import ManagedThread
 
 
-class TagDictionaryUpdateWorker(QThread):
+class TagDictionaryUpdateWorker(ManagedThread):
     """Refresh the tag dictionary without blocking the settings page."""
 
     result_ready = Signal(object)

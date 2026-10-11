@@ -9,6 +9,7 @@ subscriptions open on the subscription grid, which carries the same status bar.
 from __future__ import annotations
 
 import webbrowser
+from dataclasses import dataclass, replace as dataclass_replace
 
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
@@ -27,17 +28,25 @@ from qfluentwidgets import (
 
 from ..config import app_config
 from ..core.home_feed import MODE_AUTHOR, FeedSection, FeedTab
-from ..core.manager import download_manager
 from ..core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ..core.rules import active_rule_id
-from ..core.search import IWARA_IMAGE_SOURCE_KIND, SearchVideo, avatar_url
+from ..core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ..core.search.normalize import avatar_url
 from ..i18n import tr
 from ..signal_bus import signal_bus
 from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
-from .home_page import BrowseView, queueable_ids
-from .media_card import read_pixmap
-from .home_workers import CoverFetcher
+from .home.browse_view import BrowseState, BrowseView
+from .home.section_block import queueable_ids
+from .downloads.staging_flow import stage_videos
+from .media.pixmaps import read_pixmap
+from .home.workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+
+
+@dataclass
+class AuthorViewState:
+    target: tuple[str, str, str, str]
+    browse: BrowseState | None = None
 
 
 class AuthorView(QWidget):
@@ -50,6 +59,7 @@ class AuthorView(QWidget):
         super().__init__(parent)
         self._fetcher = CoverFetcher(self)
         self._username = ""
+        self._target: tuple[str, str, str, str] = ("", "", "", "")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
@@ -84,7 +94,7 @@ class AuthorView(QWidget):
         self.status.open_subscription_requested.connect(self.open_subscription_requested)
         root.addWidget(self.status)
 
-        self._browse = BrowseView(self._fetcher, self)
+        self._browse = BrowseView(self._fetcher, self, configurable_clicks=True)
         self._browse.set_embedded(True)
         self._browse.open_requested.connect(self._open_post)
         self._browse.context_requested.connect(self._show_menu)
@@ -99,7 +109,36 @@ class AuthorView(QWidget):
         return self._username
 
     def open_author(self, target: tuple[str, str, str, str]):
+        self._show_author(target)
+        rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
+        self._browse.open(self._section(), "videos", rating)
+
+    def _section(self) -> FeedSection:
+        username, name = self._username, self._target[1]
+        return FeedSection(
+            "author",
+            name or username,
+            (
+                FeedTab("videos", tr("Videos", "视频", "動画"), "video", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
+                FeedTab("images", tr("Images", "图片", "画像"), "image", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
+            ),
+        )
+
+    def view_state(self) -> AuthorViewState:
+        return AuthorViewState(self._target, self._browse.view_state())
+
+    def restore_state(self, state: AuthorViewState):
+        """Show a recorded author again: same tab, page, cards, selection and scroll."""
+
+        if state.browse is None:
+            self.open_author(state.target)
+            return
+        self._show_author(state.target)
+        self._browse.restore_state(dataclass_replace(state.browse, section=self._section()))
+
+    def _show_author(self, target: tuple[str, str, str, str]):
         username, name, user_id, avatar = (list(target) + ["", "", "", ""])[:4]
+        self._target = (str(username), str(name), str(user_id), str(avatar))
         self._username = clean_username(username)
         self._name.setText(name or self._username)
         self._handle.setText(f"@{self._username}")
@@ -110,16 +149,6 @@ class AuthorView(QWidget):
             if cached:
                 self._on_cover("avatar", self._username, cached)
         self.status.set_author(self._username, name, user_id, avatar)
-        section = FeedSection(
-            "author",
-            name or self._username,
-            (
-                FeedTab("videos", tr("Videos", "视频", "動画"), "video", (("sort", "date"),), mode=MODE_AUTHOR, value=self._username),
-                FeedTab("images", tr("Images", "图片", "画像"), "image", (("sort", "date"),), mode=MODE_AUTHOR, value=self._username),
-            ),
-        )
-        rating = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
-        self._browse.open(section, "videos", rating)
 
     def refresh_status(self):
         self.status.refresh_local()
@@ -161,13 +190,13 @@ class AuthorView(QWidget):
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return
-        accepted = download_manager.enqueue_video_ids(
-            ids, source_label=f"@{self._username}", rule_id=rule_id or active_rule_id(),
-        )
-        InfoBar.success(
-            title=tr("Added to queue", "已加入队列", "キューに追加"),
-            content=tr(f"Accepted {accepted} video(s)", f"已接受 {accepted} 个视频", f"{accepted} 件を追加しました"),
-            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3000, parent=self.window(),
+        # They wait on the download workbench for confirmation.
+        wanted = set(ids)
+        stage_videos(
+            self,
+            [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
+            label=f"@{self._username}",
+            rule_id=rule_id or active_rule_id(),
         )
 
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):

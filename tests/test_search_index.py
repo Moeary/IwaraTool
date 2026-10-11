@@ -4,25 +4,21 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.core.oreno3d import (
-    Oreno3DClient,
-    parse_detail_page,
-    parse_listing_page,
-)
-from app.core.search import SearchAuthor, SearchFilters, SearchVideo, normalize_oreno3d_listing
+from app.core.oreno3d.client import Oreno3DClient
+from app.core.oreno3d.page_parsing import parse_detail_page, parse_listing_page
+from app.core.search.models import SearchAuthor, SearchFilters, SearchVideo
+from app.core.search.normalize import normalize_oreno3d_listing
 from app.core.tag_dictionary import TagDictionary
-from app.ui.search_page import (
-    SearchInterface,
-    SearchIwaraAuthorWorker,
-    SearchOrenoAuthorWorker,
-    SearchOrenoLinkWorker,
-    SearchWorker,
+from app.ui.search.page import SearchInterface
+from app.ui.search.author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
+from app.ui.search.search_worker import SearchWorker
+from app.ui.search.result_authors import (
     _author_source_info,
     _author_subscription_target,
-    _decode_search_history,
     _oreno3d_video_url,
-    _upsert_search_history,
 )
+from app.ui.search.history_entries import _decode_search_history, _upsert_search_history
 
 
 class _FakeResponse:
@@ -62,7 +58,7 @@ class SearchOnlineTests(unittest.TestCase):
 
         fake_manager = _FakeManager()
         results = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchWorker(
                 SearchFilters(keyword="loli,hmv", sort="date"),
                 "tags",
@@ -91,7 +87,7 @@ class SearchOnlineTests(unittest.TestCase):
 
         fake_manager = _FakeManager()
         results = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchWorker(
                 SearchFilters(keyword="loli,hmv", sort="date"),
                 "tags",
@@ -137,7 +133,7 @@ class SearchOnlineTests(unittest.TestCase):
             source_kind="oreno3d",
             source_url="https://oreno3d.com/movies/movie-1",
         )
-        with patch("app.ui.search_page.webbrowser.open") as open_browser:
+        with patch("webbrowser.open") as open_browser:
             SearchInterface._open_oreno3d_video_page(object(), video)
         open_browser.assert_called_once_with("https://oreno3d.com/movies/movie-1")
 
@@ -218,9 +214,9 @@ class SearchOnlineTests(unittest.TestCase):
 
         fake_bus = _FakeBus()
         with (
-            patch("app.ui.search_page.download_manager", fake_manager),
-            patch("app.ui.search_page.InfoBar.success") as success,
-            patch("app.ui.search_page.signal_bus", fake_bus),
+            patch("app.ui.search.page.download_manager", fake_manager),
+            patch("qfluentwidgets.InfoBar.success") as success,
+            patch("app.ui.search.page.signal_bus", fake_bus),
         ):
             SearchInterface._subscribe_to_author(
                 page,
@@ -268,7 +264,7 @@ class SearchOnlineTests(unittest.TestCase):
             downloadable=False,
         )
         results = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchOrenoLinkWorker(7, [video])
             worker.result_ready.connect(results.append)
             worker.run()
@@ -293,7 +289,7 @@ class SearchOnlineTests(unittest.TestCase):
 
         fake_manager = _FakeManager()
         results = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchIwaraAuthorWorker(9, "iwara-1")
             worker.result_ready.connect(results.append)
             worker.run()
@@ -328,7 +324,7 @@ class SearchOnlineTests(unittest.TestCase):
             raw={"oreno3d_author_url": "https://oreno3d.com/authors/1411"},
         )
         results = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchOrenoAuthorWorker(11, video)
             worker.result_ready.connect(results.append)
             worker.run()
@@ -441,7 +437,7 @@ class SearchOnlineTests(unittest.TestCase):
             for index in range(2)
         ]
         items = []
-        with patch("app.ui.search_page.download_manager", fake_manager):
+        with patch("app.ui.search.page.download_manager", fake_manager):
             worker = SearchOrenoLinkWorker(
                 8,
                 videos,

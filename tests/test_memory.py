@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from app.config import app_config
 from app.core import memory
-from app.ui.media_card import image_size, read_pixmap
+from app.ui.media.pixmaps import image_size, read_pixmap
 
 
 def _jpg(directory: str, name: str, width: int, height: int) -> str:
@@ -85,7 +85,7 @@ class ReadPixmapTests(_QtCase):
 
 class GalleryLazyDecodeTests(_QtCase):
     def setUp(self):
-        from app.ui.media_detail import GalleryImage
+        from app.ui.media.gallery_image import GalleryImage
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -102,7 +102,7 @@ class GalleryLazyDecodeTests(_QtCase):
         self.assertTrue(self.image.is_decoded())
 
     def test_the_decoded_picture_is_capped_and_sized_for_display(self):
-        from app.ui.media_detail import GALLERY_DECODE_WIDTH
+        from app.ui.media.gallery_image import GALLERY_DECODE_WIDTH
 
         self.image.set_source(self.path, final=True)
         self.image.grab()
@@ -137,8 +137,8 @@ class GalleryLazyDecodeTests(_QtCase):
 
 class DetailReleaseTests(_QtCase):
     def setUp(self):
-        from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.media import detail_view as media_detail
+        from app.ui.home.workers import CoverFetcher
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -185,15 +185,15 @@ class DetailReleaseTests(_QtCase):
 
 class SearchCoverMemoryTests(_QtCase):
     def setUp(self):
-        from app.ui.search_page import SearchInterface
+        from app.ui.search.page import SearchInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         settings = QSettings(os.path.join(self.tmp.name, "config.ini"), QSettings.Format.IniFormat)
         for target, value in (
             ("app.config.app_config._qs", settings),
-            ("app.ui.search_page.download_manager", Mock(history=Mock(get_records=Mock(return_value={})), get_search_tag_suggestions=Mock(return_value=[]))),
-            ("app.ui.rules_page.RulePicker.refresh_rules", lambda *a, **k: None),
+            ("app.ui.search.page.download_manager", Mock(history=Mock(get_records=Mock(return_value={})), get_search_tag_suggestions=Mock(return_value=[]))),
+            ("app.ui.rules.rule_picker.RulePicker.refresh_rules", lambda *a, **k: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -230,7 +230,7 @@ class SearchCoverMemoryTests(_QtCase):
     def test_a_file_smaller_than_asked_is_not_re_read_every_time(self):
         tiny = _jpg(self.tmp.name, "tiny.jpg", 120, 68)
         self.page._grid_icon_size = QSize(600, 340)
-        with mock.patch("app.ui.search_page.read_pixmap", wraps=read_pixmap) as reader:
+        with mock.patch("app.ui.search.page.read_pixmap", wraps=read_pixmap) as reader:
             for _ in range(5):
                 self.page._image_icon(tiny)
         self.assertEqual(reader.call_count, 1)
@@ -242,7 +242,7 @@ class SearchCoverMemoryTests(_QtCase):
         self.assertTrue(self.page._image_icon(broken).isNull())
 
     def test_the_cover_cache_stays_within_its_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         self.page._source_pixmaps = PixmapLRU(max_bytes=3 * 300 * 170 * 4)
         for index in range(20):
@@ -261,7 +261,7 @@ class SettingsLazyBuildTests(_QtCase):
         self.addCleanup(patcher.stop)
 
     def _page(self, *, cached_login):
-        from app.ui import settings_page
+        from app.ui.settings import page as settings_page
 
         manager = Mock()
         manager.restore_cached_login.return_value = cached_login
@@ -310,7 +310,7 @@ class SettingsLazyBuildTests(_QtCase):
         self.assertEqual(page._settings_board.current_category(), "shortcuts")
 
     def test_a_saved_password_login_builds_the_form_it_reads(self):
-        from app.ui import settings_page
+        from app.ui.settings import page as settings_page
 
         app_config.auth_enabled = True
         app_config.username = "alice"
@@ -324,9 +324,9 @@ class SettingsLazyBuildTests(_QtCase):
 
 class HistoryRowIdTests(_QtCase):
     def _page(self, records):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
 
-        patcher = mock.patch("app.ui.history_page.download_manager")
+        patcher = mock.patch("app.ui.history.page.download_manager")
         manager = patcher.start()
         self.addCleanup(patcher.stop)
         manager.get_history_records.return_value = records
@@ -394,7 +394,8 @@ class IdleTrimTests(_QtCase):
         cls.patchers = []
         for target, value in (
             ("app.config.app_config._qs", QSettings(os.path.join(cls.tmp.name, "config.ini"), QSettings.Format.IniFormat)),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.search.page.SearchInterface._load_initial_results", lambda page: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)
@@ -430,7 +431,7 @@ class IdleTrimTests(_QtCase):
         window = self.window
         window.show()
         self.app.processEvents()
-        with mock.patch("app.ui.main_window.memory.trim_memory") as trim:
+        with mock.patch("app.core.memory.trim_memory") as trim:
             window._trim_memory_if_idle()
             trim.assert_not_called()  # the window is on screen
             window.hide()

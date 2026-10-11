@@ -9,11 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from requests.exceptions import Timeout
 
-from app.core.oreno3d import Oreno3DClient, extract_iwara_video_id, parse_detail_page
-from app.core.search import SearchVideo
-from app.core.search_manager import SearchManagerMixin
-from app.ui.search_page import SearchInterface
-from app.ui.search_workers import SearchOrenoAuthorWorker, SearchOrenoLinkWorker
+from app.core.oreno3d.client import Oreno3DClient
+from app.core.oreno3d.page_parsing import extract_iwara_video_id, parse_detail_page
+from app.core.search.models import SearchVideo
+from app.core.search.manager import SearchManagerMixin
+from app.ui.search.page import SearchInterface
+from app.ui.search.author_workers import SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
 
 
 SOURCE = "https://oreno3d.com/movies/123"
@@ -92,7 +94,7 @@ class OrenoRequestRecoveryTests(unittest.TestCase):
                 success = self.response(200)
                 session = Mock()
                 session.get.side_effect = [failure, success]
-                with patch("app.core.oreno3d.time.sleep"):
+                with patch("app.core.oreno3d.client.cancellable_sleep"):
                     detail = Oreno3DClient(session).fetch_detail_url("123", SOURCE)
                 self.assertEqual(detail.author.url, AUTHOR)
                 self.assertEqual(session.get.call_count, 2)
@@ -113,7 +115,7 @@ class OrenoRequestRecoveryTests(unittest.TestCase):
     def test_repeated_failure_stops_after_two_attempts(self):
         session = Mock()
         session.get.side_effect = [Timeout("first"), Timeout("second")]
-        with patch("app.core.oreno3d.time.sleep"), self.assertRaisesRegex(Timeout, "second"):
+        with patch("app.core.oreno3d.client.cancellable_sleep"), self.assertRaisesRegex(Timeout, "second"):
             Oreno3DClient(session).fetch_detail_url("123", SOURCE)
         self.assertEqual(session.get.call_count, 2)
 
@@ -127,7 +129,7 @@ class AuthorResolutionTests(unittest.TestCase):
 
     def test_known_selected_video_is_used_even_when_author_url_is_saved(self):
         self.manager.get_iwara_video_info.return_value = ({"user": PROFILE}, "")
-        with patch("app.core.search_manager.Oreno3DClient") as client:
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient") as client:
             result = self.manager.resolve_oreno3d_author(author_url=AUTHOR, iwara_video_id="alive")
         self.assertEqual(result["iwara_author"]["id"], "user-42")
         client.assert_not_called()
@@ -137,7 +139,7 @@ class AuthorResolutionTests(unittest.TestCase):
         client = Mock()
         client.fetch_author_page.return_value = ([object()], 1)
         client.fetch_detail.return_value = SimpleNamespace(external_video_url="https://www.iwara.tv/video/deleted")
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author(author_url=AUTHOR)
         self.assertEqual(result["oreno_author_url"], AUTHOR)
         self.assertIn("404", result["error"])
@@ -147,7 +149,7 @@ class AuthorResolutionTests(unittest.TestCase):
         self.manager.get_iwara_video_info.return_value = ({"user": PROFILE}, "")
         client = Mock()
         client.fetch_detail_url.return_value = parse_detail_page(PARTIAL_DETAIL, source_id="123", oreno3d_url=SOURCE)
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author("123", SOURCE, iwara_video_id="alive")
         self.assertEqual(result["oreno_author_url"], AUTHOR)
         self.assertEqual(result["iwara_author"]["id"], "user-42")
@@ -160,7 +162,7 @@ class AuthorResolutionTests(unittest.TestCase):
         video.download_video_id = "known-id"
         manager = Mock()
         manager.resolve_oreno3d_author.return_value = {}
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             SearchOrenoAuthorWorker(1, video).run()
         call = manager.resolve_oreno3d_author.call_args
         self.assertEqual(call.args, ("123", SOURCE))
@@ -180,7 +182,7 @@ class ResolutionPipelineTests(unittest.TestCase):
             **({"iwara_author": PROFILE} if author_found else {"error": "All candidates unavailable"}),
         }
         items, results = [], []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchOrenoLinkWorker(4, videos, concurrency=2, hydrate_metadata=hydrate)
             worker.item_ready.connect(items.append)
             worker.result_ready.connect(results.append)

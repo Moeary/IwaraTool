@@ -3,16 +3,12 @@ import tempfile
 import unittest
 from datetime import date
 
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.image_cache import SearchImageCache
-from app.core.search import (
-    SearchFilters,
-    build_video_query_params,
-    filter_videos,
-    normalize_author,
-    normalize_video,
-    split_search_terms,
-)
+from app.core.search.models import SearchFilters
+from app.core.search.query_params import build_video_query_params
+from app.core.search.filtering import filter_videos, split_search_terms
+from app.core.search.normalize import normalize_author, normalize_video
 
 
 class SearchCoreTests(unittest.TestCase):

@@ -19,7 +19,7 @@ class WindowLayoutTests(unittest.TestCase):
 
     def setUp(self):
         # Home loads its feeds on first show; keep the test off the network.
-        patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.previous_window = MainWindow._window_ref

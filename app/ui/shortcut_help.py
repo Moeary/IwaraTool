@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, MessageBoxBase, PushButton, 
 
 from ..core import shortcut_defs
 from ..i18n import tr
-from .media_card import transparent_scroll_area
+from .media.grid import transparent_scroll_area
 from .theme import palette, set_secondary_text
 
 

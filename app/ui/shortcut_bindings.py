@@ -1,7 +1,7 @@
 """Wires the shortcut catalogue to the main window and its pages."""
 from __future__ import annotations
 
-from .media_card import reset_card_width, step_card_width
+from .media.card_size import reset_card_width, step_card_width
 from .shortcuts import registry
 
 
@@ -17,6 +17,16 @@ def _focus(edit) -> None:
 
 def install_shortcuts(window) -> None:
     """Bind every page-level action; called once the pages exist."""
+    _bind_window(window)
+    _bind_home(window._home_page)
+    _bind_download(window._download_page)
+    _bind_search(window._search_page)
+    _bind_subscriptions(window._subscription_page)
+    _bind_history(window._history_page)
+    _bind_tool_pages(window)
+
+
+def _bind_window(window) -> None:
     pages = [
         ("nav_home", window._home_page),
         ("nav_download", window._download_page),
@@ -39,6 +49,7 @@ def install_shortcuts(window) -> None:
     handlers.update({
         "nav_next": lambda: window.switchTo(cycle[(_index_of(window, cycle) + 1) % len(cycle)]),
         "nav_prev": lambda: window.switchTo(cycle[(_index_of(window, cycle) - 1) % len(cycle)]),
+        "nav_back": window.escape_back,
         "focus_search": lambda: (window.switchTo(window._search_page), window._search_page._focus_keyword()),
         "quick_download": window.quick_download,
         "open_download_folder": window.open_download_folder,
@@ -52,7 +63,8 @@ def install_shortcuts(window) -> None:
     })
     registry.bind(window, handlers)
 
-    home = window._home_page
+
+def _bind_home(home) -> None:
     registry.bind(
         home,
         {
@@ -63,7 +75,6 @@ def install_shortcuts(window) -> None:
             "home_bottom": lambda: home.scroll_to(bottom=True),
             "home_fold_all": lambda: home.fold_all(True),
             "home_unfold_all": lambda: home.fold_all(False),
-            "detail_close": home.close_current,
             "detail_like": lambda: home.detail_action("like"),
             "detail_play": lambda: home.detail_action("play"),
             "detail_download": lambda: home.detail_action("download"),
@@ -73,7 +84,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    download = window._download_page
+
+def _bind_download(download) -> None:
     tasks = download._task_center
     registry.bind(
         download,
@@ -86,7 +98,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    search = window._search_page
+
+def _bind_search(search) -> None:
     registry.bind(
         search,
         {
@@ -103,7 +116,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    subscriptions = window._subscription_page
+
+def _bind_subscriptions(subscriptions) -> None:
     registry.bind(
         subscriptions,
         {
@@ -120,7 +134,8 @@ def install_shortcuts(window) -> None:
         },
     )
 
-    history = window._history_page
+
+def _bind_history(history) -> None:
     registry.bind(
         history,
         {
@@ -133,6 +148,10 @@ def install_shortcuts(window) -> None:
             "history_reload": history._load_history,
         },
     )
+
+
+def _bind_tool_pages(window) -> None:
+    """Repair, Rules and Settings have one or a few actions each."""
 
     repair = window._repair_page
     registry.bind(repair, {"repair_scan": repair._scan_folder, "repair_apply": repair._start_repair})

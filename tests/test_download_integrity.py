@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.core.download_integrity import (
+from app.core.download.integrity import (
     classify_416,
     incomplete_reason,
     parse_content_range,

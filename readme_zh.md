@@ -30,6 +30,8 @@
 ## 快速开始
 1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本。
    - Linux 预编译包基于 GitHub 的 `ubuntu-latest` 构建，不支持 glibc 较老的系统；老版本发行版建议下载源码后在本机编译。
+   - macOS 提供 Apple Silicon（ARM64）和 Intel（AMD64）ZIP：解压后将 `IwaraTool.app` 拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；若被系统阻止，请按“隐私与安全性”中的提示允许打开。
+   - macOS 数据保存在 `~/Library/Application Support/IwaraTool/`，默认下载至 `~/Downloads/IwaraTool/`。更新请下载并替换 `.app`；登录自启动与一键替换更新目前仅支持 Windows。
 2. 打开程序；下载私有视频或导入关注作者时需要登录。
 3. 在 `下载工作台` 粘贴链接，按需选择下载规则后提交。
 4. 在 `订阅页` 跟踪作者或播放列表（账号订阅流在首页的“我的订阅”），并批量下载新增内容。

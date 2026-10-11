@@ -3,8 +3,11 @@
 Adds three things the bare cloudscraper session lacks:
 
 * a minimum interval between requests to the same host (cheap rate limiting),
-* exponential back-off retries for transient failures, and
-* ``Retry-After`` handling for HTTP 429/503.
+* exponential back-off retries for transient failures,
+* ``Retry-After`` handling for HTTP 429/503, and
+* cancellation: a request made from a QThread whose interruption was
+  requested (a page closing, the app exiting) gives up before its next
+  attempt, and its back-off wait ends early, instead of sleeping on.
 
 Streaming downloads are deliberately not routed through here.
 """
@@ -23,6 +26,39 @@ logger = get_logger(__name__)
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_AFTER_SECONDS = 30.0
 BASE_BACKOFF_SECONDS = 1.0
+CANCEL_POLL_SECONDS = 0.1
+
+
+class RequestCancelled(Exception):
+    """The thread making the request was asked to stop."""
+
+
+def cancellation_requested() -> bool:
+    """Whether the calling QThread was asked to stop (False on plain threads)."""
+    try:
+        from PySide6.QtCore import QThread
+
+        thread = QThread.currentThread()
+        return bool(thread is not None and thread.isInterruptionRequested())
+    except Exception:  # pragma: no cover - Qt missing or shutting down
+        return False
+
+
+def _raise_if_cancelled(method: str, host: str) -> None:
+    if cancellation_requested():
+        raise RequestCancelled(f"{method} {host} cancelled")
+
+
+def cancellable_sleep(seconds: float) -> None:
+    """``time.sleep`` that returns early (raising) once the thread is asked to stop."""
+    deadline = time.monotonic() + max(0.0, float(seconds))
+    while True:
+        if cancellation_requested():
+            raise RequestCancelled("wait cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(CANCEL_POLL_SECONDS, remaining))
 
 
 def parse_retry_after(value: Any, now: float | None = None) -> float | None:
@@ -86,7 +122,7 @@ def install(
     *,
     min_interval: Callable[[], float],
     max_retries: Callable[[], int],
-    sleep: Callable[[float], None] = time.sleep,
+    sleep: Callable[[float], None] = cancellable_sleep,
     throttle: HostThrottle | None = None,
 ) -> Any:
     """Wrap ``session.request`` (used by get/post/...) with the policy.
@@ -104,11 +140,12 @@ def install(
         retries = max(0, int(max_retries()))
         attempt = 0
         while True:
+            _raise_if_cancelled(method, host)
             gate.wait(host, float(min_interval()))
             try:
                 response = original(method, url, *args, **kwargs)
             except Exception as exc:
-                if attempt >= retries or not _is_transient_error(exc):
+                if attempt >= retries or not _is_transient_error(exc) or cancellation_requested():
                     raise
                 attempt += 1
                 delay = backoff_delay(attempt)
@@ -120,7 +157,7 @@ def install(
                 continue
 
             status = getattr(response, "status_code", 0)
-            if status not in RETRY_STATUSES or attempt >= retries:
+            if status not in RETRY_STATUSES or attempt >= retries or cancellation_requested():
                 return response
             attempt += 1
             retry_after = parse_retry_after(

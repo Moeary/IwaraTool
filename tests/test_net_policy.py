@@ -138,3 +138,55 @@ class HostThrottleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CancellationTests(unittest.TestCase):
+    """A request made from a QThread asked to stop gives up instead of retrying or waiting."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+        import sys
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtCore import QCoreApplication
+
+        cls.app = QCoreApplication.instance() or QCoreApplication(sys.argv)
+
+    def _run_in_interrupted_thread(self, body):
+        from PySide6.QtCore import QThread
+
+        outcome = {}
+
+        class Worker(QThread):
+            def run(self):
+                self.requestInterruption()
+                try:
+                    outcome["value"] = body()
+                except Exception as exc:  # noqa: BLE001
+                    outcome["error"] = exc
+
+        worker = Worker()
+        worker.start()
+        self.assertTrue(worker.wait(5000))
+        return outcome
+
+    def test_an_interrupted_thread_does_not_send_or_retry(self):
+        session = _Session([_Response(503), _Response(200)])
+        sleeps = _install(session)
+        outcome = self._run_in_interrupted_thread(lambda: session.request("GET", "https://api.iwara.tv/x"))
+        self.assertIsInstance(outcome.get("error"), net_policy.RequestCancelled)
+        self.assertEqual(session.calls, 0)
+        self.assertEqual(sleeps, [])
+
+    def test_the_back_off_wait_ends_as_soon_as_the_thread_is_asked_to_stop(self):
+        import time
+
+        started = time.monotonic()
+        outcome = self._run_in_interrupted_thread(lambda: net_policy.cancellable_sleep(20))
+        self.assertIsInstance(outcome.get("error"), net_policy.RequestCancelled)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_plain_threads_and_the_gui_thread_are_never_cancelled(self):
+        self.assertFalse(net_policy.cancellation_requested())
+        net_policy.cancellable_sleep(0.01)  # returns normally

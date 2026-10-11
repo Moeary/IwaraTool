@@ -10,17 +10,15 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.oreno3d import Oreno3DDetail, Oreno3DEntity, Oreno3DListing
-from app.core.search import (
-    SearchFilters,
-    SearchVideo,
-    build_video_query_params,
-    normalize_author,
-    normalize_video,
-)
-from app.core.search_manager import SearchManagerMixin
-from app.ui.search_page import SearchInterface
-from app.ui.search_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker, SearchOrenoLinkWorker, SearchWorker
+from app.core.oreno3d.models import Oreno3DDetail, Oreno3DEntity, Oreno3DListing
+from app.core.search.models import SearchFilters, SearchVideo
+from app.core.search.query_params import build_video_query_params
+from app.core.search.normalize import normalize_author, normalize_video
+from app.core.search.manager import SearchManagerMixin
+from app.ui.search.page import SearchInterface
+from app.ui.search.author_workers import SearchAuthorProfileWorker, SearchOrenoAuthorWorker
+from app.ui.search.oreno_workers import SearchOrenoLinkWorker
+from app.ui.search.search_worker import SearchWorker
 
 
 class AuthorSearchWorkerTests(unittest.TestCase):
@@ -33,7 +31,7 @@ class AuthorSearchWorkerTests(unittest.TestCase):
             "",
         )
         results = []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchWorker(
                 SearchFilters(author_id="user-42", sort="likes"),
                 "videos",
@@ -56,7 +54,7 @@ class AuthorSearchWorkerTests(unittest.TestCase):
         manager = Mock()
         manager.get_search_user_profile.return_value = ({"user": {"username": "creator"}}, "")
         results = []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchAuthorProfileWorker(4, 7, ("creator", "Creator", "", ""))
             worker.result_ready.connect(results.append)
             worker.run()
@@ -72,7 +70,7 @@ class AuthorSearchWorkerTests(unittest.TestCase):
             "",
         )
         results = []
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchAuthorProfileWorker(4, 7, ("creator", "Creator", "", ""))
             worker.result_ready.connect(results.append)
             worker.run()
@@ -91,7 +89,7 @@ class AuthorSearchWorkerTests(unittest.TestCase):
             source_url="https://www.iwara.tv/video/resolved-id",
             raw={"oreno3d_url": "https://oreno3d.com/movies/source-1"},
         )
-        with patch("app.ui.search_page.download_manager", manager):
+        with patch("app.ui.search.page.download_manager", manager):
             worker = SearchOrenoAuthorWorker(1, video)
             worker.run()
         self.assertEqual(manager.resolve_oreno3d_author.call_args.args, ("source-1", "https://oreno3d.com/movies/source-1"))
@@ -121,7 +119,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
 
     def test_saved_iwara_mapping_avoids_remote_lookup(self):
         mapping = {"id": "saved-id", "username": "saved-account", "name": "Saved author"}
-        with patch("app.core.search_manager.Oreno3DClient") as client:
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient") as client:
             result = self.manager.resolve_oreno3d_author(
                 "dead-source",
                 "https://oreno3d.com/movies/dead-source",
@@ -141,7 +139,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
             (None, "Video not found"),
             ({"id": "alive-id", "user": {"id": "user-42", "username": "real-account"}}, ""),
         ]
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author(
                 "unavailable-source",
                 "https://oreno3d.com/movies/unavailable-source",
@@ -162,7 +160,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
             (None, "Video not found"),
             ({"id": "alive-id", "user": {"id": "user-42", "username": "real-account"}}, ""),
         ]
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author("original", "https://oreno3d.com/movies/original")
         client.fetch_author_page.assert_called_once_with(self.author.url, page=1)
         self.assertEqual(result["iwara_author"]["id"], "user-42")
@@ -170,7 +168,7 @@ class OrenoAuthorFallbackTests(unittest.TestCase):
     def test_source_author_url_survives_when_no_iwara_account_can_be_found(self):
         client = Mock()
         client.fetch_author_page.side_effect = RuntimeError("Source temporarily unavailable")
-        with patch("app.core.search_manager.Oreno3DClient", return_value=client):
+        with patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client):
             result = self.manager.resolve_oreno3d_author(
                 "deleted-source",
                 "https://oreno3d.com/movies/deleted-source",
@@ -198,12 +196,12 @@ class AuthorNavigationPageTests(unittest.TestCase):
         self.manager = Mock()
         self.manager.history.get_records.return_value = {}
         self.manager.add_author_subscription.return_value = 42
-        self.manager_patch = patch("app.ui.search_page.download_manager", self.manager)
+        self.manager_patch = patch("app.ui.search.page.download_manager", self.manager)
         self.manager_patch.start()
-        self.rules_patch = patch("app.ui.rules_page.RulePicker.refresh_rules")
+        self.rules_patch = patch("app.ui.rules.rule_picker.RulePicker.refresh_rules")
         self.rules_patch.start()
         self.bus = Mock()
-        self.bus_patch = patch("app.ui.search_page.signal_bus", self.bus)
+        self.bus_patch = patch("app.ui.search.page.signal_bus", self.bus)
         self.bus_patch.start()
         self.page = SearchInterface()
         self.search_patch = patch.object(self.page, "_run_search")
@@ -252,7 +250,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
 
     def test_missing_user_id_is_resolved_in_a_background_worker(self):
         author = normalize_author({"user": {"username": "creator", "name": "Creator"}})
-        with self.selected(author), patch("app.ui.search_actions.SearchAuthorProfileWorker") as worker_type:
+        with self.selected(author), patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()
@@ -268,7 +266,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
 
     def test_keyword_edit_invalidates_a_pending_profile_navigation(self):
         author = normalize_author({"user": {"username": "creator"}})
-        with self.selected(author), patch("app.ui.search_actions.SearchAuthorProfileWorker") as worker_type:
+        with self.selected(author), patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()
@@ -287,8 +285,8 @@ class AuthorNavigationPageTests(unittest.TestCase):
         author = normalize_author({"user": {"username": "creator"}})
         with (
             self.selected(author),
-            patch("app.ui.search_actions.SearchAuthorProfileWorker") as worker_type,
-            patch("app.ui.search_page.InfoBar.success"),
+            patch("app.ui.search.author_navigation.SearchAuthorProfileWorker") as worker_type,
+            patch("qfluentwidgets.InfoBar.success"),
         ):
             worker = worker_type.return_value
             worker.isRunning.return_value = False
@@ -305,7 +303,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
     def test_video_without_author_metadata_is_hydrated_before_viewing_works(self):
         video = SearchVideo("work-1", "Title")
         self.page._all_videos = [video]
-        with self.selected(video), patch("app.ui.search_actions.SearchIwaraAuthorWorker") as worker_type:
+        with self.selected(video), patch("app.ui.search.author_subscription.SearchIwaraAuthorWorker") as worker_type:
             worker = worker_type.return_value
             worker.isRunning.return_value = False
             self.page._view_selected_author_works()
@@ -364,7 +362,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
         )
         self.page._all_videos = [video]
         self.page._pending_author_actions[video.video_id] = "view"
-        with patch("app.ui.search_page.webbrowser.open") as open_browser:
+        with patch("webbrowser.open") as open_browser:
             self.page._on_oreno_author_result(
                 {
                     "generation": self.page._generation,
@@ -419,8 +417,8 @@ class AuthorNavigationPageTests(unittest.TestCase):
         )
         self.page._all_videos = [video]
         with (
-            patch("app.core.search_manager.Oreno3DClient", return_value=client),
-            patch("app.core.search_manager.cloudscraper.create_scraper"),
+            patch("app.core.search.oreno3d_bridge.Oreno3DClient", return_value=client),
+            patch("app.core.search.oreno3d_bridge.cloudscraper.create_scraper"),
             patch.object(self.page, "_start_image_loading"),
         ):
             worker = SearchOrenoLinkWorker(self.page._generation, [video])
@@ -428,7 +426,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
             worker.run()
         client.fetch_author_page.assert_called_once_with(source_author.url, page=1)
         self.assertEqual(video.iwara_url, "https://www.iwara.tv/video/deleted")
-        with self.selected(video), patch("app.ui.search_page.webbrowser.open") as browser:
+        with self.selected(video), patch("webbrowser.open") as browser:
             # An Iwara account was found, so the default opens the in-app author page...
             self.page._open_author_page_for_result()
             browser.assert_not_called()
@@ -439,7 +437,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
             browser.assert_called_once_with(source_author.url)
             self.page._view_selected_author_works()
         self.assertEqual(self.run_search.call_args.args[0].author_id, "user-42")
-        with self.selected(video), patch("app.ui.search_page.InfoBar.success"):
+        with self.selected(video), patch("qfluentwidgets.InfoBar.success"):
             self.page._subscribe_selected_author_and_go()
         self.assertEqual(self.manager.add_author_subscription.call_args.args[0], "creator")
         self.assertEqual(self.manager.add_author_subscription.call_args.kwargs["source_url"], source_author.url)
@@ -447,7 +445,7 @@ class AuthorNavigationPageTests(unittest.TestCase):
         self.warning.assert_not_called()
 
     def test_subscription_navigation_is_opt_in_after_source_added_notification(self):
-        with patch("app.ui.search_page.InfoBar.success"):
+        with patch("qfluentwidgets.InfoBar.success"):
             first = self.page._subscribe_to_author(("creator", "Creator", "user-42", ""))
             self.bus.subscription_source_requested.emit.assert_not_called()
             self.page._subscribe_to_author(("creator", "Creator", "user-42", ""), navigate=True)

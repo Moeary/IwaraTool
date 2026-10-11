@@ -14,23 +14,29 @@ from qfluentwidgets import Action, FluentIcon, ListWidget, PlainTextEdit
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager, _compact_video_raw_json, _iwara_image_url, _subscription_item_from_video, download_manager
+from app.core.manager import DownloadManager, download_manager
+from app.core.task_metadata import (
+    _compact_video_raw_json,
+    _iwara_image_url,
+    _subscription_item_from_video,
+)
 from app.core.models import DownloadTask, TaskStatus
-from app.core.subscriptions import SubscriptionStore
-from app.ui.download_page import DownloadInterface
-from app.ui.history_page import HistoryInterface
-from app.ui.repair_page import RepairInterface
-from app.ui.rules_page import RuleFormWidget, RulesInterface
-from app.ui.search_page import SearchInterface
-from app.ui.subscription_page import (
-    SubscriptionInterface,
+from app.core.subscription.store import SubscriptionStore
+from app.ui.downloads.page import DownloadInterface
+from app.ui.history.page import HistoryInterface
+from app.ui.repair.page import RepairInterface
+from app.ui.rules.rule_form import RuleFormWidget
+from app.ui.rules.page import RulesInterface
+from app.ui.search.page import SearchInterface
+from app.ui.subscription.page import SubscriptionInterface
+from app.ui.subscription.helpers import (
     _source_search_text,
     _source_sort_key,
     _title_matcher,
     _split_title_keywords,
     _title_matches_keywords,
 )
-from app.ui.task_page import TaskCenterInterface
+from app.ui.downloads.task_center import TaskCenterInterface
 from app.ui.ui_state import (
     apply_table_column_layout,
     connect_table_width_saver,
@@ -96,7 +102,7 @@ class ManagerPerformanceTests(unittest.TestCase):
         mgr = make_manager()
         with patch("app.core.manager.active_rule_id", return_value="search-rule"):
             with patch(
-                "app.core.manager.rule_store.find",
+                "app.core.rules.rule_store.find",
                 return_value={"payload": {"record_to_history": False}},
             ):
                 summary = mgr._enqueue_video_ids_bulk(
@@ -804,10 +810,17 @@ class ManagerPerformanceTests(unittest.TestCase):
                 stream.write(b"local cover")
             with patch.object(mgr.history, "get_record", return_value={"thumbnail_path": path}), patch.object(
                 mgr, "_api_call"
-            ) as api, patch.object(mgr.subscription_image_cache, "get_or_fetch") as fetch:
-                self.assertEqual(mgr.cache_subscription_thumbnail("local-cover", ""), path)
+            ) as api, patch.object(mgr.subscription_image_cache, "get_or_fetch") as fetch, patch.object(
+                app_config, "_data_dir", os.path.join(root, "data")
+            ):
+                cached = mgr.cache_subscription_thumbnail("local-cover", "")
                 api.assert_not_called()
                 fetch.assert_not_called()
+            # The cover next to the download is copied into the cache, never handed out itself.
+            self.assertNotEqual(cached, path)
+            self.assertTrue(cached.startswith(os.path.join(root, "data")))
+            with open(cached, "rb") as stream:
+                self.assertEqual(stream.read(), b"local cover")
 
     def test_cache_subscription_thumbnail_resolves_missing_url_from_details(self):
         mgr = make_manager()
@@ -1129,8 +1142,8 @@ class UiPerformanceTests(unittest.TestCase):
         page._visible_task_ids = list(tasks)
         page._schedule_refresh = lambda *_args: None
 
-        with patch("app.ui.task_page.download_manager") as manager, patch(
-            "app.ui.task_page.InfoBar.info"
+        with patch("app.ui.downloads.task_center.download_manager") as manager, patch(
+            "qfluentwidgets.InfoBar.info"
         ):
             manager.retry_task.return_value = True
             manager.restore_cancelled_task.return_value = True
@@ -1176,8 +1189,8 @@ class UiPerformanceTests(unittest.TestCase):
             )
         }
 
-        with patch("app.ui.task_page.webbrowser.open") as open_url, patch(
-            "app.ui.task_page.download_manager"
+        with patch("webbrowser.open") as open_url, patch(
+            "app.ui.downloads.task_center.download_manager"
         ) as manager:
             manager.open_task_output.return_value = (True, "")
             page._open_task_video_pages(("completed",))
@@ -1192,21 +1205,55 @@ class UiPerformanceTests(unittest.TestCase):
             ]
         )
 
-    def test_table_width_saver_records_resize_immediately(self):
+    def _forget_ui_key(self, key: str):
+        # These tests run against the real settings file: leave nothing behind.
+        self.addCleanup(lambda: app_config._qs.remove(f"ui/{key}"))
+
+    def test_table_width_saver_records_a_user_drag_immediately(self):
         key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
         table = QTableWidget()
         table.setColumnCount(3)
         restore_table_widths(table, key, {0: 50, 1: 60, 2: 70})
         connect_table_width_saver(table, key)
 
-        table.setColumnWidth(1, 234)
+        with patch("app.ui.ui_state._user_dragging", return_value=True):
+            table.setColumnWidth(1, 234)
         self.app.processEvents()
         raw = str(app_config.get_ui_value(key, "") or "")
 
         self.assertEqual(raw.split(","), [str(table.columnWidth(i)) for i in range(3)])
 
+    def test_qt_resetting_a_restyled_table_neither_sticks_nor_gets_saved(self):
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+        key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
+        host = QWidget()
+        table = QTableWidget(host)
+        table.setColumnCount(4)
+        table.setStyleSheet("QHeaderView::section { padding: 4px; }")  # what makes Qt reset the sizes
+        restore_table_widths(table, key, {0: 60, 1: 320, 2: 90, 3: 80})
+        connect_table_width_saver(table, key)
+        other = QWidget(host)
+        QVBoxLayout(other).addWidget(table)  # moved into another parent: Qt resets every column
+        for _ in range(3):
+            self.app.processEvents()
+        self.assertEqual([table.columnWidth(c) for c in range(3)], [60, 320, 90])
+        self.assertEqual(str(app_config.get_ui_value(key, "") or ""), "")  # the reset was not saved
+
+    def test_widths_saved_after_a_reset_are_ignored(self):
+        key = f"test_table_widths_{id(self)}"
+        self._forget_ui_key(key)
+        app_config.set_ui_value(key, "100,100,0,100,213")  # what the old saver stored
+        table = QTableWidget()
+        table.setColumnCount(5)
+        restore_table_widths(table, key, {0: 60, 1: 320, 2: 90, 3: 80, 4: 70})
+        self.assertEqual([table.columnWidth(c) for c in range(5)], [60, 320, 90, 80, 70])
+
     def test_table_column_layout_persists_order_and_visibility(self):
         key = f"test_table_columns_{id(self)}"
+        self._forget_ui_key(key)
         table = QTableWidget()
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["A", "B", "C", "D"])
@@ -1259,7 +1306,7 @@ class UiPerformanceTests(unittest.TestCase):
             ],
         )
 
-        with patch("app.ui.subscription_page.download_manager", mgr):
+        with patch("app.ui.subscription.page.download_manager", mgr):
             page = SubscriptionInterface()
             page.resize(1500, 900)
             page.show()
@@ -1281,13 +1328,13 @@ class UiPerformanceTests(unittest.TestCase):
                 Qt.BrushStyle.NoBrush,
             )
             page._add_pending_video_ids(["pending01"])
-            with patch("app.ui.subscription_page.isDarkTheme", return_value=True):
+            with patch("app.ui.subscription.page.isDarkTheme", return_value=True):
                 page.refresh_theme_styles()
             self.assertEqual(
                 page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
                 "#1f5f3d",
             )
-            with patch("app.ui.subscription_page.isDarkTheme", return_value=False):
+            with patch("app.ui.subscription.page.isDarkTheme", return_value=False):
                 page.refresh_theme_styles()
             self.assertEqual(
                 page._item_table.item(pending_row, page._ITEM_TITLE).background().color().name(),
@@ -1326,7 +1373,7 @@ class UiPerformanceTests(unittest.TestCase):
             for index in range(3)
         ]
 
-        with patch("app.ui.subscription_page.download_manager", mgr):
+        with patch("app.ui.subscription.page.download_manager", mgr):
             page = SubscriptionInterface()
             page.resize(800, 900)
             page.show()
@@ -1367,7 +1414,7 @@ class UiPerformanceTests(unittest.TestCase):
             {"video_id": "history02", "title": "History 02", "file_path": ""},
             {"video_id": "history03", "title": "History 03", "file_path": ""},
         ]
-        with patch("app.ui.history_page.download_manager") as manager:
+        with patch("app.ui.history.page.download_manager") as manager:
             manager.get_history_records.return_value = records
             page = HistoryInterface()
             self.assertEqual(
@@ -1414,22 +1461,22 @@ class UiPerformanceTests(unittest.TestCase):
             _on_thumbnail_ready=lambda *args: None,
             _on_thumbnail_worker_finished=lambda: None,
         )
-        with patch("app.ui.subscription_page.SubscriptionThumbnailWorker") as worker:
+        with patch("app.ui.subscription.item_grid.SubscriptionThumbnailWorker") as worker:
             self.assertTrue(SubscriptionInterface._start_thumbnail_worker_for_visible_items(page))
             self.assertEqual(worker.call_args.args[0], [("no-url", "")])
 
     def test_source_cover_cache_uses_full_source_and_can_retry(self):
         from types import SimpleNamespace
-        from app.ui.subscription_actions import SubscriptionActionsMixin
+        from app.ui.subscription.actions import SubscriptionActionsMixin
         page = SimpleNamespace(
             _current_source_id=12, _shutting_down=False, _cover_cache_worker=None,
             _cover_download_concurrency=lambda: 2,
             _on_thumbnail_ready=lambda *args: None,
             _on_source_cover_cache_finished=lambda: None,
         )
-        with patch("app.ui.subscription_page.download_manager") as manager, patch(
-            "app.ui.subscription_actions.SubscriptionThumbnailWorker"
-        ) as worker, patch("app.ui.subscription_page.InfoBar"):
+        with patch("app.ui.subscription.page.download_manager") as manager, patch(
+            "app.ui.subscription.refreshing.SubscriptionThumbnailWorker"
+        ) as worker, patch("app.ui.subscription.page.InfoBar"):
             manager.get_subscription_items.return_value = [
                 {"video_id": f"video-{i}", "thumbnail_url": ""} for i in range(100)
             ]

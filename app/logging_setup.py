@@ -17,6 +17,7 @@ _BACKUP_COUNT = 3
 _FORMAT = "%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s: %(message)s"
 
 _configured = False
+_qt_message_handler = None  # the installed Qt message handler (kept referenced)
 
 
 def log_dir() -> str:
@@ -95,8 +96,16 @@ def _install_crash_hooks(logger: logging.Logger) -> None:
         }
 
         def _qt_handler(msg_type, _context, message):
-            logger.log(levels.get(msg_type, logging.WARNING), "Qt: %s", message)
+            # Called by Qt from any thread; an exception escaping into C++ here
+            # would take the process down, so it must never raise.
+            try:
+                logger.log(levels.get(msg_type, logging.WARNING), "Qt: %s", message)
+            except Exception:
+                pass
 
+        # Keep the callable alive for as long as Qt may call it.
+        global _qt_message_handler
+        _qt_message_handler = _qt_handler
         qInstallMessageHandler(_qt_handler)
     except Exception:  # pragma: no cover - Qt unavailable
         logger.debug("Qt message handler not installed", exc_info=True)

@@ -19,7 +19,8 @@ from app.config import AppConfig, app_config
 from app.core import shortcut_defs as defs
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import MODE_TAGS, HomeSectionSpec, default_specs
-from app.core.search import SearchVideo
+from app.core.search.models import SearchVideo
+from qt_helpers import activate_window, wait_until
 
 
 class _QtCase(unittest.TestCase):
@@ -134,7 +135,7 @@ class _SettingsProxy:
 
 class MediaGridReuseTests(_QtCase):
     def _grid(self, **kwargs):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=True, **kwargs)
         self.addCleanup(grid.deleteLater)
@@ -175,9 +176,9 @@ class MediaGridReuseTests(_QtCase):
         self.assertTrue(before.isdisjoint(set(map(id, grid._cards))))
 
     def test_hidden_grids_do_not_relayout_while_the_slider_moves(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
-        size = mock.patch("app.ui.media_card.saved_card_width", lambda: 200)
+        size = mock.patch("app.ui.media.grid.saved_card_width", lambda: 200)
         size.start()
         self.addCleanup(size.stop)
         grid = MediaGrid(selectable=True, max_rows=2, resizable=True)
@@ -205,14 +206,14 @@ class MediaGridReuseTests(_QtCase):
         pixmap = QPixmap(8, 8)
         pixmap.fill(QColor("#123456"))
         grid.set_cover("v0", pixmap)
-        with mock.patch("app.ui.media_card.QPixmap") as decode:
+        with mock.patch("app.ui.media.pixmaps.QPixmap") as decode:
             grid._on_fetched_cover("video", "v0", "/does/not/matter.jpg")
             decode.assert_not_called()
 
 
 class HomeIncrementalRebuildTests(_QtCase):
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -220,8 +221,8 @@ class HomeIncrementalRebuildTests(_QtCase):
         for target, value in (
             ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -286,8 +287,8 @@ class SubscriptionOverviewTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
-        from app.core.subscriptions import SubscriptionStore
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.core.subscription.store import SubscriptionStore
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -307,13 +308,13 @@ class SubscriptionOverviewTests(_QtCase):
             ])
             self.ids.append(source_id)
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = mock.patch("app.ui.subscription_page.download_manager", self.manager)
+        manager_patch = mock.patch("app.ui.subscription.page.download_manager", self.manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()
@@ -351,13 +352,15 @@ class SubscriptionOverviewTests(_QtCase):
         self.assertNotIn(last, overview._rows)
         bar = overview._scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
-        self.pump(lambda: last in overview._rows and not overview.building())
+        # Generous deadline: the full suite can leave background threads busy,
+        # and pump() returns as soon as the rows are in place.
+        self.pump(lambda: last in overview._rows and not overview.building(), seconds=15)
         self.assertIn(last, overview._rows)
         self.assertNotIn(first, overview._rows)  # far enough away to be torn down
         self.assertEqual(self._slot_positions(overview), list(range(14)))
         self.assertLess(len(overview._rows), 14)
         bar.setValue(0)
-        self.pump(lambda: first in overview._rows and not overview.building())
+        self.pump(lambda: first in overview._rows and not overview.building(), seconds=15)
         self.assertIn(first, overview._rows)
 
     def test_a_torn_down_row_keeps_its_height_so_the_scroll_bar_does_not_jump(self):
@@ -384,6 +387,19 @@ class SubscriptionOverviewTests(_QtCase):
             self.assertLess(len(overview._rows), wanted)
         self.pump(lambda: not overview.building())
         self.assertGreaterEqual(len(overview._rows), wanted)
+
+    def test_a_reload_never_drags_the_page_back_after_the_user_scrolled(self):
+        overview = self.page._overview
+        bar = overview._scroll.verticalScrollBar()
+        overview.reload()  # e.g. one subscription finished refreshing
+        reload_value = bar.value()
+        overview._scroll_watcher.serial += 1  # the user turns the wheel...
+        bar.setValue(bar.maximum())  # ...and the page moves down
+        last = max(overview._order, key=overview._order.get)
+        self.pump(lambda: last in overview._rows and not overview.building(), seconds=15)
+        self.pump(seconds=0.2)
+        self.assertNotEqual(bar.value(), reload_value)
+        self.assertGreater(bar.value(), bar.maximum() // 2)
 
     def test_reloading_unchanged_data_keeps_every_row(self):
         overview = self.page._overview
@@ -460,7 +476,12 @@ class SubscriptionOverviewTests(_QtCase):
         with open(cover, "wb") as handle:
             handle.write(b"x")
         self.manager.history.upsert_downloaded({"video_id": "a0_0", "thumbnail_path": cover})
-        self.assertEqual(self.manager.subscription_cover_path("a0_0", ""), cover)
+        data_dir = os.path.join(self.tmp.name, "data")
+        with mock.patch.object(app_config, "_data_dir", data_dir):
+            cached = self.manager.subscription_cover_path("a0_0", "")
+        # A copy in the image cache, never the cover next to the download.
+        self.assertNotEqual(cached, cover)
+        self.assertTrue(cached.startswith(data_dir))
         self.assertEqual(self.manager.subscription_cover_path("unknown", ""), "")
         self.assertEqual(self.manager.subscription_cover_path("", ""), "")
 
@@ -473,7 +494,7 @@ class SubscriptionOverviewTests(_QtCase):
             built.append(source["id"])
             return original(overview, source, *args, **kwargs)
 
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         with mock.patch.object(type(self.page._overview), "_make_row", counting):
             page = SubscriptionInterface()
@@ -497,7 +518,7 @@ class PixmapLRUTests(_QtCase):
         return pixmap
 
     def test_evicts_the_least_recently_used_beyond_the_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=3 * 100 * 100 * 4)
         for key in "abc":
@@ -510,7 +531,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 3)
 
     def test_replacing_a_key_does_not_double_count(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=2 * 100 * 100 * 4)
         for _ in range(5):
@@ -519,7 +540,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 2)
 
     def test_the_newest_item_stays_even_when_it_alone_is_over_budget(self):
-        from app.ui.media_card import PixmapLRU
+        from app.ui.media.pixmaps import PixmapLRU
 
         cache = PixmapLRU(max_bytes=10)
         cache["big"] = self._pixmap(200)
@@ -532,7 +553,7 @@ class PixmapLRUTests(_QtCase):
         self.assertEqual(len(cache), 0)
 
     def test_a_grid_keeps_its_decoded_covers_inside_the_budget(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(selectable=False)
         self.addCleanup(grid.deleteLater)
@@ -550,9 +571,9 @@ class HistoryLargeListTests(_QtCase):
         ]
 
     def _page(self, count):
-        from app.ui.history_page import HistoryInterface
+        from app.ui.history.page import HistoryInterface
 
-        patcher = mock.patch("app.ui.history_page.download_manager")
+        patcher = mock.patch("app.ui.history.page.download_manager")
         manager = patcher.start()
         self.addCleanup(patcher.stop)
         manager.get_history_records.return_value = self._records(count)
@@ -617,7 +638,7 @@ class HistoryLargeListTests(_QtCase):
 
     def test_each_record_is_checked_on_disk_once_per_pass(self):
         page = self._page(60)
-        with mock.patch("app.ui.history_page.os.path.isfile", return_value=False) as isfile:
+        with mock.patch("os.path.isfile", return_value=False) as isfile:
             page._apply_filters()
         self.assertLessEqual(isfile.call_count, 60)  # was ~4 per record
 
@@ -626,7 +647,7 @@ class DetailScaleCacheTests(_QtCase):
     def test_the_stage_scales_a_cover_once_per_size(self):
         from PySide6.QtGui import QColor, QPixmap
 
-        from app.ui.media_detail import MediaStage
+        from app.ui.media.stage import MediaStage
 
         stage = MediaStage()
         self.addCleanup(stage.deleteLater)
@@ -642,7 +663,7 @@ class DetailScaleCacheTests(_QtCase):
     def test_gallery_pictures_are_scaled_once_per_size_while_painting(self):
         from PySide6.QtGui import QColor, QPixmap
 
-        from app.ui.media_detail import GalleryImage
+        from app.ui.media.gallery_image import GalleryImage
 
         image = GalleryImage({"id": "f", "name": "f.png", "width": 400, "height": 300})
         self.addCleanup(image.deleteLater)
@@ -664,7 +685,7 @@ class ShortcutCatalogueTests(_QtCase):
             "nav_next", "nav_prev", "focus_search", "quick_download", "open_download_folder", "rating_cycle",
             "card_size_up", "card_size_down", "card_size_reset", "toggle_theme", "toggle_fullscreen", "shortcut_help",
             "home_top", "home_bottom", "home_fold_all", "home_unfold_all", "detail_like", "detail_play",
-            "detail_download", "detail_open_browser", "detail_copy_link", "detail_author_page", "detail_close",
+            "detail_download", "detail_open_browser", "detail_copy_link", "detail_author_page", "nav_back",
             "search_prev_page", "search_next_page", "search_toggle_view", "search_toggle_controls", "search_reset",
             "sub_back", "sub_select_all", "sub_clear_selection", "sub_toggle_view", "sub_focus_filter",
         ):
@@ -728,7 +749,7 @@ class GlobalActionTests(_QtCase):
         cls.patchers = []
         for target, value in (
             ("app.config.app_config._qs", settings),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)
@@ -789,7 +810,7 @@ class GlobalActionTests(_QtCase):
 
         signal_bus.content_rating_changed.connect(record)
         self.addCleanup(signal_bus.content_rating_changed.disconnect, record)
-        with mock.patch("app.ui.main_window.InfoBar.info"):
+        with mock.patch("qfluentwidgets.InfoBar.info"):
             for _ in range(3):
                 self._fire("rating_cycle")
         self.assertEqual(len(seen), 3)
@@ -797,7 +818,7 @@ class GlobalActionTests(_QtCase):
 
     def test_cover_size_steps_and_resets_and_stays_in_range(self):
         from app.signal_bus import signal_bus
-        from app.ui import media_card
+        from app.ui.media import card_size
 
         seen = []
 
@@ -807,18 +828,18 @@ class GlobalActionTests(_QtCase):
         signal_bus.media_card_size_changed.connect(record)
         self.addCleanup(signal_bus.media_card_size_changed.disconnect, record)
         self._fire("card_size_reset")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT)
         self._fire("card_size_up")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT + media_card.CARD_WIDTH_STEP)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT + card_size.CARD_WIDTH_STEP)
         self._fire("card_size_down")
         self._fire("card_size_down")
-        self.assertEqual(seen[-1], media_card.CARD_WIDTH_DEFAULT - media_card.CARD_WIDTH_STEP)
+        self.assertEqual(seen[-1], card_size.CARD_WIDTH_DEFAULT - card_size.CARD_WIDTH_STEP)
         for _ in range(40):
-            media_card.step_card_width(-1)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MIN)
+            card_size.step_card_width(-1)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MIN)
         for _ in range(40):
-            media_card.step_card_width(1)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MAX)
+            card_size.step_card_width(1)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MAX)
 
     def test_toggle_theme_and_fullscreen_are_wired(self):
         with mock.patch.object(self.window, "_toggle_dark_mode") as toggle:
@@ -842,13 +863,13 @@ class GlobalActionTests(_QtCase):
 
     def test_open_download_folder_only_when_it_exists(self):
         window = self.window
-        with mock.patch("app.ui.main_window.QDesktopServices.openUrl") as open_url, \
+        with mock.patch("PySide6.QtGui.QDesktopServices.openUrl") as open_url, \
                 mock.patch.object(window._home_page.__class__, "isVisible", return_value=True):
             with mock.patch.object(app_config.__class__, "download_dir", self.tmp.name, create=True):
                 window.open_download_folder()
             open_url.assert_called_once()
-        with mock.patch("app.ui.main_window.QDesktopServices.openUrl") as open_url, \
-                mock.patch("app.ui.main_window.InfoBar.warning") as warn:
+        with mock.patch("PySide6.QtGui.QDesktopServices.openUrl") as open_url, \
+                mock.patch("qfluentwidgets.InfoBar.warning") as warn:
             with mock.patch.object(app_config.__class__, "download_dir", os.path.join(self.tmp.name, "missing"), create=True):
                 window.open_download_folder()
             open_url.assert_not_called()
@@ -872,15 +893,15 @@ class GlobalActionTests(_QtCase):
 
 class HomeKeyboardActionTests(_QtCase):
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         for target, value in (
             ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
             ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.media_detail.DetailWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -936,8 +957,8 @@ class SubscriptionKeyboardActionTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
         from app.core.manager import DownloadManager
-        from app.core.subscriptions import SubscriptionStore
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.core.subscription.store import SubscriptionStore
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -954,13 +975,13 @@ class SubscriptionKeyboardActionTests(_QtCase):
             for i in range(6)
         ])
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = mock.patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = mock.patch("app.ui.subscription_page.download_manager", manager)
+        manager_patch = mock.patch("app.ui.subscription.page.download_manager", manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()
@@ -1006,7 +1027,7 @@ class SubscriptionKeyboardActionTests(_QtCase):
 
 class GridKeyboardTests(_QtCase):
     def setUp(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         self.host = QWidget()
         self.host.resize(1000, 700)
@@ -1015,8 +1036,9 @@ class GridKeyboardTests(_QtCase):
         self.host.show()
         self.grid.set_videos(_videos(10))
         self.app.processEvents()
+        activate_window(self.host)
         self.grid.setFocus()
-        self.app.processEvents()
+        wait_until(self.grid.hasFocus)
         self.activated = []
         self.grid.card_activated.connect(lambda video: self.activated.append(video.video_id))
         self.addCleanup(self.host.deleteLater)
@@ -1050,6 +1072,14 @@ class GridKeyboardTests(_QtCase):
         flags = [card._current for card in self.grid._cards]
         self.assertEqual(flags.count(True), 1)
         self.assertTrue(flags[1])
+
+    def test_populating_an_already_focused_empty_grid_initializes_the_cursor(self):
+        self.grid.set_videos([])
+        self.assertTrue(self.grid.hasFocus())
+        self.assertEqual(self.grid.cursor_index(), -1)
+        self.grid.set_videos(_videos(2))
+        self.assertEqual(self.grid.cursor_index(), 0)
+        self.assertTrue(self.grid._cards[0]._current)
 
     def test_enter_opens_and_space_ticks(self):
         self.key(Qt.Key.Key_Right)

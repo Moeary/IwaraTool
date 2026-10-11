@@ -2,9 +2,33 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 
 _done = False
+
+
+def install_console_interrupt(on_interrupt, parent) -> None:
+    """Turn Ctrl+C in the terminal into ``on_interrupt()`` instead of a traceback.
+
+    Qt's event loop runs in C++, so Python only sees the signal when some
+    Python code runs next — often deep inside an event filter, where the
+    default handler raises ``KeyboardInterrupt``.  The handler only queues the
+    callback; a light timer gives the interpreter a chance to notice the
+    signal while the window is idle.  A second Ctrl+C exits at once.
+    """
+
+    from PySide6.QtCore import QTimer
+
+    def handle(_signum, _frame):
+        signal.signal(signal.SIGINT, lambda *_args: os._exit(130))
+        QTimer.singleShot(0, on_interrupt)
+
+    signal.signal(signal.SIGINT, handle)
+    timer = QTimer(parent)
+    timer.setInterval(250)
+    timer.timeout.connect(lambda: None)
+    timer.start()
 
 
 def ensure_multimedia_plugins() -> None:

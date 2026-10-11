@@ -3,203 +3,10 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QApplication,
-    QDialog,
-    QHeaderView,
-    QHBoxLayout,
-    QLayout,
-    QLayoutItem,
-    QListWidgetItem,
-    QSplitter,
-    QTableWidget,
-)
-
-from qfluentwidgets import (
-    BodyLabel,
-    LineEdit,
-    ListWidget,
-    MessageBox,
-    MessageBoxBase,
-    PushButton,
-    SubtitleLabel,
-)
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QHeaderView, QSplitter, QTableWidget
 
 from ..config import app_config
-from ..i18n import tr
-
-
-def show_fluent_confirmation(
-    parent,
-    title: str,
-    content: str,
-    *,
-    informative: str = "",
-    yes_text: str | None = None,
-    no_text: str | None = None,
-) -> bool:
-    """Show a theme-aware Fluent confirmation dialog and return whether accepted."""
-    message = content
-    if informative:
-        message = f"{content}\n\n{informative}"
-    box = MessageBox(title, message, parent)
-    if yes_text:
-        box.yesButton.setText(yes_text)
-    if no_text:
-        box.cancelButton.setText(no_text)
-    return box.exec() == QDialog.DialogCode.Accepted
-
-
-class _FluentTextInputDialog(MessageBoxBase):
-    """Small reusable Fluent text-entry dialog."""
-
-    def __init__(self, parent, title: str, prompt: str, text: str = ""):
-        super().__init__(parent)
-        self.title_label = SubtitleLabel(title, self)
-        self.prompt_label = BodyLabel(prompt, self)
-        self.prompt_label.setWordWrap(True)
-        self.line_edit = LineEdit(self)
-        self.line_edit.setText(text)
-        self.line_edit.returnPressed.connect(self.yesButton.click)
-
-        self.viewLayout.addWidget(self.title_label)
-        self.viewLayout.addWidget(self.prompt_label)
-        self.viewLayout.addWidget(self.line_edit)
-        self.widget.setMinimumWidth(520)
-        QTimer.singleShot(0, self._focus_input)
-
-    def _focus_input(self):
-        self.line_edit.setFocus()
-        self.line_edit.selectAll()
-
-
-def show_fluent_text_input(
-    parent,
-    title: str,
-    prompt: str,
-    *,
-    text: str = "",
-    accept_text: str | None = None,
-    cancel_text: str | None = None,
-) -> tuple[str, bool]:
-    """Show a theme-aware Fluent text input and return ``(text, accepted)``."""
-    box = _FluentTextInputDialog(parent, title, prompt, text)
-    if accept_text:
-        box.yesButton.setText(accept_text)
-    if cancel_text:
-        box.cancelButton.setText(cancel_text)
-    accepted = box.exec() == QDialog.DialogCode.Accepted
-    return box.line_edit.text(), accepted
-
-
-class ResponsiveFlowLayout(QLayout):
-    """Wrap controls onto rows without letting nested layouts overlap."""
-
-    def __init__(self, parent=None, *, spacing: int = 10):
-        super().__init__(parent)
-        self._items: list[QLayoutItem] = []
-        self._spacing = spacing
-
-    def addItem(self, item: QLayoutItem):
-        self._items.append(item)
-        self.invalidate()
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int) -> QLayoutItem | None:
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index: int) -> QLayoutItem | None:
-        item = self._items.pop(index) if 0 <= index < len(self._items) else None
-        if item is not None:
-            self.invalidate()
-        return item
-
-    def expandingDirections(self):
-        return Qt.Orientation(0)
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        return self._do_layout(QRect(0, 0, max(0, width), 0), test_only=True)
-
-    def setGeometry(self, rect: QRect):
-        super().setGeometry(rect)
-        self._do_layout(rect, test_only=False)
-
-    def sizeHint(self) -> QSize:
-        width = self._layout_width_hint()
-        return QSize(width, self.heightForWidth(width))
-
-    def minimumSize(self) -> QSize:
-        # QVBoxLayout asks child layouts for a minimum height before it has
-        # assigned their final width.  Returning only the tallest child (the
-        # old behaviour) made later wrapped rows paint on top of each other.
-        width = self._layout_width_hint()
-        margins = self.contentsMargins()
-        height = self.heightForWidth(width)
-        min_width = max((item.minimumSize().width() for item in self._items), default=0)
-        return QSize(
-            min_width,
-            max(height, margins.top() + margins.bottom()),
-        )
-
-    def _layout_width_hint(self) -> int:
-        margins = self.contentsMargins()
-        parent = self.parentWidget()
-        if self.geometry().width() > 0:
-            width = self.geometry().width()
-        elif parent is not None and parent.width() > 0:
-            width = parent.width()
-        else:
-            width = sum(max(item.sizeHint().width(), item.minimumSize().width()) for item in self._items)
-            width += max(0, len(self._items) - 1) * self._spacing
-        return max(1, width - margins.left() - margins.right())
-
-    def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
-        margins = self.contentsMargins()
-        effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
-        if effective.width() <= 0 or not self._items:
-            return margins.top() + margins.bottom()
-
-        x = effective.x()
-        y = effective.y()
-        line_height = 0
-        right = effective.right()
-        # Items are placed per line so shorter controls (labels, switches) can
-        # be centred against taller buttons on the same row.
-        line: list[tuple[QLayoutItem, int, int, int]] = []
-
-        def flush_line():
-            if test_only:
-                return
-            for line_item, item_x, width, height in line:
-                offset = max(0, (line_height - height) // 2)
-                line_item.setGeometry(QRect(QPoint(item_x, y + offset), QSize(width, height)))
-
-        for item in self._items:
-            hint = item.sizeHint()
-            minimum = item.minimumSize()
-            item_width = max(minimum.width(), hint.width())
-            item_width = min(item_width, effective.width())
-            item_height = max(minimum.height(), hint.height())
-            next_x = x + item_width
-            if x > effective.x() and next_x > right:
-                flush_line()
-                line = []
-                x = effective.x()
-                y += line_height + self._spacing
-                next_x = x + item_width
-                line_height = 0
-            line.append((item, x, item_width, item_height))
-            x = next_x + self._spacing
-            line_height = max(line_height, item_height)
-        flush_line()
-        return y + line_height - rect.y() + margins.bottom()
 
 
 def restore_splitter_sizes(splitter: QSplitter, key: str, default_sizes: list[int]):
@@ -212,12 +19,109 @@ def connect_splitter_saver(splitter: QSplitter, key: str):
     splitter.splitterMoved.connect(lambda *_args: app_config.set_ui_value(key, ",".join(str(v) for v in splitter.sizes())))
 
 
+def _user_dragging() -> bool:
+    return QApplication.mouseButtons() != Qt.MouseButton.NoButton
+
+
+def _looks_reset(table: QTableWidget, widths: list[int]) -> bool:
+    """Every visible column at the header's default size: Qt reset them, nobody chose that."""
+
+    header = table.horizontalHeader()
+    default = header.defaultSectionSize()
+    shown = [
+        (header.visualIndex(col) if col < table.columnCount() else col, w)
+        for col, w in enumerate(widths)
+        if w > 0 and (col >= table.columnCount() or not table.isColumnHidden(col))  # 0: a hidden column
+    ]
+    shown = [w for _visual, w in sorted(shown)][:-1]  # the last column is stretched to the edge
+    return len(shown) > 1 and all(w == default for w in shown)
+
+
 def restore_table_widths(table: QTableWidget, key: str, default_widths: dict[int, int]):
     raw = str(app_config.get_ui_value(key, "") or "")
     widths = _parse_int_list(raw)
+    if _looks_reset(table, widths):
+        widths = []  # saved after Qt had reset the table: worthless, use the defaults
+    wanted = {}
     for col, default in default_widths.items():
-        width = widths[col] if 0 <= col < len(widths) and widths[col] > 0 else default
-        table.setColumnWidth(col, width)
+        wanted[col] = widths[col] if 0 <= col < len(widths) and widths[col] > 0 else default
+        table.setColumnWidth(col, wanted[col])
+    _StickyWidths.attach(table, wanted)
+
+
+def keep_table_widths(table: QTableWidget, widths: dict[int, int]):
+    """Set column widths that survive Qt's reset on re-style / reparent (no saving)."""
+
+    for column, width in widths.items():
+        table.setColumnWidth(column, width)
+    _StickyWidths.attach(table, widths)
+
+
+class _StickyWidths(QObject):
+    """Put a table's column widths back after Qt resets them.
+
+    A header with a style sheet goes back to the default section size whenever
+    the table is re-styled: moved into a card, a stack or the main window, or
+    on a theme switch.  The intended widths are kept here (and follow the
+    user's own resizing) and re-applied after such an event.
+    """
+
+    _EVENTS = (QEvent.Type.StyleChange, QEvent.Type.ParentChange, QEvent.Type.Show)
+
+    @classmethod
+    def attach(cls, table: QTableWidget, wanted: dict[int, int]):
+        sticky = getattr(table, "_ui_sticky_widths", None)
+        if sticky is None:
+            sticky = cls(table)
+            table._ui_sticky_widths = sticky
+        sticky.wanted = dict(wanted)
+
+    def __init__(self, table: QTableWidget):
+        super().__init__(table)
+        self._table = table
+        self._applying = False
+        self.wanted: dict[int, int] = {}
+        table.installEventFilter(self)
+        table.horizontalHeader().installEventFilter(self)  # the reset comes with the header's re-style
+        table.horizontalHeader().sectionResized.connect(self._remember)
+
+    def _remember(self, column: int, _old: int, new: int):
+        # Only the user's own dragging counts: Qt's reset arrives column by column.
+        if self._applying or new <= 0 or not _user_dragging():
+            return
+        self.wanted[column] = new
+
+    def _is_reset(self) -> bool:
+        """The columns we size are all back at the header default (the stretched last one aside)."""
+
+        table = self._table
+        header = table.horizontalHeader()
+        default = header.defaultSectionSize()
+        visible = [c for c in range(table.columnCount()) if not table.isColumnHidden(c)]
+        last = max(visible, key=header.visualIndex) if visible else -1
+        sized = [c for c in self.wanted if c in visible and c != last and header.sectionResizeMode(c) != QHeaderView.ResizeMode.Stretch]
+        return bool(sized) and all(table.columnWidth(c) == default for c in sized) and any(
+            self.wanted[c] != default for c in sized
+        )
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
+        if event.type() in self._EVENTS:
+            QTimer.singleShot(0, self.reapply)
+        return super().eventFilter(watched, event)
+
+    def reapply(self):
+        try:
+            if not self._is_reset():
+                return
+        except RuntimeError:  # the table is already gone
+            return
+        self._applying = True
+        try:
+            for column, width in self.wanted.items():
+                if not self._table.isColumnHidden(column):
+                    self._table.setColumnWidth(column, width)
+        finally:
+            self._applying = False
 
 
 def fit_table_last_column(table: QTableWidget):
@@ -284,26 +188,6 @@ def connect_table_column_saver(table: QTableWidget, key: str):
     table._ui_state_savers = savers
 
 
-def open_table_column_dialog(
-    table: QTableWidget,
-    key: str,
-    *,
-    title: str,
-    default_visible: list[int] | None = None,
-    default_order: list[int] | None = None,
-    parent=None,
-):
-    dlg = _TableColumnDialog(
-        table,
-        key,
-        title=title,
-        default_visible=default_visible,
-        default_order=default_order,
-        parent=parent or table,
-    )
-    dlg.exec()
-
-
 def apply_table_column_layout(
     table: QTableWidget,
     key: str,
@@ -344,11 +228,17 @@ class _TableWidthSaver(QObject):
         self._sync_pending = False
         table.installEventFilter(self)
         header = table.horizontalHeader()
-        header.sectionResized.connect(lambda *_args: self.save(sync=False))
+        # A drag by the user; Qt's own resets (re-style, reparent) must not be saved.
+        header.sectionResized.connect(lambda *_args: _user_dragging() and self.save(sync=False))
         header.sectionMoved.connect(lambda *_args: self.save(sync=False))
         app = QApplication.instance()
         if app is not None:
-            app.aboutToQuit.connect(lambda: self.save(sync=True))
+            # A bound slot (not a lambda), so the connection goes away with this
+            # saver when its table is destroyed (e.g. by a language rebuild).
+            app.aboutToQuit.connect(self._save_on_quit)
+
+    def _save_on_quit(self):
+        self.save(sync=True)
 
     def eventFilter(self, watched, event):  # noqa: N802 - Qt API name
         if watched is self._table and event.type() in (
@@ -360,10 +250,15 @@ class _TableWidthSaver(QObject):
         return super().eventFilter(watched, event)
 
     def save(self, *, sync: bool):
-        if self._table.columnCount() <= 0:
+        try:
+            if self._table.columnCount() <= 0:
+                return
+        except RuntimeError:  # the table is already gone
             return
-        widths = [str(self._table.columnWidth(col)) for col in range(self._table.columnCount())]
-        app_config.set_ui_value(self._key, ",".join(widths), sync=sync)
+        columns = [self._table.columnWidth(col) for col in range(self._table.columnCount())]
+        if _looks_reset(self._table, columns):
+            return  # Qt reset them (re-style / reparent); the real widths come back shortly
+        app_config.set_ui_value(self._key, ",".join(str(width) for width in columns), sync=sync)
         if sync:
             self._sync_pending = False
             return
@@ -417,119 +312,6 @@ class _TableColumnSaver(QObject):
             app_config.sync()
 
         QTimer.singleShot(500, flush)
-
-
-class _TableColumnDialog(MessageBoxBase):
-    def __init__(
-        self,
-        table: QTableWidget,
-        key: str,
-        *,
-        title: str,
-        default_visible: list[int] | None,
-        default_order: list[int] | None,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._table = table
-        self._key = key
-        self._default_order = default_order or _all_columns(table)
-        self._default_visible = default_visible or _all_columns(table)
-        self.title_label = SubtitleLabel(title, self)
-        self.hint_label = BodyLabel(
-            tr(
-                "Check fields to show, then move them to change their order.",
-                "勾选要显示的字段，并用上下按钮调整顺序。",
-                "表示する列を選び、上下ボタンで順序を変更してください。",
-            ),
-            self,
-        )
-        self.hint_label.setWordWrap(True)
-        self.viewLayout.addWidget(self.title_label)
-        self.viewLayout.addWidget(self.hint_label)
-
-        self._list = ListWidget(self)
-        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._list.setAlternatingRowColors(True)
-        self.viewLayout.addWidget(self._list, stretch=1)
-
-        move_row = QHBoxLayout()
-        up_btn = PushButton(tr("Move Up", "上移", "上へ"), self)
-        down_btn = PushButton(tr("Move Down", "下移", "下へ"), self)
-        reset_btn = PushButton(tr("Recommended", "恢复推荐", "推奨に戻す"), self)
-        up_btn.clicked.connect(lambda: self._move_current(-1))
-        down_btn.clicked.connect(lambda: self._move_current(1))
-        reset_btn.clicked.connect(self._load_defaults)
-        move_row.addWidget(up_btn)
-        move_row.addWidget(down_btn)
-        move_row.addStretch()
-        move_row.addWidget(reset_btn)
-        self.viewLayout.addLayout(move_row)
-
-        self.cancelButton.setText(tr("Cancel", "取消", "キャンセル"))
-        self.yesButton.setText(tr("Save", "保存", "保存"))
-        self.widget.setMinimumSize(640, 560)
-
-        self._load_current()
-
-    def _load_current(self):
-        order = _current_column_order(self._table)
-        visible = [
-            col for col in _all_columns(self._table)
-            if not self._table.isColumnHidden(col)
-        ]
-        self._populate(order, visible)
-
-    def _load_defaults(self):
-        self._populate(self._default_order, self._default_visible)
-
-    def _populate(self, order: list[int], visible: list[int]):
-        self._list.clear()
-        labels = _column_labels(self._table)
-        visible_set = set(visible)
-        for col in _normalize_column_order(order, _all_columns(self._table)):
-            label = labels.get(col, str(col))
-            width = self._table.columnWidth(col)
-            item = QListWidgetItem(f"{label}    {width}px")
-            item.setData(Qt.ItemDataRole.UserRole, col)
-            item.setToolTip(tr(f"{label}\nCurrent width: {width}px", f"{label}\n当前列宽：{width}px", f"{label}\n現在の幅: {width}px"))
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if col in visible_set else Qt.CheckState.Unchecked)
-            self._list.addItem(item)
-        if self._list.count():
-            self._list.setCurrentRow(0)
-
-    def _move_current(self, delta: int):
-        row = self._list.currentRow()
-        target = row + delta
-        if row < 0 or target < 0 or target >= self._list.count():
-            return
-        item = self._list.takeItem(row)
-        self._list.insertItem(target, item)
-        self._list.setCurrentRow(target)
-
-    def validate(self) -> bool:
-        """Persist the selected layout before MessageBoxBase accepts."""
-
-        order: list[int] = []
-        visible: list[int] = []
-        for row in range(self._list.count()):
-            item = self._list.item(row)
-            col = int(item.data(Qt.ItemDataRole.UserRole))
-            order.append(col)
-            if item.checkState() == Qt.CheckState.Checked:
-                visible.append(col)
-        if not visible:
-            show_fluent_confirmation(
-                self,
-                tr("Column Settings", "字段设置", "列設定"),
-                tr("Keep at least one column visible.", "至少保留一个字段显示。", "少なくとも1列は表示してください。"),
-                yes_text=tr("OK", "知道了", "OK"),
-                no_text=tr("Close", "关闭", "閉じる"),
-            )
-            return False
-        apply_table_column_layout(self._table, self._key, order=order, visible=visible, sync=True)
-        return True
 
 
 def _save_table_column_layout(table: QTableWidget, key: str, *, sync: bool):

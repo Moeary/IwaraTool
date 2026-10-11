@@ -1,10 +1,10 @@
 """Application configuration backed by QSettings."""
 import os
-import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from PySide6.QtCore import QSettings
+from .paths import app_data_dir, app_root_dir, default_download_dir
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
@@ -19,11 +19,11 @@ LEGACY_FILENAME_TEMPLATES = frozenset(
 
 def _app_root_dir() -> str:
     """Directory where the app is launched (portable-friendly)."""
-    return str(Path(sys.argv[0]).resolve().parent)
+    return str(app_root_dir())
 
 
 def _app_data_dir() -> str:
-    data_dir = Path(_app_root_dir()) / "data"
+    data_dir = app_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir)
 
@@ -49,7 +49,7 @@ class AppConfig:
     """Persistent application settings wrapper."""
 
     _DEFAULTS = {
-        "download_dir": os.path.join(_app_root_dir(), "download"),
+        "download_dir": str(default_download_dir()),
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
@@ -87,6 +87,10 @@ class AppConfig:
         "search_limit_count": 100,
         "search_history_limit": 20,
         "search_auto_search_enabled": True,
+        "search_default_source": "iwara",  # iwara / oreno3d
+        "search_chinese_via_oreno3d": True,
+        "media_click_action": "select",  # select / detail / play / none
+        "media_double_click_action": "detail",
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
@@ -102,6 +106,9 @@ class AppConfig:
         "desktop_notifications_enabled": True,
         "subscription_auto_enqueue_enabled": False,
         "subscription_auto_enqueue_rule_id": "__builtin_default__",
+        # Added videos wait on the download workbench for confirmation, except:
+        "direct_download_single": True,  # one downloadable video starts at once
+        "subscription_auto_enqueue_confirm": False,  # automation also waits for confirmation
         "global_speed_limit_enabled": False,
         "global_speed_limit_kib": 0,
         "download_schedule_enabled": False,
@@ -176,7 +183,7 @@ class AppConfig:
         current = str(self._qs.value("download_dir", self._DEFAULTS["download_dir"]))
         app_root = Path(_app_root_dir()).resolve()
         old_local = app_root / "downloads"
-        new_local = app_root / "download"
+        new_local = default_download_dir()
 
         try:
             cur_path = Path(current).resolve()
@@ -421,6 +428,48 @@ class AppConfig:
 
     search_auto_search_enabled = _Setting()
 
+    SEARCH_SOURCES = ("iwara", "oreno3d")
+
+    @property
+    def search_default_source(self) -> str:
+        """The search engine the Search page starts on."""
+
+        value = str(self._get("search_default_source") or "").strip().casefold()
+        return value if value in self.SEARCH_SOURCES else "iwara"
+
+    @search_default_source.setter
+    def search_default_source(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("search_default_source", value if value in self.SEARCH_SOURCES else "iwara")
+
+    # Video keyword searches written in Chinese go to Oreno3D, whose index
+    # carries Chinese titles and tags; Iwara's own search rarely matches them.
+    search_chinese_via_oreno3d = _Setting()
+
+    MEDIA_CLICK_ACTIONS = ("select", "detail", "play", "none")
+
+    @property
+    def media_click_action(self) -> str:
+        """What a click on a Search / subscription / author result does."""
+
+        value = str(self._get("media_click_action") or "").strip().casefold()
+        return value if value in self.MEDIA_CLICK_ACTIONS else "select"
+
+    @media_click_action.setter
+    def media_click_action(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("media_click_action", value if value in self.MEDIA_CLICK_ACTIONS else "select")
+
+    @property
+    def media_double_click_action(self) -> str:
+        value = str(self._get("media_double_click_action") or "").strip().casefold()
+        return value if value in self.MEDIA_CLICK_ACTIONS else "detail"
+
+    @media_double_click_action.setter
+    def media_double_click_action(self, v: str):
+        value = str(v or "").strip().casefold()
+        self._set("media_double_click_action", value if value in self.MEDIA_CLICK_ACTIONS else "detail")
+
     aria2_rpc_enabled = _Setting()
 
     aria2_rpc_url = _Setting()
@@ -462,6 +511,10 @@ class AppConfig:
     desktop_notifications_enabled = _Setting()
 
     subscription_auto_enqueue_enabled = _Setting()
+
+    direct_download_single = _Setting()
+
+    subscription_auto_enqueue_confirm = _Setting()
 
     @property
     def subscription_auto_enqueue_rule_id(self) -> str:

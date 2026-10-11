@@ -48,12 +48,17 @@ def scope_titles() -> dict[str, str]:
         SCOPE_REPAIR: tr("Repair Center", "修复中心", "修復センター"),
         SCOPE_RULES: tr("Rules", "下载规则", "ルール"),
         SCOPE_SETTINGS: tr("Settings", "应用设置", "設定"),
-        SCOPE_PLAYER: tr("Video player window", "视频播放窗口", "動画プレーヤー"),
+        SCOPE_PLAYER: tr("Video player", "视频播放器", "動画プレーヤー"),
     }
 
 
 def all_actions() -> tuple[ShortcutAction, ...]:
     """The catalogue, built on demand so labels follow the UI language."""
+    return _global_actions() + _home_actions() + _page_actions() + _player_actions()
+
+
+def _global_actions() -> tuple[ShortcutAction, ...]:
+    """Shortcuts that work on every page."""
     A = ShortcutAction
     return (
         A("nav_home", SCOPE_GLOBAL, "Ctrl+1", tr("Go to Home", "前往首页", "ホームへ移動")),
@@ -66,6 +71,11 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),
         A("nav_next", SCOPE_GLOBAL, "Ctrl+Tab", tr("Next page", "下一个页面", "次のページ")),
         A("nav_prev", SCOPE_GLOBAL, "Ctrl+Shift+Tab", tr("Previous page", "上一个页面", "前のページ")),
+        A("nav_back", SCOPE_GLOBAL, "Esc", tr(
+            "Back (closes a menu or clears the selection first; the mouse back button also works)",
+            "返回上一处（先关闭菜单或取消选择；鼠标侧键同样可用）",
+            "戻る（先にメニューを閉じるか選択を解除。マウスの戻るボタンも使えます）",
+        )),
         A("focus_search", SCOPE_GLOBAL, "Ctrl+K", tr("Quick search (go to Search and type)", "快速搜索（跳到搜索页并输入）", "クイック検索（検索ページで入力）")),
         A("quick_download", SCOPE_GLOBAL, "Ctrl+Alt+V", tr("Paste the clipboard link and download it", "粘贴剪贴板链接并下载", "クリップボードのリンクを貼り付けて保存")),
         A("open_download_folder", SCOPE_GLOBAL, "Ctrl+Shift+O", tr("Open the download folder", "打开下载文件夹", "保存フォルダーを開く")),
@@ -77,22 +87,33 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("toggle_fullscreen", SCOPE_GLOBAL, "F11", tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
         A("shortcut_help", SCOPE_GLOBAL, "F1", tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),
         A("quit_app", SCOPE_GLOBAL, "Ctrl+Q", tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了")),
+    )
 
+
+def _home_actions() -> tuple[ShortcutAction, ...]:
+    """Home page and the post detail opened from it."""
+    A = ShortcutAction
+    return (
         A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
-        A("home_back", SCOPE_HOME, "Alt+Left", tr("Back to the previous view", "返回上一级", "前の画面に戻る")),
+        A("home_back", SCOPE_HOME, "Alt+Left", tr("Back (to the feed when there is no history)", "返回（无历史时回到首页）", "戻る（履歴がなければホームへ）")),
         A("home_customize", SCOPE_HOME, "Ctrl+E", tr("Customize the Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ")),
         A("home_top", SCOPE_HOME, "Ctrl+Home", tr("Scroll to the top", "回到顶部", "先頭へスクロール")),
         A("home_bottom", SCOPE_HOME, "Ctrl+End", tr("Scroll to the bottom", "滚动到底部", "末尾へスクロール")),
         A("home_fold_all", SCOPE_HOME, "Ctrl+Shift+Up", tr("Fold every row", "折叠全部栏目", "すべての欄を折りたたむ")),
         A("home_unfold_all", SCOPE_HOME, "Ctrl+Shift+Down", tr("Unfold every row", "展开全部栏目", "すべての欄を展開")),
-        A("detail_close", SCOPE_HOME, "Esc", tr("Close the open post / list", "关闭打开的详情 / 列表", "開いている投稿・一覧を閉じる")),
         A("detail_like", SCOPE_HOME, "Ctrl+L", tr("Like / un-like the open post", "给打开的作品点赞 / 取消点赞", "開いている投稿にいいね/取消")),
         A("detail_play", SCOPE_HOME, "Ctrl+P", tr("Play the open post", "播放打开的作品", "開いている投稿を再生")),
         A("detail_download", SCOPE_HOME, "Ctrl+D", tr("Download the open post", "下载打开的作品", "開いている投稿を保存")),
         A("detail_open_browser", SCOPE_HOME, "Ctrl+O", tr("Open the post in the browser", "在浏览器打开作品", "投稿をブラウザーで開く")),
         A("detail_copy_link", SCOPE_HOME, "Ctrl+Shift+C", tr("Copy the post's link", "复制作品链接", "投稿のリンクをコピー")),
         A("detail_author_page", SCOPE_HOME, "Ctrl+Shift+A", tr("Open the post's author page", "打开作品的作者页", "投稿の作者ページを開く")),
+    )
 
+
+def _page_actions() -> tuple[ShortcutAction, ...]:
+    """Download, Search, Subscriptions, History, Repair, Rules and Settings."""
+    A = ShortcutAction
+    return (
         A("download_submit", SCOPE_DOWNLOAD, "Ctrl+Return", tr("Submit the links", "提交链接下载", "リンクを送信")),
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),
         A("tasks_focus_search", SCOPE_DOWNLOAD, "Ctrl+F", tr("Search tasks", "搜索任务", "タスクを検索")),
@@ -115,9 +136,9 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("sub_refresh_all", SCOPE_SUBSCRIPTIONS, "Ctrl+F5", tr("Refresh all sources", "刷新全部订阅源", "すべての購読元を更新")),
         A("sub_download_selected", SCOPE_SUBSCRIPTIONS, "Ctrl+D", tr("Download the selection", "下载选中项", "選択をダウンロード")),
         A("sub_download_new", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+D", tr("Download new videos", "下载新增视频", "新着動画をダウンロード")),
-        A("sub_back", SCOPE_SUBSCRIPTIONS, "Alt+Left", tr("Back to the list of subscriptions", "返回订阅列表", "購読の一覧へ戻る")),
+        A("sub_back", SCOPE_SUBSCRIPTIONS, "Alt+Left", tr("Back (to the list of subscriptions when there is no history)", "返回（无历史时回到订阅列表）", "戻る（履歴がなければ購読の一覧へ）")),
         A("sub_select_all", SCOPE_SUBSCRIPTIONS, "Ctrl+A", tr("Select every video in the grid", "全选网格中的视频", "グリッドの動画をすべて選択")),
-        A("sub_clear_selection", SCOPE_SUBSCRIPTIONS, "Esc", tr("Clear the selection", "取消选择", "選択を解除")),
+        A("sub_clear_selection", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+A", tr("Clear the selection (Esc also does this first)", "取消选择（Esc 也会先取消选择）", "選択を解除（Escでも先に解除）")),
         A("sub_toggle_view", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+T", tr("Switch overview / table view", "切换总览 / 经典表格", "概要/表形式の切り替え")),
         A("sub_focus_filter", SCOPE_SUBSCRIPTIONS, "Ctrl+F", tr("Focus the filter box", "聚焦筛选框", "絞り込み欄へ移動")),
 
@@ -137,7 +158,13 @@ def all_actions() -> tuple[ShortcutAction, ...]:
         A("rules_delete", SCOPE_RULES, "Ctrl+Delete", tr("Delete the rule", "删除规则", "ルールを削除")),
 
         A("settings_save", SCOPE_SETTINGS, "Ctrl+S", tr("Save all settings", "保存所有设置", "すべて保存")),
+    )
 
+
+def _player_actions() -> tuple[ShortcutAction, ...]:
+    """The video player."""
+    A = ShortcutAction
+    return (
         A("player_play_pause", SCOPE_PLAYER, "Space", tr("Play / pause", "播放 / 暂停", "再生 / 一時停止")),
         A("player_seek_back", SCOPE_PLAYER, "Left", tr("Seek back 5 s", "后退 5 秒", "5秒戻る")),
         A("player_seek_forward", SCOPE_PLAYER, "Right", tr("Seek forward 5 s (hold for 2x speed)", "前进 5 秒（按住倍速播放）", "5秒進む（長押しで倍速）")),

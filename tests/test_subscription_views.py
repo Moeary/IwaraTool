@@ -13,13 +13,13 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.download_runtime import format_speed, parse_speed
+from app.core.download.speed_format import format_speed, parse_speed
 from app.core.manager import DownloadManager
 from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
-from app.core.search import SearchVideo
-from app.core.subscriptions import SubscriptionStore
-from app.ui import subscription_views as views
+from app.core.search.models import SearchVideo
+from app.core.subscription.store import SubscriptionStore
+from app.ui.subscription import item_queries, overview, source_items_view
 
 
 def _item(video_id, **kwargs):
@@ -30,13 +30,13 @@ def _item(video_id, **kwargs):
 
 class ItemHelperTests(unittest.TestCase):
     def test_state_priority(self):
-        self.assertEqual(views.item_state(_item("a")), "")
-        self.assertEqual(views.item_state(_item("a", is_new=1)), "new")
-        self.assertEqual(views.item_state(_item("a", is_new=1, queued=True)), "queued")
-        self.assertEqual(views.item_state(_item("a", downloaded=True, download_file_exists=True)), "downloaded")
-        self.assertEqual(views.item_state(_item("a", downloaded=True, download_file_exists=False)), "moved")
+        self.assertEqual(item_queries.item_state(_item("a")), "")
+        self.assertEqual(item_queries.item_state(_item("a", is_new=1)), "new")
+        self.assertEqual(item_queries.item_state(_item("a", is_new=1, queued=True)), "queued")
+        self.assertEqual(item_queries.item_state(_item("a", downloaded=True, download_file_exists=True)), "downloaded")
+        self.assertEqual(item_queries.item_state(_item("a", downloaded=True, download_file_exists=False)), "moved")
         self.assertEqual(
-            views.item_state(_item("a", is_new=1, downloaded=True, download_state="private")), "unavailable"
+            item_queries.item_state(_item("a", is_new=1, downloaded=True, download_state="private")), "unavailable"
         )
 
     def test_filter_and_sort(self):
@@ -46,14 +46,14 @@ class ItemHelperTests(unittest.TestCase):
             _item("c", title="alpine", published_at="2026-01-01", queued=True),
         ]
         ids = lambda rows: [row["video_id"] for row in rows]  # noqa: E731
-        self.assertEqual(ids(views.filter_items(items, "all", "al")), ["a", "c"])
-        self.assertEqual(ids(views.filter_items(items, "ready")), ["a"])
-        self.assertEqual(ids(views.filter_items(items, "downloaded")), ["b"])
-        self.assertEqual(ids(views.filter_items(items, "queued")), ["c"])
-        self.assertEqual(ids(views.sort_items(items, "date_desc")), ["a", "b", "c"])
-        self.assertEqual(ids(views.sort_items(items, "date_asc")), ["c", "b", "a"])
-        self.assertEqual(ids(views.sort_items(items, "title")), ["a", "c", "b"])
-        self.assertEqual(ids(views.sort_items(list(reversed(items)), "new_first"))[0], "a")
+        self.assertEqual(ids(item_queries.filter_items(items, "all", "al")), ["a", "c"])
+        self.assertEqual(ids(item_queries.filter_items(items, "ready")), ["a"])
+        self.assertEqual(ids(item_queries.filter_items(items, "downloaded")), ["b"])
+        self.assertEqual(ids(item_queries.filter_items(items, "queued")), ["c"])
+        self.assertEqual(ids(item_queries.sort_items(items, "date_desc")), ["a", "b", "c"])
+        self.assertEqual(ids(item_queries.sort_items(items, "date_asc")), ["c", "b", "a"])
+        self.assertEqual(ids(item_queries.sort_items(items, "title")), ["a", "c", "b"])
+        self.assertEqual(ids(item_queries.sort_items(list(reversed(items)), "new_first"))[0], "a")
 
     def test_downloadable_ids_skip_finished_queued_and_blocked(self):
         items = [
@@ -64,18 +64,18 @@ class ItemHelperTests(unittest.TestCase):
             _item("blocked", download_state="private"),
             _item("new"),
         ]
-        self.assertEqual(views.downloadable_ids(items), ["new", "old"])
-        self.assertEqual(views.downloadable_ids(items, only_new=True), ["new"])
+        self.assertEqual(item_queries.downloadable_ids(items), ["new", "old"])
+        self.assertEqual(item_queries.downloadable_ids(items, only_new=True), ["new"])
 
     def test_item_to_video_carries_state_and_a_fallback_link(self):
-        video = views.item_to_video(_item("abc", is_new=1, author="creator"), author_name="Creator")
+        video = item_queries.item_to_video(_item("abc", is_new=1, author="creator"), author_name="Creator")
         self.assertEqual(video.raw["_state"], "new")
         self.assertEqual(video.author_name, "Creator")
         self.assertEqual(video.source_url, "https://www.iwara.tv/video/abc")
 
     def test_feed_sources_are_recognised(self):
-        self.assertTrue(views.is_feed_source({"source_type": "feed"}))
-        self.assertFalse(views.is_feed_source({"source_type": "author"}))
+        self.assertTrue(item_queries.is_feed_source({"source_type": "feed"}))
+        self.assertFalse(item_queries.is_feed_source({"source_type": "author"}))
 
 
 class SpeedTextTests(unittest.TestCase):
@@ -119,7 +119,7 @@ class RecentItemsTests(unittest.TestCase):
                 item = manager.get_subscription_recent_items(4)[source][0]
             self.assertTrue(item["downloaded"])
             self.assertFalse(item["download_file_exists"])
-            self.assertEqual(views.item_state(item), "moved")
+            self.assertEqual(item_queries.item_state(item), "moved")
 
 
 class _QtCase(unittest.TestCase):
@@ -130,7 +130,7 @@ class _QtCase(unittest.TestCase):
 
 class SubscriptionPageViewTests(_QtCase):
     def setUp(self):
-        from app.ui.subscription_page import SubscriptionInterface
+        from app.ui.subscription.page import SubscriptionInterface
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -152,13 +152,13 @@ class SubscriptionPageViewTests(_QtCase):
         )
         store.upsert_items(self.feed, [{"video_id": "f1", "title": "Feed video", "published_at": "2026-03-01"}])
         for target in (
-            "app.ui.subscription_views.CoverLoader.request",
-            "app.ui.subscription_page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
+            "app.ui.subscription.cover_loader.CoverLoader.request",
+            "app.ui.subscription.page.SubscriptionInterface._start_avatar_worker_for_missing_sources",
         ):
             started = patch(target)
             started.start()
             self.addCleanup(started.stop)
-        manager_patch = patch("app.ui.subscription_page.download_manager", self.manager)
+        manager_patch = patch("app.ui.subscription.page.download_manager", self.manager)
         manager_patch.start()
         self.addCleanup(manager_patch.stop)
         self.page = SubscriptionInterface()
@@ -183,7 +183,7 @@ class SubscriptionPageViewTests(_QtCase):
         strip = self.page._overview._rows[self.author].strip
         self.assertIsNotNone(strip)
         ids = [card.video.video_id for card in strip.cards]
-        self.assertEqual(len(ids), views.RECENT_PER_SOURCE)
+        self.assertEqual(len(ids), overview.RECENT_PER_SOURCE)
         self.assertEqual(ids[0], "a10")
         self.assertLessEqual(len(strip.shown_cards()), len(ids))
         self.assertIsNone(self.page._overview._rows[self.playlist].strip)
@@ -213,7 +213,7 @@ class SubscriptionPageViewTests(_QtCase):
     def test_grid_pages_and_downloads_through_the_page(self):
         view = self.page._source_view
         view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
-        with patch.object(views, "GRID_PAGE_SIZE", 4):
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
             view._apply(reset_page=True)
             self.assertEqual(len(view._grid.videos()), 4)
             self.assertEqual(view._page_count(), 3)
@@ -227,6 +227,33 @@ class SubscriptionPageViewTests(_QtCase):
             self.assertEqual(set(ids), {f"a{i}" for i in range(1, 11)})
             view._download_all()
             self.assertEqual(len(enqueue.call_args.args[0]), 10)
+
+    def test_downloading_from_the_grid_stages_on_the_workbench(self):
+        # The real page method, not a mock: it once read a removed attribute.
+        view = self.page._source_view
+        view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+        view._grid.select_all(True)
+        with patch.object(self.page._staging_flow, "start", return_value=True) as start:
+            view._download_selected()
+            start.assert_called_once()
+            with patch.object(self.page._staging_flow, "busy", return_value=True):
+                view._download_selected()  # still checking the previous batch: no second start
+            start.assert_called_once()
+
+    def test_background_reload_keeps_the_selection_and_page(self):
+        view = self.page._source_view
+        view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
+            view._apply(reset_page=True)
+            view._go(1)
+            card = next(c for c in view._grid._cards if c.video.video_id == "a5")
+            card.set_selected(True)
+            view.reload()  # what a download-state change triggers
+            self.assertEqual(view._page_index, 1)
+            self.assertEqual([v.video_id for v in view._grid.selected_videos()], ["a5"])
+            view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
+            self.assertEqual(view._page_index, 0)  # opening a source starts fresh
+            self.assertEqual(view._grid.selected_videos(), [])
 
     def test_show_source_opens_the_grid_unless_the_table_is_active(self):
         self.page.show_source(self.author)
@@ -247,8 +274,8 @@ class SubscriptionPageViewTests(_QtCase):
         """Keep the author page off the network and its status bar on the test manager."""
 
         for target, value in (
-            ("app.ui.home_workers.FeedWorker.run", lambda worker: None),
-            ("app.ui.home_workers.ApiCallWorker.run", lambda worker: None),
+            ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
+            ("app.ui.home.workers.ApiCallWorker.run", lambda worker: None),
             ("app.ui.author_status.download_manager", self.manager),
         ):
             patcher = patch(target, value)
@@ -276,20 +303,78 @@ class SubscriptionPageViewTests(_QtCase):
 
     def test_back_from_an_author_opened_here_returns_to_the_overview(self):
         self._quiet_author_page()
-        returned = []
-        self.page.return_requested.connect(lambda: returned.append(True))
         self.page.show_author(("stranger", "Stranger", "u9", ""))
         self.page._author_view.back_requested.emit()
         self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
-        self.assertEqual(returned, [])
 
-    def test_back_from_an_author_opened_by_another_page_leaves_this_page(self):
+    def _fill_author_list(self, prefix: str, count: int = 12):
+        from app.ui.home.workers import FeedResult
+
+        browse = self.page._author_view._browse
+        videos = [SearchVideo(video_id=f"{prefix}{i}", title=f"{prefix} {i}") for i in range(count)]
+        browse._on_result(FeedResult(token=browse._token, items=videos, has_more=True))
+
+    def test_author_a_to_author_b_and_back_restores_a_exactly(self):
         self._quiet_author_page()
-        returned = []
-        self.page.return_requested.connect(lambda: returned.append(True))
-        self.page.show_author(("stranger", "Stranger", "u9", ""), external=True)
+        view = self.page._author_view
+        browse = view._browse
+        self.page.show_author(("alice", "Alice", "u1", ""))
+        browse._pick_tab("images")
+        browse._go(2)
+        self._fill_author_list("img")
+        next(card for card in browse._grid._cards if card.video.video_id == "img3").set_selected(True)
+        self.page.show_author(("bob", "Bob", "u2", ""))
+        self.assertEqual(view.username, "bob")
+        self.assertEqual(browse._tab_id, "videos")
+
+        view.back_requested.emit()
+        self.assertEqual(view.username, "alice")
+        self.assertEqual(browse._tab_id, "images")
+        self.assertEqual(browse._page, 2)
+        self.assertEqual([v.video_id for v in browse._grid.selected_videos()], ["img3"])
+        self.assertEqual(len(browse._grid.videos()), 12)  # from the record, not a new request
+        self.assertEqual(browse.section.tab("images").value, "alice")
+
+    def test_back_from_the_author_page_returns_to_the_works_page_it_came_from(self):
+        self._quiet_author_page()
+        view = self.page._source_view
+        self.page._open_source_grid(self.author)
+        with patch.object(source_items_view, "GRID_PAGE_SIZE", 4):
+            view._apply(reset_page=True)
+            view._go(1)
+            next(card for card in view._grid._cards if card.video.video_id == "a5").set_selected(True)
+            self.page.show_author(("stranger", "Stranger", "u9", ""))
+            self.page._author_view.back_requested.emit()
+            self.assertIs(self.page._view_stack.currentWidget(), view)
+            self.assertEqual(view.source_id, self.author)
+            self.assertEqual(view._page_index, 1)
+            self.assertEqual([v.video_id for v in view._grid.selected_videos()], ["a5"])
+
+    def test_a_download_finishing_keeps_the_works_page_scrolled_where_it_was(self):
+        view = self.page._source_view
+        self.manager.subscriptions.upsert_items(
+            self.author,
+            [_item(f"b{i}", author="creator", published_at=f"2026-04-{i % 28 + 1:02d}T00:00:00Z") for i in range(40)],
+        )
+        self.page._all_sources = self.page._fetch_sources()
+        self.page._open_source_grid(self.author)
+        self.page.resize(1000, 500)
+        self.app.processEvents()
+        bar = view._scroll.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        bar.setValue(bar.maximum() // 2)
+        position = bar.value()
+        next(iter(view._grid._cards)).set_selected(True)
+        selected = [v.video_id for v in view._grid.selected_videos()]
+        view.reload()  # what a task status change ends in
+        self.app.processEvents()
+        self.assertEqual(bar.value(), position)
+        self.assertEqual([v.video_id for v in view._grid.selected_videos()], selected)
+
+    def test_back_without_history_falls_back_to_the_list(self):
+        self._quiet_author_page()
+        self.page.show_author(("stranger", "Stranger", "u9", ""), external=True)  # the caller is recorded elsewhere
         self.page._author_view.back_requested.emit()
-        self.assertEqual(returned, [True])
         self.assertIs(self.page._view_stack.currentWidget(), self.page._overview)
 
     def test_removing_the_viewed_subscription_elsewhere_closes_its_grid(self):
@@ -305,15 +390,15 @@ class SubscriptionPageViewTests(_QtCase):
 
     def test_source_grid_asks_for_its_covers_urgently_and_reports_progress(self):
         view = self.page._source_view
-        with patch("app.ui.subscription_views.CoverLoader.request") as request, \
-                patch("app.ui.subscription_views.CoverLoader.pending", return_value=3):
+        with patch("app.ui.subscription.cover_loader.CoverLoader.request") as request, \
+                patch("app.ui.subscription.cover_loader.CoverLoader.pending", return_value=3):
             view.open_source(next(s for s in self.page._all_sources if s["id"] == self.author))
             view._sync_status()
         self.assertTrue(request.call_args.kwargs.get("urgent"))
         self.assertIn("10", view._status.text())
 
     def test_leaving_the_overview_drops_its_background_covers(self):
-        with patch("app.ui.subscription_views.CoverLoader.drop_background") as drop:
+        with patch("app.ui.subscription.cover_loader.CoverLoader.drop_background") as drop:
             self.page._open_source_grid(self.author)
             self.app.processEvents()
         drop.assert_called()
@@ -344,33 +429,33 @@ class CardSizeTests(_QtCase):
         self.addCleanup(patcher.stop)
 
     def test_every_resizable_grid_follows_the_slider(self):
-        from app.ui import media_card
+        from app.ui.media import card_size, grid
 
-        grid_a = media_card.MediaGrid(resizable=True)
-        grid_b = media_card.MediaGrid(resizable=True, max_rows=2)
-        fixed = media_card.MediaGrid(min_card_width=300)
+        grid_a = grid.MediaGrid(resizable=True)
+        grid_b = grid.MediaGrid(resizable=True, max_rows=2)
+        fixed = grid.MediaGrid(min_card_width=300)
         for widget in (grid_a, grid_b, fixed):
             self.addCleanup(widget.deleteLater)
-        control = media_card.CardSizeControl()
+        control = card_size.CardSizeControl()
         self.addCleanup(control.deleteLater)
         control._slider.setValue(360)
         control._apply()  # the slider applies after a short debounce
         self.assertEqual(grid_a._min_card_width, 360)
         self.assertEqual(grid_b._min_card_width, 360)
         self.assertEqual(fixed._min_card_width, 300)
-        self.assertEqual(media_card.saved_card_width(), 360)
-        self.assertEqual(media_card.MediaGrid(resizable=True)._min_card_width, 360)
+        self.assertEqual(card_size.saved_card_width(), 360)
+        self.assertEqual(grid.MediaGrid(resizable=True)._min_card_width, 360)
 
     def test_width_is_clamped(self):
-        from app.ui import media_card
+        from app.ui.media import card_size
 
-        app_config.set_ui_value(media_card.CARD_WIDTH_KEY, 5000)
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_MAX)
-        app_config.set_ui_value(media_card.CARD_WIDTH_KEY, "oops")
-        self.assertEqual(media_card.saved_card_width(), media_card.CARD_WIDTH_DEFAULT)
+        app_config.set_ui_value(card_size.CARD_WIDTH_KEY, 5000)
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_MAX)
+        app_config.set_ui_value(card_size.CARD_WIDTH_KEY, "oops")
+        self.assertEqual(card_size.saved_card_width(), card_size.CARD_WIDTH_DEFAULT)
 
     def test_compact_cards_are_shorter_and_local_cards_hide_zero_stats(self):
-        from app.ui.media_card import MediaCard
+        from app.ui.media.card import MediaCard
 
         video = SearchVideo("v", "title", raw={"_state": "new"})
         full = MediaCard(video)
@@ -384,7 +469,7 @@ class CardSizeTests(_QtCase):
 
 class TaskSpeedTests(_QtCase):
     def test_total_speed_sums_only_downloading_tasks(self):
-        from app.ui.task_page import TaskCenterInterface
+        from app.ui.downloads.task_center import TaskCenterInterface
 
         page = TaskCenterInterface()
         self.addCleanup(page.deleteLater)
@@ -429,11 +514,16 @@ class StartupPageTests(_QtCase):
 
 class DetailLayoutTests(_QtCase):
     def _view(self):
-        from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.media import detail_view as media_detail
+        from app.ui.home.workers import CoverFetcher
 
-        view = media_detail.DetailView(CoverFetcher())
-        self.addCleanup(view.deleteLater)
+        from PySide6.QtWidgets import QWidget
+
+        # A child can exercise wide layouts even on a small native CI display.
+        host = QWidget()
+        view = media_detail.DetailView(CoverFetcher(), host)
+        self.addCleanup(host.deleteLater)
+        host.show()
         return view
 
     def test_stage_follows_the_viewport_height_on_wide_windows(self):

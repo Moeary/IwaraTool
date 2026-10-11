@@ -208,6 +208,7 @@ def summary_text(parts: list[tuple[str, object]]) -> str:
 # ── Status colors ───────────────────────────────────────────────────────────
 
 _TASK_STATUS_ROLES: dict[TaskStatus, str] = {
+    TaskStatus.STAGED: "purple",
     TaskStatus.QUEUED_META: "neutral",
     TaskStatus.RESOLVING: "info",
     TaskStatus.QUEUED_DOWNLOAD: "purple",

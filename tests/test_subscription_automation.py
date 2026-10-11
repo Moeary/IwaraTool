@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app.core.rules import default_rule_payload
-from app.core.subscription_automation import matches_rule_video
+from app.core.subscription.automation import matches_rule_video
 
 
 class SubscriptionAutomationRuleTests(unittest.TestCase):

@@ -51,6 +51,10 @@ class TaskSignalBus(QObject):
     # Download history or its local file paths changed after a committed write.
     history_changed = Signal()
 
+    # Videos waiting for confirmation on the download workbench were added,
+    # re-checked, confirmed or discarded.
+    staging_changed = Signal()
+
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 
@@ -69,8 +73,14 @@ class TaskSignalBus(QObject):
     # video id, title, local file path (empty when the video is not on disk)
     video_preview_requested = Signal(str, str, str)
 
+    # video id, title, position (ms); continue an embedded video in the player window.
+    video_popout_requested = Signal(str, str, int)
+
     # SFW/NSFW selection (core.rating value) changed on Home or Search.
     content_rating_changed = Signal(str)
+
+    # The default search engine was changed in Settings ("iwara" / "oreno3d").
+    search_source_changed = Signal(str)
 
     # Preferred minimum card width (px) of the poster grids changed.
     media_card_size_changed = Signal(int)

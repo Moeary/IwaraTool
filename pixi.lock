@@ -6,6 +6,11 @@ platforms:
   - __linux=4.18
   - __glibc=2.28
   - __archspec=0=x86_64
+- name: osx-64
+  virtual-packages:
+  - __unix=0=0
+  - __osx=13.0
+  - __archspec=0=x86_64
 - name: osx-arm64
   virtual-packages:
   - __unix=0=0
@@ -179,17 +184,124 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/81/97/fc88803a451029688dffd7eb446dc1b529657577aec13aceff1cc9628c5d/cloudscraper-1.2.71-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f2/f2/728f041460f1b9739b85ee23b45fa5a505962ea11fd85bdbe2a02b021373/darkdetect-0.8.0-py3-none-any.whl
+      osx-64:
+      - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.7.22-hbd8a1cb_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/certifi-2026.7.22-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/compiler-rt_osx-64-19.1.2-h9518668_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.11.17-py311hd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/h2-4.4.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/hpack-4.2.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/hyperframe-6.1.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/idna-3.20-pyh5ded981_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/ordered-set-4.1.0-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-3.11-pyh5ded981_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/python-gil-3.11.17-hd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.11-9_cp311.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/requests-2.34.2-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/urllib3-2.8.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/backports.zstd-1.8.0-py311h6931d8d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/brotli-python-1.2.0-py311hd084d1d_4.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/bzip2-1.0.8-h374f1ed_10.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/c-compiler-1.11.0-h7a00415_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/cctools-1010.6-h92db3b5_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/cctools_osx-64-1010.6-hd0ff2cf_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/cffi-2.1.1-py311ha57a2f8_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/charset-normalizer-3.5.2-hd77389f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/clang-19-19.1.2-default_hed3c1ff_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/clang-19.1.2-default_h4bb2e93_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/clang_impl_osx-64-19.1.2-h0cd9531_21.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/clang_osx-64-19.1.2-hb91bd55_21.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/compiler-rt-19.1.2-hf2491d2_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/icu-73.2-hf5e326d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ld64-951.9-hc3792c1_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ld64_osx-64-951.9-h3c7722d_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libclang-cpp19.1-19.1.2-default_hed3c1ff_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.3-h19cb2f5_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libexpat-2.8.5-h6e061ac_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libffi-3.7.0-h6b3a05b_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libiconv-1.18-h4ae439b_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libllvm19-19.1.2-h1e63acb_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/liblzma-5.8.3-hbb4bfdb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/liblzma-devel-5.8.3-hbb4bfdb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libpython-3.11.17-h31af0e7_1_cpython.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libpython-static-3.11.17-h6e061ac_1_cpython.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libsigtool-0.1.3-h8c25ef7_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libsqlite-3.53.4-ha5db789_102.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libxml2-2.12.7-hc603aa4_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-23.1.3-h8c1e6b9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-19-19.1.2-h65ece69_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-19.1.2-h062cec2_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/nuitka-2.8.10-py311h5822236_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/openssl-3.6.5-h332eb6d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.11.17-h6907cb8_1_cpython.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h000c2f7_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/sigtool-0.1.3-h8c25ef7_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/sigtool-codesign-0.1.3-h8c25ef7_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/tapi-1300.6.5-h390ca13_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/tk-8.6.13-ha6c374e_4.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/xz-5.8.3-h6a5a847_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/xz-gpl-tools-5.8.3-h6a5a847_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/xz-tools-5.8.3-hbb4bfdb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/zstandard-0.25.0-py311h72e27ae_4.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda
+      - pypi: https://files.pythonhosted.org/packages/09/1b/8fc459f3ee6e3365195d02cd0290fa7934273c94bb1482b5260140018ac5/pyobjc_framework_coremidi-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/0f/6e/fd29833f794cf80624ba57863386daab238c582620409ec0b243f5f8220c/PySide6_Essentials-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/10/75/556b8f887a8b68c3125aa64e8281c26cce42d5e7338b90ef5474d8a519b1/pyobjc_framework_coreaudio-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/17/45/8514cbd90d45738f274b3df4e8bbd63088954c4fa6fbc6cf2d16ea4acb90/pysidesix_frameless_window-0.8.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/1e/70/d056def8e5cf70ccecc983c0e89369a2645245bb51985b4da1abe22155ab/pyobjc_framework_launchservices-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/30/95/25f9bef10e74ee1aa942b7558f29514a3db407c0501637c2440c15ee0d81/pyobjc_framework_securityfoundation-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/34/e5/1424e36251fc1285a689b06203089f16facacab94a2cccfa72e3109915d2/pyobjc_framework_dvdplayback-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/34/fc/4fb0962d89b387c8efcb9bd6bf89c986680fc8972c9ea98aa0b5b3738f53/pyobjc_framework_syncservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/3b/b2/5c675b4d56eddeff0930b9e6b1be2fc75f0535dd86d1add3d24b5dd796f6/pyside6_fluent_widgets-1.11.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4e/6f/768b97eca5fc923274703e16dc1c15a08bfc92ff7e4d85e8861da747bef6/pyobjc_framework_iobluetoothui-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/58/f6/0b1b50967c878eae9c84b68dc098ee004cabf57d0d7a449001ddf04b8aaf/pycocoa-25.12.4-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/70/fca84b08e6a35cddf83b4db0c26d80c2ed6f02728ad844493fd7bbabbb8f/pyobjc_framework_iobluetooth-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/cb/5d9a352b1b2afd02f07482d28a72535c8a2935597326982bd7570f8834e7/shiboken6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/65/24/9f6ea0233cbd977014a5d4bc5e26fc1c4b94acb4c6f670bc634ed6a1e262/PySide6_Addons-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/6b/67/95fd6e47480178727cc11a21c1f8f6050b4b95296381350aea52c4797ef4/pyobjc_framework_discrecordingui-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/76/84/50b6ef800cb7d2c4e0e081dbc536023bbf71010894b5a724aff2ee2b756c/pyobjc_framework_applicationservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/7d/ef/75c49c425893555503d247510c3865ebdd902c784dc73f3a50616975968f/pyobjc_framework_addressbook-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/81/97/fc88803a451029688dffd7eb446dc1b529657577aec13aceff1cc9628c5d/cloudscraper-1.2.71-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/be/8e93d75cbe863a586dfe9e845e9603376ae4cadf10f6abea8a4e12e0ccce/pyobjc_framework_carbon-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/8e/27/248f417d419520d9ff9997b37012e41cfb1b4bd35650b15fbd7f1f3c4749/pyobjc_framework_coretext-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/90/9c/a6785b37b7b9654effc079530750b3785ccf72a24a3a060c56d0fe1b94eb/pyobjc_framework_discrecording-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/98/20/e7e3efb0d265cf3c35cd21f8a9f0c6282598c571b37caaff7876e1f16351/pyobjc_framework_webkit-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/a0/cd/405b9647b6ae476b6bb7d7870177c50e28f6131cbc4ca3bacd23143b90c3/pyobjc_framework_preferencepanes-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a8/a8/67fc16b9f55d14e0e277380df372872bb257a1d48fe39368b8e4bd0f4c93/pyobjc_framework_automator-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/af/06/36bde41903bb076a02c8c9179b0bea7c05d33c62b48920928b64dd8b8c7b/pyobjc_framework_installerplugins-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/af/4a/667a2e95b27cc9e29d56c6a677d6eb052dcdaef73205c35b6f5381f26cc9/pyobjc_framework_fsevents-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/b9/e8/16d07170d4e1bd182a8e6084abdf283fac90979384b8f53107be9eb110e6/pyobjc_framework_quartz-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/be/83/eb3104f59d197d57676f73f5df1a2b59de46d2561ba9dbfc3f1b2bfae1ad/pyobjc_framework_securityinterface-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/c1/d2/4896e6ae593b9701d50aed1c48852eb8fcf01b2a78fa07816ecd337fc054/pyobjc_framework_cfnetwork-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/c2/2c/f65c24c3c26e908b5c2f4c2fe0b73cf602a4543df6d5ee55df5e18e4fee3/pyobjc_framework_coredata-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/c3/0e/2cabb4d5c248ec1bda69545d7c762b3a2866b39ce7c41be4a8404993a641/PySide6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/ce/8e/18284fec7913ef78b25a1c97f9689ebef98bc14038386191491516abeb25/pyobjc_core-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/ce/af/c5d2549be11d583afb38276d14f27ac257b4b18bfbcaf57ea8aee40f5c61/pyobjc_framework_security-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/d3/d3/648c25c045c10404b91dd670943574bee5f4d1e8c41c7917f4ec7c990b32/pyobjc_framework_applescriptkit-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/d7/60/729dcb09f4b8c3cd700747ecf8a59531bddca3549a662ae0d8a44a1e9696/pyobjc_framework_coreservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/d8/34/f73102c05a532313f35deb2b01dd2b51c489e70b27b11c797dcb8522dea5/pyobjc_framework_diskarbitration-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/d8/39/e5b4980a06a861ee8cd517ad912e93ac50d090c2f99f707569f339808612/pyobjc_framework_systemconfiguration-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/dc/19/9bce4e4b890237c7b76688e3e5ea52eb20781fa6b839a14d0bce82ddbca3/pyobjc_framework_osakit-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/dc/2f/7ef944198ddeacd25edb9e364cbf06ea514d8ee904b2d602acf0a09a3596/pyobjc_framework_searchkit-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e4/b3/d5568aef55ce8e985b5b7108e36e97325b8d95767e1dacbd11b6c997a231/pyobjc_framework_exceptionhandling-12.2.2-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/f2/f2/728f041460f1b9739b85ee23b45fa5a505962ea11fd85bdbe2a02b021373/darkdetect-0.8.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/f6/a7/370f12143661dff66f2c68a735938afab6530aa3b153f6a7a6f12b5eabab/pyobjc_framework_cocoa-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/f7/68/38b2a3a27005d0d7f323d174280df0666cbe6a9ce758df297c4b53542c78/pyobjc_framework_screensaver-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/f7/de/7ae85b919d64a5ded0cff41bc28f5818c014ce982f7783181a864c25a7d7/pyobjc_framework_coreaudiokit-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/fa/33/1d328f56c1dba10df20edb620558e7379368a21ad2185e6b7fa8912f6a07/pyobjc-12.2.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fc/de/4e985d13ecd438b6ffa421270e06e3bb21a79377c9fd5fedf7823e6a9027/pyobjc_framework_latentsemanticmapping-12.2.2-py2.py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.7.22-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/certifi-2026.7.22-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/charset-normalizer-3.4.9-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/compiler-rt_osx-arm64-19.1.2-hccb7791_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-inconsolata-3.000-h77eed37_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-source-code-pro-2.038-h77eed37_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-ubuntu-0.83-h77eed37_3.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/fonts-conda-ecosystem-1-0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/fonts-conda-forge-1-hc364b38_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/h2-4.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/hpack-4.2.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/hyperframe-6.1.0-pyhd8ed1ab_0.conda
@@ -205,7 +317,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/brotli-python-1.2.0-py311hdc60ec4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/bzip2-1.0.8-h4e30115_10.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/c-compiler-1.11.0-h61f9b84_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cairo-1.18.0-hc6c324b_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cctools-1010.6-hfe164de_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cctools_osx-arm64-1010.6-hf7b29d9_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cffi-2.1.1-py311h833bfeb_0.conda
@@ -214,72 +325,29 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/clang_impl_osx-arm64-19.1.2-hc33b69d_21.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/clang_osx-arm64-19.1.2-h54d7cd3_21.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/compiler-rt-19.1.2-h33d20e1_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/double-conversion-3.3.1-h286801f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fontconfig-2.18.3-h2b252f5_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/freetype-2.14.3-hce30654_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/gettext-0.25.1-h3dcc1bd_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/gettext-tools-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/glib-2.80.2-h535f939_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/glib-tools-2.80.2-h4c882b9_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/graphite2-1.3.15-h784d473_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/gst-plugins-base-1.22.9-h09b4b5e_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/gstreamer-1.22.9-h551c6ff_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/harfbuzz-9.0.0-h1836168_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/icu-73.2-hc8870d7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/krb5-1.21.3-h237132a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ld64-951.9-he86490a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ld64_osx-arm64-951.9-hf3baa6d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lerc-4.2.0-h1eee2c3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libasprintf-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libasprintf-devel-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-16.0.6-default_h3c2e7ce_15.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-cpp16-16.0.6-default_h3c2e7ce_15.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-cpp19.1-19.1.2-default_h01e2e8e_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang13-16.0.6-default_hf1fa74b_15.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libcxx-22.1.8-h55c6f16_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libdeflate-1.25-he7e0567_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libedit-3.1.20250104-pl5321hafb1f1b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libexpat-2.8.1-hf6b4638_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libffi-3.5.2-hcf2aa1b_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libfreetype-2.14.3-hce30654_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libfreetype6-2.14.3-hdfa99f5_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libgettextpo-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libgettextpo-devel-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libglib-2.80.2-h535f939_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libiconv-1.18-h23cfdf5_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libintl-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libintl-devel-0.25.1-h493aca8_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libjpeg-turbo-3.2.0-h84a0fba_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libllvm16-16.0.6-haab561b_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libllvm19-19.1.2-haf57ff0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/liblzma-5.8.3-h8088a28_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/liblzma-devel-5.8.3-h8088a28_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libogg-1.3.5-h48c0fde_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libopus-1.6.1-h1a92334_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpng-1.6.58-h132b30e_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpq-16.12-h8f6b21d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpython-static-3.11.15-hf6b4638_1_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libsigtool-0.1.3-h98dc951_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libsqlite-3.53.4-h1b79a29_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libtiff-4.7.2-h282da08_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libvorbis-1.3.7-h81086ad_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libwebp-base-1.6.0-h202fb40_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxml2-2.12.7-h9a80f22_3.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxslt-1.1.39-h223e5b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.8-hc7d1edf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-tools-19-19.1.2-he407fa0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-tools-19.1.2-h33d20e1_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/mysql-common-8.3.0-h1687695_5.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/mysql-libs-8.3.0-h0e80b4a_5.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-he64c551_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nuitka-2.8.10-py311hcf33cb8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openssl-3.6.3-hd24854e_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pcre2-10.43-h26f9a81_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pixman-0.46.4-h784d473_3.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyside6-6.6.2-py311h318b17c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.11.15-h0c9c016_1_cpython.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/qt6-main-6.6.2-hb595f84_5.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/sigtool-0.1.3-h98dc951_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/sigtool-codesign-0.1.3-h98dc951_1.conda
@@ -288,12 +356,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/xz-5.8.3-hd0f0c4f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/xz-gpl-tools-5.8.3-hd0f0c4f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/xz-tools-5.8.3-h8088a28_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstandard-0.25.0-py311h5bb9006_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
       - pypi: https://files.pythonhosted.org/packages/02/08/6ec19751ee486409164e94ca6bba29050c491467540cefed1398ac520c09/pyobjc_framework_carbon-12.2.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0d/5c/0fd7111ed45d665e9d82d8e03462c2c4e26115a16b1834c3045e1ebaba3e/pyobjc_framework_coremidi-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/0d/b1/bc42da075faf6e4201bfe2ec4bfda95b71877a15df4a501977ef739b7128/pyobjc_framework_preferencepanes-12.2.1-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/0f/6e/fd29833f794cf80624ba57863386daab238c582620409ec0b243f5f8220c/PySide6_Essentials-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/16/7ae359b8f858d6caeb076d779ef1123ed2f1d287e5e9a7262f7355b25819/pyobjc_framework_installerplugins-12.2.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/a2/3878e4783c65eeb72a1c06de1f880ef573b9677198a3142ff5082c0810ac/pyobjc-12.2.1-py3-none-any.whl
@@ -308,7 +376,9 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/54/ff/ba06033f6b8b5a43a188c810c4439a35cbc0baf90bfa90e4a1682260c1d7/pyobjc_framework_osakit-12.2.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/1f/853c498e18db8b6d9eb0cb2261bf8cda3948f2c925d1c820baaf96fdb54d/pyobjc_framework_coreaudio-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/58/f6/0b1b50967c878eae9c84b68dc098ee004cabf57d0d7a449001ddf04b8aaf/pycocoa-25.12.4-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/cb/5d9a352b1b2afd02f07482d28a72535c8a2935597326982bd7570f8834e7/shiboken6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/62/ea/015e595050aecaea98cfd9cb62d93bd86408af7550efc405d9bc661a69c2/pyobjc_framework_iobluetoothui-12.2.1-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/65/24/9f6ea0233cbd977014a5d4bc5e26fc1c4b94acb4c6f670bc634ed6a1e262/PySide6_Addons-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/66/fa/5447695b7b646242b4f0e790b382c4432cc6e730152a19271896e4683a63/pyobjc_framework_discrecordingui-12.2.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/72/6d/7eba39749600eb43df55445be2947826255469aa07402829c3fb23c6c9c6/pyobjc_framework_cfnetwork-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/7c/b9/ab7be45781781fc68faf523b7cfcdaf05c2b307fbc49140905eb31f3ecf2/pyobjc_framework_coredata-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
@@ -325,6 +395,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/be/ac/f2ff946edfaf16b4ce5e31afac5e519f83705c0f4842fd25134ecb8f2f4a/pyobjc_framework_security-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/c0/6c/ee10385cdd403471b205baf701890b5cb640a9dc357013d8a1801f1d5640/pyobjc_framework_dvdplayback-12.2.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/03/b439d6af2c215a59e71cdb2cf00959415f0dd1ec0fd84b0a517c403290a0/pyobjc_framework_securityfoundation-12.2.1-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/c3/0e/2cabb4d5c248ec1bda69545d7c762b3a2866b39ce7c41be4a8404993a641/PySide6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/cd/8a/5a9310929bb303c31c04a1c6dc7b3213c9bd964a692d024a00c0643af2c8/pyobjc_framework_applicationservices-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/db/d8/0020ace0ab37bc81f865eaa6f5b2f7a27f5389a6179d6e231e647dd17f37/pyobjc_framework_coreservices-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/e4/41/0121efdb19535aacd8fcb1c03bc7cc6f2e1865fabd77316d33e6422f09ad/pyobjc_framework_coreaudiokit-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
@@ -2429,6 +2500,20 @@ packages:
   run_exports: {}
   size: 61418
   timestamp: 1783505332569
+- conda: https://conda.anaconda.org/conda-forge/noarch/compiler-rt_osx-64-19.1.2-h9518668_0.conda
+  sha256: 500dbfc15b41db16be787e87e5ca4c8acc0824797ea21ecafb842eb0ae156c1d
+  md5: 2e19684e70c73c8e7dcc1cce12268e0c
+  depends:
+  - clang 19.1.2.*
+  constrains:
+  - clangxx 19.1.2
+  - compiler-rt 19.1.2
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: APACHE
+  purls: []
+  run_exports: {}
+  size: 10872615
+  timestamp: 1729142257650
 - conda: https://conda.anaconda.org/conda-forge/noarch/compiler-rt_osx-arm64-19.1.2-hccb7791_0.conda
   sha256: d049dc7a04595c11199eb44ea123aa9b93460d6cac417cf184859052a0e0f782
   md5: 519d08e72db60882435c8df6142281d1
@@ -2639,6 +2724,18 @@ packages:
   run_exports: {}
   size: 55886
   timestamp: 1779293633166
+- conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-3.11-pyh5ded981_0.conda
+  sha256: 99af7c6061d7aa73cfcef615500ddf3e9f4a58c844646b7d7ce58147fb5758d7
+  md5: 3cd164745122ab557cc30879390089e8
+  depends:
+  - python >=3.11
+  - python
+  license: BSD-3-Clause
+  purls:
+  - pkg:pypi/pycparser?source=compressed-mapping
+  run_exports: {}
+  size: 58624
+  timestamp: 1791592610066
 - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyh09c184e_7.conda
   sha256: d016e04b0e12063fbee4a2d5fbb9b39a8d191b5a0042f0b8459188aedeabb0ca
   md5: e2fd202833c4a981ce8a65974fe4abd1
@@ -2798,6 +2895,694 @@ packages:
   run_exports: {}
   size: 9555
   timestamp: 1733130678956
+- conda: https://conda.anaconda.org/conda-forge/osx-64/backports.zstd-1.8.0-py311h6931d8d_0.conda
+  sha256: 8715d8fb4e9df7cd3e516730b66db1d5001d609640d25efe31a9181950291834
+  md5: 4b889eb23b9a251a2c5675179123cbd5
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.11.* *_cp311
+  - zstd >=1.5.7,<1.6.0a0
+  license: BSD-3-Clause AND MIT AND EPL-2.0
+  purls:
+  - pkg:pypi/backports-zstd?source=hash-mapping
+  run_exports: {}
+  size: 246934
+  timestamp: 1791654879955
+- conda: https://conda.anaconda.org/conda-forge/osx-64/brotli-python-1.2.0-py311hd084d1d_4.conda
+  sha256: f6540961615e08b22765c0f3e4c6a76f3c544709c777d288012cb40e6bf9bc74
+  md5: 2848c0ca920cd3ce577296b545c3ceb2
+  depends:
+  - __osx >=11.0
+  - libcxx >=21
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  constrains:
+  - libbrotlicommon 1.2.0 he0616a4_4
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/brotli?source=hash-mapping
+  run_exports: {}
+  size: 387044
+  timestamp: 1788481226815
+- conda: https://conda.anaconda.org/conda-forge/osx-64/bzip2-1.0.8-h374f1ed_10.conda
+  sha256: 4ed83961876dc8844a6f0df49c07b408efbaea275ffb0b37133e24c006990b3a
+  md5: 9d9a39212a876e4bb751c1cc3927b678
+  depends:
+  - __osx >=11.0
+  license: bzip2-1.0.6
+  license_family: BSD
+  purls: []
+  run_exports:
+    weak:
+    - bzip2 >=1.0.8,<2.0a0
+  size: 133271
+  timestamp: 1785906721507
+- conda: https://conda.anaconda.org/conda-forge/osx-64/c-compiler-1.11.0-h7a00415_0.conda
+  sha256: 2bd1cf3d26789b7e1d04e914ccd169bd618fceed68abf7b6a305266b88dcf861
+  md5: 2b23ec416cef348192a5a17737ddee60
+  depends:
+  - cctools >=949.0.1
+  - clang_osx-64 19.*
+  - ld64 >=530
+  - llvm-openmp
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  run_exports: {}
+  size: 6695
+  timestamp: 1753098825695
+- conda: https://conda.anaconda.org/conda-forge/osx-64/cctools-1010.6-h92db3b5_1.conda
+  sha256: c7080e15c752c8640d4071320b28b38d12eb1edf13639361e160cde00a5e1f65
+  md5: 53cf553721a856c322d49a5d2213b718
+  depends:
+  - cctools_osx-64 1010.6 hd0ff2cf_1
+  - ld64 951.9 hc3792c1_1
+  - libllvm19 >=19.1.0,<19.2.0a0
+  license: APSL-2.0
+  license_family: Other
+  purls: []
+  run_exports: {}
+  size: 21485
+  timestamp: 1727792659731
+- conda: https://conda.anaconda.org/conda-forge/osx-64/cctools_osx-64-1010.6-hd0ff2cf_1.conda
+  sha256: e6f80d78674e5b1cefdd44aaa1d30571038e5b1ba29ba85b8503081ade1e2b9b
+  md5: 0fdd5399ddb037f512e0a44edae7032e
+  depends:
+  - __osx >=10.13
+  - ld64_osx-64 >=951.9,<951.10.0a0
+  - libcxx
+  - libllvm19 >=19.1.0,<19.2.0a0
+  - libzlib >=1.3.1,<2.0a0
+  - llvm-tools 19.1.*
+  - sigtool
+  constrains:
+  - ld64 951.9.*
+  - cctools 1010.6.*
+  - clang 19.1.*
+  license: APSL-2.0
+  license_family: Other
+  purls: []
+  run_exports: {}
+  size: 1096597
+  timestamp: 1727792637075
+- conda: https://conda.anaconda.org/conda-forge/osx-64/cffi-2.1.1-py311ha57a2f8_3.conda
+  sha256: 3f8fdd69ef79b00cb937db0244a1bed5a46c4dd74322b3b94a0f3c459368e4d7
+  md5: 42f6080651b67d71a030621cb26fb974
+  depends:
+  - __osx >=11.0
+  - libffi >=3.7.0,<3.8.0a0
+  - pycparser
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/cffi?source=hash-mapping
+  run_exports: {}
+  size: 297137
+  timestamp: 1788485770224
+- conda: https://conda.anaconda.org/conda-forge/osx-64/charset-normalizer-3.5.2-hd77389f_0.conda
+  noarch: python
+  sha256: c472de27f59dfc9ad7fcf59b0bb560f284764153defa73869882b10fd78b32b4
+  md5: 26eaacf697e8bbc4ebbc94db3bb0ab67
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.9
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/charset-normalizer?source=compressed-mapping
+  run_exports: {}
+  size: 191387
+  timestamp: 1790766173038
+- conda: https://conda.anaconda.org/conda-forge/osx-64/clang-19-19.1.2-default_hed3c1ff_1.conda
+  sha256: bad75d787c0cb1854f89a221203ae240004cae8af368325e44d067eb753282b1
+  md5: e889ee996ea56d01df286ee68678c7c7
+  depends:
+  - __osx >=10.13
+  - libclang-cpp19.1 19.1.2 default_hed3c1ff_1
+  - libcxx >=19.1.2
+  - libllvm19 >=19.1.2,<19.2.0a0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports: {}
+  size: 766833
+  timestamp: 1729287487625
+- conda: https://conda.anaconda.org/conda-forge/osx-64/clang-19.1.2-default_h4bb2e93_1.conda
+  sha256: 7e60b83eab1b7a64288193447f7c2562fd1134fa83112fa5d7570193cdf7a41d
+  md5: 9e74e29c1d1c79b69fd9c96b4178c440
+  depends:
+  - clang-19 19.1.2 default_hed3c1ff_1
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports: {}
+  size: 23572
+  timestamp: 1729287574021
+- conda: https://conda.anaconda.org/conda-forge/osx-64/clang_impl_osx-64-19.1.2-h0cd9531_21.conda
+  sha256: 6a4caa5c0a5d481fcc77f4723b659600c2a255bfbccf9f898833810357622aa9
+  md5: 7ae6065fcc8a3379d8b681dfb930d0f1
+  depends:
+  - cctools_osx-64
+  - clang 19.1.2.*
+  - compiler-rt 19.1.2.*
+  - ld64_osx-64
+  - llvm-tools 19.1.2.*
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  run_exports: {}
+  size: 17487
+  timestamp: 1729164674928
+- conda: https://conda.anaconda.org/conda-forge/osx-64/clang_osx-64-19.1.2-hb91bd55_21.conda
+  sha256: 33fa4f2cbcc661b3e1a1d20c3f674c8a67bfd4c17d77940fd88e1a00da29fa30
+  md5: 34dc576db8e56b34bf49f386a2fdcf22
+  depends:
+  - clang_impl_osx-64 19.1.2 h0cd9531_21
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  run_exports: {}
+  size: 20647
+  timestamp: 1729164679913
+- conda: https://conda.anaconda.org/conda-forge/osx-64/compiler-rt-19.1.2-hf2491d2_0.conda
+  sha256: 5678176943f338475fc5216178f4f6cbe584cbb21f7bd10d54dfc10a35f20a07
+  md5: c76b503161bca7969e8f49421b1250b5
+  depends:
+  - __osx >=10.13
+  - clang 19.1.2.*
+  - compiler-rt_osx-64 19.1.2.*
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: APACHE
+  purls: []
+  run_exports: {}
+  size: 96818
+  timestamp: 1729142288397
+- conda: https://conda.anaconda.org/conda-forge/osx-64/icu-73.2-hf5e326d_0.conda
+  sha256: f66362dc36178ac9b7c7a9b012948a9d2d050b3debec24bbd94aadbc44854185
+  md5: 5cc301d759ec03f28328428e28f65591
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - icu >=73.2,<74.0a0
+  size: 11787527
+  timestamp: 1692901622519
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ld64-951.9-hc3792c1_1.conda
+  sha256: f1fcb9f80a33d8f3836da16b9d486773a5cbe0eb14655c9284654f5bd4bf5d23
+  md5: 3580eaebf2825c46cf21390636387065
+  depends:
+  - ld64_osx-64 951.9 h3c7722d_1
+  - libllvm19 >=19.1.0,<19.2.0a0
+  constrains:
+  - cctools_osx-64 1010.6.*
+  - cctools 1010.6.*
+  license: APSL-2.0
+  license_family: Other
+  purls: []
+  run_exports: {}
+  size: 18764
+  timestamp: 1727792649626
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ld64_osx-64-951.9-h3c7722d_1.conda
+  sha256: 66cb0e389379a6fe375120d4d476c88bfbd557612a7c2a7f88782a5932bfef89
+  md5: 037fbd1bbc7873f53bf23d0cc3057d90
+  depends:
+  - __osx >=10.13
+  - libcxx
+  - libllvm19 >=19.1.0,<19.2.0a0
+  - sigtool
+  - tapi >=1300.6.5,<1301.0a0
+  constrains:
+  - cctools 1010.6.*
+  - clang >=19.1.0,<20.0a0
+  - ld 951.9.*
+  - cctools_osx-64 1010.6.*
+  license: APSL-2.0
+  license_family: Other
+  purls: []
+  run_exports: {}
+  size: 1090841
+  timestamp: 1727792589810
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libclang-cpp19.1-19.1.2-default_hed3c1ff_1.conda
+  sha256: 3ca871fdf4bb4b868784f3e1a89a48d2d4f3c4d8686cd6d19d0e094ca17bab8f
+  md5: 853eea82ab64ab384457f61916c21659
+  depends:
+  - __osx >=10.13
+  - libcxx >=19.1.2
+  - libllvm19 >=19.1.2,<19.2.0a0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports:
+    weak:
+    - libclang-cpp19.1 >=19.1.2,<19.2.0a0
+  size: 14532833
+  timestamp: 1729287141199
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.3-h19cb2f5_0.conda
+  sha256: 19ec3adf903c04aac6f31b180d283f0beb6d0393c5c1603f1d57355eb3a8fd66
+  md5: 55664c771bbae09ac41bd7c940c3a7e1
+  depends:
+  - __osx >=11.0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports: {}
+  size: 573303
+  timestamp: 1791337833929
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libexpat-2.8.5-h6e061ac_0.conda
+  sha256: c58d84e9455db8161fa6a2413c1bf11de30682c02f9a3c1ddfaf24ea73dbe10f
+  md5: 082b0cec641dcb5bbf71d2aa4b37bfd4
+  depends:
+  - __osx >=11.0
+  constrains:
+  - expat 2.8.5.*
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 75347
+  timestamp: 1790370393156
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libffi-3.7.0-h6b3a05b_1.conda
+  sha256: c4793041226c87f987b9903e6503b76f02f52855cc193be2729ac127e600529b
+  md5: e077b71ae65754eda067e4125364b905
+  depends:
+  - __osx >=11.0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - libffi >=3.7.0,<3.8.0a0
+  size: 60786
+  timestamp: 1787754056669
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libiconv-1.18-h4ae439b_3.conda
+  sha256: 2389e03a58ed0f5e8f2469eb4d4ba80d0af378b38854ae5eee65e5b641244082
+  md5: 9fd2f77288f43e462ccc6b0e5f018c89
+  depends:
+  - __osx >=11.0
+  license: LGPL-2.1-only
+  purls: []
+  run_exports:
+    weak:
+    - libiconv >=1.18,<2.0a0
+  size: 736150
+  timestamp: 1787034707041
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libllvm19-19.1.2-h1e63acb_0.conda
+  sha256: 31035f7aa439ca93645fb995a9b548f82f363068271cb4755fc5a3757d3af496
+  md5: f71d5443e58de8b821ba9fce74447b23
+  depends:
+  - __osx >=10.13
+  - libcxx >=17
+  - libxml2 >=2.12.7,<2.14.0a0
+  - libzlib >=1.3.1,<2.0a0
+  - zstd >=1.5.6,<1.6.0a0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports:
+    weak:
+    - libllvm19 >=19.1.2,<19.2.0a0
+  size: 28702727
+  timestamp: 1729023904579
+- conda: https://conda.anaconda.org/conda-forge/osx-64/liblzma-5.8.3-hbb4bfdb_1.conda
+  sha256: 7915dac7c71c208e40e716e2f6d3eff41a8d5584e0e7c2d46f9bf9bd5f9aa739
+  md5: daf49067580fbfeae3ac7f9535400494
+  depends:
+  - __osx >=11.0
+  constrains:
+  - xz 5.8.3.*
+  license: 0BSD
+  purls: []
+  run_exports:
+    weak:
+    - liblzma >=5.8.3,<6.0a0
+  size: 104919
+  timestamp: 1786349094608
+- conda: https://conda.anaconda.org/conda-forge/osx-64/liblzma-devel-5.8.3-hbb4bfdb_1.conda
+  sha256: 9851141c745a646c0ebebb8444d7c3961b3f5b478adefd878a2dc3aa090e7bd1
+  md5: 45d82d23fd5fbf413cbee1c2fc3ef4eb
+  depends:
+  - __osx >=11.0
+  - liblzma 5.8.3 hbb4bfdb_1
+  license: 0BSD
+  purls: []
+  run_exports:
+    weak:
+    - liblzma >=5.8.3,<6.0a0
+  size: 118729
+  timestamp: 1786349118043
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libpython-3.11.17-h31af0e7_1_cpython.conda
+  build_number: 1
+  sha256: 7c9df12043c4ee5dc66b47521403eee9e86f0b3a3c7b712c673bfbbf5aba570a
+  md5: 4aa7ba2cada2344ea801c63118aace0e
+  depends:
+  - __osx >=11.0
+  - libcxx >=21
+  license: Python-2.0
+  purls: []
+  run_exports:
+    weak:
+    - libpython >=3.11,<4.0a0
+  size: 1856965
+  timestamp: 1791332813632
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libpython-static-3.11.17-h6e061ac_1_cpython.conda
+  build_number: 1
+  sha256: 6120d9051b6b5e718425fa64c51a080a9c87927d7267cd1ff05f7b0efe762956
+  md5: e6f922bf33f13db8ccaf52f80a1cb8fc
+  depends:
+  - __osx >=11.0
+  - libcxx >=21
+  - python >=3.11,<3.12.0a0 h6907cb8_1_cpython
+  license: Python-2.0
+  purls: []
+  run_exports: {}
+  size: 9015520
+  timestamp: 1791333100070
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libsigtool-0.1.3-h8c25ef7_1.conda
+  sha256: c3d76ff04ebed64d00a7ff5106297a55af20082a3d3df0ea7dfb235f94ba31c3
+  md5: acc366a7706c83b5364f5f81e1b4857b
+  depends:
+  - __osx >=11.0
+  - openssl >=3.5.7,<4.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 38559
+  timestamp: 1786115361068
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libsqlite-3.53.4-ha5db789_102.conda
+  sha256: 1902d4b50b964f9753145ec0121f51a0fefaf64ca9806aae860cecb81cc75b98
+  md5: 3fd4d7c9bcb8d4911fc202a731b5bb38
+  depends:
+  - __osx >=11.0
+  - libzlib >=1.3.2,<2.0a0
+  license: blessing
+  purls: []
+  run_exports:
+    weak:
+    - libsqlite >=3.53.4,<4.0a0
+  size: 1008845
+  timestamp: 1791167528883
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libxml2-2.12.7-hc603aa4_3.conda
+  sha256: b0cf4a1d3e628876613665ea957a4c0adc30460be859fa859a1eed7eac87330b
+  md5: c188d96aea8eaa16efec573fe36a9a13
+  depends:
+  - __osx >=10.13
+  - icu >=73.2,<74.0a0
+  - libiconv >=1.17,<2.0a0
+  - libzlib >=1.3.1,<2.0a0
+  - xz >=5.2.6,<6.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - libxml2 >=2.12.7,<3.0a0
+  size: 620129
+  timestamp: 1720772795289
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda
+  sha256: b2dba286dd6632292b12296e761193b5ef9fb0eaeecaa481f5ba9af72c0c18e1
+  md5: 7d3fa28263bb7f8ea32db11f570a5bb6
+  depends:
+  - __osx >=11.0
+  constrains:
+  - zlib 1.3.2 *_3
+  license: Zlib
+  license_family: Other
+  purls: []
+  run_exports:
+    weak:
+    - libzlib >=1.3.2,<2.0a0
+  size: 58993
+  timestamp: 1785276808631
+- conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-23.1.3-h8c1e6b9_0.conda
+  sha256: 7a94db37d2389c65366e820308f1c8964a2264a8ca3b0bab96ec8ca20083e677
+  md5: 85edbb56b37fc44b823f32d126214059
+  depends:
+  - __osx >=11.0
+  constrains:
+  - intel-openmp <0.0a0
+  - openmp 23.1.3|23.1.3.*
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: APACHE
+  purls: []
+  run_exports:
+    strong:
+    - llvm-openmp >=23.1.3
+  size: 311780
+  timestamp: 1791368961053
+- conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-19-19.1.2-h65ece69_0.conda
+  sha256: e60b72d95ec9100cd8e648d57fe85057366ce29e8d12a8d06141db79b06c24a5
+  md5: f175827e6e194f263e2265248f4a0fac
+  depends:
+  - __osx >=10.13
+  - libcxx >=17
+  - libllvm19 19.1.2 h1e63acb_0
+  - libzlib >=1.3.1,<2.0a0
+  - zstd >=1.5.6,<1.6.0a0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports: {}
+  size: 17527949
+  timestamp: 1729024502344
+- conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-19.1.2-h062cec2_0.conda
+  sha256: 6db353881758f4aca031b0f12d19a5cbde620d621b0771aa715dc2cbdf1de112
+  md5: 5290783e1a3f8b7c38efd3c5d76d8fff
+  depends:
+  - __osx >=10.13
+  - libllvm19 19.1.2 h1e63acb_0
+  - llvm-tools-19 19.1.2 h65ece69_0
+  constrains:
+  - clang-tools 19.1.2
+  - clang       19.1.2
+  - llvmdev     19.1.2
+  - llvm        19.1.2
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  run_exports: {}
+  size: 87360
+  timestamp: 1729024565476
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_1.conda
+  sha256: 12c1d676b9a0e8109b576672519312c5428308f3f3d7706f8717e2f536d5d9e7
+  md5: 88a79390f87c8f3334b9999a892e78d4
+  depends:
+  - __osx >=11.0
+  license: X11 AND BSD-3-Clause
+  purls: []
+  run_exports:
+    weak:
+    - ncurses >=6.6,<7.0a0
+  size: 834865
+  timestamp: 1786356957789
+- conda: https://conda.anaconda.org/conda-forge/osx-64/nuitka-2.8.10-py311h5822236_0.conda
+  sha256: 58d35afd235bb4890f5afe21b776d50b9434705824db142f97631c3523a69897
+  md5: ca3947d1b149c8195c526a65bac0a347
+  depends:
+  - c-compiler
+  - libpython-static
+  - ordered-set
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: Apache
+  purls:
+  - pkg:pypi/nuitka?source=hash-mapping
+  run_exports: {}
+  size: 4410175
+  timestamp: 1769588268749
+- conda: https://conda.anaconda.org/conda-forge/osx-64/openssl-3.6.5-h332eb6d_0.conda
+  sha256: d992d27aec2f1beac81f792c85b449546c030f06937b5b3ea7cf58431861dde4
+  md5: 615ac6cff316565b442cd1af8b94837f
+  depends:
+  - __osx >=11.0
+  - ca-certificates
+  license: Apache-2.0
+  license_family: Apache
+  purls: []
+  run_exports:
+    weak:
+    - openssl >=3.6.5,<4.0a0
+  size: 2786968
+  timestamp: 1791099439455
+- conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.11.17-h6907cb8_1_cpython.conda
+  build_number: 1
+  sha256: e471e4df2103522c6402159f8bac6d3fb064d67e63ee6bfbdd90c22e762b9471
+  md5: 3f4cfe36cc30db6b538cfed859f96ef6
+  depends:
+  - __osx >=11.0
+  - bzip2 >=1.0.8,<2.0a0
+  - libexpat >=2.8.5,<3.0a0
+  - libffi >=3.7.0,<3.8.0a0
+  - liblzma >=5.8.3,<6.0a0
+  - libpython 3.11.17 h31af0e7_1_cpython
+  - libsqlite >=3.53.4,<4.0a0
+  - libzlib >=1.3.2,<2.0a0
+  - ncurses >=6.6,<7.0a0
+  - openssl >=3.5.9,<4.0a0
+  - readline >=8.3,<9.0a0
+  - tk >=8.6.13,<8.7.0a0
+  - tzdata
+  constrains:
+  - python_abi 3.11.* *_cp311
+  license: Python-2.0
+  purls: []
+  run_exports:
+    weak:
+    - python_abi 3.11.* *_cp311
+    noarch:
+    - python
+  size: 13850426
+  timestamp: 1791333047526
+- conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h000c2f7_1.conda
+  sha256: feb9248a062b7a0738e56339d8c9e87bc9adf8e8c76549fb55b0b2456bec3a57
+  md5: 434eb49340f57827ef7ca3bb21f77c32
+  depends:
+  - __osx >=11.0
+  - ncurses >=6.6,<7.0a0
+  license: GPL-3.0-only
+  license_family: GPL
+  purls: []
+  run_exports:
+    weak:
+    - readline >=8.3,<9.0a0
+  size: 319279
+  timestamp: 1787034454836
+- conda: https://conda.anaconda.org/conda-forge/osx-64/sigtool-0.1.3-h8c25ef7_1.conda
+  sha256: 0ff3d8efd911571d11abecd3deec0adf1841274f5842559fed9bcf430a35bf11
+  md5: f22e23c457b5582b8b63f88b2f865b69
+  depends:
+  - __osx >=11.0
+  - libsigtool 0.1.3 h8c25ef7_1
+  - openssl >=3.5.7,<4.0a0
+  - sigtool-codesign 0.1.3 h8c25ef7_1
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 126260
+  timestamp: 1786115431042
+- conda: https://conda.anaconda.org/conda-forge/osx-64/sigtool-codesign-0.1.3-h8c25ef7_1.conda
+  sha256: 37aac42f05e21b48a3b61b28ae624ed5a3d2acfcbaabf2cd10ef7762c4fb4c45
+  md5: e7eb95a1f841fbbb8312dcd65963334f
+  depends:
+  - __osx >=11.0
+  - libsigtool 0.1.3 h8c25ef7_1
+  - openssl >=3.5.7,<4.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 123458
+  timestamp: 1786115396108
+- conda: https://conda.anaconda.org/conda-forge/osx-64/tapi-1300.6.5-h390ca13_0.conda
+  sha256: f97372a1c75b749298cb990405a690527e8004ff97e452ed2c59e4bc6a35d132
+  md5: c6ee25eb54accb3f1c8fc39203acfaf1
+  depends:
+  - __osx >=10.13
+  - libcxx >=17.0.0.a0
+  - ncurses >=6.5,<7.0a0
+  license: NCSA
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 221236
+  timestamp: 1725491044729
+- conda: https://conda.anaconda.org/conda-forge/osx-64/tk-8.6.13-ha6c374e_4.conda
+  sha256: 74e5fabcaf6ca0db052c645646ea04ded98a5eb7540483217f8101a819eb3107
+  md5: 71c9f1f0267f2639523e898c6b50a4dc
+  depends:
+  - __osx >=11.0
+  - libzlib >=1.3.2,<2.0a0
+  license: TCL
+  purls: []
+  run_exports:
+    weak:
+    - tk >=8.6.13,<8.7.0a0
+  size: 3512384
+  timestamp: 1787272935349
+- conda: https://conda.anaconda.org/conda-forge/osx-64/xz-5.8.3-h6a5a847_1.conda
+  sha256: 05e6b4a6688b161e52f9a064aed1b29452d142e7ca41b8683515fa82584fa5fe
+  md5: 60370353b407dd3cc858eabd04e88384
+  depends:
+  - __osx >=11.0
+  - liblzma 5.8.3 hbb4bfdb_1
+  - liblzma-devel 5.8.3 hbb4bfdb_1
+  - xz-gpl-tools 5.8.3 h6a5a847_1
+  - xz-tools 5.8.3 hbb4bfdb_1
+  license: 0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later
+  purls: []
+  run_exports:
+    weak:
+    - liblzma >=5.8.3,<6.0a0
+  size: 23555
+  timestamp: 1786349188744
+- conda: https://conda.anaconda.org/conda-forge/osx-64/xz-gpl-tools-5.8.3-h6a5a847_1.conda
+  sha256: 017247c2ab9f63436cbfc698778ee085ac80c31771c41b907af47d7790a00e62
+  md5: cf4fca501e998d7253668639ffec24e1
+  depends:
+  - __osx >=11.0
+  - liblzma 5.8.3 hbb4bfdb_1
+  constrains:
+  - xz 5.8.3.*
+  license: 0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later
+  purls: []
+  run_exports:
+    weak:
+    - liblzma >=5.8.3,<6.0a0
+  size: 40228
+  timestamp: 1786349169430
+- conda: https://conda.anaconda.org/conda-forge/osx-64/xz-tools-5.8.3-hbb4bfdb_1.conda
+  sha256: 1cc3fcdc8ba2e69778f03e4912e32fab56870277a9325b753b1ef299bb9921b9
+  md5: b101ad5ebf575225d2ef5f8e6d250ad1
+  depends:
+  - __osx >=11.0
+  - liblzma 5.8.3 hbb4bfdb_1
+  constrains:
+  - xz 5.8.3.*
+  license: 0BSD AND LGPL-2.1-or-later
+  purls: []
+  run_exports: {}
+  size: 86634
+  timestamp: 1786349143553
+- conda: https://conda.anaconda.org/conda-forge/osx-64/zstandard-0.25.0-py311h72e27ae_4.conda
+  sha256: 79ece252b79820c8971a4fd29774bbd82628c1175d8ecb1342fa4f2471e30347
+  md5: 360bca9803e76468a8dd70b40d3291a2
+  depends:
+  - python
+  - cffi >=1.11
+  - zstd >=1.5.7,<1.5.8.0a0
+  - __osx >=11.0
+  - python_abi 3.11.* *_cp311
+  - zstd >=1.5.7,<1.6.0a0
+  license: BSD-3-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/zstandard?source=hash-mapping
+  run_exports: {}
+  size: 452782
+  timestamp: 1788604386724
+- conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda
+  sha256: 5277886d9704a624dc9b79ac985861e1e431bdb39a57c082507ab577a138ec6c
+  md5: c1d11f04327e40537ffe6cad5b131019
+  depends:
+  - __osx >=11.0
+  - libzlib >=1.3.2,<2.0a0
+  license: BSD-3-Clause
+  license_family: BSD
+  purls: []
+  run_exports:
+    weak:
+    - zstd >=1.5.7,<1.6.0a0
+  size: 528228
+  timestamp: 1786599702092
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/backports.zstd-1.6.0-py311h36d4fbb_0.conda
   sha256: 51b1b6c4c7c0b77bc8f145f4dd6d9fcb97ee5bd999cc125a0650ebc632107fbe
   md5: ab2cfcf1499efba573df019a9aa1f3dc
@@ -2857,28 +3642,6 @@ packages:
   run_exports: {}
   size: 6697
   timestamp: 1753098737760
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/cairo-1.18.0-hc6c324b_2.conda
-  sha256: 7cb330f41fd5abd3d2444a62c0439af8b11c96497aa2f87d76a5b580edf6d35c
-  md5: 6efeefcad878c15377f49f64e2cbf232
-  depends:
-  - __osx >=11.0
-  - fontconfig >=2.14.2,<3.0a0
-  - fonts-conda-ecosystem
-  - freetype >=2.12.1,<3.0a0
-  - icu >=73.2,<74.0a0
-  - libcxx >=16
-  - libglib >=2.80.2,<3.0a0
-  - libpng >=1.6.43,<1.7.0a0
-  - libzlib >=1.3.1,<2.0a0
-  - pixman >=0.43.4,<1.0a0
-  - zlib
-  license: LGPL-2.1-only or MPL-1.1
-  purls: []
-  run_exports:
-    weak:
-    - cairo >=1.18.0,<2.0a0
-  size: 898820
-  timestamp: 1718985829269
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cctools-1010.6-hfe164de_1.conda
   sha256: 4374658085b52fbdc12ccd540c69c36e0d17ae22f9fc70d19fafa0792f4b6738
   md5: e6021ec0de4030756cde3771b67e05a9
@@ -2994,190 +3757,6 @@ packages:
   run_exports: {}
   size: 96208
   timestamp: 1729142363186
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/double-conversion-3.3.1-h286801f_0.conda
-  sha256: 819867a009793fe719b74b2b5881a7e85dc13ce504c7260a9801f3b1970fd97b
-  md5: 4dce99b1430bf11b64432e2edcc428fa
-  depends:
-  - __osx >=11.0
-  - libcxx >=18
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - double-conversion >=3.3.1,<3.4.0a0
-  size: 63265
-  timestamp: 1739569780916
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/fontconfig-2.18.3-h2b252f5_0.conda
-  sha256: 6ec1937b910b2ac468459c2f7844b7c98238ada39ede05461dbd4dc764e519a5
-  md5: d718960dea5abf5b582fe8ecf363c11d
-  depends:
-  - __osx >=11.0
-  - libexpat >=2.8.1,<3.0a0
-  - libfreetype >=2.14.3
-  - libfreetype6 >=2.14.3
-  - libintl >=0.25.1,<1.0a0
-  - libzlib >=1.3.2,<2.0a0
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - fontconfig >=2.18.3,<3.0a0
-    - fonts-conda-ecosystem
-  size: 267950
-  timestamp: 1786381516923
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/freetype-2.14.3-hce30654_1.conda
-  sha256: 96b33f1e2a32c602b167f43719e3acf89ec742b4a1e25e99ffd0e6f99b38d277
-  md5: 7bd06ab4ed807154c2d9031eb5ebf025
-  depends:
-  - libfreetype 2.14.3 hce30654_1
-  - libfreetype6 2.14.3 hdfa99f5_1
-  license: GPL-2.0-only OR FTL
-  purls: []
-  run_exports:
-    weak:
-    - libfreetype >=2.14.3
-    - libfreetype6 >=2.14.3
-  size: 173518
-  timestamp: 1780933616544
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/gettext-0.25.1-h3dcc1bd_0.conda
-  sha256: 129a81e9da9f60ae6955b49938447e7faeb7e1be815b2db99e76956dddf8c392
-  md5: 7059ba83fd98707b2cd9a5f06f589dd4
-  depends:
-  - __osx >=11.0
-  - gettext-tools 0.25.1 h493aca8_0
-  - libasprintf 0.25.1 h493aca8_0
-  - libasprintf-devel 0.25.1 h493aca8_0
-  - libcxx >=18
-  - libgettextpo 0.25.1 h493aca8_0
-  - libgettextpo-devel 0.25.1 h493aca8_0
-  - libiconv >=1.18,<2.0a0
-  - libintl 0.25.1 h493aca8_0
-  - libintl-devel 0.25.1 h493aca8_0
-  license: LGPL-2.1-or-later AND GPL-3.0-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libintl >=0.25.1,<1.0a0
-    - libasprintf >=0.25.1,<1.0a0
-    - libgettextpo >=0.25.1,<1.0a0
-  size: 543276
-  timestamp: 1751558682952
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/gettext-tools-0.25.1-h493aca8_0.conda
-  sha256: e8dd68706676d5b6f6ee09240936a0ecd1ae12b87dbb37e4c4be263e332ab125
-  md5: 817042c017930497931da6aa04a47f09
-  depends:
-  - __osx >=11.0
-  - libiconv >=1.18,<2.0a0
-  - libintl 0.25.1 h493aca8_0
-  license: GPL-3.0-or-later
-  license_family: GPL
-  purls: []
-  run_exports: {}
-  size: 3748044
-  timestamp: 1751558602508
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/glib-2.80.2-h535f939_0.conda
-  sha256: 49394397c5fee963b2b5d53b954ac2de0df9e1d5dde31a2f83e66a28ddd9948d
-  md5: 9b69f620f2a8153ba4467fedc09e89f1
-  depends:
-  - __osx >=11.0
-  - glib-tools 2.80.2 h4c882b9_0
-  - libffi >=3.4,<4.0a0
-  - libglib 2.80.2 h535f939_0
-  - libintl >=0.22.5,<1.0a0
-  - libintl-devel
-  - python *
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libglib >=2.80.2,<3.0a0
-  size: 582907
-  timestamp: 1715253076009
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/glib-tools-2.80.2-h4c882b9_0.conda
-  sha256: ca3e432221f78abfa0f4401ab340a018ad13f8ef1a2bb4b95978a620b2006e87
-  md5: cbb22f46214f22c8e73c09175f516fab
-  depends:
-  - __osx >=11.0
-  - libglib 2.80.2 h535f939_0
-  - libintl >=0.22.5,<1.0a0
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports: {}
-  size: 98331
-  timestamp: 1715253041090
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/graphite2-1.3.15-h784d473_1.conda
-  sha256: 471f34a187fdb4f2df33e26f2e471b16c239a5b277903f643d9c3a8c9a9f44ec
-  md5: 0c7b78d9ffff4f5a6ca28d346f734d8f
-  depends:
-  - libcxx >=19
-  - __osx >=11.0
-  license: LGPL-2.0-or-later
-  license_family: LGPL
-  purls: []
-  run_exports:
-    weak:
-    - graphite2 >=1.3.15,<2.0a0
-  size: 86493
-  timestamp: 1786118637573
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/gst-plugins-base-1.22.9-h09b4b5e_1.conda
-  sha256: e55277c44e7a55cd710438fe18d36816ea74570280863830b48706b793c26583
-  md5: 2e32f4b46cf8c2adef7e3ca6ad9c4e3c
-  depends:
-  - gettext >=0.21.1,<1.0a0
-  - gstreamer 1.22.9 h551c6ff_1
-  - libcxx >=16
-  - libglib >=2.80.0,<3.0a0
-  - libogg >=1.3.4,<1.4.0a0
-  - libopus >=1.3.1,<2.0a0
-  - libpng >=1.6.43,<1.7.0a0
-  - libvorbis >=1.3.7,<1.4.0a0
-  - libzlib >=1.2.13,<2.0.0a0
-  license: LGPL-2.0-or-later
-  license_family: LGPL
-  purls: []
-  run_exports:
-    weak:
-    - gst-plugins-base >=1.22.9,<1.23.0a0
-  size: 1919868
-  timestamp: 1711211932350
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/gstreamer-1.22.9-h551c6ff_1.conda
-  sha256: 5e379761c6f429ca2e4296602a7fb13af4d731c89d60bc9f8a6c6b9c4f239861
-  md5: 1c3b67e6251ac77b04d4cc50212fab2c
-  depends:
-  - gettext >=0.21.1,<1.0a0
-  - glib >=2.80.0,<3.0a0
-  - libcxx >=16
-  - libglib >=2.80.0,<3.0a0
-  - libiconv >=1.17,<2.0a0
-  license: LGPL-2.0-or-later
-  license_family: LGPL
-  purls: []
-  run_exports:
-    weak:
-    - gstreamer >=1.22.9,<1.23.0a0
-  size: 1335313
-  timestamp: 1711211515841
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/harfbuzz-9.0.0-h1836168_0.conda
-  sha256: 9d2a30e652c0f0e6d7f87a527687d74ea8eaa0274199e08122dd6b400f23d9cb
-  md5: b6b6313a34c08e587c04dc2ed9a6c724
-  depends:
-  - __osx >=11.0
-  - cairo >=1.18.0,<2.0a0
-  - freetype >=2.12.1,<3.0a0
-  - graphite2
-  - icu >=73.2,<74.0a0
-  - libcxx >=16
-  - libglib >=2.80.2,<3.0a0
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - harfbuzz >=9.0.0,<10.0a0
-  size: 1320754
-  timestamp: 1719580394276
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/icu-73.2-hc8870d7_0.conda
   sha256: ff9cd0c6cd1349954c801fb443c94192b637e1b414514539f3c49c56a39f51b1
   md5: 8521bd47c0e11c5902535bb1a17c565f
@@ -3189,23 +3768,6 @@ packages:
     - icu >=73.2,<74.0a0
   size: 11997841
   timestamp: 1692902104771
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/krb5-1.21.3-h237132a_0.conda
-  sha256: 4442f957c3c77d69d9da3521268cad5d54c9033f1a73f99cde0a3658937b159b
-  md5: c6dc8a0fdec13a0565936655c33069a1
-  depends:
-  - __osx >=11.0
-  - libcxx >=16
-  - libedit >=3.1.20191231,<3.2.0a0
-  - libedit >=3.1.20191231,<4.0a0
-  - openssl >=3.3.1,<4.0a0
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - krb5 >=1.21.3,<1.22.0a0
-  size: 1155530
-  timestamp: 1719463474401
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ld64-951.9-he86490a_1.conda
   sha256: 1ffa7739abd9cadbd761dac734a4fe4fddf9910981daf14a4b131d05352850f1
   md5: 071189c4eb4a134bfbb21331f191c838
@@ -3241,77 +3803,6 @@ packages:
   run_exports: {}
   size: 1010000
   timestamp: 1727792742169
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/lerc-4.2.0-h1eee2c3_0.conda
-  sha256: c97aa17d16d2ac332ba9f184e82ce8f72dcb10e9a10c5f299030be2d44e191b9
-  md5: e429aec4037d5cb8fd34ded9f5dadd39
-  depends:
-  - __osx >=11.0
-  - libcxx >=19
-  license: Apache-2.0
-  license_family: Apache
-  purls: []
-  run_exports:
-    weak:
-    - lerc >=4.2.0,<5.0a0
-  size: 166477
-  timestamp: 1785036480092
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libasprintf-0.25.1-h493aca8_0.conda
-  sha256: 7265547424e978ea596f51cc8e7b81638fb1c660b743e98cc4deb690d9d524ab
-  md5: 0deb80a2d6097c5fb98b495370b2435b
-  depends:
-  - __osx >=11.0
-  - libcxx >=18
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libasprintf >=0.25.1,<1.0a0
-  size: 52316
-  timestamp: 1751558366611
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libasprintf-devel-0.25.1-h493aca8_0.conda
-  sha256: fc76b07620eabde52928c69bcdcb5497da3fdad3331a76f9d4bffeb27e0bdd8f
-  md5: c18067d2d5864e77f84456d97c1c17cc
-  depends:
-  - __osx >=11.0
-  - libasprintf 0.25.1 h493aca8_0
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libasprintf >=0.25.1,<1.0a0
-  size: 35256
-  timestamp: 1751558418167
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-16.0.6-default_h3c2e7ce_15.conda
-  sha256: 57db34ee50146a592730986eaf886f33be6611ea7a9d4ca16d0e59db074450b9
-  md5: 46e637757abb2c786f67adc92074f480
-  depends:
-  - __osx >=11.0
-  - libclang13 16.0.6 default_hf1fa74b_15
-  - libcxx >=16.0.6
-  - libllvm16 >=16.0.6,<16.1.0a0
-  license: Apache-2.0 WITH LLVM-exception
-  license_family: Apache
-  purls: []
-  run_exports:
-    weak:
-    - libclang13 >=16.0.6
-  size: 92479
-  timestamp: 1756166336825
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-cpp16-16.0.6-default_h3c2e7ce_15.conda
-  sha256: 96beef959638d73da280e9551b9028df48f7f671df237c6bb7c7495816e96fa8
-  md5: 2589c8f983f4676b005a4e8fb227212d
-  depends:
-  - __osx >=11.0
-  - libcxx >=16.0.6
-  - libllvm16 >=16.0.6,<16.1.0a0
-  license: Apache-2.0 WITH LLVM-exception
-  license_family: Apache
-  purls: []
-  run_exports:
-    weak:
-    - libclang-cpp16 >=16.0.6,<16.1.0a0
-  size: 11797889
-  timestamp: 1756165841886
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang-cpp19.1-19.1.2-default_h01e2e8e_1.conda
   sha256: 1758cad3440948a7fc148d36930b03d4e942b09b15476086030346588a98606b
   md5: 4965d41ec51bbe66f9c03ed4c0e83491
@@ -3327,21 +3818,6 @@ packages:
     - libclang-cpp19.1 >=19.1.2,<19.2.0a0
   size: 13676943
   timestamp: 1729286663843
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libclang13-16.0.6-default_hf1fa74b_15.conda
-  sha256: cf12162d21bcb5bda6da4247e8d2ac61bce7e9e97802d4fd46c4e5071376614a
-  md5: eb82d20907cd48f97aea719fb6a514cd
-  depends:
-  - __osx >=11.0
-  - libcxx >=16.0.6
-  - libllvm16 >=16.0.6,<16.1.0a0
-  license: Apache-2.0 WITH LLVM-exception
-  license_family: Apache
-  purls: []
-  run_exports:
-    weak:
-    - libclang13 >=16.0.6
-  size: 6874368
-  timestamp: 1756166243901
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libcxx-22.1.8-h55c6f16_0.conda
   sha256: a2e7abab5add9750fab064c024394de48e49f97631c605ad5db5c8ac3fc769ef
   md5: 89f76a2a21a3ec3ec983b5eb237c4113
@@ -3353,34 +3829,6 @@ packages:
   run_exports: {}
   size: 569349
   timestamp: 1781670209146
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libdeflate-1.25-he7e0567_1.conda
-  sha256: d896f4aa4ce4c590c2838678cb1917356fdb461d2a189991c0280c818c362172
-  md5: 78650d671cb56909bb3e5c13bce310f9
-  depends:
-  - __osx >=11.0
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - libdeflate >=1.25,<1.26.0a0
-  size: 55727
-  timestamp: 1785909153744
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libedit-3.1.20250104-pl5321hafb1f1b_0.conda
-  sha256: 66aa216a403de0bb0c1340a88d1a06adaff66bae2cfd196731aa24db9859d631
-  md5: 44083d2d2c2025afca315c7a172eab2b
-  depends:
-  - ncurses
-  - __osx >=11.0
-  - ncurses >=6.5,<7.0a0
-  license: BSD-2-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - libedit >=3.1.20250104,<3.2.0a0
-  size: 107691
-  timestamp: 1738479560845
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libexpat-2.8.1-hf6b4638_1.conda
   sha256: 5af74261101e3c777399c6294b2b5d290e508153268eb2e9ff99c4d69834612f
   md5: a915151d5d3c5bf039f5ccc8402a436f
@@ -3407,80 +3855,6 @@ packages:
     - libffi >=3.5.2,<3.6.0a0
   size: 40979
   timestamp: 1769456747661
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libfreetype-2.14.3-hce30654_1.conda
-  sha256: d5637b01941c0fc8f5cbb1f170c238f4ee153b3c1708b9d50f4f1305438ff051
-  md5: 0582e67cd14cfed773be2f3b1aba08e0
-  depends:
-  - libfreetype6 >=2.14.3
-  license: GPL-2.0-only OR FTL
-  purls: []
-  run_exports: {}
-  size: 8365
-  timestamp: 1780933612390
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libfreetype6-2.14.3-hdfa99f5_1.conda
-  sha256: abbfffd8a8c776bb8b59a10c8247fc3aa6b17ba0051e9f6d199dca38479f214f
-  md5: a0bb0678f67c464938d3693fa96f6884
-  depends:
-  - __osx >=11.0
-  - libpng >=1.6.58,<1.7.0a0
-  - libzlib >=1.3.2,<2.0a0
-  constrains:
-  - freetype >=2.14.3
-  license: GPL-2.0-only OR FTL
-  purls: []
-  run_exports: {}
-  size: 338442
-  timestamp: 1780933611662
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libgettextpo-0.25.1-h493aca8_0.conda
-  sha256: 3ba35ff26b3b9573b5df5b9bbec5c61476157ec3a9f12c698e2a9350cd4338fd
-  md5: 98acd9989d0d8d5914ccc86dceb6c6c2
-  depends:
-  - __osx >=11.0
-  - libiconv >=1.18,<2.0a0
-  - libintl 0.25.1 h493aca8_0
-  license: GPL-3.0-or-later
-  license_family: GPL
-  purls: []
-  run_exports:
-    weak:
-    - libgettextpo >=0.25.1,<1.0a0
-  size: 183091
-  timestamp: 1751558452316
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libgettextpo-devel-0.25.1-h493aca8_0.conda
-  sha256: 976941e18f879e5c1e67553f9657f7bb9d3935c89014ebfeafe89dcfba2de9e7
-  md5: 91c2fdde1cb4a61b5cb7afa682af359e
-  depends:
-  - __osx >=11.0
-  - libgettextpo 0.25.1 h493aca8_0
-  - libiconv >=1.18,<2.0a0
-  - libintl 0.25.1 h493aca8_0
-  license: GPL-3.0-or-later
-  license_family: GPL
-  purls: []
-  run_exports:
-    weak:
-    - libgettextpo >=0.25.1,<1.0a0
-  size: 37894
-  timestamp: 1751558502415
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libglib-2.80.2-h535f939_0.conda
-  sha256: 3f0c9f25748787ab5475c5ce8267184d6637e8a5b7ca55ef2f3a0d7bff2f537f
-  md5: 4ac7cb698ca919924e205af3ab3aacf3
-  depends:
-  - __osx >=11.0
-  - libffi >=3.4,<4.0a0
-  - libiconv >=1.17,<2.0a0
-  - libintl >=0.22.5,<1.0a0
-  - libzlib >=1.2.13,<2.0.0a0
-  - pcre2 >=10.43,<10.44.0a0
-  constrains:
-  - glib 2.80.2 *_0
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libglib >=2.80.2,<3.0a0
-  size: 3623970
-  timestamp: 1715252979767
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libiconv-1.18-h23cfdf5_2.conda
   sha256: de0336e800b2af9a40bdd694b03870ac4a848161b35c8a2325704f123f185f03
   md5: 4d5a7445f0b25b6a3ddbb56e790f5251
@@ -3493,63 +3867,6 @@ packages:
     - libiconv >=1.18,<2.0a0
   size: 750379
   timestamp: 1754909073836
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libintl-0.25.1-h493aca8_0.conda
-  sha256: 99d2cebcd8f84961b86784451b010f5f0a795ed1c08f1e7c76fbb3c22abf021a
-  md5: 5103f6a6b210a3912faf8d7db516918c
-  depends:
-  - __osx >=11.0
-  - libiconv >=1.18,<2.0a0
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libintl >=0.25.1,<1.0a0
-  size: 90957
-  timestamp: 1751558394144
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libintl-devel-0.25.1-h493aca8_0.conda
-  sha256: 5a446cb0501d87e0816da0bce524c60a053a4cf23c94dfd3e2b32a8499009e36
-  md5: 5f9888e1cdbbbef52c8cf8b567393535
-  depends:
-  - __osx >=11.0
-  - libiconv >=1.18,<2.0a0
-  - libintl 0.25.1 h493aca8_0
-  license: LGPL-2.1-or-later
-  purls: []
-  run_exports:
-    weak:
-    - libintl >=0.25.1,<1.0a0
-  size: 40340
-  timestamp: 1751558481257
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libjpeg-turbo-3.2.0-h84a0fba_1.conda
-  sha256: 05006418f9392c9b723e8428808db106de0350a497832f95f921b85ff1072310
-  md5: b2f8c8e5a7651a1d7c05404c3a159517
-  depends:
-  - __osx >=11.0
-  constrains:
-  - jpeg <0.0.0a
-  license: IJG AND BSD-3-Clause AND Zlib
-  purls: []
-  run_exports:
-    weak:
-    - libjpeg-turbo >=3.2.0,<4.0a0
-  size: 558459
-  timestamp: 1785896382474
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libllvm16-16.0.6-haab561b_3.conda
-  sha256: f240f3776b02c39a32ce7397d6f2de072510321c835f4def452fc62e5c3babc0
-  md5: 9900d62ede9ce25b569beeeab1da094e
-  depends:
-  - libcxx >=16
-  - libxml2 >=2.12.1,<2.14.0a0
-  - libzlib >=1.2.13,<2.0.0a0
-  - zstd >=1.5.5,<1.6.0a0
-  license: Apache-2.0 WITH LLVM-exception
-  license_family: Apache
-  purls: []
-  run_exports:
-    weak:
-    - libllvm16 >=16.0.6,<16.1.0a0
-  size: 23347663
-  timestamp: 1701374993634
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libllvm19-19.1.2-haf57ff0_0.conda
   sha256: 049b7dcb3bc43a1e496987b0d45ce9b9f894a88385744d5779027062e2cea6ae
   md5: 6038eda47f011c0f808d34accd8dacb6
@@ -3594,59 +3911,6 @@ packages:
     - liblzma >=5.8.3,<6.0a0
   size: 118908
   timestamp: 1786348704814
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libogg-1.3.5-h48c0fde_1.conda
-  sha256: 28bd1fe20fe43da105da41b95ac201e95a1616126f287985df8e86ddebd1c3d8
-  md5: 29b8b11f6d7e6bd0e76c029dcf9dd024
-  depends:
-  - __osx >=11.0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - libogg >=1.3.5,<1.4.0a0
-  size: 216719
-  timestamp: 1745826006052
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libopus-1.6.1-h1a92334_0.conda
-  sha256: 5c95a5f7712f543c59083e62fc3a95efec8b7f3773fbf4542ad1fb87fbf51ff4
-  md5: 7f414dd3fd1cb7a76e51fec074a9c49e
-  depends:
-  - __osx >=11.0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - libopus >=1.6.1,<2.0a0
-  size: 308000
-  timestamp: 1768497248058
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpng-1.6.58-h132b30e_0.conda
-  sha256: 66eae34546df1f098a67064970c92aa14ae7a7505091889e00468294d2882c36
-  md5: 2259ae0949dbe20c0665850365109b27
-  depends:
-  - __osx >=11.0
-  - libzlib >=1.3.2,<2.0a0
-  license: zlib-acknowledgement
-  purls: []
-  run_exports:
-    weak:
-    - libpng >=1.6.58,<1.7.0a0
-  size: 289546
-  timestamp: 1776315246750
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpq-16.12-h8f6b21d_0.conda
-  sha256: 3065c3315f270454d0a751b6a8f7297678a53249480036662a61d8019b80d921
-  md5: f97fd55f7fc94c8883e2863054b7d5a9
-  depends:
-  - __osx >=11.0
-  - krb5 >=1.21.3,<1.22.0a0
-  - openssl >=3.5.5,<4.0a0
-  license: PostgreSQL
-  purls: []
-  run_exports:
-    weak:
-    - libpq >=16.12,<17.0a0
-  size: 2382332
-  timestamp: 1770916786051
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libpython-static-3.11.15-hf6b4638_1_cpython.conda
   build_number: 1
   sha256: de82103ce2c64cc4b341dd7b26b9aa04f2fc9b98ae18dcd3487e088d98f04ccd
@@ -3685,57 +3949,6 @@ packages:
     - libsqlite >=3.53.4,<4.0a0
   size: 925226
   timestamp: 1785016124520
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libtiff-4.7.2-h282da08_0.conda
-  sha256: 253153cabf9469170e02b21a6bc9aa598048e7c34966b1103af52d27d2a708a4
-  md5: 6fa87106b3c041ad6d965a9411e79b94
-  depends:
-  - __osx >=11.0
-  - lerc >=4.1.0,<5.0a0
-  - libcxx >=19
-  - libdeflate >=1.25,<1.26.0a0
-  - libjpeg-turbo >=3.1.4.1,<4.0a0
-  - liblzma >=5.8.3,<6.0a0
-  - libwebp-base >=1.6.0,<2.0a0
-  - libzlib >=1.3.2,<2.0a0
-  - zstd >=1.5.7,<1.6.0a0
-  license: HPND
-  purls: []
-  run_exports:
-    weak:
-    - libtiff >=4.7.2,<4.8.0a0
-  size: 387825
-  timestamp: 1783085754081
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libvorbis-1.3.7-h81086ad_2.conda
-  sha256: 95768e4eceaffb973081fd986d03da15d93aa10609ed202e6fd5ca1e490a3dce
-  md5: 719e7653178a09f5ca0aa05f349b41f7
-  depends:
-  - libogg
-  - libcxx >=19
-  - __osx >=11.0
-  - libogg >=1.3.5,<1.4.0a0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - libvorbis >=1.3.7,<1.4.0a0
-  size: 259122
-  timestamp: 1753879389702
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libwebp-base-1.6.0-h202fb40_1.conda
-  sha256: 0ff54650d470c7e54cbeffdd53a8c063e055a7bcf784388c0385ce5c4741b0f4
-  md5: 168a13e329259710b28277abc1395b8e
-  depends:
-  - __osx >=11.0
-  constrains:
-  - libwebp 1.6.0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - libwebp-base >=1.6.0,<2.0a0
-  size: 294522
-  timestamp: 1785955350410
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxml2-2.12.7-h9a80f22_3.conda
   sha256: 760d05981dd32d55ee820a0f35f714a7af32c1c4cc209bf705a0ede93d5bd683
   md5: 705829a78a7ce3dff19a967f0f0f5ed3
@@ -3753,19 +3966,6 @@ packages:
     - libxml2 >=2.12.7,<3.0a0
   size: 588441
   timestamp: 1720772863811
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxslt-1.1.39-h223e5b9_0.conda
-  sha256: 2f1d99ef3fb960f23a63f06cf65ee621a5594a8b4616f35d9805be44617a92af
-  md5: 560c9cacc33e927f55b998eaa0cb1732
-  depends:
-  - libxml2 >=2.12.1,<2.14.0a0
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - libxslt >=1.1.39,<2.0a0
-  size: 225705
-  timestamp: 1701628966565
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_3.conda
   sha256: a18fa5d5bac452401459f966cf0d872224e8080c4ff93c77e168d43ab42ef9d7
   md5: f39288f0ea63ae962e1a2e4f355a0d75
@@ -3830,35 +4030,6 @@ packages:
   run_exports: {}
   size: 87485
   timestamp: 1729025688924
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/mysql-common-8.3.0-h1687695_5.conda
-  sha256: 1b050b4c52193b1c02b565d651c99915fb907f6c6d9e91407481b8cc1a45faec
-  md5: f5fc0fa4097e79fa9b83f9ddab3501cc
-  depends:
-  - __osx >=11.0
-  - libcxx >=16
-  - openssl >=3.3.1,<4.0a0
-  license: GPL-2.0-or-later
-  license_family: GPL
-  purls: []
-  run_exports: {}
-  size: 808234
-  timestamp: 1721384917601
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/mysql-libs-8.3.0-h0e80b4a_5.conda
-  sha256: b1439d59d05251150ea273cb8676c065f8c893cf93056e8f91c5d84a6a9fa6a6
-  md5: 64b7aea85f552487ae831af4c073f274
-  depends:
-  - __osx >=11.0
-  - libcxx >=16
-  - libzlib >=1.3.1,<2.0a0
-  - mysql-common 8.3.0 h1687695_5
-  - openssl >=3.3.1,<4.0a0
-  - zstd >=1.5.6,<1.6.0a0
-  license: GPL-2.0-or-later
-  license_family: GPL
-  purls: []
-  run_exports: {}
-  size: 1543070
-  timestamp: 1721385188899
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-he64c551_1.conda
   sha256: 7024a48c8c0d0114ed4ab53c76bf9275d50e91ba7cea367a9aead638d3c29c68
   md5: 3dfa0d0316dc246cd44937a557de4501
@@ -3902,55 +4073,6 @@ packages:
     - openssl >=3.6.3,<4.0a0
   size: 3109132
   timestamp: 1785913735357
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pcre2-10.43-h26f9a81_0.conda
-  sha256: 4bf7b5fa091f5e7ab0b78778458be1e81c1ffa182b63795734861934945a63a7
-  md5: 1ddc87f00014612830f3235b5ad6d821
-  depends:
-  - bzip2 >=1.0.8,<2.0a0
-  - libzlib >=1.2.13,<2.0.0a0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls: []
-  run_exports:
-    weak:
-    - pcre2 >=10.43,<10.44.0a0
-  size: 615219
-  timestamp: 1708118184900
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pixman-0.46.4-h784d473_3.conda
-  sha256: 4779cd57231ce2e96fac643fcbdd4a6f51a57986264545445574e9c4acf526d3
-  md5: 9a99c0b60efe41c194d01c182d000733
-  depends:
-  - __osx >=11.0
-  - libcxx >=19
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports:
-    weak:
-    - pixman >=0.46.4,<1.0a0
-  size: 198717
-  timestamp: 1786106922508
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyside6-6.6.2-py311h318b17c_1.conda
-  sha256: b9829b6a4a925ce3dc4f4ed4ae444d9e8b587cba0a3d88e230ac6d72bf67339d
-  md5: 68d1339ccd8671d79b104018f13e4cd3
-  depends:
-  - libclang >=16.0.6,<17.0a0
-  - libclang13 >=16.0.6
-  - libcxx >=16
-  - libxml2 >=2.12.5,<2.14.0a0
-  - libxslt >=1.1.39,<2.0a0
-  - python >=3.11,<3.12.0a0
-  - python_abi 3.11.* *_cp311
-  - qt6-main 6.6.2.*
-  - qt6-main >=6.6.2,<6.7.0a0
-  license: LGPL-3.0-only
-  license_family: LGPL
-  purls:
-  - pkg:pypi/pyside6?source=hash-mapping
-  - pkg:pypi/shiboken6?source=hash-mapping
-  run_exports: {}
-  size: 14691165
-  timestamp: 1708542734531
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.11.15-h0c9c016_1_cpython.conda
   build_number: 1
   sha256: a44be5222fe8d3c072ecd22491d37316724b70be6b8e8dabdc1a25e6d293fba8
@@ -3979,42 +4101,6 @@ packages:
     - python
   size: 15389700
   timestamp: 1781148926804
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/qt6-main-6.6.2-hb595f84_5.conda
-  sha256: 58c549fadc3de9f413cf98f6d515ca0d6166a95a4e63e8e2ebeb760d4794a1a2
-  md5: a6023539d75a969ef93d217280e783a0
-  depends:
-  - double-conversion >=3.3.0,<3.4.0a0
-  - gst-plugins-base >=1.22.9,<1.23.0a0
-  - gstreamer >=1.22.9,<1.23.0a0
-  - harfbuzz >=8.3.0
-  - icu >=73.2,<74.0a0
-  - krb5 >=1.21.2,<1.22.0a0
-  - libclang-cpp16 >=16.0.6,<16.1.0a0
-  - libclang13 >=16.0.6
-  - libcxx >=16
-  - libglib >=2.80.0,<3.0a0
-  - libjpeg-turbo >=3.0.0,<4.0a0
-  - libllvm16 >=16.0.6,<16.1.0a0
-  - libpng >=1.6.43,<1.7.0a0
-  - libpq >=16.2,<17.0a0
-  - libsqlite >=3.45.2,<4.0a0
-  - libtiff >=4.6.0,<4.8.0a0
-  - libwebp-base >=1.3.2,<2.0a0
-  - libzlib >=1.2.13,<2.0.0a0
-  - mysql-libs >=8.3.0,<8.4.0a0
-  - openssl >=3.2.1,<4.0a0
-  - pcre2 >=10.43,<10.44.0a0
-  - zstd >=1.5.5,<1.6.0a0
-  constrains:
-  - qt 6.6.2
-  license: LGPL-3.0-only
-  license_family: LGPL
-  purls: []
-  run_exports:
-    weak:
-    - qt6-main >=6.6.2,<6.7.0a0
-  size: 41433167
-  timestamp: 1711307913830
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
   sha256: a77010528efb4b548ac2a4484eaf7e1c3907f2aec86123ed9c5212ae44502477
   md5: f8381319127120ce51e081dce4865cf4
@@ -4126,20 +4212,6 @@ packages:
   run_exports: {}
   size: 85988
   timestamp: 1786348715175
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_3.conda
-  sha256: ab46d85e4fcffff1b1c5cac517afa40b7ae784cf76fc9da1f55f6a6934291eb6
-  md5: 2c966485853aa27985fbec7e3fcc4e77
-  depends:
-  - __osx >=11.0
-  - libzlib 1.3.2 h8088a28_3
-  license: Zlib
-  license_family: Other
-  purls: []
-  run_exports:
-    weak:
-    - libzlib >=1.3.2,<2.0a0
-  size: 81744
-  timestamp: 1785277062753
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstandard-0.25.0-py311h5bb9006_1.conda
   sha256: 2ee455765fe831cca8fe127c56ae99938e353797135fe33140b28abb4fbe1049
   md5: 651594b8f9b9cccc5948287a18903c34
@@ -5002,6 +5074,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/09/1b/8fc459f3ee6e3365195d02cd0290fa7934273c94bb1482b5260140018ac5/pyobjc_framework_coremidi-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coremidi
+  version: 12.2.2
+  sha256: 8ad01744fe7f242ab4309df5291cb392ae9fafc6e83d5715bfb3fad2ee682f5b
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/0d/5c/0fd7111ed45d665e9d82d8e03462c2c4e26115a16b1834c3045e1ebaba3e/pyobjc_framework_coremidi-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-coremidi
   version: 12.2.1
@@ -5017,6 +5097,21 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/0f/6e/fd29833f794cf80624ba57863386daab238c582620409ec0b243f5f8220c/PySide6_Essentials-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+  name: pyside6-essentials
+  version: 6.6.2
+  sha256: 41373f9b8fd17bb39a7dc7da85168508fe288955a17117c2e993339f387b23c1
+  requires_dist:
+  - shiboken6==6.6.2
+  requires_python: '>=3.8,<3.13'
+- pypi: https://files.pythonhosted.org/packages/10/75/556b8f887a8b68c3125aa64e8281c26cce42d5e7338b90ef5474d8a519b1/pyobjc_framework_coreaudio-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coreaudio
+  version: 12.2.2
+  sha256: 2217911fb21cd6d8002d0895f6353a15fd6ce2c4e191b3f4cb6e16ad7a428591
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
   name: pyparsing
@@ -5389,6 +5484,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/1e/70/d056def8e5cf70ccecc983c0e89369a2645245bb51985b4da1abe22155ab/pyobjc_framework_launchservices-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-launchservices
+  version: 12.2.2
+  sha256: 29c30610176af6e31fdd8b1a58eb7b14dd73259aa8a8fffa2b1cff96dfb06b7c
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-coreservices>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/1e/c9/a2ad7ca6ad84d8379e1604718cd63205454d60f0978ad1aef5b585fad6f0/pyobjc_framework_screensaver-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-screensaver
   version: 12.2.1
@@ -5396,6 +5499,32 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/30/95/25f9bef10e74ee1aa942b7558f29514a3db407c0501637c2440c15ee0d81/pyobjc_framework_securityfoundation-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-securityfoundation
+  version: 12.2.2
+  sha256: 044be755373b450d1c8d2b2bd2b5c6f626b31a8a63c496b8745390171a352490
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-security>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/34/e5/1424e36251fc1285a689b06203089f16facacab94a2cccfa72e3109915d2/pyobjc_framework_dvdplayback-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-dvdplayback
+  version: 12.2.2
+  sha256: efc8678587555ca62bac19dede3626072f6875b6a256373ad1cda9fcf3acdd00
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/34/fc/4fb0962d89b387c8efcb9bd6bf89c986680fc8972c9ea98aa0b5b3738f53/pyobjc_framework_syncservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-syncservices
+  version: 12.2.2
+  sha256: cfbf3f4eda096939b037093bec082f91e1788ed2b40433ce3b0ec2b8a5fd9cff
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-coredata>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/35/c4/dcd2d62b5944b6d5db53413a5899016ccd57ffcb7278f3f81655d25d2027/pywin32-312-cp311-cp311-win_amd64.whl
   name: pywin32
@@ -5444,6 +5573,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/4e/6f/768b97eca5fc923274703e16dc1c15a08bfc92ff7e4d85e8861da747bef6/pyobjc_framework_iobluetoothui-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-iobluetoothui
+  version: 12.2.2
+  sha256: 5343547c7c166d8faef673033438802d5621068b95861e25bba3321ee73b4a35
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-iobluetooth>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/54/ff/ba06033f6b8b5a43a188c810c4439a35cbc0baf90bfa90e4a1682260c1d7/pyobjc_framework_osakit-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-osakit
   version: 12.2.1
@@ -5464,6 +5601,19 @@ packages:
   name: pycocoa
   version: 25.12.4
   sha256: 189f08be6f3b479bad53711776eec5687a9eddc30e88c1ac24ed458e6053ba1b
+- pypi: https://files.pythonhosted.org/packages/5a/70/fca84b08e6a35cddf83b4db0c26d80c2ed6f02728ad844493fd7bbabbb8f/pyobjc_framework_iobluetooth-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-iobluetooth
+  version: 12.2.2
+  sha256: ef030dab63e2a842f93dad527b534dc892dd9aebbf56465dc49c9ed4be085163
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/5a/cb/5d9a352b1b2afd02f07482d28a72535c8a2935597326982bd7570f8834e7/shiboken6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+  name: shiboken6
+  version: 6.6.2
+  sha256: 531728324ad3ad4ed7b1d85d2dff548d618182d67024e16e84079f7db104590d
+  requires_python: '>=3.8,<3.13'
 - pypi: https://files.pythonhosted.org/packages/62/ea/015e595050aecaea98cfd9cb62d93bd86408af7550efc405d9bc661a69c2/pyobjc_framework_iobluetoothui-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-iobluetoothui
   version: 12.2.1
@@ -5472,6 +5622,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-iobluetooth>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/65/24/9f6ea0233cbd977014a5d4bc5e26fc1c4b94acb4c6f670bc634ed6a1e262/PySide6_Addons-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+  name: pyside6-addons
+  version: 6.6.2
+  sha256: 4fb00bc98bc8335177eaa8f6d70ba687ab9bf00b3ee343abbc7156040f3e586d
+  requires_dist:
+  - shiboken6==6.6.2
+  - pyside6-essentials==6.6.2
+  requires_python: '>=3.8,<3.13'
 - pypi: https://files.pythonhosted.org/packages/66/fa/5447695b7b646242b4f0e790b382c4432cc6e730152a19271896e4683a63/pyobjc_framework_discrecordingui-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-discrecordingui
   version: 12.2.1
@@ -5481,6 +5639,15 @@ packages:
   - pyobjc-framework-cocoa>=12.2.1
   - pyobjc-framework-discrecording>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/6b/67/95fd6e47480178727cc11a21c1f8f6050b4b95296381350aea52c4797ef4/pyobjc_framework_discrecordingui-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-discrecordingui
+  version: 12.2.2
+  sha256: 4690feff3ce392074457c4ce044ea060c8d761f4134265ab3592d3fb2313b193
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-discrecording>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/72/6d/7eba39749600eb43df55445be2947826255469aa07402829c3fb23c6c9c6/pyobjc_framework_cfnetwork-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-cfnetwork
   version: 12.2.1
@@ -5489,6 +5656,16 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/76/84/50b6ef800cb7d2c4e0e081dbc536023bbf71010894b5a724aff2ee2b756c/pyobjc_framework_applicationservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-applicationservices
+  version: 12.2.2
+  sha256: 82275ea56be975ee84fafdb340dcfee6b5289422c3f674c1982d3fcd47ba68c9
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-quartz>=12.2.2
+  - pyobjc-framework-coretext>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/7c/b9/ab7be45781781fc68faf523b7cfcdaf05c2b307fbc49140905eb31f3ecf2/pyobjc_framework_coredata-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-coredata
   version: 12.2.1
@@ -5496,6 +5673,14 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/7d/ef/75c49c425893555503d247510c3865ebdd902c784dc73f3a50616975968f/pyobjc_framework_addressbook-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-addressbook
+  version: 12.2.2
+  sha256: 256ef879a86ed2f1f5d8ae3d64936150575f5c78fbf466980a7399075a4aa554
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/80/84/459e2c058d5d069b825afc722143afed6bc29347110abbc1f19b528835ce/pyobjc_framework_syncservices-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-syncservices
@@ -5522,6 +5707,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/88/be/8e93d75cbe863a586dfe9e845e9603376ae4cadf10f6abea8a4e12e0ccce/pyobjc_framework_carbon-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-carbon
+  version: 12.2.2
+  sha256: 0bc9e718dff833f5fa580b47116828c8c3f9917a5a81e2ee645d904e53f37e57
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/8c/d4/f1e36b1d4b0216658999028aaeb322da1bae01dad1c8c033854c787977b2/pyobjc_framework_fsevents-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-fsevents
   version: 12.2.1
@@ -5529,6 +5722,23 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/8e/27/248f417d419520d9ff9997b37012e41cfb1b4bd35650b15fbd7f1f3c4749/pyobjc_framework_coretext-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coretext
+  version: 12.2.2
+  sha256: 77a379ff47c599cb2bab918eb75680d30d950692ec19d67b734d11ded090b4e1
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-quartz>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/90/9c/a6785b37b7b9654effc079530750b3785ccf72a24a3a060c56d0fe1b94eb/pyobjc_framework_discrecording-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-discrecording
+  version: 12.2.2
+  sha256: 31563025ab38a06e403577c3d2d050c13dbd21a382dd0c69adc794050e47750c
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/92/46/f271631363bf830d520ed52bc0c5257cfcfe196859ab1b58720b023ae17d/pyobjc_framework_exceptionhandling-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-exceptionhandling
@@ -5543,6 +5753,14 @@ packages:
   version: 12.2.1
   sha256: 24b76a63caf0b5369d4a377c7c0438cd70df81539057af3db839bfaa3579e04a
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/98/20/e7e3efb0d265cf3c35cd21f8a9f0c6282598c571b37caaff7876e1f16351/pyobjc_framework_webkit-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-webkit
+  version: 12.2.2
+  sha256: cf683310d9ea01bcc9e5d6b59c6cead25d2a5453f58cc2e18f41b82b1fef1d26
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/9a/7a/1c3b84602dc52e68d4422088ade9323047d5ed2c8f877d67afb0b90b74b7/pyobjc_framework_addressbook-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-addressbook
   version: 12.2.1
@@ -5551,6 +5769,22 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/a0/cd/405b9647b6ae476b6bb7d7870177c50e28f6131cbc4ca3bacd23143b90c3/pyobjc_framework_preferencepanes-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-preferencepanes
+  version: 12.2.2
+  sha256: dcaee255acf5944c1fba2b2de6d35961b02d37de4a76cfe43c254a2f8a6a2ad6
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/a8/a8/67fc16b9f55d14e0e277380df372872bb257a1d48fe39368b8e4bd0f4c93/pyobjc_framework_automator-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-automator
+  version: 12.2.2
+  sha256: fb354e8aaece5dc8c0451a38635d5f50d8bc7f1d3e4930338be22cc52dbc7f3b
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/ae/d2/10e5fc076f236f96fefea233cd31eb15374c393bd8d737cb41b49ac746a1/pyobjc_framework_searchkit-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-searchkit
   version: 12.2.1
@@ -5558,6 +5792,22 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-coreservices>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/af/06/36bde41903bb076a02c8c9179b0bea7c05d33c62b48920928b64dd8b8c7b/pyobjc_framework_installerplugins-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-installerplugins
+  version: 12.2.2
+  sha256: 49dabbef2e64f705924f5aef9124c87bbda20e61b88207adbb14ffdd8fd0c55e
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/af/4a/667a2e95b27cc9e29d56c6a677d6eb052dcdaef73205c35b6f5381f26cc9/pyobjc_framework_fsevents-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-fsevents
+  version: 12.2.2
+  sha256: 3dd5b55dc7f80cf9f5eff139bfe750351eca1b915ecb8f0e060ccf170cf5e4c0
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/b2/80/1e80736b58665094f12ed736f1d675a9658ebb992e33fea72cef35815010/pyobjc_framework_latentsemanticmapping-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-latentsemanticmapping
@@ -5575,6 +5825,23 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/b9/e8/16d07170d4e1bd182a8e6084abdf283fac90979384b8f53107be9eb110e6/pyobjc_framework_quartz-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-quartz
+  version: 12.2.2
+  sha256: 4b01e325b0cdc121e78730dde9756e971b23069bf141cd62efbcaac76d7b6dbb
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/be/83/eb3104f59d197d57676f73f5df1a2b59de46d2561ba9dbfc3f1b2bfae1ad/pyobjc_framework_securityinterface-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-securityinterface
+  version: 12.2.2
+  sha256: 9065ffa702179151bbe0a1b66018c7018416ca186b4d13b4457db80ad812125e
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-security>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/be/ac/f2ff946edfaf16b4ce5e31afac5e519f83705c0f4842fd25134ecb8f2f4a/pyobjc_framework_security-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-security
   version: 12.2.1
@@ -5591,6 +5858,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/c1/d2/4896e6ae593b9701d50aed1c48852eb8fcf01b2a78fa07816ecd337fc054/pyobjc_framework_cfnetwork-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-cfnetwork
+  version: 12.2.2
+  sha256: 55c68382715041fdd99de6d5f52e9b05d44a7c48e8e19c5bb94cad10c236b963
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/c2/03/b439d6af2c215a59e71cdb2cf00959415f0dd1ec0fd84b0a517c403290a0/pyobjc_framework_securityfoundation-12.2.1-py2.py3-none-any.whl
   name: pyobjc-framework-securityfoundation
   version: 12.2.1
@@ -5600,6 +5875,23 @@ packages:
   - pyobjc-framework-cocoa>=12.2.1
   - pyobjc-framework-security>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/c2/2c/f65c24c3c26e908b5c2f4c2fe0b73cf602a4543df6d5ee55df5e18e4fee3/pyobjc_framework_coredata-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coredata
+  version: 12.2.2
+  sha256: 00f4b0b6b3a3afa01c2a581d7424aee39239b3934178a4b62460b4467d4be100
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/c3/0e/2cabb4d5c248ec1bda69545d7c762b3a2866b39ce7c41be4a8404993a641/PySide6-6.6.2-cp38-abi3-macosx_11_0_universal2.whl
+  name: pyside6
+  version: 6.6.2
+  sha256: 5bdaa27d1a921c35764d82a2ec86943488c818cb33b9e16b2784d539b45f6171
+  requires_dist:
+  - shiboken6==6.6.2
+  - pyside6-essentials==6.6.2
+  - pyside6-addons==6.6.2
+  requires_python: '>=3.8,<3.13'
 - pypi: https://files.pythonhosted.org/packages/cd/8a/5a9310929bb303c31c04a1c6dc7b3213c9bd964a692d024a00c0643af2c8/pyobjc_framework_applicationservices-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-applicationservices
   version: 12.2.1
@@ -5610,6 +5902,52 @@ packages:
   - pyobjc-framework-quartz>=12.2.1
   - pyobjc-framework-coretext>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/ce/8e/18284fec7913ef78b25a1c97f9689ebef98bc14038386191491516abeb25/pyobjc_core-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-core
+  version: 12.2.2
+  sha256: b9cdd686e32db8e451feb19f8a85bc4cd52c2893103881d04aca51e1f35371d1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/ce/af/c5d2549be11d583afb38276d14f27ac257b4b18bfbcaf57ea8aee40f5c61/pyobjc_framework_security-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-security
+  version: 12.2.2
+  sha256: a78b6945d4681e319e03757c8039ac4014833ede1d883aa793a286f48fa93bb7
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/d3/d3/648c25c045c10404b91dd670943574bee5f4d1e8c41c7917f4ec7c990b32/pyobjc_framework_applescriptkit-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-applescriptkit
+  version: 12.2.2
+  sha256: 73bf591f02c33d50ee72e876de9afe767c5a35776ac0777e567bb24a0fb08d26
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/d7/60/729dcb09f4b8c3cd700747ecf8a59531bddca3549a662ae0d8a44a1e9696/pyobjc_framework_coreservices-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coreservices
+  version: 12.2.2
+  sha256: 4000d2454daf4407226f03733bc17626f217bb2b43971951af7a3c165badb83d
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-fsevents>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/d8/34/f73102c05a532313f35deb2b01dd2b51c489e70b27b11c797dcb8522dea5/pyobjc_framework_diskarbitration-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-diskarbitration
+  version: 12.2.2
+  sha256: ef77c37eaca39a2ae065d8716da696809337485a691378ad611ef2694a56af68
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/d8/39/e5b4980a06a861ee8cd517ad912e93ac50d090c2f99f707569f339808612/pyobjc_framework_systemconfiguration-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-systemconfiguration
+  version: 12.2.2
+  sha256: 57cd405e1e2f2b90af8182b16b25839d542571405d161c2234bc1c29bc2be3c6
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/db/d8/0020ace0ab37bc81f865eaa6f5b2f7a27f5389a6179d6e231e647dd17f37/pyobjc_framework_coreservices-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-coreservices
   version: 12.2.1
@@ -5619,6 +5957,22 @@ packages:
   - pyobjc-framework-fsevents>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/dc/19/9bce4e4b890237c7b76688e3e5ea52eb20781fa6b839a14d0bce82ddbca3/pyobjc_framework_osakit-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-osakit
+  version: 12.2.2
+  sha256: 76e659fb5b325671f9ae67167c2282fa4877cf1f86620fa9c5cc5aecedd872a9
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/dc/2f/7ef944198ddeacd25edb9e364cbf06ea514d8ee904b2d602acf0a09a3596/pyobjc_framework_searchkit-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-searchkit
+  version: 12.2.2
+  sha256: dfc60b0e3dc9012190bb1192692d27dc8c62101ee69f2c23d455a95dd598fea6
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-coreservices>=12.2.2
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/e4/41/0121efdb19535aacd8fcb1c03bc7cc6f2e1865fabd77316d33e6422f09ad/pyobjc_framework_coreaudiokit-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-coreaudiokit
   version: 12.2.1
@@ -5627,6 +5981,14 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
   - pyobjc-framework-coreaudio>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/e4/b3/d5568aef55ce8e985b5b7108e36e97325b8d95767e1dacbd11b6c997a231/pyobjc_framework_exceptionhandling-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-exceptionhandling
+  version: 12.2.2
+  sha256: 32ad7658288d922e3eca6faca9b71604e8621dd4605105f9a7da294f4b26f05b
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/f0/d3/2ab99d3975dd4624dd943e5a7c8d37e40258d3c9fcf4f26baf09a24e6c9b/pyobjc_framework_webkit-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-webkit
@@ -5675,6 +6037,360 @@ packages:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-coreservices>=12.2.1
   requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/f6/a7/370f12143661dff66f2c68a735938afab6530aa3b153f6a7a6f12b5eabab/pyobjc_framework_cocoa-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-cocoa
+  version: 12.2.2
+  sha256: 851dca4c16e70b405e5cd5a8c166cf7c445ae54a4cdd95ce9a523803172f32d1
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/f7/68/38b2a3a27005d0d7f323d174280df0666cbe6a9ce758df297c4b53542c78/pyobjc_framework_screensaver-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-screensaver
+  version: 12.2.2
+  sha256: a8ffbff8466edbfb0e3d545dc44285968882fb472d173c90fa8a0e33735bbfb2
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/f7/de/7ae85b919d64a5ded0cff41bc28f5818c014ce982f7783181a864c25a7d7/pyobjc_framework_coreaudiokit-12.2.2-cp311-cp311-macosx_10_9_universal2.whl
+  name: pyobjc-framework-coreaudiokit
+  version: 12.2.2
+  sha256: 9f649c03ec7ac05b65685429c0d2354405d8646ae2ad281191812ce433160c92
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
+  - pyobjc-framework-coreaudio>=12.2.2
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/fa/33/1d328f56c1dba10df20edb620558e7379368a21ad2185e6b7fa8912f6a07/pyobjc-12.2.2-py3-none-any.whl
+  name: pyobjc
+  version: 12.2.2
+  sha256: 6049522ab5433b1965ad468a88d4006fe42662db14b32172461bdd9d1a27da1b
+  requires_dist:
+  - pyobjc-core==12.2.2
+  - pyobjc-framework-libdispatch==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-libxpc==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-accessibility==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-adservices==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-adsupport==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-apptrackingtransparency==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-arkit==12.2.2 ; platform_release >= '25.0'
+  - pyobjc-framework-audiovideobridging==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-authenticationservices==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-automaticassessmentconfiguration==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-avkit==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-avfoundation==12.2.2 ; platform_release >= '11.0'
+  - pyobjc-framework-avrouting==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-accounts==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-addressbook==12.2.2
+  - pyobjc-framework-applescriptkit==12.2.2
+  - pyobjc-framework-applescriptobjc==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-applicationservices==12.2.2
+  - pyobjc-framework-automator==12.2.2
+  - pyobjc-framework-backgroundassets==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-browserenginekit==12.2.2 ; platform_release >= '23.4'
+  - pyobjc-framework-businesschat==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-cfnetwork==12.2.2
+  - pyobjc-framework-calendarstore==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-callkit==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-carbon==12.2.2
+  - pyobjc-framework-cinematic==12.2.2 ; platform_release >= '23.0'
+  - pyobjc-framework-classkit==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-cloudkit==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-cocoa==12.2.2
+  - pyobjc-framework-compositorservices==12.2.2 ; platform_release >= '25.0'
+  - pyobjc-framework-collaboration==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-colorsync==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-contacts==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-contactsui==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-coreaudio==12.2.2
+  - pyobjc-framework-coreaudiokit==12.2.2
+  - pyobjc-framework-corebluetooth==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-coredata==12.2.2
+  - pyobjc-framework-corehaptics==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-corelocation==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-coremedia==12.2.2 ; platform_release >= '11.0'
+  - pyobjc-framework-coremediaio==12.2.2 ; platform_release >= '11.0'
+  - pyobjc-framework-coremidi==12.2.2
+  - pyobjc-framework-coreml==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-coremotion==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-coreservices==12.2.2
+  - pyobjc-framework-corespotlight==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-coretext==12.2.2
+  - pyobjc-framework-corewlan==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-cryptotokenkit==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-datadetection==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-devicecheck==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-devicediscoveryextension==12.2.2 ; platform_release >= '24.0'
+  - pyobjc-framework-dictionaryservices==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-discrecording==12.2.2
+  - pyobjc-framework-discrecordingui==12.2.2
+  - pyobjc-framework-diskarbitration==12.2.2
+  - pyobjc-framework-dvdplayback==12.2.2
+  - pyobjc-framework-eventkit==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-exceptionhandling==12.2.2
+  - pyobjc-framework-executionpolicy==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-externalaccessory==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-extensionkit==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-fileprovider==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-fileproviderui==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-fsevents==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-fskit==12.2.2 ; platform_release >= '24.4'
+  - pyobjc-framework-findersync==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-gamecenter==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-gamecontroller==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-gamesave==12.2.2 ; platform_release >= '25.0'
+  - pyobjc-framework-healthkit==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-inputmethodkit==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-imagecapturecore==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-intents==12.2.2 ; platform_release >= '16.0'
+  - pyobjc-framework-intentsui==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-installerplugins==12.2.2
+  - pyobjc-framework-instantmessage==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-iobluetooth==12.2.2
+  - pyobjc-framework-iobluetoothui==12.2.2
+  - pyobjc-framework-iosurface==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-kernelmanagement==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-latentsemanticmapping==12.2.2
+  - pyobjc-framework-launchservices==12.2.2
+  - pyobjc-framework-linkpresentation==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-localauthentication==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-localauthenticationembeddedui==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-mailkit==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-mapkit==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-mediaaccessibility==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-mediaextension==12.2.2 ; platform_release >= '24.0'
+  - pyobjc-framework-medialibrary==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-mediaplayer==12.2.2 ; platform_release >= '16.0'
+  - pyobjc-framework-mediatoolbox==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-metal==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-metalfx==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-metalkit==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-metalperformanceshaders==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-metalperformanceshadersgraph==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-metrickit==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-mlcompute==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-modelio==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-multipeerconnectivity==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-naturallanguage==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-netfs==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-network==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-networkextension==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-notificationcenter==12.2.2 ; platform_release >= '14.0'
+  - pyobjc-framework-opendirectory==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-osakit==12.2.2
+  - pyobjc-framework-oslog==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-passkit==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-pencilkit==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-phase==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-photos==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-photosui==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-preferencepanes==12.2.2
+  - pyobjc-framework-pubsub==12.2.2 ; python_full_version < '0'
+  - pyobjc-framework-pushkit==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-quartz==12.2.2
+  - pyobjc-framework-quicklookthumbnailing==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-replaykit==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-safetykit==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-safariservices==12.2.2 ; platform_release >= '16.0'
+  - pyobjc-framework-screensaver==12.2.2
+  - pyobjc-framework-screentime==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-scriptingbridge==12.2.2 ; platform_release >= '9.0'
+  - pyobjc-framework-security==12.2.2
+  - pyobjc-framework-securityfoundation==12.2.2
+  - pyobjc-framework-securityinterface==12.2.2
+  - pyobjc-framework-securityui==12.2.2 ; platform_release >= '24.4'
+  - pyobjc-framework-searchkit==12.2.2
+  - pyobjc-framework-servicemanagement==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-framework-shazamkit==12.2.2 ; platform_release >= '21.0'
+  - pyobjc-framework-social==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-speech==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-spritekit==12.2.2 ; platform_release >= '13.0'
+  - pyobjc-framework-storekit==12.2.2 ; platform_release >= '11.0'
+  - pyobjc-framework-syncservices==12.2.2
+  - pyobjc-framework-systemconfiguration==12.2.2
+  - pyobjc-framework-webkit==12.2.2
+  - pyobjc-framework-gamekit==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-gameplaykit==12.2.2 ; platform_release >= '15.0'
+  - pyobjc-framework-scenekit==12.2.2 ; platform_release >= '11.0'
+  - pyobjc-framework-sensitivecontentanalysis==12.2.2 ; platform_release >= '23.0'
+  - pyobjc-framework-sharedwithyoucore==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-sharedwithyou==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-soundanalysis==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-screencapturekit==12.2.2 ; platform_release >= '21.4'
+  - pyobjc-framework-symbols==12.2.2 ; platform_release >= '23.0'
+  - pyobjc-framework-systemextensions==12.2.2 ; platform_release >= '19.0'
+  - pyobjc-framework-threadnetwork==12.2.2 ; platform_release >= '22.0'
+  - pyobjc-framework-uniformtypeidentifiers==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-usernotifications==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-usernotificationsui==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-videosubscriberaccount==12.2.2 ; platform_release >= '18.0'
+  - pyobjc-framework-videotoolbox==12.2.2 ; platform_release >= '12.0'
+  - pyobjc-framework-virtualization==12.2.2 ; platform_release >= '20.0'
+  - pyobjc-framework-vision==12.2.2 ; platform_release >= '17.0'
+  - pyobjc-framework-ituneslibrary==12.2.2 ; platform_release >= '10.0'
+  - pyobjc-core==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-libdispatch==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-libxpc==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-accessibility==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-adservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-adsupport==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-apptrackingtransparency==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-arkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-audiovideobridging==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-authenticationservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-automaticassessmentconfiguration==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-avkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-avfoundation==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-avrouting==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-accounts==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-addressbook==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-applescriptkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-applescriptobjc==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-applicationservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-automator==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-backgroundassets==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-browserenginekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-businesschat==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-cfnetwork==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-calendarstore==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-callkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-carbon==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-cinematic==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-classkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-cloudkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-cocoa==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-compositorservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-collaboration==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-colorsync==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-contacts==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-contactsui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coreaudio==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coreaudiokit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-corebluetooth==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coredata==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-corehaptics==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-corelocation==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coremedia==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coremediaio==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coremidi==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coreml==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coremotion==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coreservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-corespotlight==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-coretext==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-corewlan==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-cryptotokenkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-datadetection==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-devicecheck==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-devicediscoveryextension==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-dictionaryservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-discrecording==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-discrecordingui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-diskarbitration==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-dvdplayback==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-eventkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-exceptionhandling==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-executionpolicy==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-externalaccessory==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-extensionkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-fileprovider==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-fileproviderui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-fsevents==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-fskit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-findersync==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-gamecenter==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-gamecontroller==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-gamesave==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-healthkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-inputmethodkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-imagecapturecore==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-intents==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-intentsui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-installerplugins==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-instantmessage==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-iobluetooth==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-iobluetoothui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-iosurface==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-kernelmanagement==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-latentsemanticmapping==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-launchservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-linkpresentation==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-localauthentication==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-localauthenticationembeddedui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mailkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mapkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mediaaccessibility==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mediaextension==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-medialibrary==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mediaplayer==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mediatoolbox==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metal==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metalfx==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metalkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metalperformanceshaders==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metalperformanceshadersgraph==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-metrickit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-mlcompute==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-modelio==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-multipeerconnectivity==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-naturallanguage==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-netfs==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-network==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-networkextension==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-notificationcenter==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-opendirectory==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-osakit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-oslog==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-passkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-pencilkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-phase==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-photos==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-photosui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-preferencepanes==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-pubsub==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-pushkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-quartz==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-quicklookthumbnailing==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-replaykit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-safetykit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-safariservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-screensaver==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-screentime==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-scriptingbridge==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-security==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-securityfoundation==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-securityinterface==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-securityui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-searchkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-servicemanagement==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-shazamkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-social==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-speech==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-spritekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-storekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-syncservices==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-systemconfiguration==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-webkit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-gamekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-gameplaykit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-scenekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-sensitivecontentanalysis==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-sharedwithyoucore==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-sharedwithyou==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-soundanalysis==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-screencapturekit==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-symbols==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-systemextensions==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-threadnetwork==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-uniformtypeidentifiers==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-usernotifications==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-usernotificationsui==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-videosubscriberaccount==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-videotoolbox==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-virtualization==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-vision==12.2.2 ; extra == 'allbindings'
+  - pyobjc-framework-ituneslibrary==12.2.2 ; extra == 'allbindings'
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/fa/c0/83243a210288fb2a613b5a43602fe6baab6f94584d8ab66fe241325e469c/pyobjc_framework_discrecording-12.2.1-cp311-cp311-macosx_10_9_universal2.whl
   name: pyobjc-framework-discrecording
   version: 12.2.1
@@ -5682,4 +6398,12 @@ packages:
   requires_dist:
   - pyobjc-core>=12.2.1
   - pyobjc-framework-cocoa>=12.2.1
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/fc/de/4e985d13ecd438b6ffa421270e06e3bb21a79377c9fd5fedf7823e6a9027/pyobjc_framework_latentsemanticmapping-12.2.2-py2.py3-none-any.whl
+  name: pyobjc-framework-latentsemanticmapping
+  version: 12.2.2
+  sha256: 34ec9b9df58a41c32cbdab07ac73197e92a9a83f90445cba917f55d5e4faacc1
+  requires_dist:
+  - pyobjc-core>=12.2.2
+  - pyobjc-framework-cocoa>=12.2.2
   requires_python: '>=3.10'

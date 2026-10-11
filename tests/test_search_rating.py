@@ -13,11 +13,12 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
-from app.core.api import IwaraAPI
-from app.core.search import SearchFilters
-from app.core.search_manager import SearchManagerMixin
+from app.core.api.client import IwaraAPI
+from app.core.search.models import SearchFilters
+from app.core.search.manager import SearchManagerMixin
 from app.signal_bus import signal_bus
-from app.ui.search_page import SearchInterface, SearchWorker
+from app.ui.search.page import SearchInterface
+from app.ui.search.search_worker import SearchWorker
 
 
 def _rows(*ratings: str) -> list[dict]:
@@ -35,7 +36,7 @@ class SearchRatingRouteTests(unittest.TestCase):
         self.api._get_json = Mock(return_value={"results": [], "count": 0})
         self.manager = SearchManagerMixin()
         self.manager._api_call = lambda method, *args, **kwargs: getattr(self.api, method)(*args, **kwargs)
-        self.context.enter_context(patch("app.ui.search_page.download_manager", self.manager))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", self.manager))
 
     def search(self, keyword, *, scope="videos", **options):
         results = []
@@ -134,8 +135,8 @@ class SearchRatingInterfaceTests(unittest.TestCase):
         manager = Mock()
         manager.history.get_records.return_value = {}
         manager.get_search_tag_suggestions.return_value = []
-        self.context.enter_context(patch("app.ui.search_page.download_manager", manager))
-        self.context.enter_context(patch("app.ui.rules_page.RulePicker.refresh_rules"))
+        self.context.enter_context(patch("app.ui.search.page.download_manager", manager))
+        self.context.enter_context(patch("app.ui.rules.rule_picker.RulePicker.refresh_rules"))
         self.page = SearchInterface()
         self.addCleanup(self.close_page)
         self.run_search = self.context.enter_context(patch.object(self.page, "_run_search"))

@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import unittest
 
-from app.core.subscriptions import SubscriptionStore
+from app.core.subscription.store import SubscriptionStore
 from app.core.manager import DownloadManager
 
 

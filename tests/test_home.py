@@ -13,20 +13,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
+from app.config import app_config
 from app.core import rating
-from app.core.api import IwaraAPI
+from app.core.api.client import IwaraAPI
 from app.core.home_cache import HomeFeedCache
 from app.core.home_feed import default_specs, home_sections
-from app.core.search import (
-    SearchFilters,
-    SearchVideo,
-    build_image_query_params,
-    build_video_query_params,
-    filter_videos,
-    normalize_image,
-    small_cover_url,
-)
-from app.ui.home_workers import normalize_items
+from app.core.search.models import SearchFilters, SearchVideo
+from app.core.search.query_params import build_image_query_params, build_video_query_params
+from app.core.search.filtering import filter_videos
+from app.core.search.normalize import normalize_image, small_cover_url
+from app.ui.home.workers import normalize_items
 
 
 def _video(video_id="a", **kwargs) -> SearchVideo:
@@ -160,7 +156,7 @@ class WidgetTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_grid_follows_width_and_selection(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10)
         grid.resize(640, 10)
@@ -182,7 +178,7 @@ class WidgetTests(unittest.TestCase):
         from PySide6.QtCore import QPoint, Qt
         from PySide6.QtTest import QTest
 
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10)
         grid.resize(640, 10)
@@ -204,7 +200,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(activated, ["a"])
 
     def test_row_limit_shows_two_rows_of_cards(self):
-        from app.ui.media_card import MediaGrid
+        from app.ui.media.grid import MediaGrid
 
         grid = MediaGrid(min_card_width=200, gap=10, max_rows=2)
         grid.resize(640, 10)
@@ -220,7 +216,7 @@ class WidgetTests(unittest.TestCase):
     def test_wrap_lines_elides_the_last_line(self):
         from PySide6.QtGui import QFontMetrics
 
-        from app.ui.media_card import wrap_lines
+        from app.ui.media.card import wrap_lines
 
         metrics = QFontMetrics(self.app.font())
         lines = wrap_lines("word " * 80, metrics, 120, 2)
@@ -236,7 +232,7 @@ class HomeInterfaceTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def setUp(self):
-        from app.ui import home_page
+        from app.ui.home import page as home_page
 
         self.home_page = home_page
         # Never read (or write) the developer's real layout and cache.
@@ -249,12 +245,15 @@ class HomeInterfaceTests(unittest.TestCase):
             patch = mock.patch(target, value)
             patch.start()
             self.addCleanup(patch.stop)
-        patcher = mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None)
+        patcher = mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
-        detail = mock.patch("app.ui.media_detail.DetailWorker.run", lambda self: None)
+        detail = mock.patch("app.ui.media.detail_view.DetailWorker.run", lambda self: None)
         detail.start()
         self.addCleanup(detail.stop)
+        api_calls = mock.patch("app.ui.home.workers.ApiCallWorker.run", lambda self: None)  # author status, likes
+        api_calls.start()
+        self.addCleanup(api_calls.stop)
         self.home = home_page.HomeInterface()
         self.addCleanup(self._discard_home)
 
@@ -278,10 +277,38 @@ class HomeInterfaceTests(unittest.TestCase):
         home.show_detail("image", "b")
         self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.go_back()
-        self.assertEqual(home._trail[-1], ("detail", "video", "a"))
+        self.assertEqual(home._detail.item, ("video", "a"))
+        self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
         home.go_back()  # nothing left to pop
+        self.assertEqual(home._stack.currentIndex(), home._FEED)
+
+    def test_back_to_a_post_rebuilds_it_from_the_record_without_loading(self):
+        from app.ui.media import detail_view as media_detail
+
+        home = self.home
+        detail = home._detail
+        home.show_detail("video", "a")
+        detail._on_info(detail._token, {"id": "a", "title": "Post A", "user": {"username": "alice"}}, "")
+        comments = [{"id": f"c{i}", "body": f"comment {i}", "numReplies": 1, "user": {"username": "u"}} for i in range(3)]
+        detail._on_comments(detail._token, comments, 3, "")
+        detail._pending_replies["c1"] = detail._comment_widget("c1")  # what "Show replies" registers
+        detail._on_more_comments(detail._token, [{"id": "r1", "body": "a reply", "user": {}}], None, "", "c1", 0)
+        home.show_detail("video", "b")
+        with mock.patch.object(media_detail, "DetailWorker") as worker:
+            home.go_back()
+        worker.assert_not_called()  # nothing asked of the network again
+        self.assertEqual(detail.item, ("video", "a"))
+        self.assertEqual(detail._title.text(), "Post A")
+        self.assertEqual(detail._comment_count, 3)
+        self.assertIn("c1", detail._reply_rows)  # the opened replies are open again
+
+    def test_opening_the_same_post_again_is_not_a_new_step(self):
+        home = self.home
+        home.show_detail("video", "a")
+        home.show_detail("video", "a")
+        home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
     def test_more_on_a_ranking_jumps_to_the_search_page(self):
@@ -310,33 +337,26 @@ class HomeInterfaceTests(unittest.TestCase):
         home.go_back()
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_detail_opened_elsewhere_returns_to_the_caller(self):
+    def test_detail_opened_elsewhere_records_nothing_itself(self):
         home = self.home
-        returned = []
-        home.return_requested.connect(lambda: returned.append(True))
-        home.show_detail("video", "a", external=True)
+        home.show_detail("video", "a", external=True)  # the window recorded the caller
         self.assertEqual(home._stack.currentIndex(), home._DETAIL)
         home.show_detail("video", "b")  # a related post
         home.go_back()
-        self.assertEqual(returned, [])
-        home.go_back()
-        self.assertEqual(returned, [True])
+        self.assertEqual(home._detail.item, ("video", "a"))
+        home.go_back()  # no history left here: the Back button goes up to the feed
         self.assertEqual(home._stack.currentIndex(), home._FEED)
 
-    def test_queue_uses_the_given_rule_and_ignores_images(self):
+    def test_queue_stages_with_the_given_rule_and_ignores_images(self):
         home = self.home
-        manager = Mock()
-        manager.enqueue_video_ids.return_value = 1
-        with mock.patch.object(self.home_page, "download_manager", manager), \
-                mock.patch.object(self.home_page.InfoBar, "success"), \
-                mock.patch.object(self.home_page.InfoBar, "warning") as warning:
+        with mock.patch.object(self.home_page, "stage_videos") as confirm,                 mock.patch.object(self.home_page.InfoBar, "warning") as warning:
             home._queue([_video("v1", source_kind="iwara", downloadable=True)], "rule-7")
-            manager.enqueue_video_ids.assert_called_once()
-            self.assertEqual(manager.enqueue_video_ids.call_args.args[0], ["v1"])
-            self.assertEqual(manager.enqueue_video_ids.call_args.kwargs["rule_id"], "rule-7")
+            confirm.assert_called_once()
+            self.assertEqual([v.video_id for v in confirm.call_args.args[1]], ["v1"])
+            self.assertEqual(confirm.call_args.kwargs["rule_id"], "rule-7")
             home._queue([_video("i1", source_kind="iwara_image", downloadable=False)])
             warning.assert_called_once()
-            self.assertEqual(manager.enqueue_video_ids.call_count, 1)
+            self.assertEqual(confirm.call_count, 1)
 
     def test_subscription_row_asks_to_sign_in_when_logged_out(self):
         block = next(b for b in self.home._feed.blocks if b.section.id == "subscriptions")
@@ -369,17 +389,17 @@ class DetailViewTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_related_posts_follow_the_rating_choice(self):
-        from app.ui import media_detail
-        from app.ui.home_workers import CoverFetcher
+        from app.ui.media import detail_view as media_detail
+        from app.ui.home.workers import CoverFetcher
 
         view = media_detail.DetailView(CoverFetcher())
         self.addCleanup(view.deleteLater)
         view._token = 3
         related = [_video("s", rating="general"), _video("n", rating="ecchi")]
-        with mock.patch.object(media_detail.app_config, "get_ui_value", return_value="general"):
+        with mock.patch.object(app_config, "get_ui_value", return_value="general"):
             view._on_related(3, related)
         self.assertEqual([v.video_id for v in view._related_grid.videos()], ["s"])
-        with mock.patch.object(media_detail.app_config, "get_ui_value", return_value="all"):
+        with mock.patch.object(app_config, "get_ui_value", return_value="all"):
             view._on_related(3, related)
         self.assertEqual(len(view._related_grid.videos()), 2)
         view._on_related(2, [])  # a stale answer is ignored
@@ -389,7 +409,8 @@ class DetailViewTests(unittest.TestCase):
         from PySide6.QtCore import QPoint, Qt
         from PySide6.QtTest import QTest
 
-        from app.ui.media_detail import GalleryImage, MediaStage
+        from app.ui.media.gallery_image import GalleryImage
+        from app.ui.media.stage import MediaStage
 
         stage = MediaStage()
         self.addCleanup(stage.deleteLater)
@@ -413,7 +434,7 @@ class DetailViewTests(unittest.TestCase):
         self.assertEqual(opened, ["https://i.iwara.tv/image/original/f1/f1.png"])
 
     def test_linkify_escapes_html_and_links_urls(self):
-        from app.ui.media_detail import linkify
+        from app.ui.media.detail_text import linkify
 
         text = linkify("<b>hi</b>\nsee https://example.com/a?b=1&c=2")
         self.assertNotIn("<b>", text)
@@ -431,22 +452,21 @@ class AuthorRoutingTests(unittest.TestCase):
         from app.signal_bus import signal_bus
         from app.ui.main_window import MainWindow
 
-        with mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None):
+        with mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None):
             previous = MainWindow._window_ref
             window = MainWindow()
             try:
                 window.switchTo(window._search_page)
+                window.navigation.clear()
                 with mock.patch.object(window._subscription_page, "show_author") as show:
                     signal_bus.author_page_requested.emit(("alice", "Alice", "u1", ""))
                 show.assert_called_once_with(("alice", "Alice", "u1", ""), external=True)
                 self.assertIs(window.stackedWidget.currentWidget(), window._subscription_page)
-                window._subscription_page.return_requested.emit()
+                self.assertEqual(len(window.navigation), 1)  # just the search page, not the switch as well
+                self.assertTrue(window.navigate_back())
                 self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
-                # asked from the subscription page itself: nothing to return to
-                window.switchTo(window._subscription_page)
-                with mock.patch.object(window._subscription_page, "show_author") as show:
-                    signal_bus.author_page_requested.emit(("bob", "Bob", "", ""))
-                show.assert_called_once_with(("bob", "Bob", "", ""), external=False)
+                self.assertFalse(window.navigate_back())  # no history: stay put
+                self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
             finally:
                 window._reloading_language = True
                 window.close()
@@ -463,7 +483,7 @@ class NavigationOrderTests(unittest.TestCase):
     def test_sidebar_order(self):
         from app.ui.main_window import MainWindow
 
-        with mock.patch("app.ui.home_workers.FeedWorker.run", lambda self: None):
+        with mock.patch("app.ui.home.workers.FeedWorker.run", lambda self: None):
             previous = MainWindow._window_ref
             window = MainWindow()
             try:
@@ -489,6 +509,48 @@ class NavigationOrderTests(unittest.TestCase):
                 # would leak into later suites (e.g. duplicate refresh calls).
                 QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
                 MainWindow._window_ref = previous
+
+
+
+class CommentsWorkerTests(unittest.TestCase):
+    """More comments / replies run on a started thread, not just ``run()``."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def _run_started(self, **kwargs):
+        import time
+
+        from app.ui.home.workers import CommentsWorker
+
+        calls = []
+
+        def fake_comments(kind, item_id, *, page=0, parent="", api_client=None):
+            calls.append((kind, item_id, page, parent))
+            return [{"id": "c9"}], 1, ""
+
+        received = []
+        with mock.patch("app.ui.home.workers.download_manager") as manager:
+            manager.get_item_comments.side_effect = fake_comments
+            worker = CommentsWorker(3, "video", "abc", **kwargs)
+            worker.comments_ready.connect(lambda *args: received.append(args))
+            worker.start()  # ManagedThread.start() consults Qt's parent()
+            self.assertTrue(worker.wait(5000))
+            deadline = time.monotonic() + 5
+            while not received and time.monotonic() < deadline:
+                QApplication.processEvents()
+        return calls, received
+
+    def test_next_comment_page_starts(self):
+        calls, received = self._run_started(page=2)
+        self.assertEqual(calls, [("video", "abc", 2, "")])
+        self.assertEqual(received, [(3, [{"id": "c9"}], 1, "", "", 2)])
+
+    def test_replies_start_with_the_parent_comment_id(self):
+        calls, received = self._run_started(page=0, parent="c1")
+        self.assertEqual(calls, [("video", "abc", 0, "c1")])
+        self.assertEqual(received, [(3, [{"id": "c9"}], 1, "", "c1", 0)])
 
 
 if __name__ == "__main__":

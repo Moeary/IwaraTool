@@ -6,6 +6,7 @@ tmp_iwara_dl_ref/*
 download/*
 downloads/*
 dist/*
+build/*
 data/*
 .vscode/*
 

@@ -11,7 +11,7 @@ from unittest import mock
 
 from app import logging_setup
 from app.config import AppConfig, app_config
-from app.core import api as api_module
+from app.core.api import auth_tokens as api_module
 from app.core.sqlite_utils import connect
 
 
@@ -52,7 +52,7 @@ class LoggingTests(unittest.TestCase):
         try:
             root.handlers.clear()
             logging_setup._configured = False
-            with tempfile.TemporaryDirectory() as directory:
+            with tempfile.TemporaryDirectory() as directory,                     mock.patch("PySide6.QtCore.qInstallMessageHandler"):  # keep the process-wide Qt handler as it was
                 logging_setup.setup_logging(directory=directory)
                 logging_setup.get_logger("app.core.demo").warning("hello %s", "log")
                 for handler in root.handlers:

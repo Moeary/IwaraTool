@@ -130,6 +130,29 @@ def subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
         "download_state": download_state,
         "download_reason": download_reason,
         "download_state_known": bool(download_state or download_reason or video.get("fileUrl")),
+        **subscription_item_stats(video),
+    }
+
+
+def subscription_item_stats(video: dict[str, Any]) -> dict[str, Any]:
+    """Likes, views, tags... of an API video, for applying download rules offline."""
+
+    if not any(key in video for key in ("numLikes", "numViews", "tags")):
+        return {"stats_known": False}
+    tags = video.get("tags") if isinstance(video.get("tags"), list) else []
+    tag_ids = [
+        str((tag.get("id") or tag.get("name") or "") if isinstance(tag, dict) else tag).strip()
+        for tag in tags
+    ]
+    file_info = dict_or_empty(video.get("file"))
+    return {
+        "likes": int(video.get("numLikes", 0) or 0),
+        "views": int(video.get("numViews", 0) or 0),
+        "comments": int(video.get("numComments", 0) or 0),
+        "duration": int(file_info.get("duration", 0) or 0),
+        "rating": str(video.get("rating", "") or ""),
+        "tags_json": json.dumps([tag for tag in tag_ids if tag], ensure_ascii=False),
+        "stats_known": True,
     }
 
 
