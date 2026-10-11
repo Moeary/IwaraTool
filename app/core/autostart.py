@@ -12,10 +12,20 @@ def is_supported() -> bool:
     return sys.platform == "win32"
 
 
+def current_executable() -> str:
+    """Path of the packaged exe, or ``""`` when running from source."""
+    if "__compiled__" not in globals() and not getattr(sys, "frozen", False):
+        # Nuitka injects ``__compiled__`` into every compiled module's globals.
+        return ""
+    path = os.path.abspath(sys.argv[0])
+    name = os.path.basename(path).lower()
+    if not name.endswith(".exe") or name.startswith("python"):
+        return ""
+    return path if os.path.isfile(path) else ""
+
+
 def startup_command() -> str:
     """Command line Windows should run at login."""
-    from .self_update import current_executable
-
     packaged = current_executable()
     if packaged:
         return f'"{packaged}"'

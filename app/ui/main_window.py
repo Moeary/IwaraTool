@@ -33,7 +33,6 @@ class _NotificationBridge(QObject):
     """Deliver worker results back to the owning Qt event loop."""
 
     prepared = Signal(object)
-    update_finished = Signal(str, str)  # downloaded path, error message
 
 
 class _BackButtonFilter(QObject):
@@ -88,8 +87,6 @@ class MainWindow(
         self._quitting = False
         self._console_interrupted = False  # Ctrl+C: exit without the pending-queue prompt
         self._tray_hint_shown = False
-        self._pending_update_path = ""
-        self._update_in_progress = False
         self._preview_window: VideoPreviewWindow | None = None
         self._trim_timer = QTimer(self)
         self._trim_timer.setSingleShot(True)
@@ -106,7 +103,6 @@ class MainWindow(
         )
         self._notification_bridge = _NotificationBridge(self)
         self._notification_bridge.prepared.connect(self._present_task_notifications)
-        self._notification_bridge.update_finished.connect(self._on_update_downloaded)
         self._init_window()
         self._init_navigation()
         self.navigation.clear()  # opening on the startup page is not a step to go back to

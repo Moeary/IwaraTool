@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from ...i18n import tr
 from ...config import app_config
-from ...core import preview_stream, self_update
+from ...core import preview_stream
 from ...core import memory
 from ...core.manager import download_manager
 from ...logging_setup import get_logger
@@ -162,14 +162,6 @@ class WindowShutdownMixin:
         self._close_preview_window()
         preview_stream.shutdown_proxy()
         download_manager.shutdown(wait=False)
-        if self._pending_update_path:
-            try:
-                self_update.launch_swap_script(
-                    self._pending_update_path,
-                    os.path.join(app_config.app_data_dir, "updates"),
-                )
-            except Exception:
-                logger.exception("Could not start the update installer")
         MainWindow._window_ref = None
 
     def _on_exit_pages_stopped(self, ok: bool):
