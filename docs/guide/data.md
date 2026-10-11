@@ -4,6 +4,8 @@
 
 应用运行数据默认位于 `data/`，不同用途分开保存，搜索和订阅封面不会与下载规则生成的本地封面混用。
 
+macOS 的运行数据统一位于 `~/Library/Application Support/IwaraTool/`，下表中的 `data/` 均指此目录；默认视频下载到 `~/Downloads/IwaraTool/`。应用更新时替换 `.app` 即可，运行数据独立保留。
+
 | 路径 | 用途 |
 | --- | --- |
 | `data/config.ini` | 登录 token、界面、并发和下载行为配置 |

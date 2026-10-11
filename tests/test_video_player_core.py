@@ -103,6 +103,13 @@ class LocalFileTests(unittest.TestCase):
             self.assertTrue(ok)
             opener.assert_called_once_with(path)
 
+    def test_macos_opens_a_file_with_spaces_as_one_argument(self):
+        with mock.patch.object(video_player.os, "name", "posix"), \
+                mock.patch.object(video_player.sys, "platform", "darwin"), \
+                mock.patch.object(video_player, "_spawn") as spawn:
+            video_player._open_with_system("/Users/test/Downloads/a video.mp4")
+        spawn.assert_called_once_with(["/usr/bin/open", "/Users/test/Downloads/a video.mp4"])
+
 
 class _Upstream(http.server.BaseHTTPRequestHandler):
     seen: list[dict] = []

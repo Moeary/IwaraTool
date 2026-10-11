@@ -140,6 +140,25 @@ class StagingTests(_StagingCase):
 
 
 class StagingPanelTests(_StagingCase):
+    def test_destroyed_panel_cancels_its_pending_show_callback(self):
+        import sys
+        import shiboken6
+        from PySide6.QtWidgets import QApplication
+        from app.ui.downloads import task_center
+        from app.ui.downloads.staging_panel import StagingPanel
+
+        app = QApplication.instance() or QApplication([])
+        self._stage()
+        with patch.object(task_center, "download_manager", self.mgr), \
+                patch.object(sys, "excepthook") as errors:
+            panel = StagingPanel()
+            shown = []
+            panel.show_requested.connect(lambda *_: shown.append(True))
+            shiboken6.delete(panel)
+            app.processEvents()
+        self.assertEqual(shown, [])
+        errors.assert_not_called()
+
     def test_the_panel_counts_filters_and_confirms(self):
         from PySide6.QtWidgets import QApplication
 

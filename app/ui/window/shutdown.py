@@ -192,7 +192,9 @@ class WindowShutdownMixin:
 
     def _retire(self, event: QCloseEvent):
         """Close a window that was replaced (language change): stop, then destroy it."""
+        from ..shortcuts import registry
 
+        registry.unbind_window(self)
         self._close_preview_window()
         self._shutdown_task_notification_worker()
         if self._tray_icon is not None:

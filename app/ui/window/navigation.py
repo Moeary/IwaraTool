@@ -176,6 +176,8 @@ class WindowNavigationMixin:
 
     def _show_page(self, page: QWidget, show):
         """Record where the user is, then let ``show`` fill ``page`` and bring it up."""
+        if self._closing or self._close_complete:
+            return
 
         self.navigation.record(self.stackedWidget.currentWidget())
         with self.navigation.quiet():

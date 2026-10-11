@@ -6,11 +6,48 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+
+def smoke_test():
+    """Check packaged Qt and assets before opening databases or network jobs."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtMultimedia import QMediaPlayer
+    from PySide6.QtMultimediaWidgets import QVideoWidget
+    from app.qt_runtime import ensure_multimedia_plugins
+    from app.version import __version__
+
+    app = QApplication(sys.argv)
+    ensure_multimedia_plugins()
+    player = QMediaPlayer(app)
+    widget = QVideoWidget()
+    player.setVideoOutput(widget)
+    if not player.isAvailable():
+        raise RuntimeError("Qt multimedia backend is unavailable")
+    root = Path(__file__).resolve().parent
+    for relative in (
+        "app/icon.ico",
+        "app/data/tag_translations/loveiwara_iwara_tags_localized.json",
+        "app/data/oreno3d_iwara_map.json",
+    ):
+        if not (root / relative).is_file():
+            raise RuntimeError(f"Missing bundled resource: {relative}")
+    app.processEvents()
+    print(f"IwaraTool {__version__}: Qt multimedia and bundled resources OK", flush=True)
+    player.setVideoOutput(None)
+    player.deleteLater()
+    widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+if __name__ == "__main__" and "--smoke-test" in sys.argv:
+    smoke_test()
+    raise SystemExit(0)
+
 from app.core.backup import apply_pending_restore
+from app.paths import app_data_dir
 
 # A restore staged from the settings page must land before any database or
 # settings file is opened, which happens as soon as app.config is imported.
-apply_pending_restore(str(Path(sys.argv[0]).resolve().parent / "data"))
+apply_pending_restore(str(app_data_dir()))
 
 from app.config import app_config  # noqa: E402
 from app.logging_setup import get_logger, setup_logging

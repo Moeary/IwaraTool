@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-15, macos-15-intel]
 
     runs-on: ${{ matrix.os }}
 
@@ -42,6 +42,12 @@ jobs:
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pixi run test
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
         env:
           QT_QPA_PLATFORM: offscreen
         run: pixi run test
@@ -91,29 +97,61 @@ jobs:
             --remove-output \
             main.py
 
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: pixi run build
+
       - name: Write SHA-256 checksums
         shell: bash
         run: |
           cd dist
           for f in IwaraTool*; do
             case "$f" in *.sha256) continue ;; esac
-            sha256sum "$f" > "$f.sha256"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              shasum -a 256 "$f" > "$f.sha256"
+            else
+              sha256sum "$f" > "$f.sha256"
+            fi
           done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: IwaraTool-${{ runner.os }}
+          name: IwaraTool-${{ runner.os }}-${{ runner.arch }}
           path: |
             dist/*
           if-no-files-found: error
 
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: IwaraTool-*
+          merge-multiple: true
+          path: dist
+
+      - name: Select release notes
+        shell: bash
+        run: |
+          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then
+            echo "RELEASE_NOTES_PATH=$NOTES" >> "$GITHUB_ENV"
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: |
-            dist/IwaraTool*
+          body_path: ${{ env.RELEASE_NOTES_PATH }}
+          generate_release_notes: ${{ env.RELEASE_NOTES_PATH == '' }}
+          files: dist/IwaraTool*
+          fail_on_unmatched_files: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-pre') }}
         env:

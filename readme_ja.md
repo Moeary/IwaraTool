@@ -30,6 +30,8 @@
 ## クイックスタート
 1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得。
    - Linux バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
+   - macOS は Apple Silicon（ARM64）と Intel（AMD64）の ZIP を提供します。解凍後、`IwaraTool.app` を「アプリケーション」に移動してください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。起動がブロックされた場合は「プライバシーとセキュリティ」の案内に従って許可してください。
+   - macOS のデータは `~/Library/Application Support/IwaraTool/`、既定の保存先は `~/Downloads/IwaraTool/` です。更新時は `.app` を置き換えてください。ログイン時の自動起動と自動置換更新は現在 Windows のみ対応しています。
 2. アプリを起動します。非公開動画の保存やフォロー作者の取込にはログインが必要です。
 3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
 4. `購読` で作者とプレイリストを追跡し（アカウントフィードはホームの「購読中の更新」）、新着動画をまとめて保存できます。

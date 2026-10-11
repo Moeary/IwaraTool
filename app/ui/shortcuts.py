@@ -44,6 +44,20 @@ class ShortcutRegistry:
             return False
         return True
 
+    def unbind_window(self, window: QWidget) -> None:
+        """Retire shortcuts immediately while a window waits for its workers."""
+        self._prune()
+        for action_id, shortcuts in self._bound.items():
+            remaining = []
+            for shortcut in shortcuts:
+                parent = shortcut.parent()
+                if parent is window or window.isAncestorOf(parent):
+                    shortcut.setEnabled(False)
+                    shortcut.deleteLater()
+                else:
+                    remaining.append(shortcut)
+            self._bound[action_id] = remaining
+
     def _prune(self) -> None:
         for action_id in list(self._bound):
             self._bound[action_id] = [s for s in self._bound[action_id] if self._alive(s)]

@@ -54,6 +54,8 @@ class SubscriptionSourceManagementMixin:
             )
 
     def _on_subscription_source_added(self, source_id: int):
+        if self._shutting_down:
+            return
         source_id = int(source_id or 0)
         if not source_id:
             return

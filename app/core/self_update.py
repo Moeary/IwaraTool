@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform as platform_info
 import re
 import subprocess
 import sys
@@ -36,6 +37,12 @@ def platform_asset_prefix(platform: str | None = None) -> str:
         return "IwaraTool-Windows"
     if plat.startswith("linux"):
         return "IwaraTool-Linux"
+    if plat == "darwin":
+        machine = platform_info.machine().lower()
+        if machine in {"arm64", "aarch64"}:
+            return "IwaraTool-macOS-ARM64-"
+        if machine in {"x86_64", "amd64"}:
+            return "IwaraTool-macOS-AMD64-"
     return ""
 
 

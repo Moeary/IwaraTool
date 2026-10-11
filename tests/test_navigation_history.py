@@ -221,7 +221,7 @@ class CloseAndLanguageTests(_WindowCase):
     def _main_windows(self):
         alive = []
         for widget in QApplication.topLevelWidgets():
-            if isinstance(widget, self.MainWindow) and not widget._close_complete:
+            if isinstance(widget, self.MainWindow) and not widget._close_complete and not widget._closing:
                 alive.append(widget)
         return alive
 
@@ -237,6 +237,16 @@ class CloseAndLanguageTests(_WindowCase):
         self.assertLess(time.monotonic() - started, 0.5)  # returned at once, nothing waited on
         self.assertFalse(self.window.isVisible())
         self.assertTrue(self.window._closing)
+        from app.ui.shortcuts import registry
+        from app.signal_bus import signal_bus
+
+        self.assertFalse(any(s.parent().window() is self.window for s in registry.live("home_refresh")))
+        with mock.patch.object(self.window._subscription_page, "_start_refresh") as refresh:
+            signal_bus.subscription_source_added.emit(123)
+        refresh.assert_not_called()
+        with mock.patch.object(self.window._subscription_page, "show_source") as show:
+            signal_bus.subscription_source_requested.emit(123)
+        show.assert_not_called()
         self.assertTrue(_spin(lambda: not worker.isRunning(), 3.0))
         self.assertTrue(worker.cancelled)  # the back-off wait ended on the interruption
         page._search_workers.remove(worker)

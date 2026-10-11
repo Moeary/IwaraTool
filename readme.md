@@ -30,6 +30,8 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
 ## Quick Start
 1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
    - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
+   - macOS ZIPs are available for Apple Silicon (ARM64) and Intel (AMD64). Extract and drag `IwaraTool.app` into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; if blocked, use the system's Privacy & Security prompt to allow it.
+   - macOS data lives in `~/Library/Application Support/IwaraTool/`; downloads default to `~/Downloads/IwaraTool/`. Update by replacing the `.app`. Launch at login and automatic replacement updates currently require Windows.
 2. Open the app. Sign in when downloading private videos or importing followed authors.
 3. Paste a URL in `Download Workbench`, choose a rule if needed, and submit it.
 4. Use `Subscriptions` to track authors or playlists (your account feed is "My subscriptions" on Home) and batch-download new items.

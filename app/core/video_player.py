@@ -9,6 +9,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from typing import Callable
 
 from ..config import app_config
@@ -103,6 +104,8 @@ def _spawn(command: list[str]) -> None:
 def _open_with_system(path: str) -> None:
     if os.name == "nt":
         os.startfile(path)  # noqa: S606 - user-initiated, local file
+    elif sys.platform == "darwin":
+        _spawn(["/usr/bin/open", path])
     elif shutil.which("xdg-open"):
         subprocess.Popen(["xdg-open", path])
     elif shutil.which("open"):

@@ -1,10 +1,10 @@
 """Application configuration backed by QSettings."""
 import os
-import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from PySide6.QtCore import QSettings
+from .paths import app_data_dir, app_root_dir, default_download_dir
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
@@ -19,11 +19,11 @@ LEGACY_FILENAME_TEMPLATES = frozenset(
 
 def _app_root_dir() -> str:
     """Directory where the app is launched (portable-friendly)."""
-    return str(Path(sys.argv[0]).resolve().parent)
+    return str(app_root_dir())
 
 
 def _app_data_dir() -> str:
-    data_dir = Path(_app_root_dir()) / "data"
+    data_dir = app_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir)
 
@@ -49,7 +49,7 @@ class AppConfig:
     """Persistent application settings wrapper."""
 
     _DEFAULTS = {
-        "download_dir": os.path.join(_app_root_dir(), "download"),
+        "download_dir": str(default_download_dir()),
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
@@ -183,7 +183,7 @@ class AppConfig:
         current = str(self._qs.value("download_dir", self._DEFAULTS["download_dir"]))
         app_root = Path(_app_root_dir()).resolve()
         old_local = app_root / "downloads"
-        new_local = app_root / "download"
+        new_local = default_download_dir()
 
         try:
             cur_path = Path(current).resolve()

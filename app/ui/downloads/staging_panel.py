@@ -104,6 +104,9 @@ class StagingPanel(QWidget):
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(80)
         self._refresh_timer.timeout.connect(self.refresh)
+        self._show_timer = QTimer(self)
+        self._show_timer.setSingleShot(True)
+        self._show_timer.timeout.connect(self._show_waiting_rows)
         signal_bus.staging_changed.connect(self._refresh_timer.start)
         signal_bus.rules_changed.connect(self._reload_rules)
         self._reload_rules()
@@ -192,7 +195,7 @@ class StagingPanel(QWidget):
         if not batches:
             return
         if grew:
-            QTimer.singleShot(0, lambda: self.show_requested.emit("", self._batch_id()))
+            self._show_timer.start(0)
         self._fill_batches(batches, total)
         self._title.setText(tr(f"To confirm {total}", f"待确认 {total}", f"確認待ち {total}"))
         current = self._batch_id()
@@ -204,6 +207,9 @@ class StagingPanel(QWidget):
         self._confirm_btn.setText(tr(f"Download ({ready})", f"确认下载 ({ready})", f"保存する ({ready})"))
         self._confirm_btn.setEnabled(ready > 0)
         self._show_example()
+
+    def _show_waiting_rows(self):
+        self.show_requested.emit("", self._batch_id())
 
     def _fill_batches(self, batches: list[dict], total: int):
         current = self._batch_id()
