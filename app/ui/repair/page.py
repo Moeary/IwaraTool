@@ -43,7 +43,7 @@ from .folder_input import FolderDropLineEdit
 from .log_panel import RepairLogMixin
 from .results_table import RepairResultsTableMixin
 from .running import RepairRunningMixin
-from .worker import RepairWorker
+from .worker import RepairPreviewWorker, RepairWorker
 
 
 class RepairInterface(
@@ -72,6 +72,17 @@ class RepairInterface(
         self._items: list[dict[str, Any]] = []
         self._items_by_path: dict[str, dict[str, Any]] = {}
         self._path_to_row: dict[str, int] = {}
+        # Row -> rendered text, so unchanged rows are not repainted.
+        self._row_signatures: dict[int, tuple[str, ...]] = {}
+        self._state_styles: dict[str, tuple[str, Any]] | None = None
+        self._preview_worker: RepairPreviewWorker | None = None
+        self._preview_generation = 0
+        self._preview_dirty = False
+        # Option edits (often keystrokes) are coalesced into one preview.
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(150)
+        self._preview_timer.timeout.connect(self._run_target_preview)
         self._pending_logs: list[str] = []
         self._repair_log_active = False
         self._last_feedback_log_at = 0.0
@@ -387,6 +398,8 @@ class RepairInterface(
 
     def refresh_theme_styles(self):
         apply_scrollbars(self._log_edit)
+        self._row_signatures.clear()
+        self._state_styles = self._build_state_styles()
         self._table.setUpdatesEnabled(False)
         try:
             for item in self._items:

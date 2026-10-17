@@ -6,7 +6,7 @@ import os
 import uuid
 from typing import Any, Callable
 
-from ...i18n import tr
+from ...i18n import pin_language, tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
 from ..task_metadata import _author_fields_from_user, _dict_or_empty
@@ -15,6 +15,7 @@ from ..task_metadata import _author_fields_from_user, _dict_or_empty
 class RepairingMixin:
     """Repair scanned files: rename / move them and add cover, NFO and history."""
 
+    @pin_language
     def repair_folder_files(
         self,
         items: list[dict[str, Any]],

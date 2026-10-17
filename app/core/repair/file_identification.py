@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import os
-import re
 from typing import Any, Callable
 
 from ...i18n import tr
+from .candidate_index import RepairCandidateIndex
 from .matching import (
     candidate_match_score,
     extract_iwara_video_id,
     filename_search_text,
     guess_filename_video_id,
+    pick_repair_candidate,
     repair_target_path,
 )
 from ..task_metadata import _dict_or_empty
@@ -25,8 +26,7 @@ class RepairFileIdentificationMixin:
         path: str,
         *,
         record: dict[str, Any] | None,
-        local_candidates: list[dict[str, Any]],
-        known_ids: set[str],
+        candidate_index: RepairCandidateIndex,
         filename_template: str,
         output_root: str,
         move_to_output: bool,
@@ -36,7 +36,7 @@ class RepairFileIdentificationMixin:
         item = self._repair_scan_item(path, record, output_root, move_to_output)
         stem = os.path.splitext(os.path.basename(path))[0]
         video_id, source, local_candidate, ambiguous = self._identify_repair_video(
-            path, stem, record, known_ids, local_candidates
+            path, stem, record, candidate_index
         )
         if ambiguous:
             item.update(status="ambiguous", message=ambiguous)
@@ -74,7 +74,7 @@ class RepairFileIdentificationMixin:
             "move_to_output": bool(move_to_output),
         }
 
-    def _identify_repair_video(self, path: str, stem: str, record, known_ids: set[str], local_candidates):
+    def _identify_repair_video(self, path: str, stem: str, record, candidate_index: RepairCandidateIndex):
         """Video id from the filename or local records: ``(id, source, candidate, ambiguity message)``."""
 
         video_id = extract_iwara_video_id(stem)
@@ -85,11 +85,7 @@ class RepairFileIdentificationMixin:
             source = "history-path" if video_id else ""
 
         if not video_id:
-            matching_ids = [
-                candidate_id
-                for candidate_id in known_ids
-                if self._repair_id_in_stem(candidate_id, stem)
-            ]
+            matching_ids = candidate_index.ids_in_name(stem)
             if len(matching_ids) == 1:
                 video_id = matching_ids[0]
                 source = "known-id"
@@ -102,7 +98,7 @@ class RepairFileIdentificationMixin:
 
         local_candidate: dict[str, Any] | None = None
         if not video_id:
-            local_candidate, ambiguous = self._select_repair_candidate(path, local_candidates)
+            local_candidate, ambiguous = candidate_index.select(path)
             if ambiguous:
                 return "", "", None, tr(
                     "The filename matches multiple local subscription/history records",
@@ -229,15 +225,6 @@ class RepairFileIdentificationMixin:
         return item
 
     @staticmethod
-    def _repair_id_in_stem(video_id: str, stem: str) -> bool:
-        video_id = str(video_id or "").strip()
-        stem = str(stem or "")
-        if not video_id:
-            return False
-        pattern = rf"(?<![A-Za-z0-9_-]){re.escape(video_id)}(?![A-Za-z0-9_-])"
-        return bool(re.search(pattern, stem, re.IGNORECASE))
-
-    @staticmethod
     def _select_repair_candidate(
         path: str,
         candidates: list[dict[str, Any]],
@@ -253,15 +240,4 @@ class RepairFileIdentificationMixin:
             score = candidate_match_score(path, candidate, author_hint=author_hint)
             if score > 0:
                 ranked.append((score, candidate))
-        ranked.sort(key=lambda pair: pair[0], reverse=True)
-        if not ranked:
-            return None, False
-
-        top_score, top = ranked[0]
-        second_score = ranked[1][0] if len(ranked) > 1 else 0.0
-        exact = top_score >= 1.95
-        if exact and (len(ranked) == 1 or top_score - second_score >= 0.12):
-            return top, False
-        if top_score >= 1.15 and (len(ranked) == 1 or top_score - second_score >= 0.2):
-            return top, False
-        return None, top_score >= 0.9
+        return pick_repair_candidate(ranked)
