@@ -18,6 +18,7 @@ Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API
 - Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
 - Subscriptions: authors and playlists with refresh tracking and new-item counts; the default overview lists each one with its avatar and latest videos, opens into a poster grid, and the classic table is one click away.
 - Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
+- Rule per page: Subscriptions, Search, Video details, Home and Download links each download with their own rule. The built-in "Temporary Download" rule (default for Search and Video details) saves to its own folder without writing history, and a temporary copy never blocks a later real download.
 - Home: customizable rows (your subscriptions, hot lists, or any tag / keyword / author search), cached on disk and refreshed only when posts change; in-app detail pages, Like and bulk download; a SFW / NSFW content filter applies to Home and Search.
 - Author pages: open an author inside the app from Search or a detail page, see whether you subscribe in the app or follow on Iwara, and subscribe / follow right there.
 - Shortcuts: press F1 for the full list (rebindable in Settings); cover grids work with arrow keys, Enter, Space and more.
@@ -55,6 +56,8 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 ## Screenshots
 
+All screenshots use the English interface with sample data and no cover images.
+
 1. Download Workbench
 
    ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
@@ -67,7 +70,7 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 4. History
 
    ![History](./docs/panel_view/iwaratool_history_panel.jpg)
-5. Rules
+5. Rules (including the rule per page)
 
    ![Rules](./docs/panel_view/iwaratool_rule_panel.jpg)
 6. Settings
