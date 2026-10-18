@@ -49,6 +49,7 @@ from ..theme import (
     set_secondary_text,
 )
 from ..fluent_dialogs import show_fluent_confirmation
+from .page_bindings import PageRuleBindings
 from .rule_form import RuleFormWidget
 from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary
 
@@ -72,9 +73,9 @@ class RulesInterface(QWidget):
         root.setSpacing(PAGE_SPACING)
         root.addWidget(TitleLabel(tr("Download Rules", "下载规则", "ダウンロードルール"), self))
         intro = BodyLabel(tr(
-            "One rule combines filters, naming and download behavior. Selecting a rule on a download page applies it immediately.",
-            "一个规则统一保存筛选、命名和下载行为；在下载页选择后会立即生效并成为默认规则。",
-            "フィルター、命名、保存動作を一つにまとめ、選択時に即座に適用します。",
+            "One rule combines filters, naming and download behavior. Each page downloads with its own rule; the rule marked ● is the default.",
+            "一个规则统一保存筛选、命名和下载行为；每个页面可以使用各自的规则，带 ● 的是默认规则。",
+            "フィルター、命名、保存動作を一つにまとめます。ページごとに別のルールを使え、● が既定ルールです。",
         ), self)
         intro.setWordWrap(True)
         set_secondary_text(intro)
@@ -130,6 +131,8 @@ class RulesInterface(QWidget):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
+        self._page_bindings = PageRuleBindings(right)
+        right_layout.addWidget(self._page_bindings)
         self._form_scroll = ScrollArea(right)
         self._form_scroll.setWidgetResizable(True)
         self._form_scroll.setFrameShape(QFrame.Shape.NoFrame)

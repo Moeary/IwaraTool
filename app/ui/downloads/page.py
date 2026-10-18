@@ -21,7 +21,6 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
-from ...config import app_config
 from ...core.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
@@ -210,7 +209,7 @@ class DownloadInterface(
         rule_label = BodyLabel(tr("Rule", "下载规则", "ルール"), url_card)
         set_secondary_text(rule_label)
         rule_row.addWidget(rule_label)
-        self._rule_picker = RulePicker(url_card)
+        self._rule_picker = RulePicker(url_card, scope="downloads")
         self._rule_picker.combo.setMinimumWidth(160)
         rule_row.addWidget(self._rule_picker, 1)
         url_layout.addLayout(rule_row)
@@ -270,8 +269,6 @@ class DownloadInterface(
         self._url_edit.setText(str(state.get("url") or ""))
 
     def _submit(self):
-        # Apply the selected named rule immediately before enqueueing so the
-        # resolver and sidecar options use the same snapshot.
         urls = split_submitted_urls(self._url_edit.text())
         if not urls:
             InfoBar.warning(
@@ -285,12 +282,12 @@ class DownloadInterface(
             )
             return
         rule_id = self._rule_picker.selected_rule_id()
-        self._rule_picker.apply_selected(show_notice=False)
         if len(urls) == 1 and download_manager.listing_kind(urls[0]):
             # An author / playlist: show what it holds before queueing anything.
             self._start_listing_preview(urls[0], rule_id)
             return
-        mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
+        payload = self._rule_picker.selected_payload()
+        mark_only = payload["mark_submitted_as_downloaded"] or not payload["download_video_file"]
         for url in urls:
             self._maybe_add_download_source_to_subscription(url)
             if mark_only:

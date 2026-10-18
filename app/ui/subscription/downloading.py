@@ -161,19 +161,12 @@ class SubscriptionDownloadingMixin:
         app_config.collect_nfo_info = bool(checked)
         signal_bus.download_options_changed.emit()
 
-    def _apply_selected_rule_for_download(self):
-        # Rules are independent from the list's browse filter. Reapplying here
-        # keeps keyboard/automation calls consistent without rerendering rows.
-        if hasattr(self, "_rule_picker"):
-            self._rule_picker.apply_selected(show_notice=False)
-
     def _download_selected_with_rule(self, video_ids: list[str] | None = None):
         ids = (
             list(video_ids)
             if isinstance(video_ids, (list, tuple, set))
             else self._operation_video_ids()
         )
-        self._apply_selected_rule_for_download()
         self._enqueue_ids(ids)
 
     def _download_new_with_rule(self):
@@ -182,7 +175,6 @@ class SubscriptionDownloadingMixin:
             for item in self._visible_items
             if item.get("is_new") and not item.get("downloaded")
         ]
-        self._apply_selected_rule_for_download()
         self._enqueue_ids(ids)
 
     def _download_visible_with_rule(self):
@@ -191,7 +183,6 @@ class SubscriptionDownloadingMixin:
             for item in self._visible_items
             if not item.get("downloaded")
         ]
-        self._apply_selected_rule_for_download()
         self._enqueue_ids(ids)
 
     def _download_new(self):

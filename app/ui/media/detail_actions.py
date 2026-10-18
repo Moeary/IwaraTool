@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ...core.rules import active_rule_id
+from ...core.rules import page_rule_id
 from ...core.search.models import SearchVideo
 from ..downloads.staging_flow import stage_videos
 from ...i18n import tr
@@ -81,7 +81,7 @@ class DetailActionsMixin:
         # A lone downloadable video starts at once (Settings); otherwise it waits on the workbench.
         video = self._video if self._video is not None and self._video.video_id == self._item_id else None
         videos = [video] if video is not None else [SearchVideo(video_id=self._item_id, title=self._item_id)]
-        stage_videos(self, videos, label=video.title if video is not None else self._item_id, rule_id=active_rule_id())
+        stage_videos(self, videos, label=video.title if video is not None else self._item_id, rule_id=page_rule_id("detail"))
 
     def _open_in_browser(self):
         webbrowser.open(self._page_url())

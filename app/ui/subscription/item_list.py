@@ -326,7 +326,7 @@ class SubscriptionItemListMixin:
         task_status_by_video_id = {
             task.video_id.lower(): task.status.value
             for task in download_manager.get_tasks()
-            if task.video_id
+            if task.video_id and not download_manager.is_temporary_copy(task)
         }
         for item in self._all_items:
             video_id = str(item.get("video_id", "") or "").lower()

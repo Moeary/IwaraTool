@@ -9,10 +9,22 @@ from datetime import datetime
 from typing import Any
 
 from ..config import DEFAULT_FILENAME_TEMPLATE, app_config
+from ..i18n import tr
 
 
 BUILTIN_DEFAULT_RULE_ID = "__builtin_default__"
 ACTIVE_RULE_UI_KEY = "active_download_rule_id"
+
+# A seeded, editable rule for casual downloads: its own folder, no history, so
+# a later download of the same video from a subscription is not skipped.
+TEMPORARY_RULE_ID = "temporary_download"
+TEMPORARY_RULE_TEMPLATE = "temp_video/{title}_{id}.mp4"
+_TEMPORARY_RULE_SEEDED_UI_KEY = "temporary_rule_seeded_v1"
+
+# Each page downloads with its own rule; "follow" means the default rule.
+PAGE_RULE_FOLLOW_DEFAULT = "__follow_default__"
+PAGE_RULE_SCOPES = ("subscription", "search", "detail", "home", "downloads")
+_PAGE_RULE_DEFAULTS = {"search": TEMPORARY_RULE_ID, "detail": TEMPORARY_RULE_ID}
 
 RULE_FILTER_KEYS = (
     "filter_enabled",
@@ -155,6 +167,40 @@ def set_active_rule_id(rule_id: str):
     app_config.set_ui_value(ACTIVE_RULE_UI_KEY, rule_id or BUILTIN_DEFAULT_RULE_ID)
 
 
+def page_rule_choice(scope: str) -> str:
+    """The rule a page is set to, or ``PAGE_RULE_FOLLOW_DEFAULT``."""
+    stored = str(app_config.get_ui_value(f"page_rule_{scope}", "") or "").strip()
+    return stored or _PAGE_RULE_DEFAULTS.get(scope, PAGE_RULE_FOLLOW_DEFAULT)
+
+
+def set_page_rule_choice(scope: str, rule_id: str):
+    app_config.set_ui_value(f"page_rule_{scope}", rule_id or PAGE_RULE_FOLLOW_DEFAULT)
+
+
+def page_rule_id(scope: str) -> str:
+    """The rule a page downloads with: its own choice while that rule exists, else the default."""
+    choice = page_rule_choice(scope)
+    if choice != PAGE_RULE_FOLLOW_DEFAULT and rule_store.find(choice):
+        return choice
+    return active_rule_id()
+
+
+def temporary_rule() -> dict[str, Any]:
+    payload = default_rule_payload()
+    payload["filename_template"] = TEMPORARY_RULE_TEMPLATE
+    payload["record_to_history"] = False
+    return {"id": TEMPORARY_RULE_ID, "name": tr("Temporary Download", "临时下载", "一時ダウンロード"), "payload": payload}
+
+
+def ensure_temporary_rule() -> bool:
+    """Add the temporary rule once; a user who deletes it does not get it back."""
+    if app_config.get_ui_value(_TEMPORARY_RULE_SEEDED_UI_KEY, ""):
+        return False
+    seeded = rule_store.seed(temporary_rule())
+    app_config.set_ui_value(_TEMPORARY_RULE_SEEDED_UI_KEY, "1")
+    return seeded
+
+
 class RuleStore:
     """Small JSON-backed store; intentionally independent from history.db."""
 
@@ -215,6 +261,23 @@ class RuleStore:
             rule = existing
         self._write(rules)
         return deepcopy(rule)
+
+    def seed(self, rule: dict[str, Any]) -> bool:
+        """Add a rule under its own fixed id unless one with that id exists."""
+        rules = self.list_rules()
+        if any(existing["id"] == rule["id"] for existing in rules):
+            return False
+        now = datetime.now().isoformat(timespec="seconds")
+        rules.append({
+            "id": rule["id"],
+            "name": rule["name"],
+            "created_at": now,
+            "updated_at": now,
+            "builtin": False,
+            "payload": normalize_rule_payload(rule.get("payload")),
+        })
+        self._write(rules)
+        return True
 
     def delete(self, rule_id: str) -> bool:
         if rule_id == BUILTIN_DEFAULT_RULE_ID:

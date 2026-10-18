@@ -58,8 +58,11 @@ class TaskSignalBus(QObject):
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 
-    # rule_id; keeps rule pickers synchronized across pages.
+    # rule_id of the default rule (pages that follow it pick it up).
     active_rule_changed = Signal(str)
+
+    # scope, choice; one page's own rule (or "follow the default") changed.
+    page_rule_changed = Signal(str, str)
 
     # title, message
     desktop_notification_requested = Signal(str, str)

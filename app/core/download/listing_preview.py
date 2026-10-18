@@ -230,6 +230,7 @@ class ListingPreviewMixin:
                 vid.lower() for vid in video_ids
                 if (task := self._tasks.get(self._task_id_by_video_id.get(vid.lower(), ""))) is not None
                 and task.status != TaskStatus.STAGED
+                and not self.is_temporary_copy(task)  # a temporary copy does not count
             }
         for video_id in video_ids:
             key = video_id.lower()

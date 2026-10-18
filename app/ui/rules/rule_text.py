@@ -35,6 +35,18 @@ def _rule_summary(payload: dict[str, Any]) -> str:
     return f"{' + '.join(actions)} · {' · '.join(filters) if filters else tr('no filters', '无筛选', 'フィルターなし')}"
 
 
+def page_scope_name(scope: str) -> str:
+    """Name of a page that has its own download rule."""
+    names = {
+        "subscription": tr("Subscriptions", "订阅页", "購読"),
+        "search": tr("Search", "搜索页", "検索"),
+        "detail": tr("Video details", "视频详情页", "動画詳細"),
+        "home": tr("Home", "首页", "ホーム"),
+        "downloads": tr("Download links", "下载页链接", "ダウンロードリンク"),
+    }
+    return names.get(scope, scope)
+
+
 def _rule_display_name(rule: dict[str, Any]) -> str:
     if rule.get("builtin"):
         return tr("Default Download", "默认下载", "既定ダウンロード")

@@ -57,6 +57,7 @@ class EnqueueingMixin:
             sort_keys=True,
         )
         normalized, skipped_empty, skipped_input_duplicate = self._normalize_enqueue_items(items)
+        self._release_temporary_copies(video_id for video_id, _ in normalized)
         existing_paths = self._existing_paths_for(normalized)
         skipped_existing = len(existing_paths)
         limit = app_config.max_concurrent

@@ -87,6 +87,7 @@ class StagingMixin:
         if direct_single and len(items) == 1 and stage_verdict(items[0])[0] == STAGE_READY:
             return self._download_now(items[0], preview, label)
         batch_id = uuid.uuid4().hex[:12]
+        self._release_temporary_copies(item.get("video_id", "") for item in items)
         added, updated, in_list = self._stage_items(items, batch_id=batch_id, label=label, rule_id=rule_id)
         if added:
             signal_bus.tasks_added.emit(added)

@@ -22,6 +22,12 @@ The Subscriptions page now keeps only authors and playlists (the account feed is
 
 The Task Center now shows the total download speed of all running tasks at the top.
 
+## Download rule per page
+
+Each page downloads with its own rule: changing the rule picker on Subscriptions, Search, Home or the Download page only affects that page, and "Rule per page" at the top of the Rules page sets the rule for Subscriptions, Search, Video details, Home and Download links in one place. "Follow default" uses the rule marked ● ("Set as default" in the rule list).
+
+On first start an editable "Temporary Download" rule is added: it saves to `temp_video/{title}_{id}.mp4` under the download folder and does not write download history. Search and Video details use it by default; Subscriptions, Home and Download links follow the default rule. A temporary copy does not count as downloaded, so downloading the same video later from Subscriptions saves it again with the subscription rule and records it in history. Files inside the fixed leading folder of any no-history rule (such as `temp_video/`) are never treated as already downloaded.
+
 ## Author pages, subscription state and Like
 
 "Open author page" in a search result, Home card, detail page or Subscriptions page now opens the in-app author page by default: an author you subscribe to opens on their subscription grid, anyone else shows their works on Iwara (videos / images, with paging and bulk download). The author page and subscription grid carry two status chips: "Subscribed in this app / Not subscribed in this app" and "Followed on Iwara / Not followed on Iwara / not signed in" (the latter needs an Iwara sign-in), with buttons to subscribe or unsubscribe in the app and to follow or unfollow on the Iwara website. The detail page's author card has the same bar plus an "Author page" button. Oreno3D results with no resolvable Iwara account can still use "Open author page in browser".

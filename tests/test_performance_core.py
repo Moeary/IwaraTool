@@ -1352,18 +1352,16 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
             self.assertEqual(page._operation_video_ids(), ["pending01"])
-            with patch.object(page, "_apply_selected_rule_for_download") as apply_rule:
-                with patch.object(page, "_enqueue_ids") as enqueue_ids:
-                    # QAction.triggered emits a bool; the context-menu path
-                    # passes an explicit ID list and must not be overridden by
-                    # the staged pending selection.
-                    page._download_selected_with_rule(False)
-                    page._download_selected_with_rule(["other01"])
-                    self.assertEqual(
-                        enqueue_ids.call_args_list,
-                        [call(["pending01"]), call(["other01"])],
-                    )
-                    self.assertEqual(apply_rule.call_count, 2)
+            with patch.object(page, "_enqueue_ids") as enqueue_ids:
+                # QAction.triggered emits a bool; the context-menu path
+                # passes an explicit ID list and must not be overridden by
+                # the staged pending selection.
+                page._download_selected_with_rule(False)
+                page._download_selected_with_rule(["other01"])
+                self.assertEqual(
+                    enqueue_ids.call_args_list,
+                    [call(["pending01"]), call(["other01"])],
+                )
         page.close()
 
     def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):

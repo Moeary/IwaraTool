@@ -247,7 +247,7 @@ class SearchPageLayoutMixin:
         rule_group_layout = QHBoxLayout(rule_group)
         rule_group_layout.setContentsMargins(0, 0, 0, 0)
         rule_group_layout.setSpacing(0)
-        self._rule_picker = RulePicker(rule_group)
+        self._rule_picker = RulePicker(rule_group, scope="search")
         self._rule_picker.setToolTip(
             tr(
                 "Download rule: controls filtering, naming and download behavior.",
