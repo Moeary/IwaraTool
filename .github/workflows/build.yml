@@ -52,28 +52,18 @@ jobs:
           QT_QPA_PLATFORM: cocoa
         run: pixi run test
 
-      - name: Build (Windows)
+      # Version resources always; Authenticode signing when the repository has a
+      # code-signing certificate in the WINDOWS_SIGN_PFX_BASE64 / _PASSWORD secrets.
+      - name: Build and sign (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          WINDOWS_SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+          WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
-          pixi run python -m nuitka \
-            --assume-yes-for-downloads \
-            --standalone \
-            --onefile \
-            --enable-plugin=pyside6 \
-            --include-qt-plugins=multimedia \
-            --windows-console-mode=disable \
-            --include-package-data=cloudscraper \
-            --windows-icon-from-ico=app/icon.ico \
-            --include-data-file=app/icon.ico=app/icon.ico \
-            --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
-            --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json \
-            --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe" \
-            --output-dir=dist \
-            --remove-output \
-            main.py
+          pixi run python scripts/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
 
       - name: Build (Linux)
         if: runner.os == 'Linux'

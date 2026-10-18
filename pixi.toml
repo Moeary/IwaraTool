@@ -11,6 +11,9 @@ crawl = "python app/core/crawl_iwara_tags.py"
 test = "python -X faulthandler -m unittest discover -s tests -p \"test_*.py\""
 build = "nuitka --standalone --onefile --enable-plugin=pyside6 --include-qt-plugins=multimedia --windows-console-mode=disable --include-package-data=cloudscraper --windows-icon-from-ico=app/icon.ico --include-data-file=app/icon.ico=app/icon.ico --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json --output-filename=IwaraTool.exe --output-dir=dist --remove-output main.py"
 
+[target.win-64.tasks]
+build = "python scripts/build_windows.py"
+
 # conda-forge 的 openssl 激活脚本会把 SSL_CERT_DIR 指向空的 Library\ssl\certs，
 # 在已激活的终端里再执行 pixi 会警告 “ignoring SSL_CERT_DIR: no certificates found”。
 # 激活后清掉它即可：OpenSSL 仍通过 SSL_CERT_FILE（cacert.pem）找到根证书。
