@@ -93,6 +93,10 @@ pixi run test   # テストを実行
 PRは大歓迎です！
 変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
 
+## コード署名ポリシー（Code signing policy）
+
+Windows 版は GitHub Actions が本リポジトリからビルドし、リリースを手動で承認してから署名します。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。チームの役割とプライバシーポリシーは英語版の [Code signing policy](readme.md#code-signing-policy) を参照してください。
+
 ## ライセンス
 
 MIT License。

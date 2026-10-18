@@ -93,6 +93,28 @@ pixi run test   # Run the test suite
 Pull Requests are very welcome!
 Please target the `dev` branch, keep English/Simplified Chinese/Japanese UI text in sync, and run the test suite before submitting. UI changes should include a screenshot or short recording when practical.
 
+## Code signing policy
+
+Windows releases are built from this repository by GitHub Actions ([build.yml](.github/workflows/build.yml)) and signed only after the release is approved.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- Committers and reviewers: [Moeary](https://github.com/Moeary)
+- Approvers: [Moeary](https://github.com/Moeary)
+
+Every change from an outside contributor is reviewed before it is merged, and every signing request is approved by hand.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. It talks only to the services needed for what the user asks:
+
+- iwara.tv (`www`, `api`, `apiq`, `i` and the file servers it returns) to browse, search, sign in and download; the account and password are sent only to Iwara when the user signs in.
+- oreno3d.com, when the user searches through the Oreno3D bridge.
+- GitHub (`api.github.com`, `raw.githubusercontent.com`) to check for a new release and to fetch the tag dictionary; the release check can be turned off in Settings.
+- A proxy or a local aria2 RPC server, only when the user configures one.
+
+Settings, history and caches stay in the `data` folder next to the program.
+
 ## License
 
 MIT License.

@@ -87,6 +87,10 @@ Windows 构建会写入版本信息；设置环境变量 `WINDOWS_SIGN_PFX`（.p
 非常欢迎大家提 PR！
 请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试。涉及界面变化时，建议附上截图或短视频。
 
+## 代码签名策略（Code signing policy）
+
+Windows 版本由 GitHub Actions 从本仓库构建，发布经人工批准后才签名。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。团队角色与隐私政策见英文说明的 [Code signing policy](readme.md#code-signing-policy)。
+
 ## 许可证
 
 MIT License。

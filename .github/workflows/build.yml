@@ -65,6 +65,44 @@ jobs:
           [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
           pixi run python scripts/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
 
+      # SignPath Foundation signing for tagged releases. Skipped until the
+      # repository variable SIGNPATH_ORGANIZATION_ID and the secret
+      # SIGNPATH_API_TOKEN are set; every request waits for manual approval in SignPath.
+      - name: Upload unsigned exe for SignPath (Windows)
+        id: upload-unsigned
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-exe  # outside the release's IwaraTool-* pattern
+          path: dist/IwaraTool-Windows-*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign with SignPath (Windows)
+        if: steps.upload-unsigned.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'IwaraTool' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist-signed
+
+      - name: Use the signed exe (Windows)
+        if: steps.upload-unsigned.outcome == 'success'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem dist-signed -Recurse -Filter 'IwaraTool-Windows-*.exe'
+          if (-not $signed) { throw 'SignPath returned no exe' }
+          foreach ($file in $signed) {
+            $status = (Get-AuthenticodeSignature $file.FullName).Status
+            if ($status -ne 'Valid') { throw "Signature of $($file.Name) is $status" }
+            Copy-Item $file.FullName (Join-Path dist $file.Name) -Force
+          }
+
       - name: Build (Linux)
         if: runner.os == 'Linux'
         shell: bash
