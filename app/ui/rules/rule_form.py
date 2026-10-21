@@ -22,11 +22,13 @@ from qfluentwidgets import (
 
 from ...core.rules import default_rule_payload, normalize_rule_payload
 from ...core.download.paths import validate_filename_template
+from ...core.download.template_builder import preview_template
 from ...core.manager import download_manager
 from ...i18n import tr
 from ..theme import set_secondary_text
 from .rule_text import _rule_summary
 from .tag_popup import _RuleTagSuggestionPopup
+from .template_builder import FilenameTemplateBuilder
 
 
 class RuleFormWidget(QWidget):
@@ -73,9 +75,20 @@ class RuleFormWidget(QWidget):
         storage_layout.setHorizontalSpacing(10)
         storage_layout.setVerticalSpacing(10)
         storage_layout.addWidget(SubtitleLabel(tr("Filename template", "下载命名规则", "ファイル名テンプレート"), storage_card), 0, 0, 1, 4)
+        self.template_builder = FilenameTemplateBuilder(storage_card)
+        storage_layout.addWidget(self.template_builder, 1, 0, 1, 4)
+        storage_layout.addWidget(
+            BodyLabel(tr("Full template (editable)", "完整规则（可直接编辑）", "完全なテンプレート（直接編集可）"), storage_card),
+            2, 0, 1, 4,
+        )
         self.filename_template_edit = LineEdit(storage_card)
         self.filename_template_edit.setPlaceholderText("{author}/{YYYY-MM-DD}_{title}_{id}.mp4")
-        storage_layout.addWidget(self.filename_template_edit, 1, 0, 1, 3)
+        storage_layout.addWidget(self.filename_template_edit, 3, 0, 1, 3)
+        self.template_preview_label = BodyLabel("", storage_card)
+        self.template_preview_label.setWordWrap(True)
+        storage_layout.addWidget(self.template_preview_label, 4, 0, 1, 4)
+        self.template_builder.template_changed.connect(self.filename_template_edit.setText)
+        self.filename_template_edit.textChanged.connect(self._on_template_text_changed)
         self.validate_template_btn = PushButton(
             tr("Validate", "检验规则", "検証"),
             storage_card,
@@ -90,7 +103,7 @@ class RuleFormWidget(QWidget):
             )
         )
         self.validate_template_btn.clicked.connect(self._validate_filename_template)
-        storage_layout.addWidget(self.validate_template_btn, 1, 3)
+        storage_layout.addWidget(self.validate_template_btn, 3, 3)
         template_help = BodyLabel(
             tr(
                 "Available: {author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
@@ -101,8 +114,18 @@ class RuleFormWidget(QWidget):
         )
         template_help.setWordWrap(True)
         set_secondary_text(template_help)
-        storage_layout.addWidget(template_help, 2, 0, 1, 4)
+        storage_layout.addWidget(template_help, 5, 0, 1, 4)
+        self._on_template_text_changed(self.filename_template_edit.text())
         return storage_card
+
+    def _on_template_text_changed(self, text: str):
+        self.template_builder.set_template(text)
+        shown = preview_template(text)
+        self.template_preview_label.setText(
+            tr("Preview: ", "预览：", "プレビュー: ") + shown
+            if shown
+            else tr("Preview: (template is invalid)", "预览：（规则无效）", "プレビュー: （テンプレートが無効です）")
+        )
 
     def _build_filter_card(self) -> CardWidget:
         filter_card = CardWidget(self)
