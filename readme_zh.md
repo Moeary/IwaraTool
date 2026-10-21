@@ -8,84 +8,52 @@
 
 ![demo](./docs/iwaratool_demo_v0.6.gif)
 
-文档：[Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API 文档](./docs/API_zh.md) · [标签索引](./docs/iwara_tags.md)
+## 能做什么
 
-## 核心功能
-- 批量下载：支持作者页、播放列表和搜索链接批量入队；任务队列持久化，安全退出后自动恢复。
-- 下载调度：支持 `X-Version` 签名计算，画质自动回退（`Source -> 540 -> 360`），状态机调度减少 URL 过期问题。
-- 本地去重与 SQLite 历史记录中心，支持搜索、筛选、排序与清理。
-- 搜索：Iwara 实时视频/作者/播放列表搜索，Oreno3D 在线视频搜索，中日英标签候选；结果显示本地下载状态。
-- 视频预览：双击任意页面中的视频即可播放——已下载的用你选的播放器（系统默认/内置/自定义命令）打开，未下载或已被移走的在内置窗口中在线播放，支持播放/暂停、拖动进度、倍速、音量、全屏和长按倍速。
-- 订阅管理：作者与播放列表的订阅；默认总览用大列表展示头像和最近视频，点进去以网格查看，也可切回经典表格。
-- 首页：栏目可自定义（我的订阅、热门，或任意标签 / 关键词 / 作者搜索），内容本地缓存、仅在变化时更新；应用内查看详情、点赞、勾选批量下载；SFW / NSFW 内容分级同时作用于首页与搜索。
-- 作者页：搜索或详情里一键打开程序内作者页，显示是否已在程序内订阅、是否已在 Iwara 关注，并可直接订阅 / 关注。
-- 快捷键：按 F1 查看全部快捷键，可在设置里改键；封面网格支持方向键、Enter、Space 等键盘操作。
-- 下载规则：统一管理点赞、播放、日期、标签、标题关键词、命名模板和下载行为，可生成 NFO。
-- 修复中心：批量重命名已有视频，或按规则整理到输出目录，并检查目标冲突。
-- 界面：中/英/日语言与深浅色主题可运行时切换；表格列可配置并持久化。
-- 可选 aria2 RPC、封面下载和 `.nfo` 生成。
-- 稳健性：下载完成度校验与断点续传校验，API 请求自动退避重试并限速，SQLite WAL，滚动日志（`data/logs/`）。
-- 维护：系统托盘与开机启动、不含凭据的数据备份/恢复、SHA-256 校验的一键更新（Windows 打包版）。
-
-## 快速开始
-1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本。
-   - Linux 预编译包基于 GitHub 的 `ubuntu-latest` 构建，不支持 glibc 较老的系统；老版本发行版建议下载源码后在本机编译。
-   - macOS 提供 Apple Silicon（ARM64）和 Intel（AMD64）ZIP：解压后将 `IwaraTool.app` 拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；若被系统阻止，请按“隐私与安全性”中的提示允许打开。
-   - macOS 数据保存在 `~/Library/Application Support/IwaraTool/`，默认下载至 `~/Downloads/IwaraTool/`。更新请下载并替换 `.app`；登录自启动与一键替换更新目前仅支持 Windows。
-2. 打开程序；下载私有视频或导入关注作者时需要登录。
-3. 在 `下载工作台` 粘贴链接，按需选择下载规则后提交。
-4. 在 `订阅页` 跟踪作者或播放列表（账号订阅流在首页的“我的订阅”），并批量下载新增内容。
-
-更多细节（修复中心、搜索下载标记、Oreno3D 作者回退、关键词/标签搜索、订阅封面缓存）见 [使用指南](./docs/guide/usage.md)；本地数据与缓存见 [本地数据与缓存](./docs/guide/data.md)。
-
-## 支持的 URL 类型
-```text
-https://www.iwara.tv/profile/username
-https://www.iwara.tv/profile/username/videos
-https://www.iwara.tv/playlist/xxxxxxxx
-https://www.iwara.tv/video/xxxxxxxx
-https://www.iwara.tv/videos?sort=date
-https://www.iwara.tv/videos?tags=2d&sort=likes
-https://api.iwara.tv/videos?tags=2d&sort=date
-```
-
-`sort` 支持：`date`、`trending`、`popularity`、`views`、`likes`。
-`tags` 支持详见 [标签索引](./docs/iwara_tags.md)。
+- **批量下载**：粘贴作者、播放列表、搜索或视频链接，一次下完。没下完的任务，下次打开程序会接着继续。
+- **搜索与浏览**：搜索 Iwara 与 Oreno3D，中日英标签候选；首页可自定义栏目（我的订阅、热门，或任意标签 / 关键词）。已有的视频会有标记。
+- **关注作者**：订阅作者和播放列表，新视频一目了然，只下载新增的部分。
+- **先看再下**：双击任意视频即可在程序里直接播放。
+- **只下想要的**：下载规则可按点赞、播放、日期、标签和标题关键词筛选，每个页面还能使用各自的规则。
+- **按你的习惯命名**：选一个命名预设，或逐个选字段（作者、标题、ID、日期、画质……）并填写它们之间的连接符来拼出命名规则，并带实时预览。
+- **整理已有文件**：修复中心可批量重命名或重新整理已下载的视频。
+- **留痕与管理**：带搜索筛选的下载历史、重复检测，可选封面图与供媒体库使用的 `.nfo` 文件。
+- **用着顺手**：中 / 英 / 日界面，深浅色主题，系统托盘，Windows 下支持开机自启、备份与一键更新。
 
 ## 页面展示
+
 1. 下载工作台
-![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
+
+   ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
 2. 搜索页
-![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
+
+   ![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
 3. 订阅页
-![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
+
+   ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
 4. 历史记录页
-![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
+
+   ![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
 5. 规则页
-![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
+
+   ![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
 6. 设置页
-![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
 
-## 运行与构建
+   ![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
 
-项目依赖使用 [pixi](https://pixi.prefix.dev/latest/) 管理。
+## 快速开始
 
-如果你是开发者想直接运行源代码/或者想构建应用：
+1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本并运行。（Linux 与 macOS 说明见 [参考文档](./docs/guide/reference.md#平台说明)。）
+2. 需要下载私有视频或导入关注作者时，请先登录。
+3. 在 `下载工作台` 粘贴链接，按需选择下载规则后提交。
+4. 在 `订阅页` 关注作者或播放列表，并下载新增内容。
 
-```shell
-pixi install
-pixi run start  # 运行程序
-pixi run build  # 构建应用
-pixi run crawl  # 抓取标签数据（更新 docs/iwara_tags.md）
-pixi run test   # 运行测试
-```
-
-Windows 构建会写入版本信息；设置环境变量 `WINDOWS_SIGN_PFX`（.pfx 路径，或 CI 中用 `WINDOWS_SIGN_PFX_BASE64`）与 `WINDOWS_SIGN_PFX_PASSWORD` 后，`pixi run build` 会自动做 Authenticode 签名并加时间戳（有 Windows SDK 时用 signtool，否则用 PowerShell）。也可用 `python scripts/build_windows.py --sign-only <exe>` 只签名已有文件。
+更多：[使用指南](./docs/guide/usage.md) · [参考文档（支持的链接、命名占位符、从源码构建）](./docs/guide/reference.md) · [本地数据与缓存](./docs/guide/data.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 参与贡献
 
 非常欢迎大家提 PR！
-请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试。涉及界面变化时，建议附上截图或短视频。
+请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试（构建与测试命令见 [参考文档](./docs/guide/reference.md#从源码运行--构建)）。涉及界面变化时，建议附上截图或短视频。
 
 ## 代码签名策略（Code signing policy）
 
