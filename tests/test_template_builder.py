@@ -13,6 +13,7 @@ from app.core.download.template_builder import (
     template_fields,
     template_presets,
 )
+from app.ui.repair.page import RepairInterface
 from app.ui.rules.rule_form import RuleFormWidget
 from app.ui.rules.template_builder import FilenameTemplateBuilder
 
@@ -100,6 +101,19 @@ class TemplateBuilderWidgetTests(unittest.TestCase):
         form.filename_template_edit.setText("{unknown}.mp4")
         self.assertIn("无效", form.template_preview_label.text())
         form.close()
+
+    def test_repair_page_preset_combo_fills_and_tracks_the_template(self):
+        page = RepairInterface()
+        try:
+            preset = template_presets()[2]
+            page._preset_combo.setCurrentIndex(3)
+            self.assertEqual(page._template_edit.text(), preset.template)
+            page._template_edit.setText("{id}.mp4")
+            self.assertEqual(page._preset_combo.currentIndex(), 0)
+            page._template_edit.setText(preset.template)
+            self.assertEqual(page._preset_combo.currentIndex(), 3)
+        finally:
+            page.close()
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
+from ...core.download.template_builder import template_presets
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...i18n import tr
 from ...signal_bus import signal_bus
@@ -267,11 +268,24 @@ class RepairInterface(
         rule_row.addWidget(self._rule_combo, 1)
         rule_layout.addLayout(rule_row)
 
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+        preset_row.addWidget(BodyLabel(tr("Preset", "预设", "プリセット"), rule_card))
+        self._preset_combo = ComboBox(rule_card)
+        self._template_presets = template_presets()
+        self._preset_combo.addItem(tr("Custom", "自定义", "カスタム"))
+        for preset in self._template_presets:
+            self._preset_combo.addItem(preset.label)
+        self._preset_combo.currentIndexChanged.connect(self._on_preset_chosen)
+        preset_row.addWidget(self._preset_combo, 1)
+        rule_layout.addLayout(preset_row)
+
         template_row = QHBoxLayout()
         template_row.setSpacing(8)
         template_row.addWidget(BodyLabel(tr("Name", "命名", "名前"), rule_card))
         self._template_edit = LineEdit(rule_card)
         self._template_edit.setPlaceholderText("{YYYY-MM-DD}_{title}_{id}.mp4")
+        self._template_edit.textChanged.connect(self._sync_preset_combo)
         self._template_edit.textChanged.connect(self._refresh_target_previews)
         template_row.addWidget(self._template_edit, 1)
         rule_layout.addLayout(template_row)

@@ -106,9 +106,9 @@ class RuleFormWidget(QWidget):
         storage_layout.addWidget(self.validate_template_btn, 3, 3)
         template_help = BodyLabel(
             tr(
-                "Available: {author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
-                "可用占位符：{author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
-                "使用可能: {author} {username} {YYYY-MM-DD} {YYYY} {MM} {DD} {title} {id} {quality} {views} {likes}",
+                "Available: {author} {username} {title} {id} {YYYY-MM-DD} {YYYY} {MM} {DD} {quality} {views} {likes} {comments} {duration} {slug} {rating} {date}",
+                "可用占位符：{author} {username} {title} {id} {YYYY-MM-DD} {YYYY} {MM} {DD} {quality} {views} {likes} {comments} {duration} {slug} {rating} {date}",
+                "使用可能: {author} {username} {title} {id} {YYYY-MM-DD} {YYYY} {MM} {DD} {quality} {views} {likes} {comments} {duration} {slug} {rating} {date}",
             ),
             storage_card,
         )
