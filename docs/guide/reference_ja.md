@@ -8,7 +8,8 @@
 
 - **Windows**：[Releases](https://github.com/Moeary/IwaraTool/releases) から `.exe` を取得して実行します。ログイン時の自動起動とワンクリック更新（SHA-256 検証付き）は Windows のみ対応しています。
 - **Linux**：バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
-- **macOS**：Apple Silicon（ARM64）と Intel（AMD64）の ZIP を提供します。解凍後、`IwaraTool.app` を「アプリケーション」に移動してください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。起動がブロックされた場合は「プライバシーとセキュリティ」の案内に従って許可してください。
+- **macOS**：Apple シリコン（ARM64）と Intel（x86_64）の DMG（同内容の ZIP も同梱）を提供します。開いて `IwaraTool.app` を「アプリケーション」にドラッグしてください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。初回起動時のブロックへの対処、アーキテクチャの選び方、プロキシ設定は [インストールと基本の使い方](./install_ja.md) を参照してください。
+  - パッケージ時に、ビルド環境の Python を指したままのライブラリ参照をバンドル内のパスへ書き換えてアドホック署名し直し、CI ですべての Mach-O の参照を検査したうえで `.app` とマウントした DMG の両方から起動を確認します。
   - データは `~/Library/Application Support/IwaraTool/`、既定の保存先は `~/Downloads/IwaraTool/` です。
   - 更新時は `.app` を置き換えてください。データは保持されます。
 

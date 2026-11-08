@@ -43,12 +43,12 @@
 
 ## クイックスタート
 
-1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得して起動します。（Linux と macOS の注意は [リファレンス](./docs/guide/reference_ja.md#プラットフォームの注意) を参照。）
+1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得して起動します。（ファイルの選び方、macOS の初回起動時の警告、プロキシ設定は [インストールと基本の使い方](./docs/guide/install_ja.md) を参照。）
 2. 非公開動画の保存やフォロー作者の取込にはログインが必要です。
 3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
 4. `購読` で作者やプレイリストをフォローし、新着動画を保存できます。
 
-詳細：[使用ガイド](./docs/guide/usage_ja.md) · [リファレンス（対応 URL、命名プレースホルダー、ソースからのビルド）](./docs/guide/reference_ja.md) · [ローカルデータとキャッシュ](./docs/guide/data_ja.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+詳細：[インストール](./docs/guide/install_ja.md) · [使用ガイド](./docs/guide/usage_ja.md) · [リファレンス（対応 URL、命名プレースホルダー、ソースからのビルド）](./docs/guide/reference_ja.md) · [ローカルデータとキャッシュ](./docs/guide/data_ja.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 貢献
 

@@ -8,7 +8,8 @@
 
 - **Windows**：从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载 `.exe` 直接运行。登录自启动与一键更新（SHA-256 校验）仅支持 Windows。
 - **Linux**：预编译包基于 GitHub 的 `ubuntu-latest` 构建，不支持 glibc 较老的系统；老版本发行版建议下载源码后在本机编译。
-- **macOS**：提供 Apple Silicon（ARM64）和 Intel（AMD64）ZIP，解压后将 `IwaraTool.app` 拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；若被系统阻止，请按“隐私与安全性”中的提示允许打开。
+- **macOS**：提供 Apple Silicon（ARM64）和 Intel（x86_64）的 DMG（另附同内容的 ZIP），打开后将 `IwaraTool.app` 拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；首次启动被拦截时的处理、架构选择与代理配置见 [安装与上手](./install.md)。
+  - 打包时会把仍指向构建机 Python 环境的动态库引用改写为包内路径、重新签名（ad-hoc），并在 CI 中检查每个 Mach-O 文件的引用、从 `.app` 与挂载后的 DMG 各启动一次进行验证。
   - 数据保存在 `~/Library/Application Support/IwaraTool/`，默认下载至 `~/Downloads/IwaraTool/`。
   - 更新请下载并替换 `.app`，数据会保留。
 

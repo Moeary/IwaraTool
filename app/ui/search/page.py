@@ -9,6 +9,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
 from ...core.manager import download_manager
 from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
+from ...core.search.post_filter import PostFilter
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SearchActionsMixin
@@ -29,6 +30,7 @@ from .history import SearchHistoryMixin
 from .oreno_links import SearchOrenoLinksMixin
 from .page_layout import SearchPageLayoutMixin
 from .pagination import SearchPaginationMixin
+from .post_filtering import SearchPostFilterMixin
 from .query_controls import SearchQueryControlsMixin
 from .result_items import SearchResultItemsMixin
 from .results_layout import SearchResultsLayoutMixin
@@ -48,6 +50,7 @@ class SearchInterface(
     SearchPaginationMixin,
     SearchOrenoLinksMixin,
     SearchResultsLayoutMixin,
+    SearchPostFilterMixin,
     SearchCoversMixin,
     SearchResultItemsMixin,
     SearchDownloadStatusMixin,
@@ -98,6 +101,7 @@ class SearchInterface(
         # The user picked the source by hand for the keyword now in the box.
         self._source_pinned = False
         self._all_videos: list[SearchVideo] = []
+        self._post_filter = PostFilter()
         self._all_authors: list[SearchAuthor] = []
         self._all_playlists: list[SearchPlaylist] = []
         self._author_video_target = None

@@ -304,9 +304,11 @@ class SearchExecutionMixin:
             count = len(self._all_videos)
             self._status_label.setText(
                 tr(f"Found {count} image post(s){total}", f"找到 {count} 个图片作品{total}", f"画像 {count} 件{total}")
+                + self._post_filter_status_suffix()
             )
         else:
             count = len(self._all_videos)
             self._status_label.setText(
                 tr(f"Found {count} video(s){total}", f"找到 {count} 个视频{total}", f"動画 {count} 件{total}")
+                + self._post_filter_status_suffix()
             )

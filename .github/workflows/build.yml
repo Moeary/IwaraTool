@@ -125,9 +125,20 @@ jobs:
             --remove-output \
             main.py
 
-      - name: Build (macOS)
+      # scripts/build_macos.py rewrites library references that still point at
+      # this runner's pixi environment, re-signs (ad-hoc), audits every Mach-O,
+      # launches the bundle with DYLD_PRINT_LIBRARIES, builds the DMG and
+      # launches again from the mounted DMG; any failure stops the release.
+      - name: Build, repair and verify (macOS)
         if: runner.os == 'macOS'
         run: pixi run build
+
+      - name: Verify DMG image (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for dmg in dist/IwaraTool-macOS-*.dmg; do
+            hdiutil verify "$dmg"
+          done
 
       - name: Write SHA-256 checksums
         shell: bash

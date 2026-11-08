@@ -43,12 +43,12 @@
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本并运行。（Linux 与 macOS 说明见 [参考文档](./docs/guide/reference.md#平台说明)。）
+1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本并运行。（如何选择版本、macOS 首次启动被拦截怎么办、代理怎么填，见 [安装与上手](./docs/guide/install.md)。）
 2. 需要下载私有视频或导入关注作者时，请先登录。
 3. 在 `下载工作台` 粘贴链接，按需选择下载规则后提交。
 4. 在 `订阅页` 关注作者或播放列表，并下载新增内容。
 
-更多：[使用指南](./docs/guide/usage.md) · [参考文档（支持的链接、命名占位符、从源码构建）](./docs/guide/reference.md) · [本地数据与缓存](./docs/guide/data.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+更多：[安装与上手](./docs/guide/install.md) · [使用指南](./docs/guide/usage.md) · [参考文档（支持的链接、命名占位符、从源码构建）](./docs/guide/reference.md) · [本地数据与缓存](./docs/guide/data.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 参与贡献
 

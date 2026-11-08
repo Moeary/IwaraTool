@@ -16,6 +16,19 @@ def smoke_test():
     from app.qt_runtime import ensure_multimedia_plugins
     from app.version import __version__
 
+    # Native extension modules pull in libssl, libcrypto, libsqlite and friends;
+    # importing them here makes a packaged build prove those libraries load.
+    import hashlib
+    import sqlite3
+    import ssl
+
+    import cloudscraper  # noqa: F401
+    import requests  # noqa: F401
+
+    ssl.create_default_context()
+    hashlib.sha256(b"IwaraTool").hexdigest()
+    sqlite3.connect(":memory:").close()
+
     app = QApplication(sys.argv)
     ensure_multimedia_plugins()
     player = QMediaPlayer(app)

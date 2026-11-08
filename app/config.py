@@ -8,6 +8,10 @@ from .paths import app_data_dir, app_root_dir, default_download_dir
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
+# Prefilled local proxy address: Clash Verge Rev's mixed port.  Both proxies
+# start disabled, so requests follow the system proxy / TUN until the user
+# turns one on, and any other port (such as older CFW's 7890) can be entered.
+DEFAULT_PROXY_URL = "http://127.0.0.1:7897"
 LEGACY_FILENAME_TEMPLATE = "{username}/{YYYYMMDD}_{title}_{id}.mp4"
 LEGACY_FILENAME_TEMPLATES = frozenset(
     {
@@ -53,12 +57,12 @@ class AppConfig:
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
-        "api_proxy_enabled": True,
-        "api_proxy_url": "http://127.0.0.1:7890",
+        "api_proxy_enabled": False,
+        "api_proxy_url": DEFAULT_PROXY_URL,
         "download_proxy_enabled": False,
-        "download_proxy_url": "http://127.0.0.1:7890",
+        "download_proxy_url": DEFAULT_PROXY_URL,
         "proxy_enabled": False,
-        "proxy_url": "http://127.0.0.1:7890",
+        "proxy_url": DEFAULT_PROXY_URL,
         "auth_enabled": False,
         "username": "",
         "password": "",

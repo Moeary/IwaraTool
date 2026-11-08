@@ -45,12 +45,12 @@ All screenshots use the English interface with sample data and no cover images.
 
 ## Quick Start
 
-1. Download the latest version from [Releases](https://github.com/Moeary/IwaraTool/releases) and run it. (Linux and macOS notes: see [Reference](./docs/guide/reference_en.md#platform-notes).)
+1. Download the latest version from [Releases](https://github.com/Moeary/IwaraTool/releases) and run it. (Which file to pick, the macOS first-launch prompt and proxy setup: see [Installation and First Steps](./docs/guide/install_en.md).)
 2. Sign in if you want private videos or the authors you follow.
 3. Paste a link in `Download Workbench`, pick a rule if needed, and submit.
 4. Use `Subscriptions` to follow authors or playlists and download what's new.
 
-More: [Usage Guide](./docs/guide/usage_en.md) · [Reference (supported links, naming placeholders, build from source)](./docs/guide/reference_en.md) · [Local Data and Caches](./docs/guide/data_en.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+More: [Installation](./docs/guide/install_en.md) · [Usage Guide](./docs/guide/usage_en.md) · [Reference (supported links, naming placeholders, build from source)](./docs/guide/reference_en.md) · [Local Data and Caches](./docs/guide/data_en.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## Contributing
 

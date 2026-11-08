@@ -50,6 +50,12 @@ If an Oreno3D result's original Iwara video is deleted or inaccessible, automati
 
 Iwara keyword and tag searches keep separate input and sort settings. Keyword search supports newest, relevance, views, and likes; use double quotes for exact phrases or leave the input blank to browse videos. Tag search accepts suggestions or exact translated names in English, Chinese, and Japanese; separate multiple tags with commas to find videos containing all of them. Sorting and pagination use the server results, and failures remain visible.
 
+## Post-search filter
+
+Iwara's search API cannot restrict likes, views, duration and the like before searching, so the Search page filters afterwards: once results are in, click **Filter** in the scope / sort / rating row and set the conditions in the popup, which takes no page height. You can limit likes and views to a range, duration to a range in minutes, the publish date (last 24 hours up to last year), a minimum like ratio (likes ÷ views) and tags to exclude, and re-sort by likes, views, like ratio, duration or publish date. Empty boxes mean no limit.
+
+The filter applies to the results loaded on the current page and stays in force while paging. The button shows how many conditions are set, and the status line reads "Found N video(s) · M after filtering". Oreno3D results join once their Iwara statistics are loaded and then appear automatically; "Reset the search" also clears the filter. Author and playlist results have no post-search filter.
+
 ## Oreno3D Tag Bridge
 
 In tag scope, a single label uses the direct `/tags/{id}` index, while multiple labels are intersected client-side; `tag:<id>`, `origin:<id>`, `character:<id>`, and Oreno3D entity URLs are also accepted. Oreno3D supports video and tag search in this bridge; for author or playlist results, switch to the Iwara live API. Results are resolved to the canonical Iwara video before opening or queueing. For tag IDs, see the [Tag index](../iwara_tags.md).

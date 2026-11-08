@@ -8,7 +8,8 @@ Details that most users never need. The README keeps only what helps you get sta
 
 - **Windows**: download the `.exe` from [Releases](https://github.com/Moeary/IwaraTool/releases) and run it. Launch at login and one-click updates (SHA-256 verified) are Windows-only.
 - **Linux**: binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. On older distributions, download the source and build locally.
-- **macOS**: ZIPs are provided for Apple Silicon (ARM64) and Intel (AMD64). Extract and drag `IwaraTool.app` into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; if blocked, allow it from the system's Privacy & Security prompt.
+- **macOS**: DMGs are provided for Apple Silicon (ARM64) and Intel (x86_64), plus ZIPs with the same app. Open one and drag `IwaraTool.app` into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; see [Installation and First Steps](./install_en.md) for the first-launch prompt, choosing the architecture and the proxy.
+  - Packaging rewrites library references that still point at the build machine's Python environment to paths inside the bundle, re-signs ad-hoc, and CI checks every Mach-O file and launches the app both from the `.app` and from the mounted DMG.
   - Data lives in `~/Library/Application Support/IwaraTool/`; downloads default to `~/Downloads/IwaraTool/`.
   - Update by replacing the `.app`; your data is kept.
 

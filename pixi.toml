@@ -28,9 +28,11 @@ build = "python scripts/build_macos.py"
 
 [target.osx-arm64.pypi-dependencies]
 pyside6 = "==6.6.2"
+dmgbuild = ">=1.6"
 
 [target.osx-64.pypi-dependencies]
 pyside6 = "==6.6.2"
+dmgbuild = ">=1.6"
 
 [target.win-64.dependencies]
 pyside6 = "==6.6.2"

@@ -37,9 +37,10 @@ class SearchResultItemsMixin:
             elif list_mode:
                 self._render_video_table()
             else:
-                for video in self._all_videos:
+                for video in self._visible_videos():
                     self._add_video_item(video)
             self._sync_view_controls()
+            self._sync_post_filter_button()
             self._resize_grid()
             self._fit_results_table_last_column()
             self._sync_selection_buttons()
@@ -52,8 +53,9 @@ class SearchResultItemsMixin:
     def _render_video_table(self):
         self._results_table.setUpdatesEnabled(False)
         try:
-            self._results_table.setRowCount(len(self._all_videos))
-            for row, video in enumerate(self._all_videos):
+            videos = self._visible_videos()
+            self._results_table.setRowCount(len(videos))
+            for row, video in enumerate(videos):
                 values = [
                     self._result_field_value(video, key)
                     for key in self._RESULT_COLUMN_KEYS
@@ -77,6 +79,10 @@ class SearchResultItemsMixin:
         """Update one hydrated result without rebuilding the whole page."""
 
         self._request_download_status_refresh()
+        if self._post_filter_layout_changed():
+            # Its new statistics decide whether (and where) it is shown.
+            self._schedule_post_filter_refresh()
+            return
         key = f"video:{video.video_id}"
         data = {"kind": "video", "key": key, "data": video}
         if self._is_list_view():
