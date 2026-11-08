@@ -1,8 +1,10 @@
 """macOS bundle repair and DMG layout logic, tested without Apple tools."""
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
@@ -126,6 +128,51 @@ class BundleFixPlanTests(unittest.TestCase):
         self.assertEqual(len(issues), 2)
         self.assertIn("build-machine path", issues[0])
         self.assertIn("does not exist", issues[1])
+
+
+class CodesignTests(unittest.TestCase):
+    """Only the rewritten files and the bundle are signed; --deep is the fallback."""
+
+    def setUp(self):
+        self.app = Path(tempfile.gettempdir()) / "IwaraTool.app"
+        self.main = self.app / "Contents" / "MacOS" / "IwaraTool"
+        self.nested = self.app / "Contents" / "MacOS" / "libfoo.dylib"
+
+    def run_signing(self, failing: set[str]):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            failed = command[0] == "codesign" and any(token in failing for token in command)
+            return subprocess.CompletedProcess(command, 1 if failed else 0, "", "boom" if failed else "")
+
+        with patch.object(bundle.subprocess, "run", side_effect=fake_run), patch("builtins.print"):
+            bundle.codesign_bundle(self.app, [self.main, self.nested])
+        return [command for command in calls if command[0] == "codesign"]
+
+    def test_signs_rewritten_nested_files_then_the_bundle_without_deep(self):
+        calls = self.run_signing(set())
+        self.assertEqual(calls[0][-1], str(self.nested))  # the main executable is covered by the bundle
+        self.assertEqual(calls[1][-1], str(self.app))
+        self.assertNotIn("--deep", calls[1])
+        self.assertIn("--verify", calls[2])
+
+    def test_falls_back_to_deep_when_the_bundle_refuses(self):
+        def fake_run(command, **kwargs):
+            refused = command[0] == "codesign" and command[-1] == str(self.app) and "--force" in command and "--deep" not in command
+            return subprocess.CompletedProcess(command, 1 if refused else 0, "", "")
+
+        calls = []
+        with patch.object(bundle.subprocess, "run", side_effect=lambda c, **k: calls.append(c) or fake_run(c)), \
+                patch("builtins.print"):
+            bundle.codesign_bundle(self.app, [self.main])
+        signing = [c for c in calls if c[0] == "codesign" and "--force" in c]
+        self.assertEqual(len(signing), 2)
+        self.assertIn("--deep", signing[1])
+
+    def test_failed_verification_stops_the_build(self):
+        with self.assertRaises(SystemExit):
+            self.run_signing({"--verify"})
 
 
 class LaunchCheckTests(unittest.TestCase):

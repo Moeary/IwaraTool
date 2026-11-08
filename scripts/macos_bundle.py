@@ -243,7 +243,12 @@ def foreign_loaded_paths(paths: list[str], forbidden_roots: list[Path]) -> list[
 # ── Apple tool wrappers (macOS only) ─────────────────────────────────────────
 
 def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(command, check=True, text=True, capture_output=True, **kwargs)
+    result = subprocess.run(command, text=True, capture_output=True, **kwargs)
+    if result.returncode != 0:
+        if command[0] != "otool":  # otool failing on a non-image is expected
+            print(f"{' '.join(command)} failed ({result.returncode}):\n{result.stdout}{result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+    return result
 
 
 def is_macho(path: Path) -> bool:
@@ -268,15 +273,19 @@ def read_binary_info(path: Path) -> BinaryInfo | None:
     return BinaryInfo(path, libraries, install_id if install_id != str(path) else "", rpaths)
 
 
-def fix_bundle_references(app: Path) -> list[str]:
-    """Rewrite external references in every Mach-O file; return remaining issues."""
+def fix_bundle_references(app: Path) -> tuple[list[str], list[Path]]:
+    """Rewrite external references in every Mach-O file.
+
+    Returns the remaining issues and the files that were rewritten (their
+    signatures are now invalid).
+    """
 
     executable_dir = app / "Contents" / "MacOS"
     files = bundle_files(app)
     index = index_bundle_files(files)
     binaries = [path for path in files if is_macho(path)]
     issues: list[str] = []
-    rewritten = 0
+    rewritten: list[Path] = []
     for path in binaries:
         info = read_binary_info(path)
         if info is None:
@@ -286,11 +295,11 @@ def fix_bundle_references(app: Path) -> list[str]:
         args = plan.install_name_tool_args()
         if args:
             _run(["install_name_tool", *args, str(path)])
-            rewritten += 1
+            rewritten.append(path)
             for old, new in plan.changes:
                 print(f"  {path.relative_to(app)}: {old} -> {new}")
-    print(f"Checked {len(binaries)} Mach-O files, rewrote {rewritten}.")
-    return issues
+    print(f"Checked {len(binaries)} Mach-O files, rewrote {len(rewritten)}.")
+    return issues, rewritten
 
 
 def audit_bundle(app: Path) -> list[str]:
@@ -305,16 +314,54 @@ def audit_bundle(app: Path) -> list[str]:
     return issues
 
 
-def codesign_bundle(app: Path) -> None:
-    """Ad-hoc sign again after ``install_name_tool`` invalidated the signatures."""
+def _codesign(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["codesign", *args], text=True, capture_output=True)
 
-    _run(["codesign", "--force", "--deep", "--sign", "-", "--timestamp=none", str(app)])
-    _run(["codesign", "--verify", "--deep", "--verbose=2", str(app)])
+
+def _report(result: subprocess.CompletedProcess, what: str) -> None:
+    output = (result.stdout + result.stderr).strip()
+    print(f"{what}: exit {result.returncode}" + (f"\n{output}" if output else ""))
+
+
+def codesign_bundle(app: Path, rewritten: list[Path]) -> None:
+    """Ad-hoc sign again what ``install_name_tool`` invalidated.
+
+    Nuitka has already signed every file.  Only the rewritten nested files are
+    signed again, one by one, and then the bundle itself (which covers the main
+    executable).  ``--deep`` is a last resort: it treats the framework folders
+    PySide6 ships inside ``Contents/MacOS`` as nested bundles and can refuse them.
+    """
+
+    # Extended attributes ("resource fork, Finder information, or similar
+    # detritus") make codesign refuse the bundle.
+    subprocess.run(["xattr", "-cr", str(app)], check=False)
+    main_executable = app / "Contents" / "MacOS" / app.stem
+    sign = ("--force", "--sign", "-", "--timestamp=none")
+    for path in rewritten:
+        if path == main_executable:
+            continue
+        result = _codesign(*sign, str(path))
+        if result.returncode != 0:
+            _report(result, f"codesign {path.relative_to(app)}")
+            raise SystemExit(f"Could not re-sign {path}")
+    result = _codesign(*sign, str(app))
+    if result.returncode != 0:
+        _report(result, "codesign (bundle)")
+        result = _codesign(*sign, "--deep", str(app))
+        if result.returncode != 0:
+            _report(result, "codesign --deep (bundle)")
+            raise SystemExit(f"Could not re-sign {app}")
+    result = _codesign("--verify", "--verbose=2", str(app))
+    _report(result, "codesign --verify")
+    if result.returncode != 0:
+        raise SystemExit(f"The signature of {app} does not verify")
+    # Informational: nested code is checked for real by launching the app.
+    _report(_codesign("--verify", "--deep", "--strict", "--verbose=2", str(app)), "codesign --verify --deep --strict")
 
 
 def make_self_contained(app: Path) -> None:
-    issues = fix_bundle_references(app)
-    codesign_bundle(app)
+    issues, rewritten = fix_bundle_references(app)
+    codesign_bundle(app, rewritten)
     issues += audit_bundle(app)
     if issues:
         raise SystemExit("The app bundle is not self-contained:\n" + "\n".join(sorted(set(issues))))
