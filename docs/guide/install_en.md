@@ -81,4 +81,4 @@ More in the [Usage Guide](./usage_en.md) and the [Reference](./reference_en.md).
 
 **Where is my data, and how do I uninstall?** On macOS settings and caches live in `~/Library/Application Support/IwaraTool/`, and videos go to `~/Downloads/IwaraTool/` by default. To uninstall, move IwaraTool from Applications to the Trash, and delete the data folder too if you no longer need it. The Windows and Linux builds keep their data in the `data/` folder next to the program. See [Local Data and Cache](./data_en.md).
 
-**How do I update?** On Windows, use Settings → GitHub Release Updates. On macOS and Linux, download the new version and replace the old one; your data stays.
+**How do I update?** Settings → GitHub Release Updates checks for a new version; download it from Releases and replace the old program. Your data stays.

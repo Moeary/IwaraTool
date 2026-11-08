@@ -134,7 +134,7 @@ class LaunchCheckTests(unittest.TestCase):
             "dyld[4242]: <A1B2C3D4-0000-0000-0000-000000000000> /Applications/IwaraTool.app/Contents/MacOS/IwaraTool",
             f"dyld[4242]: <ABCD> {BUILD_ENV}/lib/libpython3.11.dylib",
             "dyld: loaded: /usr/lib/libSystem.B.dylib",
-            "IwaraTool 1.1.4: Qt multimedia and bundled resources OK",
+            "IwaraTool 1.1.5: Qt multimedia and bundled resources OK",
         ])
         loaded = bundle.parse_dyld_loaded_paths(stderr)
         self.assertEqual(len(loaded), 3)

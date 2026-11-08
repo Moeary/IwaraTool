@@ -81,4 +81,4 @@ xattr -dr com.apple.quarantine /Applications/IwaraTool.app
 
 **数据保存在哪里、如何卸载**：macOS 的设置与缓存位于 `~/Library/Application Support/IwaraTool/`，视频默认下载到 `~/Downloads/IwaraTool/`。卸载时把“应用程序”中的 IwaraTool 移到废纸篓；若不再需要数据，再删除上述数据目录。Windows / Linux 版的数据位于程序旁的 `data/` 文件夹。详见 [本地数据与缓存](./data.md)。
 
-**如何更新**：Windows 版可在“应用设置 → GitHub Release 更新”中一键更新；macOS 和 Linux 请下载新版本替换旧文件，数据会保留。
+**如何更新**：可在“应用设置 → GitHub Release 更新”中检查是否有新版本；从 Releases 下载新版本替换旧程序即可，数据会保留。

@@ -81,4 +81,4 @@ Iwara への接続には通常プロキシが必要です。IwaraTool の「ロ�
 
 **データの場所とアンインストール**：macOS の設定とキャッシュは `~/Library/Application Support/IwaraTool/`、動画の既定の保存先は `~/Downloads/IwaraTool/` です。アンインストールは「アプリケーション」の IwaraTool をゴミ箱へ移し、不要ならデータフォルダも削除します。Windows / Linux 版はプログラム横の `data/` フォルダにデータを保存します。[ローカルデータとキャッシュ](./data_ja.md) を参照してください。
 
-**更新方法**：Windows 版は「設定 → GitHub Release 更新」から更新できます。macOS と Linux は新しいバージョンをダウンロードして置き換えてください。データは保持されます。
+**更新方法**：「設定 → GitHub Release 更新」で新しいバージョンを確認できます。Releases からダウンロードして古いプログラムと置き換えてください。データは保持されます。
