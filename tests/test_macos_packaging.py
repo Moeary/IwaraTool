@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import macos_bundle as bundle  # noqa: E402
 import macos_dmg as dmg  # noqa: E402
+import build_macos as build  # noqa: E402
 
 BUILD_ENV = "/Users/runner/work/IwaraTool/IwaraTool/.pixi/envs/default"
 
@@ -189,6 +190,58 @@ class LaunchCheckTests(unittest.TestCase):
             bundle.foreign_loaded_paths(loaded, [Path(BUILD_ENV)]),
             [f"{BUILD_ENV}/lib/libpython3.11.dylib"],
         )
+
+    def test_bundle_inside_checkout_is_allowed_but_other_checkout_images_are_not(self):
+        checkout = Path(BUILD_ENV).parents[2]
+        app = checkout / "build/macos/IwaraTool.app"
+        environment_library = f"{BUILD_ENV}/lib/libpython3.11.dylib"
+        sibling_library = f"{app}-other/Contents/MacOS/libpython3.11.dylib"
+        loaded = [
+            str(app / "Contents/MacOS/IwaraTool"),
+            str(app / "Contents/MacOS/libpython3.11.dylib"),
+            environment_library,
+            sibling_library,
+            "/usr/lib/libSystem.B.dylib",
+        ]
+        self.assertEqual(
+            bundle.foreign_loaded_paths(loaded, [checkout, Path(BUILD_ENV)], bundle=app),
+            [environment_library, sibling_library],
+        )
+
+    def test_bundle_symlink_cannot_hide_an_environment_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp)
+            app = checkout / "build/IwaraTool.app"
+            app.mkdir(parents=True)
+            library = checkout / ".pixi/libpython3.11.dylib"
+            library.parent.mkdir()
+            library.touch()
+            link = app / library.name
+            try:
+                link.symlink_to(library)
+            except (OSError, NotImplementedError):
+                self.skipTest("creating symlinks is unavailable")
+            self.assertEqual(
+                bundle.foreign_loaded_paths([str(link)], [checkout], bundle=app),
+                [str(link)],
+            )
+
+    def test_smoke_test_accepts_bundled_images_and_rejects_environment_images(self):
+        checkout = Path(BUILD_ENV).parents[2]
+        executable = checkout / "build/macos/IwaraTool.app/Contents/MacOS/IwaraTool"
+        for foreign in (False, True):
+            with self.subTest(foreign=foreign):
+                library = (Path(BUILD_ENV) / "lib/libpython3.11.dylib" if foreign
+                           else executable.parent / "libpython3.11.dylib")
+                stderr = f"dyld[4242]: <ABCD> {executable.as_posix()}\ndyld[4242]: <ABCD> {library.as_posix()}\n"
+                result = subprocess.CompletedProcess([], 0, "smoke OK\n", stderr)
+                with patch.object(build, "ROOT", checkout), \
+                        patch.object(build.subprocess, "run", return_value=result), patch("builtins.print"):
+                    if foreign:
+                        with self.assertRaisesRegex(SystemExit, "loaded libraries from the build environment"):
+                            build.smoke_test([str(executable)], forbid_build_env=True)
+                    else:
+                        build.smoke_test([str(executable)], forbid_build_env=True)
 
 
 class DmgLayoutTests(unittest.TestCase):

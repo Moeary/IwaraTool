@@ -48,7 +48,8 @@ def smoke_test(command: list[str], *, forbid_build_env: bool = False) -> None:
     if not loaded:
         print("warning: dyld printed no library list; relying on the static audit only")
         return
-    foreign = foreign_loaded_paths(loaded, [ROOT, Path(sys.prefix).resolve()])
+    bundle = Path(command[0]).resolve().parents[2]
+    foreign = foreign_loaded_paths(loaded, [ROOT, Path(sys.prefix).resolve()], bundle=bundle)
     if foreign:
         raise SystemExit("The bundle loaded libraries from the build environment:\n" + "\n".join(foreign))
     print(f"dyld loaded {len(loaded)} images, none from the build environment.")
@@ -115,6 +116,10 @@ def main() -> None:
         issues = verify_dmg_layout(volume, target.name)
         if issues:
             raise SystemExit("DMG check failed: " + "; ".join(issues))
+        subprocess.run([
+            "/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2",
+            str(volume / target.name),
+        ], check=True)
         smoke_test([str(volume / target.name / "Contents" / "MacOS" / "IwaraTool")], forbid_build_env=True)
     print(f"{dmg.name}: layout and launch from the mounted image OK")
 

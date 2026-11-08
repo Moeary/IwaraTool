@@ -240,11 +240,23 @@ def parse_dyld_loaded_paths(stderr: str) -> list[str]:
     return paths
 
 
-def foreign_loaded_paths(paths: list[str], forbidden_roots: list[Path]) -> list[str]:
+def foreign_loaded_paths(
+    paths: list[str], forbidden_roots: list[Path], *, bundle: Path | None = None,
+) -> list[str]:
     """Loaded images that come from the build environment instead of the bundle."""
 
-    roots = [root.as_posix().rstrip("/") + "/" for root in forbidden_roots]
-    return [path for path in paths if any(path.startswith(root) for root in roots)]
+    roots = [root.resolve() for root in forbidden_roots]
+    bundle_root = bundle.resolve() if bundle is not None else None
+    foreign: list[str] = []
+    for path in paths:
+        resolved = Path(path).resolve()
+        # The built .app lives inside the checkout, which is itself forbidden.
+        # Resolve symlinks so a bundled link cannot hide an environment library.
+        if bundle_root is not None and resolved.is_relative_to(bundle_root):
+            continue
+        if any(resolved.is_relative_to(root) for root in roots):
+            foreign.append(path)
+    return foreign
 
 
 # ── Apple tool wrappers (macOS only) ─────────────────────────────────────────

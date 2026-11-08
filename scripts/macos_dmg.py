@@ -106,7 +106,8 @@ def dmg_settings(app: Path, background: Path, icon: Path | None) -> dict:
         "show_toolbar": False,
         "show_pathbar": False,
         "show_sidebar": False,
-        "hide_extensions": [app.name],
+        # Do not use hide_extensions for the signed .app: dmgbuild's SetFile
+        # call adds FinderInfo, which makes strict code-signature checks fail.
     }
     if icon is not None:
         settings["icon"] = str(icon)
