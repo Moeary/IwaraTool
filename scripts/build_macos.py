@@ -120,7 +120,7 @@ def main() -> None:
 
     archive = dist / f"{stem}.zip"
     subprocess.run([
-        "ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(target), str(archive),
+        "/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(target), str(archive),
     ], check=True)
     print(f"Created {archive}")
 

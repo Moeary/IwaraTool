@@ -143,12 +143,12 @@ class CodesignTests(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             calls.append(command)
-            failed = command[0] == "codesign" and any(token in failing for token in command)
+            failed = command[0] == bundle.CODESIGN and any(token in failing for token in command)
             return subprocess.CompletedProcess(command, 1 if failed else 0, "", "boom" if failed else "")
 
         with patch.object(bundle.subprocess, "run", side_effect=fake_run), patch("builtins.print"):
             bundle.codesign_bundle(self.app, [self.main, self.nested])
-        return [command for command in calls if command[0] == "codesign"]
+        return [command for command in calls if command[0] == bundle.CODESIGN]
 
     def test_signs_rewritten_nested_files_then_the_bundle_without_deep(self):
         calls = self.run_signing(set())
@@ -159,14 +159,14 @@ class CodesignTests(unittest.TestCase):
 
     def test_falls_back_to_deep_when_the_bundle_refuses(self):
         def fake_run(command, **kwargs):
-            refused = command[0] == "codesign" and command[-1] == str(self.app) and "--force" in command and "--deep" not in command
+            refused = command[0] == bundle.CODESIGN and command[-1] == str(self.app) and "--force" in command and "--deep" not in command
             return subprocess.CompletedProcess(command, 1 if refused else 0, "", "")
 
         calls = []
         with patch.object(bundle.subprocess, "run", side_effect=lambda c, **k: calls.append(c) or fake_run(c)), \
                 patch("builtins.print"):
             bundle.codesign_bundle(self.app, [self.main])
-        signing = [c for c in calls if c[0] == "codesign" and "--force" in c]
+        signing = [c for c in calls if c[0] == bundle.CODESIGN and "--force" in c]
         self.assertEqual(len(signing), 2)
         self.assertIn("--deep", signing[1])
 

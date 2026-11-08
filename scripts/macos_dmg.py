@@ -131,13 +131,13 @@ def build_dmg(app: Path, output: Path, *, work_dir: Path, icon: Path | None = No
 def mounted(dmg: Path):
     with tempfile.TemporaryDirectory(prefix="iwaratool-dmg-") as mount_point:
         subprocess.run(
-            ["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount_point, str(dmg)],
+            ["/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount_point, str(dmg)],
             check=True, capture_output=True,
         )
         try:
             yield Path(mount_point)
         finally:
-            subprocess.run(["hdiutil", "detach", mount_point, "-force"], check=False, capture_output=True)
+            subprocess.run(["/usr/bin/hdiutil", "detach", mount_point, "-force"], check=False, capture_output=True)
 
 
 def verify_dmg_layout(volume: Path, app_name: str) -> list[str]:

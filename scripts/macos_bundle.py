@@ -21,6 +21,13 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
+# Apple's tools by absolute path: the pixi build environment ships its own
+# ``codesign`` (sigtool) and cctools on PATH, and that ``codesign`` rejects
+# options such as ``--timestamp=none`` or ``--deep``.
+CODESIGN = "/usr/bin/codesign"
+OTOOL = "/usr/bin/otool"
+INSTALL_NAME_TOOL = "/usr/bin/install_name_tool"
+XATTR = "/usr/bin/xattr"
 MACHO_MAGICS = frozenset({
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",  # 32-bit
     b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",  # 64-bit
@@ -245,7 +252,7 @@ def foreign_loaded_paths(paths: list[str], forbidden_roots: list[Path]) -> list[
 def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     result = subprocess.run(command, text=True, capture_output=True, **kwargs)
     if result.returncode != 0:
-        if command[0] != "otool":  # otool failing on a non-image is expected
+        if command[0] != OTOOL:  # otool failing on a non-image is expected
             print(f"{' '.join(command)} failed ({result.returncode}):\n{result.stdout}{result.stderr}")
         raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
     return result
@@ -265,9 +272,9 @@ def bundle_files(app: Path) -> list[Path]:
 
 def read_binary_info(path: Path) -> BinaryInfo | None:
     try:
-        libraries = parse_otool_libraries(_run(["otool", "-L", str(path)]).stdout)
-        install_id = parse_otool_install_id(_run(["otool", "-D", str(path)]).stdout)
-        rpaths = parse_otool_rpaths(_run(["otool", "-l", str(path)]).stdout)
+        libraries = parse_otool_libraries(_run([OTOOL, "-L", str(path)]).stdout)
+        install_id = parse_otool_install_id(_run([OTOOL, "-D", str(path)]).stdout)
+        rpaths = parse_otool_rpaths(_run([OTOOL, "-l", str(path)]).stdout)
     except subprocess.CalledProcessError:
         return None  # a Mach-O magic on something otool cannot read
     return BinaryInfo(path, libraries, install_id if install_id != str(path) else "", rpaths)
@@ -294,7 +301,7 @@ def fix_bundle_references(app: Path) -> tuple[list[str], list[Path]]:
         issues += [f"{path}: {library} is not shipped in the bundle" for library in plan.missing]
         args = plan.install_name_tool_args()
         if args:
-            _run(["install_name_tool", *args, str(path)])
+            _run([INSTALL_NAME_TOOL, *args, str(path)])
             rewritten.append(path)
             for old, new in plan.changes:
                 print(f"  {path.relative_to(app)}: {old} -> {new}")
@@ -315,7 +322,7 @@ def audit_bundle(app: Path) -> list[str]:
 
 
 def _codesign(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["codesign", *args], text=True, capture_output=True)
+    return subprocess.run([CODESIGN, *args], text=True, capture_output=True)
 
 
 def _report(result: subprocess.CompletedProcess, what: str) -> None:
@@ -334,7 +341,7 @@ def codesign_bundle(app: Path, rewritten: list[Path]) -> None:
 
     # Extended attributes ("resource fork, Finder information, or similar
     # detritus") make codesign refuse the bundle.
-    subprocess.run(["xattr", "-cr", str(app)], check=False)
+    subprocess.run([XATTR, "-cr", str(app)], check=False)
     main_executable = app / "Contents" / "MacOS" / app.stem
     sign = ("--force", "--sign", "-", "--timestamp=none")
     for path in rewritten:
