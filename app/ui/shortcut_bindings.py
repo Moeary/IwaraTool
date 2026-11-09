@@ -1,6 +1,8 @@
 """Wires the shortcut catalogue to the main window and its pages."""
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+
 from .media.card_size import reset_card_width, step_card_width
 from .shortcuts import registry
 
@@ -11,7 +13,9 @@ def _index_of(window, cycle) -> int:
 
 
 def _focus(edit) -> None:
-    edit.setFocus()
+    # A shortcut is user focus; widgets such as the search keyword box only
+    # react to user-initiated focus reasons.
+    edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
     edit.selectAll()
 
 
@@ -103,7 +107,8 @@ def _bind_search(search) -> None:
     registry.bind(
         search,
         {
-            "search_focus": lambda: _focus(search._keyword_edit),
+            # Same as Ctrl+K: expands collapsed controls and opens the history.
+            "search_focus": lambda: search._focus_keyword(),
             "search_run": search._start_search,
             "search_queue": search._queue_selected,
             "search_preview": search._preview_selected,

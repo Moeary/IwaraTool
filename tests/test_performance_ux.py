@@ -800,6 +800,14 @@ class GlobalActionTests(_QtCase):
         self.assertIs(window.stackedWidget.currentWidget(), window._search_page)
         focus.assert_called_once()
 
+    def test_search_page_focus_shortcut_matches_quick_search(self):
+        window = self.window
+        page = window._search_page
+        window.switchTo(page)
+        with mock.patch.object(page, "_focus_keyword") as focus:
+            self._fire("search_focus", parent=page)
+        focus.assert_called_once()
+
     def test_rating_cycles_and_is_broadcast(self):
         from app.signal_bus import signal_bus
 

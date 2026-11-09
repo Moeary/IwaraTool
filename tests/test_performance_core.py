@@ -1560,6 +1560,25 @@ class UiPerformanceTests(unittest.TestCase):
         finally:
             edit.deleteLater()
 
+    def test_quick_search_opens_history_without_a_focus_event(self):
+        # Ctrl+K from another page: the page switch hands focus back with
+        # OtherFocusReason first, so the later ShortcutFocusReason setFocus
+        # delivers no focusIn.  _focus_keyword must open the history itself.
+        old_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        page = SearchInterface()
+        try:
+            page._set_search_controls_collapsed(True, persist=False)
+            with patch.object(page, "_show_search_history_popup") as show, \
+                    patch.object(page._keyword_edit, "setFocus") as set_focus:
+                page._focus_keyword()
+            set_focus.assert_called_once_with(Qt.FocusReason.ShortcutFocusReason)
+            show.assert_called_once_with()
+            self.assertFalse(page._query_card.isHidden())
+        finally:
+            page.close()
+            page.deleteLater()
+            app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
+
     def test_title_rule_filters_download_metadata(self):
         old_include = app_config.filter_title_include
         old_exclude = app_config.filter_title_exclude
