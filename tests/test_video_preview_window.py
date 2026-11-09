@@ -284,6 +284,57 @@ class EmbeddedPlayerTests(_PlayerCase):
         self.assertEqual(layout.indexOf(player), 1)  # the same place in the page
         self.assertTrue(player.isVisible())
 
+    def _fill_mode(self):
+        patch = mock.patch("app.ui.player.fullscreen.FILL_FULLSCREEN_WINDOW", True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.page.showFullScreen()
+        QApplication.processEvents()
+        self.assertTrue(self.page.isFullScreen())
+
+    def test_fullscreen_inside_a_fullscreen_window_fills_it_without_a_new_window(self):
+        # macOS aborted showing a second native fullscreen window from a
+        # fullscreen Space ("Must have content controller").
+        player = self.player_widget
+        layout = self.page.layout()
+        self._fill_mode()
+        player.toggle_fullscreen()
+        self.assertTrue(player.is_fullscreen())
+        self.assertFalse(player.isWindow())
+        self.assertIs(player.parentWidget(), self.page)
+        self.assertEqual(layout.indexOf(player), -1)
+        self.assertEqual(player.geometry(), self.page.rect())
+        player.toggle_fullscreen()
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(layout.indexOf(player), 1)
+        player.toggle_fullscreen()  # again at once, which also aborted
+        self.assertTrue(player.is_fullscreen())
+        self.assertFalse(player.isWindow())
+
+    def test_filled_window_keys_reach_the_player_before_window_shortcuts(self):
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        player = self.player_widget
+        went_back = []
+        back = QShortcut(QKeySequence("Esc"), self.page)
+        back.setContext(Qt.ShortcutContext.WindowShortcut)
+        back.activated.connect(lambda: went_back.append(True))
+        self._fill_mode()
+        player.toggle_fullscreen()
+        QTest.keyClick(player, Qt.Key.Key_Escape)
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(went_back, [])
+
+    def test_filled_window_leaving_fullscreen_returns_the_player(self):
+        player = self.player_widget
+        self._fill_mode()
+        player.toggle_fullscreen()
+        self.page.showNormal()
+        QApplication.processEvents()
+        QApplication.processEvents()
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(self.page.layout().indexOf(player), 1)
+
     def test_closing_the_fullscreen_window_returns_to_the_page(self):
         player = self.player_widget
         player.toggle_fullscreen()

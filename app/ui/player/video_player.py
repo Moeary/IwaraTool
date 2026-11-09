@@ -83,6 +83,8 @@ class VideoPlayer(
         self._forward_key: int | None = None
         # While fullscreen: the widget and layout slot to return to.
         self._home: tuple[QWidget, int] | None = None
+        # The fullscreen window the player fills instead of a window of its own (macOS).
+        self._fill_window: QWidget | None = None
 
         self._build_ui(allow_popout)
         self._wire_player()
