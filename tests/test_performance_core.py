@@ -1534,6 +1534,32 @@ class UiPerformanceTests(unittest.TestCase):
             app_config.search_auto_search_enabled = old_auto_search
             app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
 
+    def test_keyword_history_opens_only_for_user_focus(self):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QFocusEvent
+        from app.ui.search.widgets import SearchKeywordEdit
+
+        edit = SearchKeywordEdit()
+        opened = []
+        edit.activated.connect(lambda: opened.append(True))
+        try:
+            for reason in (
+                Qt.FocusReason.ActiveWindowFocusReason,
+                Qt.FocusReason.OtherFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            ):
+                edit.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, reason))
+            self.assertEqual(opened, [])  # Cmd+Tab back or a navigation restore
+            for reason in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.TabFocusReason,
+                Qt.FocusReason.ShortcutFocusReason,
+            ):
+                edit.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, reason))
+            self.assertEqual(len(opened), 3)
+        finally:
+            edit.deleteLater()
+
     def test_title_rule_filters_download_metadata(self):
         old_include = app_config.filter_title_include
         old_exclude = app_config.filter_title_exclude
