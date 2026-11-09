@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -24,6 +23,7 @@ from qfluentwidgets import (
 from ...core.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..fonts import monospace_font
 from ..rules.rule_picker import RulePicker
 from .task_center import TaskCenterInterface
 from ..theme import (
@@ -247,10 +247,7 @@ class DownloadInterface(
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         apply_scrollbars(self._log_edit)
-        mono = QFont("Consolas", 9)
-        if not mono.exactMatch():
-            mono = QFont("Courier New", 9)
-        self._log_edit.setFont(mono)
+        self._log_edit.setFont(monospace_font(9))
         self._log_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._log_edit.setMinimumHeight(140)
         self._log_edit.setPlaceholderText(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -37,6 +36,7 @@ from ...core.download.template_builder import template_presets
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..fonts import monospace_font
 from ..ui_state import keep_table_widths
 from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, apply_scrollbars, set_secondary_text
 from .controls import RepairControlsMixin
@@ -349,10 +349,7 @@ class RepairInterface(
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         self._log_edit.setPlaceholderText(tr("Repair logs will appear here…", "修复日志将显示在此…", "修復ログはここに表示されます…"))
-        mono = QFont("Consolas", 9)
-        if not mono.exactMatch():
-            mono = QFont("Courier New", 9)
-        self._log_edit.setFont(mono)
+        self._log_edit.setFont(monospace_font(9))
         apply_scrollbars(self._log_edit)
         log_layout.addWidget(self._log_edit)
         return log_card

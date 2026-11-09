@@ -18,6 +18,7 @@ from ..theme import PAGE_MARGINS
 from ..worker_lifecycle import stop_qthreads
 from .account import LoginWorker, SettingsAccountMixin
 from .download_cards import SettingsDownloadCardsMixin
+from .font_cards import SettingsFontCardsMixin
 from .general_cards import SettingsGeneralCardsMixin
 from .network_cards import SettingsNetworkCardsMixin
 from .persistence import SettingsPersistenceMixin
@@ -28,6 +29,7 @@ from .subscription_cards import SettingsSubscriptionCardsMixin
 class SettingsInterface(
     SettingsAccountMixin,
     SettingsGeneralCardsMixin,
+    SettingsFontCardsMixin,
     SettingsDownloadCardsMixin,
     SettingsSearchCardsMixin,
     SettingsSubscriptionCardsMixin,
@@ -97,6 +99,7 @@ class SettingsInterface(
         self._settings_board = SettingsSections(self)
         layout.addWidget(self._settings_board, 1)
         self._build_appearance_card()
+        self._build_font_card()
         self._build_language_card()
         self._build_data_paths_card()
         self._build_account_card()

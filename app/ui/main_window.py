@@ -112,6 +112,7 @@ class MainWindow(
         self._init_desktop_notifications()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)
+        signal_bus.font_changed.connect(self._on_font_changed)
         signal_bus.desktop_notification_requested.connect(self._show_desktop_notification)
         signal_bus.release_update_available.connect(self._on_release_update_available)
         signal_bus.video_preview_requested.connect(self._on_video_preview_requested)

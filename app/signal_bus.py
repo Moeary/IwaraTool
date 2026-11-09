@@ -36,6 +36,9 @@ class TaskSignalBus(QObject):
     # Emitted when UI language changes (str: language code)
     language_changed = Signal(str)
 
+    # Emitted when the interface font choice changes (already saved)
+    font_changed = Signal()
+
     # Emitted when shared download options change from any page.
     download_options_changed = Signal()
 

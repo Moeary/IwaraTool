@@ -15,6 +15,7 @@ from ...config import app_config
 from ...core import shortcut_defs
 from ...core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
 from ..navigation import NavEntry, draft_of, restore_draft_into, restore_into, snapshot_of
+from ..fonts import apply_app_font
 from ..theme import apply_theme_mode, refresh_splitters
 
 
@@ -139,16 +140,24 @@ class WindowCommandsMixin:
         ])
 
     def _on_language_changed(self, _lang: str):
-        """Rebuild the window in the new language, carrying the user's place over.
+        # The automatic font stack puts the UI language's CJK fonts first.
+        self._rebuild_window()
 
-        Texts are set when widgets are built, so a fresh window is the reliable
-        way to translate everything; the old one stops its work in the
-        background and is then destroyed, with its shortcuts, tray icon and
-        signal connections.
+    def _on_font_changed(self):
+        self._rebuild_window()
+
+    def _rebuild_window(self):
+        """Rebuild the window in the new language or font, carrying the user's place over.
+
+        Texts and fonts are set when widgets are built, so a fresh window is
+        the reliable way to apply them everywhere; the old one stops its work
+        in the background and is then destroyed, with its shortcuts, tray
+        icon and signal connections.
         """
 
         if self._reloading_language:
             return
+        apply_app_font()
         self._reloading_language = True
         session = self.export_session()
         from ..main_window import MainWindow

@@ -121,6 +121,7 @@ class AppConfig:
         "update_check_enabled": True,
         "update_last_prompted_version": "",
         "theme_mode": "auto",  # auto / light / dark
+        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/fonts
         "request_min_interval_ms": 200,  # spacing between API requests per host
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
@@ -379,6 +380,8 @@ class AppConfig:
         return self._history_db_path
 
     ui_language = _Setting()
+
+    ui_font_family = _Setting()
 
     filter_enabled = _Setting()
 

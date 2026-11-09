@@ -63,3 +63,7 @@ In tag scope, a single label uses the direct `/tags/{id}` index, while multiple 
 ## Subscription Cover Cache
 
 Subscription covers are saved locally automatically. To cache an author's covers in advance, first select that subscription source and refresh its video list, then use "Refresh Actions → Cache All Source Covers". This covers all videos recorded for that source, regardless of the current filter or list/cover view, and does not download videos. Running it again reuses existing covers and retries missing ones. Obtaining covers for the first time still requires network access; when it finishes, the success and failure counts are shown.
+
+## Interface font
+
+**Settings → General → Font** defaults to **Automatic**: it uses the system UI fonts for the current platform and interface language, for example Segoe UI + Microsoft YaHei UI on Windows and the system font + PingFang on macOS. A Japanese interface puts Japanese fonts ahead of Chinese ones so shared kanji keep their Japanese shapes. Click **Choose font…** to pick any installed font from a searchable list, where each font is drawn in itself with a live preview. Characters the chosen font lacks (for example Chinese or Japanese in a Latin-only font) fall back to the platform fonts and then the system default. The card lists the fonts in effect, in order; the window reloads to apply a change, and **Automatic** restores the default at any time. A chosen font that is not installed on this computer (for example after copying the settings to another machine) is replaced by Automatic.
