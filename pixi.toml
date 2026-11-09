@@ -20,11 +20,16 @@ build = "python scripts/build_windows.py"
 [target.win-64.activation.env]
 SSL_CERT_DIR = ""
 
+# 测试文件默认 QT_QPA_PLATFORM=offscreen；macOS 上 qframelesswindow 会把
+# offscreen 的 winId 当成 NSView 交给 PyObjC，创建主窗口时直接段错误，
+# 因此 macOS 的测试与 CI 一样固定使用 cocoa。
 [target.osx-arm64.tasks]
 build = "python scripts/build_macos.py"
+test = { cmd = "python -X faulthandler -m unittest discover -s tests -p \"test_*.py\"", env = { QT_QPA_PLATFORM = "cocoa" } }
 
 [target.osx-64.tasks]
 build = "python scripts/build_macos.py"
+test = { cmd = "python -X faulthandler -m unittest discover -s tests -p \"test_*.py\"", env = { QT_QPA_PLATFORM = "cocoa" } }
 
 [target.osx-arm64.pypi-dependencies]
 pyside6 = "==6.6.2"
