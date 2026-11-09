@@ -7,14 +7,14 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtCore import QMetaObject, QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from app.core import preview_stream
 from app.ui.player import playback
-from app.ui.player.backend import Backend
+from app.ui.player.backend import Backend, release_source
 from app.ui.player.preview_window import VideoPreviewWindow, keep_normal_geometry
 from app.ui.player.playback import format_time, nearest_speed_index
 from app.ui.player.video_player import VideoPlayer
@@ -504,6 +504,36 @@ class NormalGeometryTests(unittest.TestCase):
         for _ in range(5):
             QApplication.processEvents()
         self.assertEqual(window.geometry().topLeft().toTuple(), moved)
+
+
+class ReleaseSourceTests(unittest.TestCase):
+    """Clearing the media runs from Qt's event loop, where the GIL is released."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def test_a_qt_player_gets_the_empty_source_through_the_event_loop(self):
+        class SlotPlayer(QObject):
+            def __init__(self):
+                super().__init__()
+                self.sources = []
+
+            @Slot(QUrl)
+            def setSource(self, url):
+                self.sources.append(url)
+
+        player = SlotPlayer()
+        with mock.patch("app.ui.player.backend.QMetaObject.invokeMethod", wraps=QMetaObject.invokeMethod) as invoke:
+            release_source(player)
+        self.assertEqual(player.sources, [QUrl()])  # delivered before returning
+        self.assertEqual(invoke.call_args_list[0].args[:3], (player, "setSource", Qt.ConnectionType.QueuedConnection))
+
+    def test_a_test_double_without_the_slot_is_called_directly(self):
+        player = FakePlayer()
+        player.source = QUrl("file:///a.mp4")
+        release_source(player)
+        self.assertEqual(player.source, QUrl())
 
 
 if __name__ == "__main__":

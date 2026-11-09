@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QWidget
 from ...core import preview_stream
 from ...i18n import tr
 from ...logging_setup import get_logger
-from .backend import Backend, create_backend
+from .backend import Backend, create_backend, release_source
 from .playback import CONTROLS_HIDE_MS, HOLD_BOOST_MS
 from .audio_speed import PlayerAudioSpeedMixin
 from .fullscreen import PlayerFullscreenMixin
@@ -155,7 +155,7 @@ class VideoPlayer(
         self._request_id += 1
         self._end_boost(restore=False)
         self._player.stop()
-        self._player.setSource(QUrl())
+        release_source(self._player)
         self._release_stream()
         self._pending_error = ""
         self._hide_status()
