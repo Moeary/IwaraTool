@@ -131,6 +131,29 @@ class RegistryTests(_OverridesMixin, unittest.TestCase):
         registry.refresh()
         self.assertTrue(shortcut.key().isEmpty())
 
+    def test_window_shortcuts_wait_while_a_mask_dialog_covers_the_window(self):
+        from qfluentwidgets import MessageBoxBase
+
+        from tests.qt_helpers import wait_until
+
+        registry = shortcuts.ShortcutRegistry()
+        window = QWidget()
+        window.resize(480, 320)
+        window.show()
+        self.addCleanup(window.deleteLater)
+        calls = []
+        registry.bind(window, {"search_queue": lambda: calls.append("q"), "nav_back": lambda: calls.append("back")})
+        dialog = MessageBoxBase(window)
+        dialog.show()
+
+        registry.live("search_queue")[0].activated.emit()
+        registry.live("nav_back")[0].activated.emit()  # Esc closes the dialog instead of going back
+
+        self.assertEqual(calls, [])
+        wait_until(lambda: not dialog.isVisible())
+        registry.live("search_queue")[0].activated.emit()
+        self.assertEqual(calls, ["q"])
+
     def test_action_for_event_follows_overrides(self):
         self.assertEqual(shortcuts.action_for_event("player", _press(Qt.Key.Key_Space)), "player_play_pause")
         self.assertEqual(shortcuts.action_for_event("player", _press(Qt.Key.Key_F)), "player_fullscreen")
