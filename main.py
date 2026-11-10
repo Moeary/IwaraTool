@@ -91,6 +91,7 @@ from app.core.background_services import background_service
 from app.core.rules import ensure_temporary_rule
 from app.ui.fonts import apply_app_font
 from app.ui.main_window import MainWindow
+from app.ui import mask_dialogs
 from app.ui.theme import apply_theme_mode
 
 
@@ -113,6 +114,9 @@ def main():
     icon_path = Path(__file__).resolve().parent / "app" / "icon.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
+
+    # Mask dialogs must stay clickable once a video makes the window's views native.
+    mask_dialogs.install()
 
     # Fonts first: qfluentwidgets reads them when widgets build their styles.
     apply_app_font(app)
