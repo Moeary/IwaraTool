@@ -14,6 +14,10 @@ Home is the first page. By default it shows "My subscriptions" (sign-in required
 
 F1 shows every shortcut at any time (the page you are on comes right after the global ones); all of them can be changed under Settings → Keyboard Shortcuts. Handy ones: Ctrl+K quick search, Ctrl+Tab / Ctrl+Shift+Tab switch pages, Ctrl+Alt+V paste the clipboard link and download it, Ctrl+Shift+O open the download folder, Ctrl+Shift+R cycle the content filter, Ctrl+= / Ctrl+- / Ctrl+0 cover size, Ctrl+Shift+L dark mode, F11 full screen. Home: Ctrl+E customize rows, F5 refresh, Ctrl+Home / Ctrl+End jump to top / bottom, Ctrl+Shift+Up / Down fold / unfold every row; with a post open, Ctrl+L like, Ctrl+P play, Ctrl+D download, Ctrl+O open in the browser, Ctrl+Shift+C copy the link, Ctrl+Shift+A author page, Esc back. Search: Alt+Left / Right page, Ctrl+Shift+G grid / list, Ctrl+Shift+F fold the search controls. Subscriptions: Alt+Left back to the list, Ctrl+A select all, Esc clear the selection, Ctrl+Shift+T overview / table.
 
+Ctrl+, opens Settings (Ctrl+8 still works).
+
+**macOS**: every Ctrl above is ⌘ (Command) on a Mac, and a few defaults follow Mac conventions instead: ⌘, opens Settings, ⌃Tab / ⌃⇧Tab switch pages (⌘Tab is the system app switcher), ⌘R refreshes (instead of F5), ⌘[ / ⌘] go back and turn pages (instead of Alt+←/→), ⌘↑ / ⌘↓ scroll to the top / bottom, ⌘⌫ removes records, ⌃⌘F is full screen, ⌘/ shows the shortcuts (instead of F1), ⌘W closes the window and ⌘M minimizes it. The cheat sheet and Settings show the ⌘ ⌥ ⌃ ⇧ symbols.
+
 Every cover grid also works from the keyboard: click it or Tab into it, then arrow keys / Home / End / PageUp / PageDown move the cursor, Enter opens, Space ticks, Ctrl+A selects all, Esc clears, and the Menu key or Shift+F10 opens the context menu.
 
 ## Subscriptions

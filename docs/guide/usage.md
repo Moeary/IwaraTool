@@ -14,6 +14,10 @@
 
 按 F1 随时查看全部快捷键（当前页面的排在全局之后），全部可在“应用设置 → 键盘快捷键”中修改。常用的有：Ctrl+K 快速搜索、Ctrl+Tab / Ctrl+Shift+Tab 切换页面、Ctrl+Alt+V 粘贴剪贴板链接并下载、Ctrl+Shift+O 打开下载文件夹、Ctrl+Shift+R 切换内容分级、Ctrl+= / Ctrl+- / Ctrl+0 调整封面大小、Ctrl+Shift+L 切换黑夜模式、F11 全屏。首页：Ctrl+E 自定义栏目、F5 刷新、Ctrl+Home / Ctrl+End 回到顶部 / 底部、Ctrl+Shift+↑ / ↓ 折叠 / 展开全部栏目；打开作品后 Ctrl+L 点赞、Ctrl+P 播放、Ctrl+D 下载、Ctrl+O 在浏览器打开、Ctrl+Shift+C 复制链接、Ctrl+Shift+A 打开作者页、Esc 返回。搜索页：Alt+←/→ 翻页、Ctrl+Shift+G 切换网格 / 列表、Ctrl+Shift+F 收起 / 展开搜索区。订阅页：Alt+← 返回列表、Ctrl+A 全选、Esc 取消选择、Ctrl+Shift+T 切换总览 / 表格。
 
+Ctrl+, 打开设置（Ctrl+8 同样可用）。
+
+**macOS**：上文的 Ctrl 在 Mac 上一律是 ⌘（Command），并按 Mac 习惯调整了几个默认键：⌘, 打开设置、⌃Tab / ⌃⇧Tab 切换页面（⌘Tab 是系统的切换应用）、⌘R 刷新（代替 F5）、⌘[ / ⌘] 返回与翻页（代替 Alt+←/→）、⌘↑ / ⌘↓ 回到顶部 / 底部、⌘⌫ 删除记录、⌃⌘F 全屏、⌘/ 显示快捷键（代替 F1）、⌘W 关闭窗口、⌘M 最小化。快捷键一览和设置页会直接显示 ⌘ ⌥ ⌃ ⇧ 符号。
+
 所有封面网格也支持键盘：点一下网格或用 Tab 聚焦后，方向键 / Home / End / PageUp / PageDown 移动光标，Enter 打开，Space 勾选，Ctrl+A 全选，Esc 取消选择，菜单键或 Shift+F10 打开右键菜单。
 
 ## 订阅页

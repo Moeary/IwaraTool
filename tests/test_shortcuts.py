@@ -40,21 +40,54 @@ class CatalogueTests(unittest.TestCase):
         self.assertEqual(len({a.id for a in actions}), len(actions))
         self.assertTrue({a.scope for a in actions} <= set(defs.scope_titles()))
 
-    def test_defaults_do_not_conflict_where_scopes_overlap(self):
-        actions = defs.all_actions()
+    def _assert_no_default_conflicts(self, actions):
         for first in actions:
             for second in actions:
                 if first.id >= second.id or not defs.scopes_overlap(first.scope, second.scope):
                     continue
+                if not defs.normalize(first.default):
+                    continue  # unassigned on this platform
                 self.assertNotEqual(
                     defs.normalize(first.default),
                     defs.normalize(second.default),
                     f"{first.id} and {second.id} share {first.default}",
                 )
 
+    def test_defaults_do_not_conflict_where_scopes_overlap(self):
+        for mac in (False, True):
+            with self.subTest(mac=mac), mock.patch.object(defs, "IS_MAC", mac):
+                self._assert_no_default_conflicts(defs.all_actions())
+
     def test_every_default_is_a_valid_sequence(self):
-        for action in defs.all_actions():
-            self.assertTrue(defs.normalize(action.default), action.id)
+        for mac in (False, True):
+            with self.subTest(mac=mac), mock.patch.object(defs, "IS_MAC", mac):
+                for action in defs.all_actions():
+                    if action.id in defs.PLATFORM_ONLY and not action.default:
+                        continue
+                    self.assertTrue(defs.normalize(action.default), action.id)
+
+    def test_macos_defaults_follow_mac_conventions(self):
+        with mock.patch.object(defs, "IS_MAC", True):
+            defaults = {a.id: a.default for a in defs.all_actions()}
+        # "Ctrl" is Command on macOS, so Command+Tab (the app switcher) must not be used.
+        self.assertEqual(defaults["nav_next"], "Meta+Tab")
+        self.assertEqual(defaults["open_settings"], "Ctrl+,")
+        self.assertEqual(defaults["home_refresh"], "Ctrl+R")
+        self.assertEqual(defaults["close_window"], "Ctrl+W")
+        with mock.patch.object(defs, "IS_MAC", False):
+            defaults = {a.id: a.default for a in defs.all_actions()}
+        self.assertEqual(defaults["nav_next"], "Ctrl+Tab")
+        self.assertEqual(defaults["open_settings"], "Ctrl+,")
+        self.assertEqual(defaults["home_refresh"], "F5")
+        self.assertEqual(defaults["close_window"], "")
+
+    def test_display_uses_the_platform_notation(self):
+        text = defs.display_key("Ctrl+K")
+        if defs.IS_MAC:
+            self.assertEqual(text, "⌘K")
+        else:
+            self.assertEqual(text, "Ctrl+K")
+        self.assertEqual(defs.display_key(""), "")
 
     def test_scope_overlap_rules(self):
         self.assertTrue(defs.scopes_overlap("search", "search"))

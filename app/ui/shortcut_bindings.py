@@ -65,6 +65,9 @@ def _bind_window(window) -> None:
         "toggle_theme": lambda: window._toggle_dark_mode(),
         "toggle_fullscreen": window.toggle_fullscreen,
         "shortcut_help": window.show_shortcut_help,
+        "open_settings": lambda: window.switchTo(window._settings_page),
+        "close_window": window.close,
+        "minimize_window": window.showMinimized,
     })
     registry.bind(window, handlers)
 

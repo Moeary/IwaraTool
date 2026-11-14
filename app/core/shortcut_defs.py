@@ -3,10 +3,17 @@
 Only data and rules live here; ``app.ui.shortcuts`` turns them into QShortcuts.
 Overrides are stored as JSON in ``shortcut_overrides`` (``{action_id: "Ctrl+K"}``,
 an empty string meaning "unassigned").
+
+Keys are Qt portable text, where "Ctrl" is the Command key on macOS and
+"Meta" is the Control key there. A few defaults differ on macOS so they follow
+Mac conventions and stay clear of keys the system takes: Command+Tab switches
+apps, so page cycling uses Control+Tab; Command+R refreshes instead of F5;
+Command+Delete removes; Command+[ goes back; Control+Command+F is full screen.
 """
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 
 from PySide6.QtGui import QKeySequence
@@ -16,6 +23,19 @@ from ..i18n import tr
 from ..logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+IS_MAC = sys.platform == "darwin"
+
+# Actions with no default on some platforms (they follow a convention only
+# one platform has); they can still be assigned in Settings.
+PLATFORM_ONLY = frozenset({"close_window", "minimize_window"})
+
+
+def _key(default: str, *, mac: str | None = None) -> str:
+    """The platform's default: ``mac`` on macOS when given, else ``default``."""
+
+    return mac if IS_MAC and mac is not None else default
+
 
 SCOPE_GLOBAL = "global"
 SCOPE_HOME = "home"
@@ -70,8 +90,9 @@ def _global_actions() -> tuple[ShortcutAction, ...]:
         A("nav_rules", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
         A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),
         A("nav_tools", SCOPE_GLOBAL, "Ctrl+9", tr("Go to Tools", "前往工具", "ツールへ移動")),
-        A("nav_next", SCOPE_GLOBAL, "Ctrl+Tab", tr("Next page", "下一个页面", "次のページ")),
-        A("nav_prev", SCOPE_GLOBAL, "Ctrl+Shift+Tab", tr("Previous page", "上一个页面", "前のページ")),
+        A("open_settings", SCOPE_GLOBAL, "Ctrl+,", tr("Open Settings", "打开设置", "設定を開く")),
+        A("nav_next", SCOPE_GLOBAL, _key("Ctrl+Tab", mac="Meta+Tab"), tr("Next page", "下一个页面", "次のページ")),
+        A("nav_prev", SCOPE_GLOBAL, _key("Ctrl+Shift+Tab", mac="Meta+Shift+Tab"), tr("Previous page", "上一个页面", "前のページ")),
         A("nav_back", SCOPE_GLOBAL, "Esc", tr(
             "Back (closes a menu or clears the selection first; the mouse back button also works)",
             "返回上一处（先关闭菜单或取消选择；鼠标侧键同样可用）",
@@ -85,8 +106,10 @@ def _global_actions() -> tuple[ShortcutAction, ...]:
         A("card_size_down", SCOPE_GLOBAL, "Ctrl+-", tr("Smaller covers", "缩小封面", "カバーを小さく")),
         A("card_size_reset", SCOPE_GLOBAL, "Ctrl+0", tr("Default cover size", "恢复默认封面大小", "カバーサイズを初期化")),
         A("toggle_theme", SCOPE_GLOBAL, "Ctrl+Shift+L", tr("Toggle dark mode", "切换黑夜模式", "ダークモード切替")),
-        A("toggle_fullscreen", SCOPE_GLOBAL, "F11", tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
-        A("shortcut_help", SCOPE_GLOBAL, "F1", tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),
+        A("toggle_fullscreen", SCOPE_GLOBAL, _key("F11", mac="Ctrl+Meta+F"), tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
+        A("shortcut_help", SCOPE_GLOBAL, _key("F1", mac="Ctrl+/"), tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),
+        A("close_window", SCOPE_GLOBAL, _key("", mac="Ctrl+W"), tr("Close the window", "关闭窗口", "ウィンドウを閉じる")),
+        A("minimize_window", SCOPE_GLOBAL, _key("", mac="Ctrl+M"), tr("Minimize the window", "最小化窗口", "ウィンドウを最小化")),
         A("quit_app", SCOPE_GLOBAL, "Ctrl+Q", tr("Exit IwaraTool", "退出 IwaraTool", "IwaraTool を終了")),
     )
 
@@ -95,11 +118,11 @@ def _home_actions() -> tuple[ShortcutAction, ...]:
     """Home page and the post detail opened from it."""
     A = ShortcutAction
     return (
-        A("home_refresh", SCOPE_HOME, "F5", tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
-        A("home_back", SCOPE_HOME, "Alt+Left", tr("Back (to the feed when there is no history)", "返回（无历史时回到首页）", "戻る（履歴がなければホームへ）")),
+        A("home_refresh", SCOPE_HOME, _key("F5", mac="Ctrl+R"), tr("Refresh the Home feeds", "刷新首页内容", "ホームを更新")),
+        A("home_back", SCOPE_HOME, _key("Alt+Left", mac="Ctrl+["), tr("Back (to the feed when there is no history)", "返回（无历史时回到首页）", "戻る（履歴がなければホームへ）")),
         A("home_customize", SCOPE_HOME, "Ctrl+E", tr("Customize the Home rows", "自定义首页栏目", "ホームの欄をカスタマイズ")),
-        A("home_top", SCOPE_HOME, "Ctrl+Home", tr("Scroll to the top", "回到顶部", "先頭へスクロール")),
-        A("home_bottom", SCOPE_HOME, "Ctrl+End", tr("Scroll to the bottom", "滚动到底部", "末尾へスクロール")),
+        A("home_top", SCOPE_HOME, _key("Ctrl+Home", mac="Ctrl+Up"), tr("Scroll to the top", "回到顶部", "先頭へスクロール")),
+        A("home_bottom", SCOPE_HOME, _key("Ctrl+End", mac="Ctrl+Down"), tr("Scroll to the bottom", "滚动到底部", "末尾へスクロール")),
         A("home_fold_all", SCOPE_HOME, "Ctrl+Shift+Up", tr("Fold every row", "折叠全部栏目", "すべての欄を折りたたむ")),
         A("home_unfold_all", SCOPE_HOME, "Ctrl+Shift+Down", tr("Unfold every row", "展开全部栏目", "すべての欄を展開")),
         A("detail_like", SCOPE_HOME, "Ctrl+L", tr("Like / un-like the open post", "给打开的作品点赞 / 取消点赞", "開いている投稿にいいね/取消")),
@@ -119,25 +142,25 @@ def _page_actions() -> tuple[ShortcutAction, ...]:
         A("download_paste_submit", SCOPE_DOWNLOAD, "Ctrl+Shift+V", tr("Paste from clipboard and submit", "粘贴剪贴板并提交", "クリップボードを貼り付けて送信")),
         A("tasks_focus_search", SCOPE_DOWNLOAD, "Ctrl+F", tr("Search tasks", "搜索任务", "タスクを検索")),
         A("tasks_retry_failed", SCOPE_DOWNLOAD, "Ctrl+R", tr("Retry all failed tasks", "重试所有失败任务", "失敗したタスクをすべて再試行")),
-        A("tasks_clear_done", SCOPE_DOWNLOAD, "Ctrl+Shift+Delete", tr("Clear completed tasks", "清除已完成任务", "完了タスクを消去")),
+        A("tasks_clear_done", SCOPE_DOWNLOAD, _key("Ctrl+Shift+Delete", mac="Ctrl+Shift+Backspace"), tr("Clear completed tasks", "清除已完成任务", "完了タスクを消去")),
 
         A("search_focus", SCOPE_SEARCH, "Ctrl+F", tr("Focus the search box", "聚焦搜索框", "検索ボックスへ移動")),
         A("search_run", SCOPE_SEARCH, "Ctrl+Return", tr("Run the search", "执行搜索", "検索を実行")),
         A("search_queue", SCOPE_SEARCH, "Ctrl+D", tr("Download the selection", "下载选中项", "選択をダウンロード")),
         A("search_preview", SCOPE_SEARCH, "Ctrl+P", tr("Play / preview the selection", "播放 / 预览选中项", "選択を再生 / プレビュー")),
         A("search_open_page", SCOPE_SEARCH, "Ctrl+O", tr("Open the selection in the browser", "在浏览器打开选中项", "選択をブラウザーで開く")),
-        A("search_prev_page", SCOPE_SEARCH, "Alt+Left", tr("Previous page of results", "上一页结果", "前の結果ページ")),
-        A("search_next_page", SCOPE_SEARCH, "Alt+Right", tr("Next page of results", "下一页结果", "次の結果ページ")),
+        A("search_prev_page", SCOPE_SEARCH, _key("Alt+Left", mac="Ctrl+["), tr("Previous page of results", "上一页结果", "前の結果ページ")),
+        A("search_next_page", SCOPE_SEARCH, _key("Alt+Right", mac="Ctrl+]"), tr("Next page of results", "下一页结果", "次の結果ページ")),
         A("search_toggle_view", SCOPE_SEARCH, "Ctrl+Shift+G", tr("Switch grid / list view", "切换网格 / 列表视图", "グリッド/リスト表示の切り替え")),
         A("search_toggle_controls", SCOPE_SEARCH, "Ctrl+Shift+F", tr("Show / hide the search controls", "展开 / 收起搜索区", "検索欄の表示/非表示")),
         A("search_reset", SCOPE_SEARCH, "Ctrl+Shift+Backspace", tr("Reset the search", "重置搜索", "検索をリセット")),
 
         A("sub_add", SCOPE_SUBSCRIPTIONS, "Ctrl+N", tr("Add a subscription", "添加订阅", "購読を追加")),
-        A("sub_refresh", SCOPE_SUBSCRIPTIONS, "F5", tr("Refresh the current source", "刷新当前订阅源", "現在の購読元を更新")),
-        A("sub_refresh_all", SCOPE_SUBSCRIPTIONS, "Ctrl+F5", tr("Refresh all sources", "刷新全部订阅源", "すべての購読元を更新")),
+        A("sub_refresh", SCOPE_SUBSCRIPTIONS, _key("F5", mac="Ctrl+R"), tr("Refresh the current source", "刷新当前订阅源", "現在の購読元を更新")),
+        A("sub_refresh_all", SCOPE_SUBSCRIPTIONS, _key("Ctrl+F5", mac="Ctrl+Alt+R"), tr("Refresh all sources", "刷新全部订阅源", "すべての購読元を更新")),
         A("sub_download_selected", SCOPE_SUBSCRIPTIONS, "Ctrl+D", tr("Download the selection", "下载选中项", "選択をダウンロード")),
         A("sub_download_new", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+D", tr("Download new videos", "下载新增视频", "新着動画をダウンロード")),
-        A("sub_back", SCOPE_SUBSCRIPTIONS, "Alt+Left", tr("Back (to the list of subscriptions when there is no history)", "返回（无历史时回到订阅列表）", "戻る（履歴がなければ購読の一覧へ）")),
+        A("sub_back", SCOPE_SUBSCRIPTIONS, _key("Alt+Left", mac="Ctrl+["), tr("Back (to the list of subscriptions when there is no history)", "返回（无历史时回到订阅列表）", "戻る（履歴がなければ購読の一覧へ）")),
         A("sub_select_all", SCOPE_SUBSCRIPTIONS, "Ctrl+A", tr("Select every video in the grid", "全选网格中的视频", "グリッドの動画をすべて選択")),
         A("sub_clear_selection", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+A", tr("Clear the selection (Esc also does this first)", "取消选择（Esc 也会先取消选择）", "選択を解除（Escでも先に解除）")),
         A("sub_toggle_view", SCOPE_SUBSCRIPTIONS, "Ctrl+Shift+T", tr("Switch overview / table view", "切换总览 / 经典表格", "概要/表形式の切り替え")),
@@ -147,16 +170,16 @@ def _page_actions() -> tuple[ShortcutAction, ...]:
         A("history_open_file", SCOPE_HISTORY, "Ctrl+Return", tr("Open the video file", "打开视频文件", "動画ファイルを開く")),
         A("history_open_folder", SCOPE_HISTORY, "Ctrl+Shift+Return", tr("Open the containing folder", "打开所在文件夹", "保存フォルダーを開く")),
         A("history_preview", SCOPE_HISTORY, "Ctrl+P", tr("Play / preview the selection", "播放 / 预览选中项", "選択を再生 / プレビュー")),
-        A("history_remove", SCOPE_HISTORY, "Delete", tr("Remove the selected records", "移除选中记录", "選択した履歴を削除")),
+        A("history_remove", SCOPE_HISTORY, _key("Delete", mac="Ctrl+Backspace"), tr("Remove the selected records", "移除选中记录", "選択した履歴を削除")),
         A("history_export", SCOPE_HISTORY, "Ctrl+E", tr("Export the visible rows to CSV", "导出当前列表为 CSV", "表示中の行を CSV に出力")),
-        A("history_reload", SCOPE_HISTORY, "F5", tr("Reload history", "重新加载历史", "履歴を再読み込み")),
+        A("history_reload", SCOPE_HISTORY, _key("F5", mac="Ctrl+R"), tr("Reload history", "重新加载历史", "履歴を再読み込み")),
 
-        A("repair_scan", SCOPE_REPAIR, "F5", tr("Scan the folder", "扫描文件夹", "フォルダーをスキャン")),
+        A("repair_scan", SCOPE_REPAIR, _key("F5", mac="Ctrl+R"), tr("Scan the folder", "扫描文件夹", "フォルダーをスキャン")),
         A("repair_apply", SCOPE_REPAIR, "Ctrl+Return", tr("Start the repair", "开始修复", "修復を開始")),
 
         A("rules_new", SCOPE_RULES, "Ctrl+N", tr("New rule", "新建规则", "新規ルール")),
         A("rules_save", SCOPE_RULES, "Ctrl+S", tr("Save the rule", "保存规则", "ルールを保存")),
-        A("rules_delete", SCOPE_RULES, "Ctrl+Delete", tr("Delete the rule", "删除规则", "ルールを削除")),
+        A("rules_delete", SCOPE_RULES, _key("Ctrl+Delete", mac="Ctrl+Backspace"), tr("Delete the rule", "删除规则", "ルールを削除")),
 
         A("settings_save", SCOPE_SETTINGS, "Ctrl+S", tr("Save all settings", "保存所有设置", "すべて保存")),
     )
@@ -190,6 +213,21 @@ def normalize(sequence: str) -> str:
         return ""
     parsed = QKeySequence(text, QKeySequence.SequenceFormat.PortableText)
     return parsed.toString(QKeySequence.SequenceFormat.PortableText) if not parsed.isEmpty() else ""
+
+
+def display_key(sequence: str) -> str:
+    """``sequence`` as this platform writes it: "⌘K" on macOS, "Ctrl+K" elsewhere."""
+
+    text = normalize(sequence)
+    if not text:
+        return ""
+    return QKeySequence(text, QKeySequence.SequenceFormat.PortableText).toString(
+        QKeySequence.SequenceFormat.NativeText
+    )
+
+
+def display_key_for(action_id: str) -> str:
+    return display_key(key_for(action_id))
 
 
 def load_overrides() -> dict[str, str]:

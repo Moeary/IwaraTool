@@ -23,6 +23,7 @@ from qfluentwidgets import (
 from ...core.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..shortcuts import attach_hint
 from ..fonts import monospace_font
 from ..rules.rule_picker import RulePicker
 from .task_center import TaskCenterInterface
@@ -193,12 +194,14 @@ class DownloadInterface(
         self._url_edit.returnPressed.connect(self._submit)
         url_row.addWidget(self._url_edit, 1)
         self._paste_btn = ToolButton(FluentIcon.PASTE, url_card)
-        self._paste_btn.setToolTip(
+        attach_hint(
+            self._paste_btn,
             tr(
-                "Paste links from the clipboard (Ctrl+Shift+V submits directly)",
-                "从剪贴板粘贴链接（Ctrl+Shift+V 直接提交）",
-                "クリップボードから貼り付け（Ctrl+Shift+V で直接送信）",
-            )
+                "Paste links from the clipboard; this shortcut pastes and submits directly",
+                "从剪贴板粘贴链接；此快捷键会粘贴并直接提交",
+                "クリップボードから貼り付け。このショートカットは貼り付けてすぐ送信します",
+            ),
+            "download_paste_submit",
         )
         self._paste_btn.clicked.connect(self._paste_from_clipboard)
         url_row.addWidget(self._paste_btn)

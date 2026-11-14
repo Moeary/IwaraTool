@@ -109,7 +109,7 @@ class DetailActionsMixin:
             if self._liked
             else tr("Like this post with your Iwara account", "用你的 Iwara 账号点赞", "Iwaraアカウントでいいねする")
         )
-        key = shortcut_defs.key_for("detail_like")
+        key = shortcut_defs.display_key_for("detail_like")
         self._like_btn.setToolTip(f"{text} ({key})" if key else text)
 
     def _toggle_like(self):

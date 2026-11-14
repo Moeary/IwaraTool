@@ -107,7 +107,7 @@ class _HintUpdater(QObject):
         self.update_tooltip()
 
     def update_tooltip(self):
-        key = shortcut_defs.key_for(self._action_id)
+        key = shortcut_defs.display_key_for(self._action_id)
         self._widget.setToolTip(f"{self._text} ({key})" if key else self._text)
 
 
