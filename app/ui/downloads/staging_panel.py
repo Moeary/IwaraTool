@@ -87,6 +87,7 @@ class StagingPanel(QWidget):
     """Confirm (or clear) the videos waiting on the workbench, one batch or all."""
 
     show_requested = Signal(str, str)  # verdict ("" = all), batch id ("" = all)
+    emptied = Signal()  # the last waiting video was confirmed or cleared
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -190,8 +191,11 @@ class StagingPanel(QWidget):
     def refresh(self):
         batches = download_manager.staged_batches()
         total = sum(batch["total"] for batch in batches)
-        grew, self._last_total = total > self._last_total, total
+        grew, emptied = total > self._last_total, self._last_total > 0 and not total
+        self._last_total = total
         self.setVisible(bool(batches))
+        if emptied:
+            self.emptied.emit()
         if not batches:
             return
         if grew:

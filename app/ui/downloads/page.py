@@ -115,6 +115,7 @@ class DownloadInterface(
         self._staging_panel = StagingPanel(right_panel)  # hidden while nothing waits
         self._task_center.set_staging_widget(self._staging_panel)
         self._staging_panel.show_requested.connect(self._task_center.show_staged)
+        self._staging_panel.emptied.connect(self._task_center.leave_staged)
         right_layout.addWidget(self._task_center, stretch=1)
 
     def _build_title_row(self) -> QHBoxLayout:

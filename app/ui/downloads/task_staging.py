@@ -58,6 +58,12 @@ class TaskStagingMixin:
         else:
             self._apply_filters()
 
+    def leave_staged(self):
+        """Nothing waits any more: an empty "To confirm" view would hide the queued downloads."""
+
+        if self._state_combo.currentIndex() == STATE_FILTER_STAGED:
+            self._state_combo.setCurrentIndex(0)
+
     def _passes_stage_filters(self, task: DownloadTask) -> bool:
         if task.status != TaskStatus.STAGED:
             return False
