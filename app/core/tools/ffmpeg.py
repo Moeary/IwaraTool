@@ -217,6 +217,17 @@ class MediaInfo:
     audio_codec: str = ""
     audio_bit_rate: int = 0
     audio_channels: int = 0
+    video_duration: float = 0.0  # the video stream alone; 0 when unknown
+
+    @property
+    def picture_duration(self) -> float:
+        """How long the picture lasts: the video stream, else the container.
+
+        The container duration is the longest stream, so music that runs on
+        after the last frame would push cover times past the picture.
+        """
+
+        return self.video_duration or self.duration
 
     @property
     def display_size(self) -> tuple[int, int]:
@@ -276,6 +287,23 @@ def _stream_fps(stream: dict) -> float:
     return average or nominal
 
 
+def _stream_duration(stream: dict) -> float:
+    """Seconds from the stream, or Matroska's ``DURATION`` tag (``HH:MM:SS.nnn``)."""
+
+    seconds = _float(stream.get("duration"))
+    if seconds > 0:
+        return seconds
+    tags = stream.get("tags") or {}
+    tag = next((str(v) for k, v in tags.items() if k.upper() == "DURATION"), "")
+    parts = tag.split(":")
+    if len(parts) != 3:
+        return 0.0
+    try:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    except ValueError:
+        return 0.0
+
+
 def _stream_rotation(stream: dict) -> int:
     rotation = _int((stream.get("tags") or {}).get("rotate"))
     for side in stream.get("side_data_list") or []:
@@ -294,7 +322,8 @@ def media_info_from_probe(path: Path, data: dict, size: int | None = None) -> Me
         None,
     )
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    duration = _float(fmt.get("duration")) or _float((video or {}).get("duration"))
+    video_duration = _stream_duration(video) if video else 0.0
+    duration = _float(fmt.get("duration")) or video_duration
     info = MediaInfo(
         path=path,
         size=size if size is not None else _int(fmt.get("size")),
@@ -311,6 +340,7 @@ def media_info_from_probe(path: Path, data: dict, size: int | None = None) -> Me
         info.pix_fmt = str(video.get("pix_fmt") or "")
         info.video_bit_rate = _int(video.get("bit_rate"))
         info.frame_count = _int(video.get("nb_frames"))
+        info.video_duration = video_duration
     if audio:
         info.audio_codec = str(audio.get("codec_name") or "")
         info.audio_bit_rate = _int(audio.get("bit_rate"))

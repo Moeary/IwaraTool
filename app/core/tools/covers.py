@@ -4,7 +4,8 @@ After an upload Iwara lets the author pick one of 16 screenshots. They appear
 to be taken at the middle of 16 equal slices of the video, i.e. at
 ``duration × (2i + 1) / 32`` for ``i = 0 … 15`` (a community finding, not
 documented by Iwara). Computing them before uploading shows whether a good
-frame will be on offer.
+frame will be on offer. ``duration`` is the video stream's, so music that runs
+on after the picture ends does not push covers past the last frame.
 """
 
 from __future__ import annotations

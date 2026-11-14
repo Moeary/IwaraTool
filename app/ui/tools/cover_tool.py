@@ -358,7 +358,7 @@ class CoverTool(DropArea):
             return
         self._media = media
         width, height = media.display_size
-        frames = media.frame_count or round(media.duration * (media.fps or 30))
+        frames = media.frame_count or round(media.picture_duration * (media.fps or 30))
         self._info_label.setText(
             " · ".join(
                 part for part in (
@@ -370,7 +370,7 @@ class CoverTool(DropArea):
                 ) if part
             )
         )
-        self._candidates = cover_candidates(media.duration, media.fps)
+        self._candidates = cover_candidates(media.picture_duration, media.fps)
         for tile, candidate in zip(self._tiles, self._candidates):
             tile.caption = format_timecode(candidate.seconds)
             tile.message = tr("Extracting…", "截图中…", "抽出中…")

@@ -307,7 +307,7 @@ class ProbeParsingTests(unittest.TestCase):
                 {
                     "codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720,
                     "r_frame_rate": "30/1", "avg_frame_rate": "2670/89", "pix_fmt": "yuv420p",
-                    "bit_rate": "3800000", "nb_frames": "375",
+                    "bit_rate": "3800000", "nb_frames": "375", "duration": "8.0",
                     "side_data_list": [{"rotation": -90}],
                 },
                 {"codec_type": "audio", "codec_name": "aac", "bit_rate": "128000", "channels": 2},
@@ -320,6 +320,25 @@ class ProbeParsingTests(unittest.TestCase):
         self.assertEqual(info.display_size, (720, 1280))
         self.assertEqual((info.audio_codec, info.size, info.frame_count), ("aac", 1234, 375))
         self.assertTrue(info.is_mp4)
+        # Audio runs past the picture: covers follow the video stream.
+        self.assertEqual((info.duration, info.video_duration, info.picture_duration), (12.5, 8.0, 8.0))
+
+    def test_matroska_stream_duration_tag(self):
+        data = {
+            "format": {"format_name": "matroska,webm", "duration": "12.000000"},
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "tags": {"DURATION": "00:00:08.033000000"}},
+                {"codec_type": "audio", "codec_name": "opus", "tags": {"DURATION": "00:00:12.000000000"}},
+            ],
+        }
+        info = ffmpeg.media_info_from_probe(Path("a.mkv"), data, 1)
+        self.assertAlmostEqual(info.video_duration, 8.033)
+        self.assertAlmostEqual(info.picture_duration, 8.033)
+
+    def test_unknown_stream_duration_falls_back_to_the_container(self):
+        data = {"format": {"duration": "12.0"}, "streams": [{"codec_type": "video", "codec_name": "h264"}]}
+        info = ffmpeg.media_info_from_probe(Path("a.mp4"), data, 1)
+        self.assertEqual((info.video_duration, info.picture_duration), (0.0, 12.0))
 
     def test_banner_fallback(self):
         text = """Input #0, matroska,webm, from 'clip.mkv':
@@ -465,6 +484,34 @@ class RealFfmpegTests(unittest.TestCase):
         target = self.folder / "sixteenth-cover.png"
         covers.save_frame(self.info, fixture, candidates[-1].seconds, target)
         self.assertGreater(target.stat().st_size, 0)
+
+    def test_covers_stay_inside_the_picture_when_audio_runs_longer(self):
+        clip = self.folder / "long-audio.mp4"
+        subprocess.run(
+            [
+                str(REAL_FFMPEG), "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=2",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                "-c:v", "libx264", "-c:a", "aac", str(clip),
+            ],
+            check=True,
+            **ffmpeg.subprocess_flags(),
+        )
+        source = ffmpeg.probe(self.info, clip)
+        self.assertGreater(source.duration, 2.5)
+        self.assertAlmostEqual(source.picture_duration, 2.0, delta=0.1)
+        candidates = covers.cover_candidates(source.picture_duration, source.fps)
+        self.assertLess(candidates[-1].seconds, 2.0)
+        got = {}
+        covers.extract_covers(
+            self.info, clip, candidates,
+            lambda c, data, error: got.__setitem__(c.index, (data, error)),
+        )
+        self.assertEqual(sorted(got), list(range(16)))
+        for index, (data, error) in got.items():
+            with self.subTest(cover=index + 1):
+                self.assertEqual(error, "")
+                self.assertTrue(data.startswith(b"\x89PNG"))
 
 
 class ToolsPageTests(unittest.TestCase):
