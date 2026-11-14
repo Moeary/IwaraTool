@@ -300,7 +300,10 @@ class HistoryBrowseTests(unittest.TestCase):
         self.assertLess(names.index("阿明"), names.index("李四"))  # pinyin: a, l, z
         self.assertLess(names.index("李四"), names.index("张三"))
         self.assertLess(names.index("file2"), names.index("file10"))
+        self.assertLess(names.index("Bob"), names.index("阿明"))  # Latin before Chinese
         self.assertNotIn("", names)
+        self.assertLess(browse.chinese_name_key("ａｌｉｃｅ"), browse.chinese_name_key("Bob"))  # full-width, any case
+        self.assertLess(browse.chinese_name_key("白鸟"), browse.chinese_name_key("陈"))  # b before c
         with patch.object(browse, "current_language", return_value="zh"):
             by_count = browse.sort_authors(counts, browse.AUTHOR_SORT_COUNT)
         self.assertEqual(by_count[:2], [("阿明", 5), ("Bob", 3)])

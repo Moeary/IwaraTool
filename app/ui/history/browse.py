@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from functools import cmp_to_key
@@ -32,7 +34,30 @@ AUTHOR_SORT_NAME = "name"  # A → Z in the UI language's order (pinyin for Chin
 _VIEW_KEY = "history_view_mode_v1"
 _SCOPE_KEY = "history_scope_v1"
 _AUTHOR_SORT_KEY = "history_author_sort_v1"
-_COLLATOR_LOCALES = {"zh": "zh_CN", "ja": "ja_JP", "en": "en_US"}
+_COLLATOR_LOCALES = {"ja": "ja_JP", "en": "en_US"}
+_NAME_PART = re.compile(r"\d+|.", re.S)
+
+
+def chinese_name_key(name: str) -> list[tuple]:
+    """Digits by value, then Latin A → Z, then Chinese by pinyin.
+
+    Qt's Windows collator orders Chinese by code point, so this does not rely
+    on it: GB2312's 3,755 common characters are encoded in pinyin order, and
+    GBK keeps that order (rarer characters follow, by radical and stroke).
+    """
+
+    key: list[tuple] = []
+    for part in _NAME_PART.findall(unicodedata.normalize("NFKC", name).casefold()):
+        if part.isascii() and part.isdigit():
+            key.append((0, int(part), part))
+        elif ord(part) < 0x2E80:  # Latin, Greek, Cyrillic, punctuation…
+            key.append((1, part))
+        else:
+            try:
+                key.append((2, part.encode("gbk")))
+            except UnicodeEncodeError:
+                key.append((3, part))
+    return key
 
 
 def author_name_collator() -> QCollator:
@@ -45,13 +70,16 @@ def author_name_collator() -> QCollator:
 def sort_authors(counts: dict[str, int], order: str) -> list[tuple[str, int]]:
     """Named authors with their record counts, by count or by name."""
 
-    collator = author_name_collator()
+    names = [(name, n) for name, n in counts.items() if name]
+    if current_language() == "zh":
+        named = sorted(names, key=lambda pair: (chinese_name_key(pair[0]), pair[0]))
+    else:
+        collator = author_name_collator()
 
-    def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
-        # compare(), not sortKey(): Qt's Windows sort keys order wrongly when compared.
-        return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
+        def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
+            return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
 
-    named = sorted(((name, n) for name, n in counts.items() if name), key=cmp_to_key(by_name))
+        named = sorted(names, key=cmp_to_key(by_name))
     if order == AUTHOR_SORT_NAME:
         return named
     return sorted(named, key=lambda pair: -pair[1])  # stable: equal counts stay in name order
