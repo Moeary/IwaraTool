@@ -10,6 +10,7 @@ from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
 from .page_dependencies import download_manager
 from .staging_flow import StagingFlow
+from ...core import site as sites
 
 
 class DownloadLinkToolsMixin:
@@ -44,7 +45,7 @@ class DownloadLinkToolsMixin:
         video_id = str(result.get("video_id", "") or "")
         if video_id:
             download_manager.add_url(
-                f"https://www.iwara.tv/video/{video_id}", rule_id=self._rule_picker.selected_rule_id(),
+                sites.video_url(video_id), rule_id=self._rule_picker.selected_rule_id(),
             )
 
     # ── author / playlist preview ───────────────────────────────────────────

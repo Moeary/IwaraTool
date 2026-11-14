@@ -185,6 +185,10 @@ class StagingPanelTests(_StagingCase):
         panel.refresh()
         self.assertTrue(panel.isHidden())
         self.assertEqual([t.status for t in self.mgr.get_tasks()], [TaskStatus.RESOLVING])
+        # Nothing waits any more, so the list leaves "To confirm" to show the queued download.
+        self.assertEqual(center._state_combo.currentIndex(), 0)
+        center._refresh_tasks()
+        self.assertEqual(len(center._visible_task_ids), 1)
 
 
 class StagingFlowTests(_StagingCase):

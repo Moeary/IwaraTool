@@ -18,3 +18,7 @@ data/*
 plan.md
 test.md
 agents.md
+
+# logs and macOS Finder metadata
+*.log
+.DS_Store

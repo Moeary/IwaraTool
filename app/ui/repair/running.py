@@ -54,6 +54,7 @@ class RepairRunningMixin:
                 filename_template=self._template(),
                 output_root=output_root,
                 move_to_output=self._move_to_output(),
+                options=self._options(),
                 parent=self,
             )
         )
@@ -90,6 +91,10 @@ class RepairRunningMixin:
     def _start_worker(self, worker: RepairWorker):
         self._worker = worker
         self._worker_mode = worker.mode
+        # A background target preview of the old list is obsolete now.
+        self._preview_timer.stop()
+        self._preview_dirty = False
+        self._preview_generation += 1
         self._scan_btn.setEnabled(False)
         self._start_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
@@ -103,7 +108,7 @@ class RepairRunningMixin:
             self._scan_feedback_timer.start()
         else:
             self._scan_feedback_timer.stop()
-        worker.item_ready.connect(self._on_item_ready)
+        worker.items_ready.connect(self._on_items_ready)
         worker.progress.connect(self._on_progress)
         worker.activity.connect(self._on_activity)
         worker.result_ready.connect(self._on_result)
@@ -168,24 +173,26 @@ class RepairRunningMixin:
                 )
             )
 
-    def _on_item_ready(self, item: dict[str, Any]):
-        path = str(item.get("path", "") or "")
-        if not path:
+    def _on_items_ready(self, items: list[dict[str, Any]]):
+        """Show a batch of scanned or repaired files as soon as they finish."""
+
+        rows = []
+        for item in items:
+            path = str(item.get("path", "") or "")
+            if path:
+                self._items_by_path[path] = dict(item)
+                rows.append(item)
+        if not rows:
             return
-        self._items_by_path[path] = dict(item)
         self._items = list(self._items_by_path.values())
-        self._render_item(item)
+        self._render_items(rows)
         self._update_summary()
 
     def _on_result(self, result: object):
         if self._worker_mode == "scan" and isinstance(result, list):
-            self._items = [dict(item) for item in result if isinstance(item, dict)]
-            self._items_by_path = {
-                str(item.get("path", "") or ""): item
-                for item in self._items
-                if str(item.get("path", "") or "")
-            }
-            self._refresh_target_previews()
+            # The scan's closing preview already planned every target with
+            # the page's options, conflicts included.
+            self._set_items(result)
             self._render_all_items()
             ready = sum(1 for item in self._items if item.get("status") == "ready" and not item.get("target_conflict"))
             self._append_log(
@@ -198,12 +205,7 @@ class RepairRunningMixin:
         elif self._worker_mode == "repair" and isinstance(result, dict):
             repaired_items = result.get("items", [])
             if isinstance(repaired_items, list):
-                self._items = [dict(item) for item in repaired_items if isinstance(item, dict)]
-                self._items_by_path = {
-                    str(item.get("path", "") or ""): item
-                    for item in self._items
-                    if str(item.get("path", "") or "")
-                }
+                self._set_items(repaired_items)
                 self._render_all_items()
             self._append_log(
                 tr(
@@ -232,13 +234,13 @@ class RepairRunningMixin:
                         self._download_video_check, self._history_check):
             control.setEnabled(True)
         self._update_mode_controls()
-        ready = sum(1 for item in self._items if item.get("status") == "ready" and not item.get("target_conflict"))
-        self._start_btn.setEnabled(bool(self._items) and ready > 0)
+        self._update_start_button()
         self._update_summary()
         self._repair_log_active = False
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:
-        worker = self._worker
-        if worker is None:
+        self._preview_timer.stop()
+        workers = [self._worker, self._preview_worker]
+        if not any(workers):
             return True
-        return stop_qthreads([worker], timeout_ms=timeout_ms)
+        return stop_qthreads(workers, timeout_ms=timeout_ms)

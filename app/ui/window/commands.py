@@ -13,8 +13,10 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ...config import app_config
 from ...core import shortcut_defs
+from ...core import site as sites
 from ...core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
 from ..navigation import NavEntry, draft_of, restore_draft_into, restore_into, snapshot_of
+from ..fonts import apply_app_font
 from ..theme import apply_theme_mode, refresh_splitters
 
 
@@ -50,6 +52,42 @@ class WindowCommandsMixin:
             content=rating_label(following),
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self,
         )
+
+    def toggle_site(self):
+        """Ctrl+Shift+S / the sidebar entry: switch browsing between iwara.tv and iwara.ai."""
+
+        target = sites.other(sites.configured_site())
+        sites.set_configured_site(target)
+        InfoBar.info(
+            title=tr("Site", "站点", "サイト"),
+            content=tr(
+                f"Now browsing {sites.SITES[target].label}",
+                f"已切换到 {sites.SITES[target].label}",
+                f"{sites.SITES[target].label} に切り替えました",
+            ),
+            orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self,
+        )
+
+    def _site_nav_tooltip(self, key: str) -> str:
+        return tr(
+            f"Browsing {sites.SITES[key].label}; click to switch to {sites.SITES[sites.other(key)].label}",
+            f"当前浏览 {sites.SITES[key].label}，点击切换到 {sites.SITES[sites.other(key)].label}",
+            f"{sites.SITES[key].label} を表示中。クリックで {sites.SITES[sites.other(key)].label} に切り替え",
+        )
+
+    def _apply_site_chrome(self, key: str):
+        """Sidebar entry text and window title for the current site."""
+
+        key = sites.normalize(key)
+        label = sites.SITES[key].label
+        item = getattr(self, "_site_nav_item", None)
+        if item is not None:
+            item.setText(label)
+            item.setToolTip(self._site_nav_tooltip(key))
+        self.setWindowTitle("IwaraTool" if key == sites.SITE_TV else f"IwaraTool · {label}")
+
+    def _on_site_changed(self, key: str):
+        self._apply_site_chrome(key)
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
@@ -98,6 +136,7 @@ class WindowCommandsMixin:
             getattr(self, "_subscription_page", None),
             getattr(self, "_history_page", None),
             getattr(self, "_repair_page", None),
+            getattr(self, "_tools_page", None),
             getattr(self, "_rules_page", None),
             getattr(self, "_settings_page", None),
         ):
@@ -117,11 +156,11 @@ class WindowCommandsMixin:
             "current": keys.get(current, ""),
             "state": snapshot_of(current) if current is not None else None,
             "drafts": {key: draft for key, page in self._pages().items() if (draft := draft_of(page)) is not None},
-            "history": [
-                (keys[entry.page], entry.state)
-                for entry in self.navigation.entries()
-                if entry.page in keys
-            ],
+            "history": {
+                keys[target]: [(keys[entry.page], entry.state) for entry in entries if entry.page in keys]
+                for target, entries in self.navigation.stacks().items()
+                if target in keys
+            },
         }
 
     def import_session(self, session: dict):
@@ -134,21 +173,31 @@ class WindowCommandsMixin:
             if page is not None:
                 super().switchTo(page)
                 restore_into(page, session.get("state"))
-        self.navigation.replace([
-            NavEntry(pages[key], state) for key, state in session.get("history") or [] if key in pages
-        ])
+        self.navigation.replace({
+            pages[target]: [NavEntry(pages[key], state) for key, state in entries if key in pages]
+            for target, entries in (session.get("history") or {}).items()
+            if target in pages
+        })
 
     def _on_language_changed(self, _lang: str):
-        """Rebuild the window in the new language, carrying the user's place over.
+        # The automatic font stack puts the UI language's CJK fonts first.
+        self._rebuild_window()
 
-        Texts are set when widgets are built, so a fresh window is the reliable
-        way to translate everything; the old one stops its work in the
-        background and is then destroyed, with its shortcuts, tray icon and
-        signal connections.
+    def _on_font_changed(self):
+        self._rebuild_window()
+
+    def _rebuild_window(self):
+        """Rebuild the window in the new language or font, carrying the user's place over.
+
+        Texts and fonts are set when widgets are built, so a fresh window is
+        the reliable way to apply them everywhere; the old one stops its work
+        in the background and is then destroyed, with its shortcuts, tray
+        icon and signal connections.
         """
 
         if self._reloading_language:
             return
+        apply_app_font()
         self._reloading_language = True
         session = self.export_session()
         from ..main_window import MainWindow

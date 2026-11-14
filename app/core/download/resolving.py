@@ -18,6 +18,7 @@ from ..task_metadata import (
     _subscription_download_block_from_error,
     _subscription_download_block_from_video_info,
 )
+from .. import site as sites
 
 
 logger = get_logger(__name__)
@@ -91,7 +92,13 @@ class ResolvingMixin:
         )
         self._touch_task_activity(task_id)
 
-        video_info, err = self._api_call("get_video_info", task.video_id)
+        # Ask the task's own site first; a wrong guess is corrected by the API.
+        with sites.site_scope(sites.site_of_url(task.url)):
+            video_info, err = self._api_call("get_video_info", task.video_id)
+        if video_info:
+            real_site = sites.site_of_item(video_info, default=sites.site_of_url(task.url) or None)
+            if sites.site_of_url(task.url) != real_site:
+                task.url = sites.video_url(task.video_id, real_site)
         self._touch_task_activity(task_id)
         if self._cancel_if_requested(task_id):
             return None

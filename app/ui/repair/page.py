@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -33,9 +32,11 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
+from ...core.download.template_builder import template_presets
 from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..fonts import monospace_font
 from ..ui_state import keep_table_widths
 from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, apply_scrollbars, set_secondary_text
 from .controls import RepairControlsMixin
@@ -43,7 +44,7 @@ from .folder_input import FolderDropLineEdit
 from .log_panel import RepairLogMixin
 from .results_table import RepairResultsTableMixin
 from .running import RepairRunningMixin
-from .worker import RepairWorker
+from .worker import RepairPreviewWorker, RepairWorker
 
 
 class RepairInterface(
@@ -72,6 +73,17 @@ class RepairInterface(
         self._items: list[dict[str, Any]] = []
         self._items_by_path: dict[str, dict[str, Any]] = {}
         self._path_to_row: dict[str, int] = {}
+        # Row -> rendered text, so unchanged rows are not repainted.
+        self._row_signatures: dict[int, tuple[str, ...]] = {}
+        self._state_styles: dict[str, tuple[str, Any]] | None = None
+        self._preview_worker: RepairPreviewWorker | None = None
+        self._preview_generation = 0
+        self._preview_dirty = False
+        # Option edits (often keystrokes) are coalesced into one preview.
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(150)
+        self._preview_timer.timeout.connect(self._run_target_preview)
         self._pending_logs: list[str] = []
         self._repair_log_active = False
         self._last_feedback_log_at = 0.0
@@ -256,11 +268,24 @@ class RepairInterface(
         rule_row.addWidget(self._rule_combo, 1)
         rule_layout.addLayout(rule_row)
 
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+        preset_row.addWidget(BodyLabel(tr("Preset", "预设", "プリセット"), rule_card))
+        self._preset_combo = ComboBox(rule_card)
+        self._template_presets = template_presets()
+        self._preset_combo.addItem(tr("Custom", "自定义", "カスタム"))
+        for preset in self._template_presets:
+            self._preset_combo.addItem(preset.label)
+        self._preset_combo.currentIndexChanged.connect(self._on_preset_chosen)
+        preset_row.addWidget(self._preset_combo, 1)
+        rule_layout.addLayout(preset_row)
+
         template_row = QHBoxLayout()
         template_row.setSpacing(8)
         template_row.addWidget(BodyLabel(tr("Name", "命名", "名前"), rule_card))
         self._template_edit = LineEdit(rule_card)
         self._template_edit.setPlaceholderText("{YYYY-MM-DD}_{title}_{id}.mp4")
+        self._template_edit.textChanged.connect(self._sync_preset_combo)
         self._template_edit.textChanged.connect(self._refresh_target_previews)
         template_row.addWidget(self._template_edit, 1)
         rule_layout.addLayout(template_row)
@@ -324,10 +349,7 @@ class RepairInterface(
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         self._log_edit.setPlaceholderText(tr("Repair logs will appear here…", "修复日志将显示在此…", "修復ログはここに表示されます…"))
-        mono = QFont("Consolas", 9)
-        if not mono.exactMatch():
-            mono = QFont("Courier New", 9)
-        self._log_edit.setFont(mono)
+        self._log_edit.setFont(monospace_font(9))
         apply_scrollbars(self._log_edit)
         log_layout.addWidget(self._log_edit)
         return log_card
@@ -387,6 +409,8 @@ class RepairInterface(
 
     def refresh_theme_styles(self):
         apply_scrollbars(self._log_edit)
+        self._row_signatures.clear()
+        self._state_styles = self._build_state_styles()
         self._table.setUpdatesEnabled(False)
         try:
             for item in self._items:

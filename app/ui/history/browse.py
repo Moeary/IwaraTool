@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from functools import cmp_to_key
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem, QWidget
+from PySide6.QtCore import QCollator, QLocale, Qt
+from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem, QVBoxLayout, QWidget
 
 from qfluentwidgets import ComboBox, FluentIcon, ListWidget, SegmentedWidget, ToolButton
 
 from ...config import app_config
-from ...i18n import tr
+from ...i18n import current_language, tr
 from ...signal_bus import signal_bus
 from ..flow_layout import ResponsiveFlowLayout
 from ..media.card_size import CardSizeControl
@@ -25,9 +28,61 @@ SCOPE_RECENT = "recent"
 SCOPE_UNWATCHED = "unwatched"
 SCOPE_AUTHOR = "author"
 RECENT_DAYS = 30
+AUTHOR_SORT_COUNT = "count"  # most videos first
+AUTHOR_SORT_NAME = "name"  # A → Z in the UI language's order (pinyin for Chinese)
 
 _VIEW_KEY = "history_view_mode_v1"
 _SCOPE_KEY = "history_scope_v1"
+_AUTHOR_SORT_KEY = "history_author_sort_v1"
+_COLLATOR_LOCALES = {"ja": "ja_JP", "en": "en_US"}
+_NAME_PART = re.compile(r"\d+|.", re.S)
+
+
+def chinese_name_key(name: str) -> list[tuple]:
+    """Digits by value, then Latin A → Z, then Chinese by pinyin.
+
+    Qt's Windows collator orders Chinese by code point, so this does not rely
+    on it: GB2312's 3,755 common characters are encoded in pinyin order, and
+    GBK keeps that order (rarer characters follow, by radical and stroke).
+    """
+
+    key: list[tuple] = []
+    for part in _NAME_PART.findall(unicodedata.normalize("NFKC", name).casefold()):
+        if part.isascii() and part.isdigit():
+            key.append((0, int(part), part))
+        elif ord(part) < 0x2E80:  # Latin, Greek, Cyrillic, punctuation…
+            key.append((1, part))
+        else:
+            try:
+                key.append((2, part.encode("gbk")))
+            except UnicodeEncodeError:
+                key.append((3, part))
+    return key
+
+
+def author_name_collator() -> QCollator:
+    collator = QCollator(QLocale(_COLLATOR_LOCALES.get(current_language(), "en_US")))
+    collator.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+    collator.setNumericMode(True)  # "2B" before "10A"
+    return collator
+
+
+def sort_authors(counts: dict[str, int], order: str) -> list[tuple[str, int]]:
+    """Named authors with their record counts, by count or by name."""
+
+    names = [(name, n) for name, n in counts.items() if name]
+    if current_language() == "zh":
+        named = sorted(names, key=lambda pair: (chinese_name_key(pair[0]), pair[0]))
+    else:
+        collator = author_name_collator()
+
+        def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
+            return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
+
+        named = sorted(names, key=cmp_to_key(by_name))
+    if order == AUTHOR_SORT_NAME:
+        return named
+    return sorted(named, key=lambda pair: -pair[1])  # stable: equal counts stay in name order
 
 
 class HistoryBrowseMixin:
@@ -39,6 +94,8 @@ class HistoryBrowseMixin:
         self._view_mode = view if view in (VIEW_LIST, MODE_GRID, MODE_COVER) else VIEW_LIST
         self._scope = scope if scope in (SCOPE_ALL, SCOPE_RECENT, SCOPE_UNWATCHED, SCOPE_AUTHOR) else SCOPE_ALL
         self._author_filter = ""  # "" = every author
+        author_sort = str(app_config.get_ui_value(_AUTHOR_SORT_KEY, AUTHOR_SORT_COUNT) or AUTHOR_SORT_COUNT)
+        self._author_sort = author_sort if author_sort in (AUTHOR_SORT_COUNT, AUTHOR_SORT_NAME) else AUTHOR_SORT_COUNT
         self._table_stale = False  # the table was skipped while a card view was shown
 
     def _build_browse_row(self) -> ResponsiveFlowLayout:
@@ -98,13 +155,31 @@ class HistoryBrowseMixin:
             (tr("Views", "播放", "再生"), self._COL_VIEWS),
         ]
 
-    def _build_author_panel(self, parent: QWidget) -> ListWidget:
-        self._author_list = ListWidget(parent)
-        self._author_list.setMinimumWidth(180)
-        self._author_list.setMaximumWidth(320)
+    def _build_author_panel(self, parent: QWidget) -> QWidget:
+        self._author_panel = QWidget(parent)
+        self._author_panel.setMinimumWidth(180)
+        self._author_panel.setMaximumWidth(320)
+        layout = QVBoxLayout(self._author_panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self._author_sort_bar = SegmentedWidget(self._author_panel)
+        for key, text, tip in (
+            (AUTHOR_SORT_COUNT, tr("Most videos", "作品数", "作品数"), tr(
+                "Authors with the most downloads first", "下载作品多的作者在前", "保存数の多い作者から",
+            )),
+            (AUTHOR_SORT_NAME, tr("Name", "作者名", "名前"), tr(
+                "Authors by name, A → Z", "按作者名排序（中文按拼音）", "作者名順",
+            )),
+        ):
+            self._author_sort_bar.addItem(key, text, lambda _checked=False, key=key: self._set_author_sort(key))
+            self._author_sort_bar.items[key].setToolTip(tip)
+        self._author_sort_bar.setCurrentItem(self._author_sort)
+        layout.addWidget(self._author_sort_bar)
+        self._author_list = ListWidget(self._author_panel)
         self._author_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._author_list.currentItemChanged.connect(self._on_author_chosen)
-        return self._author_list
+        layout.addWidget(self._author_list, 1)
+        return self._author_panel
 
     def _build_cover_grid(self, parent: QWidget) -> HistoryCoverGrid:
         self._cover_grid = HistoryCoverGrid(parent)
@@ -123,6 +198,17 @@ class HistoryBrowseMixin:
         self._sync_browse_controls()
         self._apply_filters()
 
+    def _set_author_sort(self, order: str):
+        if order not in (AUTHOR_SORT_COUNT, AUTHOR_SORT_NAME) or order == self._author_sort:
+            return
+        self._author_sort = order
+        app_config.set_ui_value(_AUTHOR_SORT_KEY, order)
+        self._author_sort_bar.setCurrentItem(order)
+        self._rebuild_author_list()
+        current = self._author_list.currentItem()
+        if current is not None:
+            self._author_list.scrollToItem(current)
+
     def _set_view_mode(self, mode: str):
         if mode not in (VIEW_LIST, MODE_GRID, MODE_COVER) or mode == self._view_mode:
             return
@@ -139,7 +225,7 @@ class HistoryBrowseMixin:
         self._grid_sort_combo.setVisible(cards)
         self._grid_sort_dir_btn.setVisible(cards)
         self._card_size_control.setVisible(cards)
-        self._author_list.setVisible(self._scope == SCOPE_AUTHOR)
+        self._author_panel.setVisible(self._scope == SCOPE_AUTHOR)
         index = next(
             (i for i, (_text, column) in enumerate(self._grid_sort_choices()) if column == self._sort_column), -1,
         )
@@ -191,7 +277,7 @@ class HistoryBrowseMixin:
 
     def _rebuild_author_list(self):
         counts = Counter(str(r.get("author", "") or "") for r in self._all_records)
-        authors = sorted(((name, n) for name, n in counts.items() if name), key=lambda pair: (-pair[1], pair[0].casefold()))
+        authors = sort_authors(counts, self._author_sort)
         self._author_list.blockSignals(True)
         try:
             self._author_list.clear()

@@ -8,6 +8,7 @@ from typing import Any
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..task_metadata import _subscription_download_block_from_error
+from .. import site as sites
 
 
 class SubscriptionItemsMixin:
@@ -124,7 +125,7 @@ class SubscriptionItemsMixin:
         known = {str(item.get("video_id", "") or "") for item in items}
         for video_id in ids:
             if video_id not in known:
-                items.append({"video_id": video_id, "source_url": f"https://www.iwara.tv/video/{video_id}"})
+                items.append({"video_id": video_id, "source_url": sites.video_url(video_id)})
         marked = self.mark_video_items_downloaded(items)
         if marked:
             self.subscriptions.mark_items_seen(ids)

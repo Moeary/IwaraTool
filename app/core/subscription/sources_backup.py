@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import closing
 
 from ...logging_setup import get_logger
+from ..site import normalize as normalize_site
 from ..sqlite_utils import connect as _sqlite_connect
 from .source_origin import _default_source_origin, _normalize_source_origin
 
@@ -47,8 +48,8 @@ class SourcesBackupMixin:
                     continue
                 conn.execute(
                     "INSERT OR IGNORE INTO sources "
-                    "(source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?)",
+                    "(source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at, site) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?, ?)",
                     (
                         source_type,
                         _normalize_source_origin(source.get("source_origin", ""))
@@ -62,6 +63,7 @@ class SourcesBackupMixin:
                         1 if int(source.get("enabled", 1) or 0) else 0,
                         str(source.get("created_at", "") or ""),
                         str(source.get("last_checked_at", "") or ""),
+                        normalize_site(source.get("site", "")),
                     ),
                 )
             conn.commit()
@@ -69,7 +71,7 @@ class SourcesBackupMixin:
     def _export_sources_backup(self, conn: sqlite3.Connection):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at "
+            "SELECT source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, created_at, last_checked_at, site "
             "FROM sources ORDER BY source_type ASC, title COLLATE NOCASE ASC"
         ).fetchall()
         payload = {

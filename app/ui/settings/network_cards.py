@@ -16,7 +16,7 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
-from ...config import app_config
+from ...config import DEFAULT_PROXY_URL, app_config
 from ...i18n import tr
 from .page_dependencies import download_manager
 
@@ -34,9 +34,12 @@ class SettingsNetworkCardsMixin:
         proxy_layout.addWidget(
             BodyLabel(
                 tr(
-                    "API proxy is used for login, URL parsing, subscriptions and metadata. If TUN mode is off, keep this enabled and make sure your local proxy port is running.",
-                    "API 代理用于登录、链接解析、订阅和元数据请求。未开启 TUN 时建议保持开启，并确认本机代理端口正在运行。",
-                    "API プロキシはログイン、URL 解析、購読、メタデータ取得に使います。TUN が無効な場合は有効にし、ローカルプロキシポートが起動していることを確認してください。",
+                    "API proxy is used for login, URL parsing, subscriptions and metadata. While it is off, requests follow the system proxy / TUN. "
+                    "If neither is on, enable it and enter your local proxy port (Clash Verge Rev uses 7897, older CFW setups 7890).",
+                    "API 代理用于登录、链接解析、订阅和元数据请求。关闭时请求跟随系统代理 / TUN；两者都未开启时，请启用并填写本机代理端口"
+                    "（Clash Verge Rev 默认 7897，旧版 CFW 常用 7890）。",
+                    "API プロキシはログイン、URL 解析、購読、メタデータ取得に使います。無効の間はシステムプロキシ / TUN に従います。"
+                    "どちらも無効な場合は有効にしてローカルのプロキシポートを入力してください（Clash Verge Rev は 7897、旧 CFW は 7890）。",
                 ),
                 proxy_card,
             )
@@ -54,7 +57,7 @@ class SettingsNetworkCardsMixin:
         api_proxy_inner = QHBoxLayout(self._api_proxy_widget)
         api_proxy_inner.setContentsMargins(0, 0, 0, 0)
         self._api_proxy_edit = LineEdit(self._api_proxy_widget)
-        self._api_proxy_edit.setPlaceholderText("http://127.0.0.1:7890")
+        self._api_proxy_edit.setPlaceholderText(DEFAULT_PROXY_URL)
         self._api_proxy_edit.textChanged.connect(self._on_api_proxy_url_changed)
         api_proxy_inner.addWidget(self._api_proxy_edit, stretch=1)
         proxy_layout.addWidget(self._api_proxy_widget)
@@ -82,7 +85,7 @@ class SettingsNetworkCardsMixin:
         download_proxy_inner = QHBoxLayout(self._download_proxy_widget)
         download_proxy_inner.setContentsMargins(0, 0, 0, 0)
         self._download_proxy_edit = LineEdit(self._download_proxy_widget)
-        self._download_proxy_edit.setPlaceholderText("http://127.0.0.1:7890")
+        self._download_proxy_edit.setPlaceholderText(DEFAULT_PROXY_URL)
         self._download_proxy_edit.textChanged.connect(self._on_download_proxy_url_changed)
         download_proxy_inner.addWidget(self._download_proxy_edit, stretch=1)
         proxy_layout.addWidget(self._download_proxy_widget)
@@ -161,9 +164,9 @@ class SettingsNetworkCardsMixin:
 
     def _apply_proxy(self):
         app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
-        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or DEFAULT_PROXY_URL
         app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
-        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or DEFAULT_PROXY_URL
         self._api_proxy_edit.setText(app_config.api_proxy_url)
         self._download_proxy_edit.setText(app_config.download_proxy_url)
         download_manager.apply_config()

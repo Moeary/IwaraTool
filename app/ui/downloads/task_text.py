@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...core.models import DownloadTask, TaskStatus, status_label
 from ...i18n import tr
+from ...core import site as sites
 
 
 def _fmt_bytes(n: int) -> str:
@@ -17,8 +18,14 @@ def _fmt_bytes(n: int) -> str:
 
 
 def _video_url(video_id: str) -> str:
-    video_id = str(video_id or "").strip()
-    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+    return sites.video_url(str(video_id or "").strip())
+
+
+def _task_url(task) -> str:
+    """The task's own link (it knows its site), else one on the current site."""
+
+    url = str(getattr(task, "url", "") or "")
+    return url if sites.site_of_url(url) else _video_url(task.video_id)
 
 
 class TaskTextMixin:
@@ -32,7 +39,7 @@ class TaskTextMixin:
                 task.author,
                 task.username,
                 task.video_id,
-                _video_url(task.video_id),
+                _task_url(task),
                 task.quality,
                 task.error_msg,
                 task.file_path,

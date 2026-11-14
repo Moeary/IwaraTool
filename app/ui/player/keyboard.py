@@ -30,7 +30,23 @@ class PlayerKeyboardMixin:
             self._player.setPlaybackRate(self._rate_before_boost)
         self._hide_status()
 
+    def event(self, event: QEvent) -> bool:
+        # Filling a fullscreen window, the player sits inside that window, whose
+        # shortcuts (Esc goes back) would otherwise take the player's keys.
+        if (
+            event.type() == QEvent.Type.ShortcutOverride
+            and getattr(self, "_fill_window", None) is not None
+            and action_for_event("player", event)
+        ):
+            event.accept()
+            return True
+        return super().event(event)
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        filled = getattr(self, "_fill_window", None)
+        if filled is not None and obj is filled:
+            self._track_filled_window(filled, event)
+            return False
         if obj is getattr(self, "_video", None):
             kind = event.type()
             if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:

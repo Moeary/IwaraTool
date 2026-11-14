@@ -91,27 +91,49 @@ def guess_filename_video_id(value: str) -> str:
 
 
 def scan_video_files(folder: str) -> list[str]:
-    """Return non-empty video files below ``folder`` in stable path order."""
+    """Return non-empty video files below ``folder`` in stable path order.
+
+    ``os.scandir`` entries carry the type and size from the directory listing
+    on Windows, so large (or network) folders need no extra stat per file.
+    """
 
     root = os.path.abspath(os.path.expanduser(str(folder or "").strip()))
     if not os.path.isdir(root):
         return []
 
     result: list[str] = []
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for filename in filenames:
-            lower_name = filename.casefold()
-            if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
-                continue
-            if os.path.splitext(lower_name)[1] not in VIDEO_EXTENSIONS:
-                continue
-            path = os.path.join(dirpath, filename)
-            try:
-                if os.path.isfile(path) and os.path.getsize(path) > 0:
-                    result.append(path)
-            except OSError:
-                continue
+    pending = [root]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    path = _video_entry_path(entry, pending)
+                    if path:
+                        result.append(path)
+        except OSError:
+            continue
     return sorted(result, key=lambda value: value.casefold())
+
+
+def _video_entry_path(entry: os.DirEntry, pending: list[str]) -> str:
+    """``entry``'s path if it is a scannable video; queues sub-directories in ``pending``."""
+
+    try:
+        if entry.is_dir():
+            # Like os.walk(followlinks=False): list linked folders, never descend.
+            if not entry.is_symlink():
+                pending.append(entry.path)
+            return ""
+        lower_name = entry.name.casefold()
+        if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
+            return ""
+        if os.path.splitext(lower_name)[1] not in VIDEO_EXTENSIONS:
+            return ""
+        if entry.is_file() and entry.stat().st_size > 0:
+            return entry.path
+    except OSError:
+        pass
+    return ""
 
 
 def normalize_match_text(value: Any) -> str:
@@ -132,6 +154,29 @@ def filename_search_text(path: str) -> str:
     return stem.strip(" .-_[]()") or os.path.splitext(os.path.basename(str(path or "")))[0]
 
 
+def author_match_bonus(author_hint: str, candidate_author: str) -> float:
+    """Score bonus for a folder name that matches a candidate's (normalized) author."""
+
+    if not author_hint or not candidate_author:
+        return 0.0
+    if author_hint == candidate_author:
+        return 0.35
+    if author_hint in candidate_author or candidate_author in author_hint:
+        return 0.15
+    return 0.0
+
+
+def candidate_author_text(candidate: dict[str, Any]) -> str:
+    """The normalized author a candidate is matched against."""
+
+    return normalize_match_text(
+        candidate.get("author")
+        or candidate.get("username")
+        or candidate.get("source_key")
+        or ""
+    )
+
+
 def candidate_match_score(path: str, candidate: dict[str, Any], *, author_hint: str = "") -> float:
     """Score a local/API candidate against a filename.
 
@@ -147,20 +192,32 @@ def candidate_match_score(path: str, candidate: dict[str, Any], *, author_hint: 
     score = ratio
     if filename_title == candidate_title:
         score += 1.0
+    return score + author_match_bonus(normalize_match_text(author_hint), candidate_author_text(candidate))
 
-    author_hint = normalize_match_text(author_hint)
-    candidate_author = normalize_match_text(
-        candidate.get("author")
-        or candidate.get("username")
-        or candidate.get("source_key")
-        or ""
-    )
-    if author_hint and candidate_author:
-        if author_hint == candidate_author:
-            score += 0.35
-        elif author_hint in candidate_author or candidate_author in author_hint:
-            score += 0.15
-    return score
+
+# Candidates scoring below this never change ``pick_repair_candidate``'s
+# decision: below it they cannot be the pick, and as runner-up they cannot
+# narrow a pick's lead (>= 1.15 or >= 1.95) under the required gap.
+CANDIDATE_SCORE_FLOOR = 0.9
+
+
+def pick_repair_candidate(
+    ranked: list[tuple[float, dict[str, Any]]],
+) -> tuple[dict[str, Any] | None, bool]:
+    """``(clear winner or None, ambiguous)`` among ``(score, candidate)`` pairs."""
+
+    ranked = sorted(ranked, key=lambda pair: pair[0], reverse=True)
+    if not ranked:
+        return None, False
+
+    top_score, top = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+    exact = top_score >= 1.95
+    if exact and (len(ranked) == 1 or top_score - second_score >= 0.12):
+        return top, False
+    if top_score >= 1.15 and (len(ranked) == 1 or top_score - second_score >= 0.2):
+        return top, False
+    return None, top_score >= CANDIDATE_SCORE_FLOOR
 
 
 def _repair_template_values(metadata: dict[str, Any], original_path: str) -> dict[str, str]:

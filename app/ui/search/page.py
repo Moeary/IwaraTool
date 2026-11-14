@@ -9,6 +9,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
 from ...core.manager import download_manager
 from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
+from ...core.search.post_filter import PostFilter
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SearchActionsMixin
@@ -29,6 +30,7 @@ from .history import SearchHistoryMixin
 from .oreno_links import SearchOrenoLinksMixin
 from .page_layout import SearchPageLayoutMixin
 from .pagination import SearchPaginationMixin
+from .post_filtering import SearchPostFilterMixin
 from .query_controls import SearchQueryControlsMixin
 from .result_items import SearchResultItemsMixin
 from .results_layout import SearchResultsLayoutMixin
@@ -48,6 +50,7 @@ class SearchInterface(
     SearchPaginationMixin,
     SearchOrenoLinksMixin,
     SearchResultsLayoutMixin,
+    SearchPostFilterMixin,
     SearchCoversMixin,
     SearchResultItemsMixin,
     SearchDownloadStatusMixin,
@@ -98,6 +101,7 @@ class SearchInterface(
         # The user picked the source by hand for the keyword now in the box.
         self._source_pinned = False
         self._all_videos: list[SearchVideo] = []
+        self._post_filter = PostFilter()
         self._all_authors: list[SearchAuthor] = []
         self._all_playlists: list[SearchPlaylist] = []
         self._author_video_target = None
@@ -128,12 +132,14 @@ class SearchInterface(
         self._pending_author_subscription_video_ids: set[str] = set()
         self._init_download_status(download_manager.history, signal_bus)
         self._build_ui()
+        self._sync_source_options_for_site()
         self._auto_search_ready = True
 
     def _connect_global_signals(self):
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_state_changed)
         signal_bus.search_source_changed.connect(self._on_default_source_changed)
+        signal_bus.site_changed.connect(self._on_site_changed)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -153,7 +159,12 @@ class SearchInterface(
     def _load_initial_results(self):
         """An empty page loads the listing at once instead of waiting for a refresh."""
 
-        if not self.isVisible() or self._loading or self._active_search_request is not None:
+        if not self.isVisible():
+            return
+        if getattr(self, "_site_search_pending", False):
+            self._rerun_for_site()
+            return
+        if self._loading or self._active_search_request is not None:
             return
         if self._all_videos or self._all_authors or self._all_playlists:
             return

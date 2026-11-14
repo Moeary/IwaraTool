@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtWidgets import QApplication
+import sys
+
+from PySide6.QtCore import QEvent, QRect, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QWidget
 
 from qfluentwidgets import FluentIcon
 
 from ...i18n import tr
+
+# macOS: a window already in its own fullscreen Space cannot host a second
+# native fullscreen window reliably.  Once the player has been a fullscreen
+# window, Qt keeps its native window, and showing it fullscreen again from a
+# fullscreen Space makes AppKit abort ("Must have content controller").  The
+# player fills the fullscreen window instead, which covers the screen anyway.
+FILL_FULLSCREEN_WINDOW = sys.platform == "darwin"
 
 
 class PlayerFullscreenMixin:
@@ -28,18 +37,26 @@ class PlayerFullscreenMixin:
         home = self.parentWidget()
         if home is None:
             return
-        screen = self.window().screen() or QApplication.primaryScreen()
+        top = self.window()
+        screen = top.screen() or QApplication.primaryScreen()
         layout = home.layout()
         index = layout.indexOf(self) if layout is not None else -1
         if layout is not None:
             layout.removeWidget(self)
         self._home = (home, index)
-        self.setParent(None)
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
-        self.setWindowTitle(self._title or tr("Video preview", "视频预览", "動画プレビュー"))
-        if screen is not None:
-            self.setGeometry(QRect(screen.geometry()))  # on the screen the page is on
-        self.showFullScreen()
+        if FILL_FULLSCREEN_WINDOW and top.isFullScreen():
+            self._fill_window = top
+            self.setParent(top)
+            self.setGeometry(top.rect())
+            top.installEventFilter(self)
+            self.show()
+        else:
+            self.setParent(None)
+            self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+            self.setWindowTitle(self._title or tr("Video preview", "视频预览", "動画プレビュー"))
+            if screen is not None:
+                self.setGeometry(QRect(screen.geometry()))  # on the screen the page is on
+            self.showFullScreen()
         self.raise_()
         self.activateWindow()
         self.setFocus()
@@ -51,9 +68,13 @@ class PlayerFullscreenMixin:
     def _leave_fullscreen(self):
         home, index = self._home
         self._home = None
+        filled, self._fill_window = self._fill_window, None
         self._hide_controls_timer.stop()
-        self.hide()
-        self.setWindowFlags(Qt.WindowType.Widget)
+        if filled is not None:
+            filled.removeEventFilter(self)
+        else:
+            self.hide()
+            self.setWindowFlags(Qt.WindowType.Widget)
         self.setParent(home)
         layout = home.layout()
         if layout is not None:
@@ -71,6 +92,19 @@ class PlayerFullscreenMixin:
         self.setFocus()
         self._place_overlay()
         self.fullscreen_changed.emit(False)
+
+    def _track_filled_window(self, window: QWidget, event: QEvent) -> None:
+        """Follow the fullscreen window the player fills; leave when it leaves fullscreen."""
+
+        kind = event.type()
+        if kind == QEvent.Type.Resize:
+            self.setGeometry(window.rect())
+        elif kind == QEvent.Type.WindowStateChange and not window.isFullScreen():
+            QTimer.singleShot(0, lambda: self._leave_filled_window(window))
+
+    def _leave_filled_window(self, window: QWidget) -> None:
+        if self._fill_window is window:
+            self._leave_fullscreen()
 
     def _request_popout(self):
         if self.is_fullscreen():

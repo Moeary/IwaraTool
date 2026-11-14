@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QWidget
 from ..core import shortcut_defs
 from ..logging_setup import get_logger
 from ..signal_bus import signal_bus
+from .mask_dialogs import open_mask_dialog
 
 logger = get_logger(__name__)
 
@@ -33,8 +34,24 @@ class ShortcutRegistry:
             shortcut = QShortcut(QKeySequence(shortcut_defs.key_for(action_id), _PORTABLE), widget)
             shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
             shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(lambda handler=handler: handler())
+            shortcut.activated.connect(lambda shortcut=shortcut, handler=handler: self._fire(shortcut, handler))
             self._bound.setdefault(action_id, []).append(shortcut)
+
+    @staticmethod
+    def _fire(shortcut: QShortcut, handler: Callable[[], None]) -> None:
+        """Run a shortcut unless a mask dialog covers its window; Esc closes that dialog.
+
+        A qfluentwidgets dialog is a child widget, so the window's shortcuts
+        still match while it is open (Esc would go back behind it).
+        """
+        parent = shortcut.parent()
+        dialog = open_mask_dialog(parent.window()) if isinstance(parent, QWidget) else None
+        if dialog is None:
+            handler()
+            return
+        escape = QKeySequence(Qt.Key.Key_Escape)
+        if shortcut.key().matches(escape) == QKeySequence.SequenceMatch.ExactMatch:
+            dialog.reject()
 
     @staticmethod
     def _alive(shortcut: QShortcut) -> bool:
@@ -90,7 +107,7 @@ class _HintUpdater(QObject):
         self.update_tooltip()
 
     def update_tooltip(self):
-        key = shortcut_defs.key_for(self._action_id)
+        key = shortcut_defs.display_key_for(self._action_id)
         self._widget.setToolTip(f"{self._text} ({key})" if key else self._text)
 
 

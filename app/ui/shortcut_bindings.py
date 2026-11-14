@@ -1,6 +1,8 @@
 """Wires the shortcut catalogue to the main window and its pages."""
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+
 from .media.card_size import reset_card_width, step_card_width
 from .shortcuts import registry
 
@@ -11,7 +13,9 @@ def _index_of(window, cycle) -> int:
 
 
 def _focus(edit) -> None:
-    edit.setFocus()
+    # A shortcut is user focus; widgets such as the search keyword box only
+    # react to user-initiated focus reasons.
+    edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
     edit.selectAll()
 
 
@@ -36,6 +40,7 @@ def _bind_window(window) -> None:
         ("nav_repair", window._repair_page),
         ("nav_rules", window._rules_page),
         ("nav_settings", window._settings_page),
+        ("nav_tools", window._tools_page),
     ]
     handlers = {
         action_id: (lambda page=page: window.switchTo(page)) for action_id, page in pages
@@ -44,7 +49,7 @@ def _bind_window(window) -> None:
     # Ctrl+Tab walks the sidebar in the order it is drawn.
     cycle = [
         window._home_page, window._subscription_page, window._search_page, window._download_page,
-        window._repair_page, window._history_page, window._rules_page, window._settings_page,
+        window._repair_page, window._history_page, window._rules_page, window._tools_page, window._settings_page,
     ]
     handlers.update({
         "nav_next": lambda: window.switchTo(cycle[(_index_of(window, cycle) + 1) % len(cycle)]),
@@ -58,8 +63,12 @@ def _bind_window(window) -> None:
         "card_size_down": lambda: step_card_width(-1),
         "card_size_reset": reset_card_width,
         "toggle_theme": lambda: window._toggle_dark_mode(),
+        "toggle_site": window.toggle_site,
         "toggle_fullscreen": window.toggle_fullscreen,
         "shortcut_help": window.show_shortcut_help,
+        "open_settings": lambda: window.switchTo(window._settings_page),
+        "close_window": window.close,
+        "minimize_window": window.showMinimized,
     })
     registry.bind(window, handlers)
 
@@ -103,7 +112,8 @@ def _bind_search(search) -> None:
     registry.bind(
         search,
         {
-            "search_focus": lambda: _focus(search._keyword_edit),
+            # Same as Ctrl+K: expands collapsed controls and opens the history.
+            "search_focus": lambda: search._focus_keyword(),
             "search_run": search._start_search,
             "search_queue": search._queue_selected,
             "search_preview": search._preview_selected,

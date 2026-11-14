@@ -13,11 +13,14 @@ from .home_cards import HomeSettingsCards
 from .sections import SettingsSections
 from .shortcuts_cards import ShortcutSettingsCards
 from .system_cards import SystemSettingsCards
+from .site_cards import SiteSettingsCard
+from .tool_cards import ToolSettingsCards
 from ..tag_dictionary_worker import TagDictionaryUpdateWorker
 from ..theme import PAGE_MARGINS
 from ..worker_lifecycle import stop_qthreads
 from .account import LoginWorker, SettingsAccountMixin
 from .download_cards import SettingsDownloadCardsMixin
+from .font_cards import SettingsFontCardsMixin
 from .general_cards import SettingsGeneralCardsMixin
 from .network_cards import SettingsNetworkCardsMixin
 from .persistence import SettingsPersistenceMixin
@@ -28,6 +31,7 @@ from .subscription_cards import SettingsSubscriptionCardsMixin
 class SettingsInterface(
     SettingsAccountMixin,
     SettingsGeneralCardsMixin,
+    SettingsFontCardsMixin,
     SettingsDownloadCardsMixin,
     SettingsSearchCardsMixin,
     SettingsSubscriptionCardsMixin,
@@ -88,6 +92,12 @@ class SettingsInterface(
         self.ensure_built()
         self._settings_board.select_category("shortcuts")
 
+    def show_category(self, key: str):
+        """Jump to one settings category (e.g. "tools" from the Tools page)."""
+
+        self.ensure_built()
+        self._settings_board.select_category(key)
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*PAGE_MARGINS)
@@ -97,6 +107,7 @@ class SettingsInterface(
         self._settings_board = SettingsSections(self)
         layout.addWidget(self._settings_board, 1)
         self._build_appearance_card()
+        self._build_font_card()
         self._build_language_card()
         self._build_data_paths_card()
         self._build_account_card()
@@ -120,6 +131,8 @@ class SettingsInterface(
         self._system_cards = SystemSettingsCards(self._settings_board, self)
         self._home_cards = HomeSettingsCards(self._settings_board, self)
         self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
+        self._tool_cards = ToolSettingsCards(self._settings_board, self)
+        self._site_card = SiteSettingsCard(self._settings_board, self)
 
         # ── Save button ───────────────────────────────────────────────────────
         # Kept under the category list so it is reachable from every page.

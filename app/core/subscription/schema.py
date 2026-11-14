@@ -36,10 +36,12 @@ class StoreSchemaMixin:
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "last_checked_at TEXT DEFAULT '', "
-                "UNIQUE(source_type, source_key)"
+                "site TEXT NOT NULL DEFAULT 'tv', "
+                "UNIQUE(source_type, source_key, site)"
                 ")"
             )
             self._ensure_source_columns(conn)
+            self._ensure_source_site(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS items ("
                 "source_id INTEGER NOT NULL, "
@@ -101,6 +103,46 @@ class StoreSchemaMixin:
             "WHEN 'feed' THEN 'account' ELSE 'playlist' END "
             "WHERE source_type IN ('feed', 'playlist')"
         )
+
+    @staticmethod
+    def _ensure_source_site(conn: sqlite3.Connection):
+        """Give every source its iwara site (``tv`` / ``ai``).
+
+        The same creator or feed can be followed on both sites, so the site is
+        part of a source's identity. SQLite cannot change a UNIQUE constraint
+        in place: older tables are copied into one with the new constraint,
+        keeping their ids (items refer to them). Existing sources were all
+        made on iwara.tv.
+        """
+
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(sources)").fetchall()]
+        if "site" in columns:
+            return
+        conn.execute("DROP TABLE IF EXISTS sources_with_site")
+        conn.execute(
+            "CREATE TABLE sources_with_site ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "source_type TEXT NOT NULL, "
+            "source_origin TEXT NOT NULL DEFAULT 'local', "
+            "source_key TEXT NOT NULL, "
+            "title TEXT DEFAULT '', "
+            "remote_id TEXT DEFAULT '', "
+            "source_url TEXT DEFAULT '', "
+            "avatar_url TEXT DEFAULT '', "
+            "avatar_path TEXT DEFAULT '', "
+            "enabled INTEGER DEFAULT 1, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "last_checked_at TEXT DEFAULT '', "
+            "site TEXT NOT NULL DEFAULT 'tv', "
+            "UNIQUE(source_type, source_key, site)"
+            ")"
+        )
+        new_columns = {r[1] for r in conn.execute("PRAGMA table_info(sources_with_site)").fetchall()}
+        shared = ", ".join(c for c in columns if c in new_columns)
+        conn.execute(f"INSERT INTO sources_with_site ({shared}) SELECT {shared} FROM sources")
+        conn.execute("DROP TABLE sources")
+        conn.execute("ALTER TABLE sources_with_site RENAME TO sources")
 
     @staticmethod
     def _ensure_item_columns(conn: sqlite3.Connection):

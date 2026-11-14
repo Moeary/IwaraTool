@@ -139,6 +139,7 @@ class SubscriptionInterface(
         signal_bus.download_options_changed.connect(self._sync_download_option_buttons)
         signal_bus.subscription_source_added.connect(self._on_subscription_source_added)
         signal_bus.subscription_sources_changed.connect(self._on_sources_changed_elsewhere)
+        signal_bus.site_changed.connect(self._on_sources_changed_elsewhere)  # the list shows one site
         self._sync_download_option_buttons()
 
     def refresh_theme_styles(self):

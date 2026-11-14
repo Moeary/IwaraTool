@@ -150,14 +150,18 @@ class IwaraSearchMixin:
         return self._api_call("get_user_profile", username)
 
     def find_author_subscription(self, username: str) -> dict | None:
-        """The local author subscription for ``username`` (any case), if any."""
+        """The local author subscription for ``username`` (any case) on the current site, if any."""
+
+        from ..site import SITE_TV, current_site, normalize
 
         wanted = str(username or "").strip().lstrip("@").casefold()
         if not wanted:
             return None
+        site = current_site()
         for source in self.subscriptions.list_sources():
             if (
                 str(source.get("source_type", "") or "") == "author"
+                and normalize(source.get("site") or SITE_TV) == site
                 and str(source.get("source_key", "") or "").strip().casefold() == wanted
             ):
                 return source

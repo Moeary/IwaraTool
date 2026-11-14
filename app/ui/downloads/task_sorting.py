@@ -11,7 +11,7 @@ from qfluentwidgets import FluentIcon
 from ...core.models import DownloadTask, TaskStatus, status_label
 from ...i18n import tr
 from .task_statuses import _ACTIVE_STATUSES, _DEFAULT_STATUS_PRIORITY
-from .task_text import _video_url
+from .task_text import _task_url
 
 
 class TaskSortingMixin:
@@ -67,7 +67,7 @@ class TaskSortingMixin:
             if self._sort_column == self._COL_PRIORITY:
                 return (task.priority, order)
             if self._sort_column == self._COL_URL:
-                return (text(_video_url(task.video_id)), order)
+                return (text(_task_url(task)), order)
             if self._sort_column == self._COL_ID:
                 return (text(task.video_id), order)
             return (_DEFAULT_STATUS_PRIORITY.get(task.status, 99), -task.priority, order)

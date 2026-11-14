@@ -10,7 +10,7 @@ from ...core.models import DownloadTask, TaskStatus
 from ...i18n import tr
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES, _TERMINAL_STATUSES
-from .task_text import _video_url
+from .task_text import _task_url, _video_url
 
 
 class TaskMenuMixin:
@@ -185,7 +185,7 @@ class TaskMenuMixin:
                     FluentIcon.HISTORY,
                     tr("Open video page", "打开视频页面", "動画ページを開く"),
                     self,
-                    triggered=lambda _checked=False, url=_video_url(video_id): self._open_url(url),
+                    triggered=lambda _checked=False, url=(_task_url(completed_task) if completed_task else _video_url(video_id)): self._open_url(url),
                 )
             )
             menu.addAction(

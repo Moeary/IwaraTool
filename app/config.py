@@ -8,6 +8,10 @@ from .paths import app_data_dir, app_root_dir, default_download_dir
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
+# Prefilled local proxy address: Clash Verge Rev's mixed port.  Both proxies
+# start disabled, so requests follow the system proxy / TUN until the user
+# turns one on, and any other port (such as older CFW's 7890) can be entered.
+DEFAULT_PROXY_URL = "http://127.0.0.1:7897"
 LEGACY_FILENAME_TEMPLATE = "{username}/{YYYYMMDD}_{title}_{id}.mp4"
 LEGACY_FILENAME_TEMPLATES = frozenset(
     {
@@ -53,12 +57,12 @@ class AppConfig:
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
-        "api_proxy_enabled": True,
-        "api_proxy_url": "http://127.0.0.1:7890",
+        "api_proxy_enabled": False,
+        "api_proxy_url": DEFAULT_PROXY_URL,
         "download_proxy_enabled": False,
-        "download_proxy_url": "http://127.0.0.1:7890",
+        "download_proxy_url": DEFAULT_PROXY_URL,
         "proxy_enabled": False,
-        "proxy_url": "http://127.0.0.1:7890",
+        "proxy_url": DEFAULT_PROXY_URL,
         "auth_enabled": False,
         "username": "",
         "password": "",
@@ -117,15 +121,18 @@ class AppConfig:
         "update_check_enabled": True,
         "update_last_prompted_version": "",
         "theme_mode": "auto",  # auto / light / dark
+        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/fonts
         "request_min_interval_ms": 200,  # spacing between API requests per host
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
-        "startup_page": "home",  # home / subscriptions / search / download / repair / history / rules / settings
+        "startup_page": "home",  # home / subscriptions / search / download / repair / history / tools / rules / settings
         "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see core/shortcut_defs
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews
+        "iwara_site": "tv",  # tv / ai: the site browsing follows, see core/site
+        "ffmpeg_path": "",  # empty: find ffmpeg on PATH / usual install folders, see core/tools/ffmpeg
     }
 
     # Never copied out of the old registry-based store.
@@ -376,6 +383,8 @@ class AppConfig:
 
     ui_language = _Setting()
 
+    ui_font_family = _Setting()
+
     filter_enabled = _Setting()
 
     filter_min_likes_enabled = _Setting()
@@ -571,6 +580,8 @@ class AppConfig:
     preview_player_mode = _Setting()
     preview_player_command = _Setting()
     preview_quality = _Setting()
+    ffmpeg_path = _Setting()
+    iwara_site = _Setting()
 
     @property
     def theme_mode(self) -> str:

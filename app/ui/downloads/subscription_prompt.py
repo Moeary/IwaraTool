@@ -58,6 +58,12 @@ class DownloadSubscriptionPromptMixin:
     """Offer to subscribe to the author or playlist of a submitted download."""
 
     def _maybe_add_download_source_to_subscription(self, url: str):
+        from ...core.site import site_of_url, site_scope
+
+        with site_scope(site_of_url(url)):  # an iwara.ai link subscribes on iwara.ai
+            self._offer_subscription(url)
+
+    def _offer_subscription(self, url: str):
         candidate = download_manager.detect_subscription_source(url)
         if not candidate:
             return

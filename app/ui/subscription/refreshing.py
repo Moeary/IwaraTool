@@ -108,14 +108,16 @@ class SubscriptionRefreshingMixin:
             )
 
     def _refresh_all(self):
-        hidden_feed = any(
-            str(s.get("source_type", "") or "") == "feed" and int(s.get("enabled", 1) or 0)
+        shown = {int(s.get("id", 0) or 0) for s in self._all_sources}
+        hidden = any(
+            int(s.get("enabled", 1) or 0) and int(s.get("id", 0) or 0) not in shown
             for s in download_manager.get_subscription_sources()
         )
-        if not hidden_feed:
+        if not hidden:
             self._start_refresh(None)
             return
-        # A leftover account-feed source is not shown here; do not refresh it behind the user's back.
+        # Sources not listed here (a leftover account feed, the other site's
+        # subscriptions) are not refreshed behind the user's back.
         ids = [int(s["id"]) for s in self._all_sources if int(s.get("enabled", 1) or 0)]
         if ids:
             self._start_refresh(ids)

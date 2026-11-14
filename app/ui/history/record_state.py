@@ -7,6 +7,7 @@ from typing import Any
 
 from ...config import app_config
 from ...i18n import tr
+from ...core import site as sites
 
 
 def _date_only(value: str) -> str:
@@ -17,8 +18,7 @@ def _date_only(value: str) -> str:
 
 
 def _video_url(video_id: str) -> str:
-    video_id = str(video_id or "").strip()
-    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+    return sites.video_url(str(video_id or "").strip())
 
 
 class HistoryRecordStateMixin:

@@ -9,11 +9,9 @@ BASE_API = "https://api.iwara.tv"
 ALT_BASE_API = "https://apiq.iwara.tv"
 
 
+# Origin / Referer / X-Site follow the site being worked for, see core/site.
 DEFAULT_API_HEADERS = {
     "Accept": "application/json, text/plain, */*",
-    "Origin": "https://www.iwara.tv",
-    "Referer": "https://www.iwara.tv/",
-    "X-Site": "www.iwara.tv",
 }
 
 

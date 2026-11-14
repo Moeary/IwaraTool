@@ -123,7 +123,7 @@ class BrowseView(QWidget):
         tools.addStretch(1)
         tools.addWidget(CardSizeControl(self))
         tools.addWidget(CaptionLabel(tr("Download rule", "下载规则", "ダウンロードルール"), self))
-        self._rule_picker = RulePicker(self)
+        self._rule_picker = RulePicker(self, scope="home")
         tools.addWidget(self._rule_picker)
         self._queue_btn = PrimaryPushButton(tr("Add selected", "加入选中项", "選択を追加"), self, FluentIcon.DOWNLOAD)
         self._queue_btn.clicked.connect(self._queue_selected)
@@ -317,7 +317,6 @@ class BrowseView(QWidget):
     def _queue_selected(self):
         videos = self._grid.selected_videos()
         rule_id = self._rule_picker.selected_rule_id()
-        self._rule_picker.apply_selected(show_notice=False)
         self.queue_requested.emit(videos, rule_id)
         self._grid.clear_selection()
 

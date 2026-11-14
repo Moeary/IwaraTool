@@ -44,6 +44,17 @@ class RepairControlsMixin:
     def _on_rule_changed(self, index: int):
         self._apply_rule_template(index)
 
+    def _on_preset_chosen(self, index: int):
+        if index > 0:
+            self._template_edit.setText(self._template_presets[index - 1].template)
+
+    def _sync_preset_combo(self, text: str):
+        text = str(text or "").strip()
+        index = next((i + 1 for i, preset in enumerate(self._template_presets) if preset.template == text), 0)
+        self._preset_combo.blockSignals(True)
+        self._preset_combo.setCurrentIndex(index)
+        self._preset_combo.blockSignals(False)
+
     def _load_saved_state(self):
         # Older versions saved an output folder without recording intent to
         # move files. Only an explicitly saved organize mode restores moving.

@@ -19,7 +19,7 @@ from ...config import app_config
 from ...core.home_feed import MODE_AUTHOR
 from ...core.manager import download_manager
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
-from ...core.rules import active_rule_id
+from ...core.rules import page_rule_id
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...core.search.normalize import avatar_url
 from ...i18n import tr
@@ -85,6 +85,7 @@ class HomeInterface(QWidget):
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_changed)
         signal_bus.home_layout_changed.connect(self._on_layout_changed)
+        signal_bus.site_changed.connect(self._on_site_changed)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -136,6 +137,18 @@ class HomeInterface(QWidget):
                 self._feed.reload_all()
             else:
                 self._feed.invalidate()
+
+    def _on_site_changed(self, _site: str):
+        """Rows are cached per site; a "More" list starts over on the new site."""
+
+        if self._browse.section is not None:
+            self._browse._go(0)
+        if not self._loaded_once:
+            return
+        if self.isVisible():
+            self._feed.reload_all()
+        else:
+            self._feed.invalidate()
 
     def _on_login_changed(self, _logged_in: bool):
         if not self._loaded_once:
@@ -313,7 +326,7 @@ class HomeInterface(QWidget):
             self,
             [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
             label=tr("Home", "首页", "ホーム"),
-            rule_id=rule_id or active_rule_id(),
+            rule_id=rule_id or page_rule_id("home"),
         )
 
     def _author_target(self, video: SearchVideo) -> tuple[str, str, str, str] | None:

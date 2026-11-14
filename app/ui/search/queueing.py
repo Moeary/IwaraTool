@@ -53,7 +53,6 @@ class SearchQueueingMixin:
             return
 
         rule_id = self._rule_picker.selected_rule_id()
-        self._rule_picker.apply_selected(show_notice=False)
         # Playlists are expanded into their videos inside the preview.
         self._queue_playlist_urls = [playlist.source_url for playlist in playlists if playlist.source_url]
         self._queue_videos = {video.download_video_id or video.video_id: video for video in videos}

@@ -35,6 +35,7 @@ def _set_columns(page, columns: int):
     page._resize_grid()
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class SearchRouteTests(unittest.TestCase):
     def setUp(self):
         self.context = ExitStack()

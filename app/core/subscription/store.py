@@ -61,7 +61,13 @@ class SubscriptionStore(StoreSchemaMixin, LegacyMigrationMixin, SourcesBackupMix
         avatar_path: str = "",
         source_origin: str | None = None,
         source_url: str = "",
+        site: str | None = None,
     ) -> int:
+        """Add (or refresh) a source on ``site`` (default: the site of its link, else the current one)."""
+
+        from ..site import current_site, normalize, site_of_url
+
+        site = normalize(site) if site else (site_of_url(source_url) or current_site())
         source_type = source_type.strip().lower()
         source_key = source_key.strip()
         title = title.strip() or source_key
@@ -81,9 +87,9 @@ class SubscriptionStore(StoreSchemaMixin, LegacyMigrationMixin, SourcesBackupMix
             existing = None
             if source_type == "author":
                 existing = conn.execute(
-                    "SELECT id FROM sources WHERE source_type=? AND lower(source_key)=lower(?) "
+                    "SELECT id FROM sources WHERE source_type=? AND lower(source_key)=lower(?) AND site=? "
                     "ORDER BY id LIMIT 1",
-                    (source_type, source_key),
+                    (source_type, source_key, site),
                 ).fetchone()
             if existing:
                 source_id = int(existing[0])
@@ -93,9 +99,9 @@ class SubscriptionStore(StoreSchemaMixin, LegacyMigrationMixin, SourcesBackupMix
                 row = (source_id,)
             else:
                 conn.execute(
-                    "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) "
-                    "ON CONFLICT(source_type, source_key) DO UPDATE SET "
+                    "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, enabled, site) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
+                    "ON CONFLICT(source_type, source_key, site) DO UPDATE SET "
                     "title=excluded.title, "
                     "remote_id=CASE WHEN excluded.remote_id != '' THEN excluded.remote_id ELSE remote_id END, "
                     "avatar_url=CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END, "
@@ -104,11 +110,11 @@ class SubscriptionStore(StoreSchemaMixin, LegacyMigrationMixin, SourcesBackupMix
                     "source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE source_url END, "
                     "enabled=1, "
                     "updated_at=CURRENT_TIMESTAMP",
-                    (source_type, insert_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path),
+                    (source_type, insert_origin, source_key, title, remote_id, source_url, avatar_url, avatar_path, site),
                 )
                 row = conn.execute(
-                    "SELECT id FROM sources WHERE source_type=? AND source_key=?",
-                    (source_type, source_key),
+                    "SELECT id FROM sources WHERE source_type=? AND source_key=? AND site=?",
+                    (source_type, source_key, site),
                 ).fetchone()
             conn.commit()
             self._export_sources_backup(conn)

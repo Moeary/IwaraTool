@@ -13,6 +13,7 @@ from ..worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 from .result_authors import _extract_iwara_video_id
 from .worker_limits import DEFAULT_SEARCH_RESOLUTION_CONCURRENCY, MAX_SEARCH_RESOLUTION_CONCURRENCY
+from ...core import site as sites
 
 
 def _resolve_oreno_video_id(video: SearchVideo, *, parallel: bool = True) -> str:
@@ -216,7 +217,7 @@ class SearchOrenoLinkWorker(ManagedThread):
 
         link = {
             "id": video_id,
-            "url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
+            "url": sites.video_url(video_id, sites.SITE_TV),
             "metadata": {},
             "error": error,
             **{key: detail.get(key, "") for key in (

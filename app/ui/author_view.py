@@ -29,7 +29,7 @@ from qfluentwidgets import (
 from ..config import app_config
 from ..core.home_feed import MODE_AUTHOR, FeedSection, FeedTab
 from ..core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
-from ..core.rules import active_rule_id
+from ..core.rules import page_rule_id
 from ..core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ..core.search.normalize import avatar_url
 from ..i18n import tr
@@ -41,6 +41,7 @@ from .downloads.staging_flow import stage_videos
 from .media.pixmaps import read_pixmap
 from .home.workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..core import site as sites
 
 
 @dataclass
@@ -175,7 +176,7 @@ class AuthorView(QWidget):
 
     def _open_on_site(self):
         if self._username:
-            webbrowser.open(f"https://www.iwara.tv/profile/{self._username}")
+            webbrowser.open(sites.profile_url(self._username))
 
     def _open_post(self, video: SearchVideo):
         kind = "image" if video.source_kind == IWARA_IMAGE_SOURCE_KIND else "video"
@@ -196,7 +197,7 @@ class AuthorView(QWidget):
             self,
             [v for v in videos if isinstance(v, SearchVideo) and v.video_id in wanted],
             label=f"@{self._username}",
-            rule_id=rule_id or active_rule_id(),
+            rule_id=rule_id or page_rule_id("subscription"),
         )
 
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):

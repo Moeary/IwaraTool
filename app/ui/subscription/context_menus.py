@@ -62,6 +62,14 @@ class SubscriptionContextMenusMixin:
         self._add_item_batch_actions(menu, video_ids)
         menu.exec(global_pos)
 
+    def _stored_video_url(self, video_id: str) -> str:
+        """The link saved with the item (it names the item's site), else one on the current site."""
+
+        for item in getattr(self, "_all_items", None) or []:
+            if str(item.get("video_id", "") or "") == video_id and item.get("source_url"):
+                return str(item["source_url"])
+        return _video_url(video_id)
+
     def _add_single_video_actions(self, menu: RoundMenu, single: str):
         menu.addAction(
             Action(
@@ -84,7 +92,7 @@ class SubscriptionContextMenusMixin:
                 FluentIcon.GLOBE,
                 tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"),
                 self,
-                triggered=lambda _checked=False: _open_url(_video_url(single)),
+                triggered=lambda _checked=False: _open_url(self._stored_video_url(single)),
             )
         )
 
@@ -230,7 +238,7 @@ class SubscriptionContextMenusMixin:
         menu = RoundMenu(parent=self)
         menu.addAction(Action(FluentIcon.VIEW, tr("View Details", "查看详情", "詳細を表示"), self, triggered=lambda: self._show_video_detail(video)))
         menu.addAction(Action(FluentIcon.PLAY, tr("Play", "播放", "再生"), self, triggered=lambda: self._activate_video_id(video_id)))
-        menu.addAction(Action(FluentIcon.GLOBE, tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: _open_url(_video_url(video_id))))
+        menu.addAction(Action(FluentIcon.GLOBE, tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: _open_url(str(getattr(video, "source_url", "") or "") or _video_url(video_id))))
         menu.addSeparator()
         label = (
             tr("Download Selected", "下载选中", "選択を保存")

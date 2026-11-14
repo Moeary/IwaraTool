@@ -47,11 +47,11 @@ def _app_categories() -> tuple[SettingsCategory, ...]:
             FluentIcon.SETTING,
             tr("General", "通用", "一般"),
             tr(
-                "Appearance, language, updates and where local data is stored.",
-                "外观、语言、更新检查与本地数据位置。",
-                "外観、言語、更新確認、ローカルデータの保存先。",
+                "Appearance, font, language, updates and where local data is stored.",
+                "外观、字体、语言、更新检查与本地数据位置。",
+                "外観、フォント、言語、更新確認、ローカルデータの保存先。",
             ),
-            ("appearance", "language", "updates", "data_paths"),
+            ("appearance", "font", "language", "updates", "data_paths"),
         ),
         (
             "home",
@@ -69,11 +69,11 @@ def _app_categories() -> tuple[SettingsCategory, ...]:
             FluentIcon.GLOBE,
             tr("Account & Network", "账号与网络", "アカウントとネットワーク"),
             tr(
-                "Iwara sign-in and the proxies used for API requests and downloads.",
-                "Iwara 账号登录，以及 API 请求与下载使用的代理。",
-                "Iwaraへのログインと、API・ダウンロードに使うプロキシ。",
+                "The iwara site to browse, Iwara sign-in and the proxies used for API requests and downloads.",
+                "浏览的 iwara 站点、Iwara 账号登录，以及 API 请求与下载使用的代理。",
+                "表示する iwara サイト、Iwaraへのログイン、API・ダウンロードに使うプロキシ。",
             ),
-            ("account", "proxy"),
+            ("site", "account", "proxy"),
         ),
         (
             "downloads",
@@ -112,6 +112,17 @@ def _feature_categories() -> tuple[SettingsCategory, ...]:
                 "購読の自動更新、ダウンロード時の購読確認、カバー読み込み性能。",
             ),
             ("subscription_automation", "subscription_prompt", "cover_performance"),
+        ),
+        (
+            "tools",
+            FluentIcon.APPLICATION,
+            tr("Tools", "工具", "ツール"),
+            tr(
+                "The ffmpeg program used by upload compression and cover preview.",
+                "上传压缩与封面预览使用的 ffmpeg 程序。",
+                "アップロード用圧縮とカバーのプレビューが使う ffmpeg。",
+            ),
+            ("ffmpeg",),
         ),
         (
             "system",

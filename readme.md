@@ -6,92 +6,86 @@
 
 Say goodbye to tedious command-line tools! Iwara batches downloader with a modern Fluent-style interface, making it easy for anyone to download all videos from a creator with one click.
 
-![demo](./docs/iwaratool_demo_v0.6.gif)
+![demo](./docs/iwaratool_demo.gif)
 
-Docs: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API notes](./docs/API.md) · [Tag index](./docs/iwara_tags.md)
+## What you can do
 
-## Features
-- Batch enqueue from user profile, playlist, and search URLs; the task queue is persistent and recovers automatically after a safe exit.
-- Download engine: valid `X-Version` signature calculation, quality fallback (`Source -> 540 -> 360`), and a stateful scheduler that avoids early URL expiration.
-- Local dedup and a SQLite history center with search, filters, sorting, and cleanup.
-- Search: live Iwara video/author/playlist search, Oreno3D online video search, and trilingual tag suggestions; results show local download status.
-- Video preview: double-click a video anywhere to play it. Downloaded files open in the player you choose (system default, built-in, or a custom command); videos not on disk or already moved stream in a built-in window with play/pause, seeking, speed, volume, fullscreen and hold-to-speed-up.
-- Subscriptions: authors and playlists with refresh tracking and new-item counts; the default overview lists each one with its avatar and latest videos, opens into a poster grid, and the classic table is one click away.
-- Named rules for likes, views, dates, tags, title keywords, naming templates, and download behavior; NFO sidecar generation.
-- Home: customizable rows (your subscriptions, hot lists, or any tag / keyword / author search), cached on disk and refreshed only when posts change; in-app detail pages, Like and bulk download; a SFW / NSFW content filter applies to Home and Search.
-- Author pages: open an author inside the app from Search or a detail page, see whether you subscribe in the app or follow on Iwara, and subscribe / follow right there.
-- Shortcuts: press F1 for the full list (rebindable in Settings); cover grids work with arrow keys, Enter, Space and more.
-- Repair Center: batch-rename existing videos in place or organize them into an output folder, with destination conflict checks.
-- Runtime switching between zh/en/ja and light/dark themes; table columns are configurable and persistent.
-- Optional aria2 RPC, thumbnail, and `.nfo` sidecar generation.
-- Reliability: size and resume verification for downloads, back-off retries and pacing for API requests, SQLite WAL, rotating logs (`data/logs/`).
-- Maintenance: system tray and launch at login, credential-free data backup/restore, SHA-256 verified one-click updates (packaged Windows build).
-
-## Quick Start
-1. Download latest binary from [Releases](https://github.com/Moeary/IwaraTool/releases).
-   - Linux binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. For older distributions, download the source and build locally.
-   - macOS ZIPs are available for Apple Silicon (ARM64) and Intel (AMD64). Extract and drag `IwaraTool.app` into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; if blocked, use the system's Privacy & Security prompt to allow it.
-   - macOS data lives in `~/Library/Application Support/IwaraTool/`; downloads default to `~/Downloads/IwaraTool/`. Update by replacing the `.app`. Launch at login and automatic replacement updates currently require Windows.
-2. Open the app. Sign in when downloading private videos or importing followed authors.
-3. Paste a URL in `Download Workbench`, choose a rule if needed, and submit it.
-4. Use `Subscriptions` to track authors or playlists (your account feed is "My subscriptions" on Home) and batch-download new items.
-
-For more detail (Repair Center, search download status, Oreno3D author fallback, keyword/tag search, subscription cover cache), see the [Usage Guide](./docs/guide/usage_en.md). For local data and caches, see [Local Data and Caches](./docs/guide/data_en.md).
-
-## Supported URL Types
-```text
-https://www.iwara.tv/profile/username
-https://www.iwara.tv/profile/username/videos
-https://www.iwara.tv/playlist/xxxxxxxx
-https://www.iwara.tv/video/xxxxxxxx
-https://www.iwara.tv/videos?sort=date
-https://www.iwara.tv/videos?tags=2d&sort=likes
-https://api.iwara.tv/videos?tags=2d&sort=date
-```
-
-`sort` supports: `date`, `trending`, `popularity`, `views`, `likes`.
-
-`tags` supports see [Tag index](./docs/iwara_tags.md).
+- **Download in bulk**: paste a creator, playlist, search or video link and download everything in one go. Unfinished tasks pick up again the next time you open the app.
+- **Search and browse**: search Iwara and Oreno3D, get tag suggestions in Chinese, English and Japanese, and build a Home page of your own rows (your subscriptions, hot lists, any tag or keyword). Videos you already have are marked.
+- **iwara.tv and iwara.ai**: switch the site you browse from the sidebar or with Ctrl+Shift+S; both share one account, and pasted links and subscriptions always use their own site.
+- **Follow creators**: subscribe to authors and playlists, see new videos at a glance, and download only what's new.
+- **Preview before you download**: double-click any video to play it, right inside the app.
+- **Download only what you want**: save rules filter by likes, views, date, tags and title keywords, and each page can use its own rule.
+- **Name files your way**: pick a naming preset, or build one by choosing fields (author, title, ID, date, quality…) and what goes between them, with a live preview.
+- **Tidy existing files**: the Repair Center renames or reorganizes videos you already downloaded.
+- **Get ready to upload**: the Tools page fits a video under Iwara's 300 / 600 MB upload limit (H.264 + AAC, MP4, at least 720p) and previews the 16 cover choices Iwara will offer. Needs ffmpeg installed.
+- **Keep track**: download history with search and filters, duplicate detection, optional cover images and `.nfo` files for media libraries.
+- **Made to live with**: Chinese / English / Japanese, light and dark themes, system tray, launch at login, backup and one-click update on Windows.
 
 ## Screenshots
 
-1. Download Workbench
+All screenshots use the English interface with made-up sample data; the covers are generated placeholder art. `scripts/record_demo.py` re-records the GIF and these screenshots offline.
 
-   ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
+1. Home
+
+   ![Home](./docs/panel_view/iwaratool_home_panel.jpg)
 2. Search
 
    ![Search](./docs/panel_view/iwaratool_search_panel.jpg)
-3. Subscriptions
+3. Download Workbench
+
+   ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
+4. Subscriptions
 
    ![Subscriptions](./docs/panel_view/iwaratool_subscription_panel.jpg)
-4. History
+5. Tools (upload compressor and cover preview)
+
+   ![Tools](./docs/panel_view/iwaratool_tools_panel.jpg)
+6. History
 
    ![History](./docs/panel_view/iwaratool_history_panel.jpg)
-5. Rules
+7. Rules (including the rule per page)
 
    ![Rules](./docs/panel_view/iwaratool_rule_panel.jpg)
-6. Settings
+8. Settings
 
    ![Settings](./docs/panel_view/iwaratool_settings_panel.jpg)
 
-## Run / Build
+## Quick Start
 
-Project dependencies are managed by [pixi](https://pixi.prefix.dev/latest/).
+1. Download the latest version from [Releases](https://github.com/Moeary/IwaraTool/releases) and run it. (Which file to pick, the macOS first-launch prompt and proxy setup: see [Installation and First Steps](./docs/guide/install_en.md).)
+2. Sign in if you want private videos or the authors you follow.
+3. Paste a link in `Download Workbench`, pick a rule if needed, and submit.
+4. Use `Subscriptions` to follow authors or playlists and download what's new.
 
-If you are a developer and want to run the source code directly or build the app:
-
-```shell
-pixi install
-pixi run start  # Run the application
-pixi run build  # Build the application
-pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
-pixi run test   # Run the test suite
-```
+More: [Installation](./docs/guide/install_en.md) · [Usage Guide](./docs/guide/usage_en.md) · [Reference (supported links, naming placeholders, build from source)](./docs/guide/reference_en.md) · [Local Data and Caches](./docs/guide/data_en.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## Contributing
 
 Pull Requests are very welcome!
-Please target the `dev` branch, keep English/Simplified Chinese/Japanese UI text in sync, and run the test suite before submitting. UI changes should include a screenshot or short recording when practical.
+Please target the `dev` branch, keep English/Simplified Chinese/Japanese UI text in sync, and run the test suite before submitting (build and test commands: [Reference](./docs/guide/reference_en.md#run--build-from-source)). UI changes should include a screenshot or short recording when practical.
+
+## Code signing policy
+
+Windows releases are built from this repository by GitHub Actions ([build.yml](.github/workflows/build.yml)) and signed only after the release is approved.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- Committers and reviewers: [Moeary](https://github.com/Moeary)
+- Approvers: [Moeary](https://github.com/Moeary)
+
+Every change from an outside contributor is reviewed before it is merged, and every signing request is approved by hand.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. It talks only to the services needed for what the user asks:
+
+- iwara.tv (`www`, `api`, `apiq`, `i` and the file servers it returns) to browse, search, sign in and download; the account and password are sent only to Iwara when the user signs in.
+- oreno3d.com, when the user searches through the Oreno3D bridge.
+- GitHub (`api.github.com`, `raw.githubusercontent.com`) to check for a new release and to fetch the tag dictionary; the release check can be turned off in Settings.
+- A proxy or a local aria2 RPC server, only when the user configures one.
+
+Settings, history and caches stay in the `data` folder next to the program.
 
 ## License
 

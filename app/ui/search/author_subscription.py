@@ -20,6 +20,7 @@ from .result_authors import (
 from ..worker_lifecycle import on_finished
 from .page_dependencies import download_manager, signal_bus
 from .author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
+from ...core import site as sites
 
 
 class SearchAuthorSubscriptionMixin:
@@ -65,7 +66,7 @@ class SearchAuthorSubscriptionMixin:
         if iwara_id:
             if not video.download_video_id:
                 video.download_video_id = iwara_id
-                video.iwara_url = video.iwara_url or f"https://www.iwara.tv/video/{iwara_id}"
+                video.iwara_url = video.iwara_url or sites.video_url(iwara_id, sites.SITE_TV)
             self._start_iwara_author_hydration(video)
         elif video.source_kind == "oreno3d":
             self._start_oreno_link_resolution(

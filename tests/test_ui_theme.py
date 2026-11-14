@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -119,6 +120,7 @@ class SubmittedUrlTests(unittest.TestCase):
         self.assertEqual(split_submitted_urls("   "), [])
 
 
+@mock.patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class HistoryCsvTests(unittest.TestCase):
     def test_csv_has_bom_header_and_fills_missing_source_url(self):
         with tempfile.TemporaryDirectory() as tmp:

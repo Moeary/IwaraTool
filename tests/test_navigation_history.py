@@ -1,4 +1,4 @@
-"""One back history for the window: restore exact places, Esc / mouse back, close and language rebuild."""
+"""Back history per page: restore exact places, Esc / mouse back, close and language rebuild."""
 from __future__ import annotations
 
 import os
@@ -144,10 +144,8 @@ class SearchRoundTripTests(_WindowCase):
         self.assertEqual(len(page._all_videos), 60)
         self.assertEqual(page._selected_keys(), ("video:v7",))
         self.assertEqual(page._results.verticalScrollBar().value(), scroll)
-        self.assertTrue(self.window.navigate_back())  # then the page the app opened on
-        self.assertIs(self._current(), self.window._home_page)
-        self.assertFalse(self.window.navigate_back())  # and nothing before that: stay
-        self.assertIs(self._current(), self.window._home_page)
+        self.assertFalse(self.window.navigate_back())  # Search has no steps of its own before that: stay
+        self.assertIs(self._current(), page)
 
     def test_a_tag_search_from_elsewhere_can_be_undone(self):
         page, signal_bus = self._search_on_page_three()
@@ -169,18 +167,33 @@ class SearchRoundTripTests(_WindowCase):
         self.assertEqual(page._keyword_edit.text(), "miku")
         self.assertEqual(page._current_page, 2)
 
-    def test_sidebar_switches_are_steps_too(self):
+    def test_sidebar_switches_are_not_steps(self):
         self.window.switchTo(self.window._search_page)
         self.window.switchTo(self.window._history_page)
-        self.assertTrue(self.window.navigate_back())
-        self.assertIs(self._current(), self.window._search_page)
+        self.assertFalse(self.window.navigate_back())
+        self.assertIs(self._current(), self.window._history_page)
+
+    def test_each_page_goes_back_through_its_own_steps(self):
+        home = self.window._home_page
+        self.window.switchTo(home)
+        home.show_detail("video", "x1")
+        self.assertIs(home._stack.currentWidget(), home._detail)
+        self.window.switchTo(self.window._search_page)
+        self.window._search_page._keyword_edit.setText("miku")
+        self.window.switchTo(home)
+        self.assertTrue(self.window.navigate_back())  # Home's own step, not the visit to Search
+        self.assertIs(self._current(), home)
+        self.assertIs(home._stack.currentWidget(), home._feed)
 
 
 class BackInputTests(_WindowCase):
     def test_the_mouse_back_button_goes_back_from_any_widget(self):
+        from app.signal_bus import signal_bus
+
         self.window.switchTo(self.window._search_page)
-        self.window.switchTo(self.window._history_page)
-        target = self.window._history_page
+        with mock.patch.object(self.window._subscription_page, "show_author"):
+            signal_bus.author_page_requested.emit(("bob", "Bob", "u2", ""))
+        target = self.window._subscription_page
         for kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
             event = QMouseEvent(
                 kind, QPointF(5, 5), QPointF(5, 5), Qt.MouseButton.BackButton,
@@ -195,14 +208,16 @@ class BackInputTests(_WindowCase):
         self.window.switchTo(page)
         page._all_videos = _videos(3)
         page._render_results()
-        self.window.switchTo(self.window._subscription_page)
-        self.window.switchTo(page)
+        self.window.navigation.record(page)
+        page._keyword_edit.setText("changed")
         page._item_by_key["video:v1"].setSelected(True)
         self.window.escape_back()
         self.assertIs(self._current(), page)
         self.assertEqual(page._selected_keys(), ())
+        self.assertEqual(page._keyword_edit.text(), "changed")
         self.window.escape_back()
-        self.assertIs(self._current(), self.window._subscription_page)
+        self.assertIs(self._current(), page)
+        self.assertEqual(page._keyword_edit.text(), "")
 
     def test_escape_with_no_history_does_nothing(self):
         self.window.navigation.clear()
@@ -281,13 +296,15 @@ class CloseAndLanguageTests(_WindowCase):
         self.assertLessEqual(len([icon for icon in tray_icons if icon.isVisible()]), 1)
 
     def test_language_rebuild_keeps_the_back_history(self):
+        from app.signal_bus import signal_bus
+
         self.window.switchTo(self.window._search_page)
-        self.window.switchTo(self.window._history_page)
+        signal_bus.media_detail_requested.emit("video", "x1")
         self.window._on_language_changed("ja")
         new = self.MainWindow._window_ref
         self.addCleanup(self._discard, new)
         _flush()
-        self.assertIs(new.stackedWidget.currentWidget(), new._history_page)
+        self.assertIs(new.stackedWidget.currentWidget(), new._home_page)
         self.assertTrue(new.navigate_back())
         self.assertIs(new.stackedWidget.currentWidget(), new._search_page)
 
@@ -332,7 +349,10 @@ class SearchRestoreValidityTests(_WindowCase):
         self.release.clear()
 
     def _leave_and_return(self, between=None):
-        self.window.switchTo(self.window._history_page)
+        from app.signal_bus import signal_bus
+
+        signal_bus.media_detail_requested.emit("video", "x1")  # a link to another page; Back returns
+        self.assertIs(self._current(), self.window._home_page)
         if between is not None:
             between()
         self.assertTrue(self.window.navigate_back())
@@ -428,3 +448,81 @@ class LanguageDraftTests(_WindowCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SwipeBackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    @staticmethod
+    def _wheel(phase, dx=0, dy=0, inverted=True):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QWheelEvent
+
+        return QWheelEvent(
+            QPointF(5, 5), QPointF(5, 5), QPoint(dx, dy), QPoint(dx, dy),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, phase, inverted,
+        )
+
+    def _swipe(self, tracker, steps, dx, dy=0, inverted=True, widget=None):
+        fired = [tracker.feed(self._wheel(Qt.ScrollPhase.ScrollBegin, inverted=inverted), widget)]
+        fired += [tracker.feed(self._wheel(Qt.ScrollPhase.ScrollUpdate, dx, dy, inverted), widget) for _ in range(steps)]
+        fired.append(tracker.feed(self._wheel(Qt.ScrollPhase.ScrollEnd, inverted=inverted), widget))
+        return fired.count(True)
+
+    def test_a_right_swipe_goes_back_once(self):
+        from app.ui.swipe_back import SwipeBackTracker
+
+        tracker = SwipeBackTracker()
+        self.assertEqual(self._swipe(tracker, 20, 20), 1)  # natural scrolling: deltas follow the fingers
+        self.assertEqual(self._swipe(tracker, 20, -20, inverted=False), 1)  # classic scrolling: reversed
+
+    def test_other_moves_do_not(self):
+        from app.ui.swipe_back import SwipeBackTracker
+
+        tracker = SwipeBackTracker()
+        self.assertEqual(self._swipe(tracker, 20, -20), 0)  # to the left
+        self.assertEqual(self._swipe(tracker, 20, 8, dy=12), 0)  # mostly vertical
+        self.assertEqual(self._swipe(tracker, 2, 20), 0)  # too short
+        mouse = self._wheel(Qt.ScrollPhase.NoScrollPhase, 400)
+        self.assertFalse(tracker.feed(mouse, None))  # a mouse wheel has no phase
+
+    def test_not_over_something_that_scrolls_sideways(self):
+        from PySide6.QtWidgets import QScrollArea, QWidget
+
+        from app.ui.swipe_back import SwipeBackTracker
+
+        area = QScrollArea()
+        inner = QWidget()
+        inner.setMinimumSize(2000, 50)
+        area.setWidget(inner)
+        area.resize(300, 200)
+        area.show()
+        QApplication.processEvents()
+        self.addCleanup(area.deleteLater)
+        self.assertEqual(self._swipe(SwipeBackTracker(), 20, 20, widget=inner), 0)
+
+
+@unittest.skipUnless(sys.platform == "darwin", "the trackpad swipe is a macOS convention")
+class SwipeBackWindowTests(_WindowCase):
+    def test_a_trackpad_swipe_on_the_window_goes_back(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QWheelEvent
+
+        from app.signal_bus import signal_bus
+
+        self.window.switchTo(self.window._search_page)
+        with mock.patch.object(self.window._subscription_page, "show_author"):
+            signal_bus.author_page_requested.emit(("bob", "Bob", "u2", ""))
+        self.assertIs(self._current(), self.window._subscription_page)
+        handle = self.window.windowHandle()
+        point = QPointF(self.window.width() / 2, self.window.height() / 2)
+        global_point = QPointF(self.window.mapToGlobal(point.toPoint()))
+        for phase, dx in [(Qt.ScrollPhase.ScrollBegin, 0)] + [(Qt.ScrollPhase.ScrollUpdate, 25)] * 10 + [(Qt.ScrollPhase.ScrollEnd, 0)]:
+            event = QWheelEvent(
+                point, global_point, QPoint(dx, 0), QPoint(dx, 0),
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, phase, True,
+            )
+            QApplication.sendEvent(handle, event)
+        self.assertIs(self._current(), self.window._search_page)

@@ -36,6 +36,9 @@ class TaskSignalBus(QObject):
     # Emitted when UI language changes (str: language code)
     language_changed = Signal(str)
 
+    # Emitted when the interface font choice changes (already saved)
+    font_changed = Signal()
+
     # Emitted when shared download options change from any page.
     download_options_changed = Signal()
 
@@ -58,8 +61,11 @@ class TaskSignalBus(QObject):
     # Emitted when named download/filter rules are added, edited, or deleted.
     rules_changed = Signal()
 
-    # rule_id; keeps rule pickers synchronized across pages.
+    # rule_id of the default rule (pages that follow it pick it up).
     active_rule_changed = Signal(str)
+
+    # scope, choice; one page's own rule (or "follow the default") changed.
+    page_rule_changed = Signal(str, str)
 
     # title, message
     desktop_notification_requested = Signal(str, str)
@@ -97,6 +103,9 @@ class TaskSignalBus(QObject):
 
     # The set or order of Home rows was edited (Settings or Home).
     home_layout_changed = Signal()
+
+    # The current iwara site ("tv" / "ai", already saved) was switched.
+    site_changed = Signal(str)
 
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()

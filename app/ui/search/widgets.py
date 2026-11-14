@@ -64,9 +64,21 @@ class SearchKeywordEdit(LineEdit):
     activated = Signal()
     deactivated = Signal()
 
+    # Focus that the user asked for.  Window activation (Cmd+Tab / Alt+Tab
+    # back, or the page being shown again) and programmatic restores must
+    # not pop the history open; macOS delivers ActiveWindowFocusReason here
+    # every time the window is re-activated.
+    _USER_FOCUS_REASONS = frozenset({
+        Qt.FocusReason.MouseFocusReason,
+        Qt.FocusReason.TabFocusReason,
+        Qt.FocusReason.BacktabFocusReason,
+        Qt.FocusReason.ShortcutFocusReason,
+    })
+
     def focusInEvent(self, event):
         super().focusInEvent(event)
-        self.activated.emit()
+        if event.reason() in self._USER_FOCUS_REASONS:
+            self.activated.emit()
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)

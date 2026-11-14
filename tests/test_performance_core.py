@@ -1001,6 +1001,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             app_config.mark_submitted_as_downloaded = old_mark_submitted
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class UiPerformanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1352,18 +1353,16 @@ class UiPerformanceTests(unittest.TestCase):
 
             self.assertEqual([item["video_id"] for item in page._visible_items], ["pending01"])
             self.assertEqual(page._operation_video_ids(), ["pending01"])
-            with patch.object(page, "_apply_selected_rule_for_download") as apply_rule:
-                with patch.object(page, "_enqueue_ids") as enqueue_ids:
-                    # QAction.triggered emits a bool; the context-menu path
-                    # passes an explicit ID list and must not be overridden by
-                    # the staged pending selection.
-                    page._download_selected_with_rule(False)
-                    page._download_selected_with_rule(["other01"])
-                    self.assertEqual(
-                        enqueue_ids.call_args_list,
-                        [call(["pending01"]), call(["other01"])],
-                    )
-                    self.assertEqual(apply_rule.call_count, 2)
+            with patch.object(page, "_enqueue_ids") as enqueue_ids:
+                # QAction.triggered emits a bool; the context-menu path
+                # passes an explicit ID list and must not be overridden by
+                # the staged pending selection.
+                page._download_selected_with_rule(False)
+                page._download_selected_with_rule(["other01"])
+                self.assertEqual(
+                    enqueue_ids.call_args_list,
+                    [call(["pending01"]), call(["other01"])],
+                )
         page.close()
 
     def test_subscription_source_table_supports_extended_selection_and_batch_actions(self):
@@ -1534,6 +1533,51 @@ class UiPerformanceTests(unittest.TestCase):
             if page is not None:
                 page.close()
             app_config.search_auto_search_enabled = old_auto_search
+            app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
+
+    def test_keyword_history_opens_only_for_user_focus(self):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QFocusEvent
+        from app.ui.search.widgets import SearchKeywordEdit
+
+        edit = SearchKeywordEdit()
+        opened = []
+        edit.activated.connect(lambda: opened.append(True))
+        try:
+            for reason in (
+                Qt.FocusReason.ActiveWindowFocusReason,
+                Qt.FocusReason.OtherFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            ):
+                edit.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, reason))
+            self.assertEqual(opened, [])  # Cmd+Tab back or a navigation restore
+            for reason in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.TabFocusReason,
+                Qt.FocusReason.ShortcutFocusReason,
+            ):
+                edit.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, reason))
+            self.assertEqual(len(opened), 3)
+        finally:
+            edit.deleteLater()
+
+    def test_quick_search_opens_history_without_a_focus_event(self):
+        # Ctrl+K from another page: the page switch hands focus back with
+        # OtherFocusReason first, so the later ShortcutFocusReason setFocus
+        # delivers no focusIn.  _focus_keyword must open the history itself.
+        old_collapsed = app_config.get_ui_value("search_controls_collapsed_v1", False)
+        page = SearchInterface()
+        try:
+            page._set_search_controls_collapsed(True, persist=False)
+            with patch.object(page, "_show_search_history_popup") as show, \
+                    patch.object(page._keyword_edit, "setFocus") as set_focus:
+                page._focus_keyword()
+            set_focus.assert_called_once_with(Qt.FocusReason.ShortcutFocusReason)
+            show.assert_called_once_with()
+            self.assertFalse(page._query_card.isHidden())
+        finally:
+            page.close()
+            page.deleteLater()
             app_config.set_ui_value("search_controls_collapsed_v1", old_collapsed)
 
     def test_title_rule_filters_download_metadata(self):

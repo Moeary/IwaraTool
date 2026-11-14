@@ -6,92 +6,68 @@
 
 煩わしいコマンドラインにさよなら！モダンな Fluent スタイルのインターフェースを備えた Iwara 一括ダウンローダー。初心者でもワンクリックで作者の全動画をダウンロードできます。
 
-![demo](./docs/iwaratool_demo_v0.6.gif)
+![demo](./docs/iwaratool_demo.gif)
 
-ドキュメント: [Wiki](https://github.com/Moeary/IwaraTool/wiki) · [API（JA）](./docs/API_ja.md) · [タグ索引](./docs/iwara_tags.md)
+## できること
 
-## 主な機能
-- ユーザー、プレイリスト、検索 URL の一括投入に対応。タスクキューは永続化され、安全終了後に自動復元されます。
-- ダウンロードエンジン：`X-Version` 署名計算、画質フォールバック（`Source -> 540 -> 360`）、ステートマシン制御による URL 失効の軽減。
-- ローカル重複回避と、検索・フィルター・ソート・整理に対応した SQLite 履歴センター。
-- 検索：Iwara ライブ API の動画／作者／プレイリスト検索、Oreno3D オンライン動画検索、英中日タグ候補に対応。結果にはローカル保存状態を表示します。
-- 動画プレビュー：どのページでも動画をダブルクリックで再生。保存済みは選択したプレイヤー（システム既定／内蔵／カスタムコマンド）で開き、未保存・移動済みは内蔵ウィンドウでストリーミング再生します（再生/一時停止、シーク、倍速、音量、全画面、長押し倍速に対応）。
-- 購読管理：作者とプレイリストの購読。既定の概要ではアイコンと最新動画を一覧し、開くとカードグリッドで表示、従来の表形式にも切り替え可能。
-- 名前付きルール：いいね、再生数、日付、タグ、タイトルキーワード、命名テンプレート、保存動作を管理。NFO 生成に対応。
-- ホーム：欄をカスタマイズ可能（購読・人気、または任意のタグ／キーワード／作者検索）。ディスクにキャッシュし、投稿が変わったときだけ更新。アプリ内で詳細・いいね・まとめてダウンロード。SFW／NSFW の区分はホームと検索に適用されます。
-- 作者ページ：検索や詳細からアプリ内の作者ページを開き、アプリで購読中か Iwara でフォロー中かを確認して、その場で購読／フォローできます。
-- ショートカット：F1 で一覧を表示（設定で変更可能）。カバーのグリッドは矢印キー・Enter・Space などで操作できます。
-- 修復センター：既存動画を元の場所で一括リネーム、または出力先へ整理。保存先の競合を検査します。
-- 中／英／日の言語切替とライト／ダークテーマを実行中に切替可能。テーブル列の設定は保存されます。
-- 任意機能：aria2 RPC、サムネイル、`.nfo` の生成。
-- 信頼性：ダウンロードのサイズ・レジューム検証、API リクエストのバックオフ再試行と間隔制御、SQLite WAL、ローテーションログ（`data/logs/`）。
-- 保守：システムトレイと自動起動、認証情報を含まないバックアップ／復元、SHA-256 検証付きワンクリック更新（Windows パッケージ版）。
-
-## クイックスタート
-1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得。
-   - Linux バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
-   - macOS は Apple Silicon（ARM64）と Intel（AMD64）の ZIP を提供します。解凍後、`IwaraTool.app` を「アプリケーション」に移動してください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。起動がブロックされた場合は「プライバシーとセキュリティ」の案内に従って許可してください。
-   - macOS のデータは `~/Library/Application Support/IwaraTool/`、既定の保存先は `~/Downloads/IwaraTool/` です。更新時は `.app` を置き換えてください。ログイン時の自動起動と自動置換更新は現在 Windows のみ対応しています。
-2. アプリを起動します。非公開動画の保存やフォロー作者の取込にはログインが必要です。
-3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
-4. `購読` で作者とプレイリストを追跡し（アカウントフィードはホームの「購読中の更新」）、新着動画をまとめて保存できます。
-
-詳細（修復センター、検索の保存状態、Oreno3D 作者のフォールバック、キーワード／タグ検索、購読カバーのキャッシュ）は [使用ガイド](./docs/guide/usage_ja.md) を、ローカルデータとキャッシュは [ローカルデータとキャッシュ](./docs/guide/data_ja.md) を参照してください。
-
-## 対応 URL
-```text
-https://www.iwara.tv/profile/username
-https://www.iwara.tv/profile/username/videos
-https://www.iwara.tv/playlist/xxxxxxxx
-https://www.iwara.tv/video/xxxxxxxx
-https://www.iwara.tv/videos?sort=date
-https://www.iwara.tv/videos?tags=2d&sort=likes
-https://api.iwara.tv/videos?tags=2d&sort=date
-```
-
-`sort`：`date`、`trending`、`popularity`、`views`、`likes`。
-
-`tags` の詳細は [タグ索引](./docs/iwara_tags.md) を参照してください。
+- **一括ダウンロード**：作者・プレイリスト・検索・動画の URL を貼り付けるだけでまとめて保存。終わらなかったタスクは、次回起動時に続きから再開します。
+- **検索と閲覧**：Iwara と Oreno3D を検索でき、英中日のタグ候補にも対応。ホームには好きな欄（購読、人気、任意のタグやキーワード）を並べられます。保存済みの動画には印が付きます。
+- **iwara.tv と iwara.ai**：サイドバーまたは Ctrl+Shift+S で表示するサイトを切り替え。アカウントは共通で、貼り付けたリンクや購読はそれぞれのサイトで扱います。
+- **作者をフォロー**：作者とプレイリストを購読し、新着をひと目で確認。新しい動画だけをダウンロードできます。
+- **見てから保存**：動画をダブルクリックすれば、アプリ内でそのまま再生できます。
+- **欲しいものだけ保存**：保存ルールで、いいね数・再生数・日付・タグ・タイトルのキーワードによる絞り込みができ、ページごとに別のルールも使えます。
+- **好みの名前で保存**：命名プリセットを選ぶか、フィールド（作者・タイトル・ID・日付・画質…）とその間の文字を選んで組み立てられます。結果はリアルタイムでプレビュー。
+- **既存ファイルを整理**：修復センターで、保存済みの動画を一括リネームしたり整理し直したりできます。
+- **アップロードの準備**：ツールページで、動画を Iwara の 300 / 600 MB 上限に収まるよう変換（H.264 + AAC、MP4、720p 以上）し、アップロード後に選べる 16 枚のカバー候補を事前に確認できます。ffmpeg のインストールが必要です。
+- **記録と管理**：検索・絞り込みできる履歴、重複検出、任意のカバー画像とメディアライブラリ向けの `.nfo` ファイル。
+- **使い心地**：中／英／日の言語、ライト／ダークテーマ、システムトレイ。Windows ではログイン時の自動起動、バックアップ、ワンクリック更新に対応。
 
 ## 画面紹介
 
-1. ダウンロードワークベンチ
+スクリーンショットは英語 UI と架空のサンプルデータで、カバーは生成したプレースホルダー画像です。`scripts/record_demo.py` で GIF とスクリーンショットをオフラインで撮り直せます。
 
-   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+1. ホーム
+
+   ![ホーム](./docs/panel_view/iwaratool_home_panel.jpg)
 2. 検索
 
    ![検索](./docs/panel_view/iwaratool_search_panel.jpg)
-3. 購読
+3. ダウンロードワークベンチ
+
+   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+4. 購読
 
    ![購読](./docs/panel_view/iwaratool_subscription_panel.jpg)
-4. 履歴
+5. ツール（アップロード圧縮とカバープレビュー）
+
+   ![ツール](./docs/panel_view/iwaratool_tools_panel.jpg)
+6. 履歴
 
    ![履歴](./docs/panel_view/iwaratool_history_panel.jpg)
-5. ルール
+7. ルール
 
    ![ルール](./docs/panel_view/iwaratool_rule_panel.jpg)
-6. 設定
+8. 設定
 
    ![設定](./docs/panel_view/iwaratool_settings_panel.jpg)
 
-## 実行 / ビルド
+## クイックスタート
 
-プロジェクトの依存関係は [pixi](https://pixi.prefix.dev/latest/) で管理されています。
+1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得して起動します。（ファイルの選び方、macOS の初回起動時の警告、プロキシ設定は [インストールと基本の使い方](./docs/guide/install_ja.md) を参照。）
+2. 非公開動画の保存やフォロー作者の取込にはログインが必要です。
+3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
+4. `購読` で作者やプレイリストをフォローし、新着動画を保存できます。
 
-開発者としてソースコードを直接実行したい、またはアプリをビルドしたい場合：
-
-```shell
-pixi install
-pixi run start  # プログラムを実行
-pixi run build  # アプリをビルド
-pixi run crawl  # タグデータを取得（docs/iwara_tags.md を更新）
-pixi run test   # テストを実行
-```
+詳細：[インストール](./docs/guide/install_ja.md) · [使用ガイド](./docs/guide/usage_ja.md) · [リファレンス（対応 URL、命名プレースホルダー、ソースからのビルド）](./docs/guide/reference_ja.md) · [ローカルデータとキャッシュ](./docs/guide/data_ja.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 貢献
 
 PRは大歓迎です！
-変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
+変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し（ビルドとテストのコマンドは [リファレンス](./docs/guide/reference_ja.md#ソースから実行--ビルド) を参照）、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
+
+## コード署名ポリシー（Code signing policy）
+
+Windows 版は GitHub Actions が本リポジトリからビルドし、リリースを手動で承認してから署名します。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。チームの役割とプライバシーポリシーは英語版の [Code signing policy](readme.md#code-signing-policy) を参照してください。
 
 ## ライセンス
 

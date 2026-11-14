@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...config import app_config
+from ...core import site as sites
 from ...i18n import tr
 
 from .keyword_language import is_chinese_keyword
@@ -81,11 +82,64 @@ class SearchSourceRoutingMixin:
         self._source_pinned = False
         self._switch_source(source)
 
+    def _sync_source_options_for_site(self) -> bool:
+        """Grey out Oreno3D on iwara.ai (it indexes iwara.tv only) and leave it if selected.
+
+        True when the source had to be switched to Iwara.
+        """
+
+        on_ai = sites.configured_site() == sites.SITE_AI
+        for index in range(self._source_combo.count()):
+            if str(self._source_combo.itemData(index) or "") == "oreno3d":
+                self._source_combo.setItemEnabled(index, not on_ai)
+        self._source_combo.setToolTip(
+            tr(
+                "Search source (Oreno3D only covers iwara.tv)",
+                "数据源（Oreno3D 只收录 iwara.tv）",
+                "検索ソース（Oreno3D は iwara.tv のみ）",
+            ) if on_ai else tr("Search source", "数据源", "検索ソース")
+        )
+        if on_ai and str(self._source_combo.currentData() or "") == "oreno3d":
+            self._source_auto_routed = False
+            self._source_pinned = False
+            return self._switch_source("iwara")
+        return False
+
+    def _on_site_changed(self, site: str):
+        """Browsing moved to another iwara site: Iwara results are re-read there.
+
+        Oreno3D indexes iwara.tv only, so iwara.ai always searches Iwara itself.
+        """
+
+        if sites.normalize(site) == sites.SITE_AI:
+            self._source_auto_routed = False
+            self._sync_source_options_for_site()
+        else:
+            self._sync_source_options_for_site()
+            if not self._source_pinned:
+                self._switch_source(app_config.search_default_source)
+        if str(self._source_combo.currentData() or "") != "iwara":
+            return
+        self._site_search_pending = True
+        if self.isVisible():
+            self._rerun_for_site()
+
+    def _rerun_for_site(self):
+        if not getattr(self, "_site_search_pending", False):
+            return
+        self._site_search_pending = False
+        if self._author_video_target is not None:
+            return
+        if self._all_videos or self._all_authors or self._all_playlists or self._active_search_request is not None:
+            self._start_search(record_history=False)
+
     def _route_source_for_keyword(self):
         """Chinese video keywords go to Oreno3D; the next other search goes back."""
 
         if self._author_video_target is not None or self._source_pinned:
             return
+        if sites.current_site() == sites.SITE_AI:
+            return  # Oreno3D only knows iwara.tv
         if str(self._scope_combo.currentData() or "videos") != "videos":
             return
         source = str(self._source_combo.currentData() or "oreno3d")

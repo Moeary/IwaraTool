@@ -89,6 +89,7 @@ class SectionBlock(QWidget):
         self._cache = cache if cache is not None else shared_cache()
         self._rating = RATING_ALL
         self._token = 0
+        self._fetch_key = ""
         self._worker: FeedWorker | None = None
         self._workers: list[FeedWorker] = []  # includes superseded, still-running loads
         self._shown_key = ""
@@ -292,6 +293,11 @@ class SectionBlock(QWidget):
             return  # nothing to show or fetch until it is expanded
         key = self.cache_key()
         entry = self._cache.get(key)
+        if entry is None and self._shown_key and key != self._shown_key:
+            # Another site or rating with nothing cached: do not keep showing the old cards.
+            self._grid.set_videos([])
+            self._shown_key, self._shown_signature, self._saved_at = "", None, 0.0
+            self.refresh_age()
         if entry is not None and (key != self._shown_key or not self._grid.videos()):
             self._show_rows(entry.rows, entry.saved_at, key)
         elif entry is not None:
@@ -324,6 +330,7 @@ class SectionBlock(QWidget):
     def _fetch(self, *, have_items: bool):
         tab = self.tab
         self._token += 1
+        self._fetch_key = self.cache_key()
         self._last_attempt = time.monotonic()
         if self._worker is not None:
             self._worker.requestInterruption()
@@ -355,7 +362,12 @@ class SectionBlock(QWidget):
             return
         self._set_busy(False)
         self._grid.set_loading(False)
-        key = self.cache_key()
+        key = self._fetch_key or self.cache_key()
+        if key != self.cache_key():
+            # Fetched for the site / rating shown before a switch: keep it for later only.
+            if not result.error:
+                self._cache.put(key, result.rows)
+            return
         if result.error and not result.items:
             if self._grid.videos():
                 # Keep what is on screen; just say the check failed.

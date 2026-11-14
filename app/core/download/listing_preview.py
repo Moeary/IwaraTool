@@ -16,6 +16,7 @@ from ..task_metadata import (
     _dict_or_empty,
     _subscription_download_block_from_video_info,
 )
+from .. import site as sites
 
 
 HAVE_FILE = "file"  # the video file is on disk
@@ -42,6 +43,7 @@ class ListingPreviewMixin:
         parsed = self._parse_iwara_url(str(url or "").strip())
         return parsed[0] if parsed and parsed[0] in PREVIEW_KINDS else ""
 
+    @sites.scoped_to_link
     def preview_listing(self, url: str, *, rule_id: str = "") -> dict[str, Any]:
         """Every video behind an author / playlist link, with what is already here and what the rule keeps.
 
@@ -230,6 +232,7 @@ class ListingPreviewMixin:
                 vid.lower() for vid in video_ids
                 if (task := self._tasks.get(self._task_id_by_video_id.get(vid.lower(), ""))) is not None
                 and task.status != TaskStatus.STAGED
+                and not self.is_temporary_copy(task)  # a temporary copy does not count
             }
         for video_id in video_ids:
             key = video_id.lower()

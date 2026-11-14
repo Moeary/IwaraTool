@@ -7,6 +7,7 @@ import re
 import time
 
 from ...config import app_config
+from ..rules import rule_store
 from ..manager_state import EXISTING_FILE_INDEX_TTL_SECONDS as _EXISTING_FILE_INDEX_TTL_SECONDS
 
 
@@ -43,8 +44,14 @@ class ExistingFilesMixin:
                 return dict(self._existing_file_index)
 
             index: dict[str, str] = {}
+            skipped_dirs = self._temporary_output_dirs(root)
             try:
-                for dirpath, _, filenames in os.walk(root):
+                for dirpath, dirnames, filenames in os.walk(root):
+                    if skipped_dirs:
+                        dirnames[:] = [
+                            d for d in dirnames
+                            if os.path.normcase(os.path.abspath(os.path.join(dirpath, d))) not in skipped_dirs
+                        ]
                     for name in filenames:
                         lower_name = name.lower()
                         if lower_name.endswith("_temp") or lower_name.endswith(".aria2"):
@@ -62,3 +69,24 @@ class ExistingFilesMixin:
             self._existing_file_index_root = root
             self._existing_file_index_built_at = now
             return dict(index)
+
+    def _temporary_output_dirs(self, root: str) -> set[str]:
+        """Fixed folders of rules that keep no history (``temp_video/...``).
+
+        Files there are temporary copies: they must not make a later download
+        of the same video look like it is already here.
+        """
+
+        dirs: set[str] = set()
+        for rule in rule_store.list_available():
+            payload = rule["payload"]
+            if payload.get("record_to_history", True):
+                continue
+            prefix: list[str] = []
+            for segment in str(payload.get("filename_template") or "").replace("\\", "/").split("/")[:-1]:
+                if not segment.strip() or "{" in segment:
+                    break
+                prefix.append(self._sanitize_path_segment(segment))
+            if prefix:
+                dirs.add(os.path.normcase(os.path.abspath(os.path.join(root, *prefix))))
+        return dirs

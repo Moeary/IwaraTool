@@ -23,6 +23,7 @@ from ..repair.page import RepairInterface
 from ..search.page import SearchInterface
 from ..settings.page import SettingsInterface
 from ..subscription.page import SubscriptionInterface
+from ..tools.page import ToolsInterface
 from .staging_badge import StagingBadge
 
 
@@ -38,10 +39,12 @@ class WindowNavigationMixin:
         self._subscription_page = SubscriptionInterface(self)
         self._history_page = HistoryInterface(self)
         self._repair_page = RepairInterface(self)
+        self._tools_page = ToolsInterface(self)
         self._rules_page = RulesInterface(self)
         self._settings_page = SettingsInterface(self)
+        self._tools_page.open_settings_requested.connect(self._open_settings_category)
         self._home_page.open_settings_requested.connect(
-            lambda: self.switchTo(self._settings_page)
+            lambda: self._show_page(self._settings_page, lambda: None)
         )
 
         self._add_main_pages()
@@ -86,7 +89,6 @@ class WindowNavigationMixin:
     def _add_bottom_items(self):
         """Quick actions, Rules and Settings at the bottom of the sidebar."""
 
-
         self.navigationInterface.addItem(
             routeKey="open-github",
             icon=FluentIcon.GITHUB,
@@ -95,6 +97,19 @@ class WindowNavigationMixin:
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
             tooltip=tr("Open project GitHub", "打开项目 GitHub链接", "プロジェクト GitHub を開く"),
+        )
+
+        from ...core import site as sites
+
+        current_site = sites.configured_site()
+        self._site_nav_item = self.navigationInterface.addItem(
+            routeKey="toggle-site",
+            icon=FluentIcon.GLOBE,
+            text=sites.SITES[current_site].label,
+            onClick=self.toggle_site,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+            tooltip=self._site_nav_tooltip(current_site),
         )
 
         self.navigationInterface.addItem(
@@ -119,6 +134,13 @@ class WindowNavigationMixin:
         )
 
         self.addSubInterface(
+            self._tools_page,
+            icon=FluentIcon.APPLICATION,
+            text=tr("Tools", "工具", "ツール"),
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        self.addSubInterface(
             self._settings_page,
             icon=FluentIcon.SETTING,
             text=tr("Settings", "应用设置", "設定"),
@@ -135,6 +157,7 @@ class WindowNavigationMixin:
             "download": self._download_page,
             "repair": self._repair_page,
             "history": self._history_page,
+            "tools": self._tools_page,
             "rules": self._rules_page,
             "settings": self._settings_page,
         }
@@ -155,10 +178,14 @@ class WindowNavigationMixin:
             "subscriptions": "_subscription_page",
             "history": "_history_page",
             "repair": "_repair_page",
+            "tools": "_tools_page",
             "rules": "_rules_page",
             "settings": "_settings_page",
         }
         return {key: getattr(self, name) for key, name in names.items() if getattr(self, name, None) is not None}
+
+    def _open_settings_category(self, key: str):
+        self._show_page(self._settings_page, lambda: self._settings_page.show_category(key))
 
     def _page_of(self, widget: QWidget | None) -> QWidget | None:
         pages = set(self._pages().values())
@@ -167,11 +194,8 @@ class WindowNavigationMixin:
         return widget
 
     def switchTo(self, interface):
-        """Any page switch (sidebar, shortcut, link) is a step Back can undo."""
+        """A plain page switch (sidebar, Ctrl+1…): each page keeps its own Back steps."""
 
-        current = self.stackedWidget.currentWidget()
-        if current is not None and interface is not current and hasattr(self, "navigation"):
-            self.navigation.record(current)
         super().switchTo(interface)
 
     def _show_page(self, page: QWidget, show):
@@ -179,7 +203,8 @@ class WindowNavigationMixin:
         if self._closing or self._close_complete:
             return
 
-        self.navigation.record(self.stackedWidget.currentWidget())
+        # Recorded on the target page, so Back there returns to the caller.
+        self.navigation.record(self.stackedWidget.currentWidget(), into=page)
         with self.navigation.quiet():
             show()
             if self.stackedWidget.currentWidget() is not page:

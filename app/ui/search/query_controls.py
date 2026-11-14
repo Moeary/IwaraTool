@@ -243,6 +243,10 @@ class SearchQueryControlsMixin:
             self._set_search_controls_collapsed(False)
         self._keyword_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self._keyword_edit.selectAll()
+        # No focusIn arrives when the box already had focus, or when the page
+        # switch handed it back first (OtherFocusReason, which deliberately
+        # keeps the history closed), so open the history here.
+        self._show_search_history_popup()
 
     def _set_scope_hint(self, text: str):
         """Context line under the query box; hidden whenever it has nothing to say."""

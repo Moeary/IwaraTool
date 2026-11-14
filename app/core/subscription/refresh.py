@@ -181,7 +181,13 @@ class SubscriptionRefreshMixin:
         skipped = self._unrefreshable_source_summary(source_id, source, ignore_enabled=ignore_enabled)
         if skipped is not None:
             return skipped
+        from ..site import SITE_TV, site_scope
 
+        # Each source belongs to the site it was added on, whatever the user is browsing now.
+        with site_scope(str(source.get("site") or SITE_TV)):
+            return self._refresh_loaded_source(source_id, source, api_call, api_client)
+
+    def _refresh_loaded_source(self, source_id: int, source, api_call, api_client) -> dict[str, Any]:
         title = str(source.get("title", "") or source.get("source_key", "") or "")
         known_video_ids = self._known_subscription_video_ids(source_id)
         source_origin = str(source.get("source_origin", "") or "").strip().casefold()

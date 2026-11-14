@@ -1,10 +1,15 @@
 import ast
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from PySide6.QtCore import QSettings
+
+from app.config import app_config
 from app.core.models import TaskStatus, status_label
-from app.i18n import tr
+from app.i18n import pinned_language, tr
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +29,24 @@ class I18nTest(unittest.TestCase):
             with self.subTest(language=language):
                 with patch("app.i18n.current_language", return_value=language):
                     self.assertEqual(status_label(TaskStatus.DOWNLOADING), label)
+
+    def test_pinned_language_is_thread_local_and_restored(self):
+        seen_in_other_thread = []
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        settings = QSettings(str(Path(temp.name) / "config.ini"), QSettings.Format.IniFormat)
+        with patch.object(app_config, "_qs", settings):
+            app_config.ui_language = "zh_CN"
+            with pinned_language("en"):
+                self.assertEqual(tr("English", "中文", "日本語"), "English")
+                with pinned_language("ja"):
+                    self.assertEqual(tr("English", "中文", "日本語"), "日本語")
+                self.assertEqual(tr("English", "中文", "日本語"), "English")
+                worker = threading.Thread(target=lambda: seen_in_other_thread.append(tr("English", "中文", "日本語")))
+                worker.start()
+                worker.join()
+            self.assertEqual(seen_in_other_thread, ["中文"])
+            self.assertEqual(tr("English", "中文", "日本語"), "中文")
 
     def test_every_translation_call_provides_three_languages(self):
         missing: list[str] = []

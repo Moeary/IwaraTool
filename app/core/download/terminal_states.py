@@ -245,8 +245,9 @@ class TerminalStatesMixin:
         with self._lock:
             live_task = self._tasks.get(task_id)
             if live_task:
-                with self._existing_file_index_lock:
-                    self._existing_file_index[live_task.video_id.lower()] = live_task.file_path
+                if rule_payload["record_to_history"]:  # a temporary copy is not "already downloaded"
+                    with self._existing_file_index_lock:
+                        self._existing_file_index[live_task.video_id.lower()] = live_task.file_path
                 self._mark_terminal_locked(live_task)
         signal_bus.task_status_changed.emit(task_id, TaskStatus.COMPLETED.value)
         self._prune_terminal_tasks()

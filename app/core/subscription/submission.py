@@ -19,6 +19,7 @@ from ..task_metadata import (
     _subscription_download_block_from_error,
     _subscription_download_block_from_video_info,
 )
+from .. import site as sites
 
 
 class SubscriptionSubmissionMixin:
@@ -124,7 +125,7 @@ class SubscriptionSubmissionMixin:
     ) -> None:
         """Save one video's cover / NFO / history entry; counts go into ``result``."""
 
-        source_url = str(fallback_by_id.get(video_id, {}).get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
+        source_url = str(fallback_by_id.get(video_id, {}).get("source_url", "") or sites.video_url(video_id))
         video_info, err = self._api_call("get_video_info", video_id)
         if not video_info:
             self._record_metadata_fetch_failure(video_id, source_url, err, fallback_by_id, result)
@@ -263,7 +264,7 @@ class SubscriptionSubmissionMixin:
             "comments": int(value("comments", "numComments", default=0) or 0),
             "tags_json": tags_json,
             "raw_json": raw_json,
-            "source_url": str(value("source_url", default=f"https://www.iwara.tv/video/{video_id}") or ""),
+            "source_url": str(value("source_url", default=sites.video_url(video_id, sites.site_of_item(item))) or ""),
             "file_path": str(existing.get("file_path", "") or "") if existing else "",
             "thumbnail_path": str(existing.get("thumbnail_path", "") or "") if existing else "",
             "quality": str(existing.get("quality", "") or "") if existing else "",

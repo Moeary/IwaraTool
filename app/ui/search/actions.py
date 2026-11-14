@@ -74,6 +74,7 @@ class SearchActionsMixin(
         self._all_playlists.clear()
         self._image_path_by_key.clear()
         self._image_pending_keys.clear()
+        self._clear_post_filter()
         self._render_results()
         self._set_loading(False)
         self._status_label.setText(

@@ -14,7 +14,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES
-from .task_text import _video_url
+from .task_text import _task_url
 
 
 class TaskActionsMixin:
@@ -151,7 +151,7 @@ class TaskActionsMixin:
         for task_id in task_ids:
             task = self._tasks_by_id.get(task_id)
             if task:
-                self._open_url(_video_url(task.video_id))
+                self._open_url(_task_url(task))
 
     def _open_url(self, url: str):
         if url:

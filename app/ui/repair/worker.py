@@ -1,4 +1,4 @@
-"""Scan or repair a folder off the GUI thread."""
+"""Scan, preview or repair a folder off the GUI thread."""
 
 from __future__ import annotations
 
@@ -15,11 +15,15 @@ from .page_dependencies import download_manager
 class RepairWorker(ManagedThread):
     """Run one repair phase without blocking the Qt event loop."""
 
-    item_ready = Signal(dict)
+    # Finished rows arrive in batches: one queued signal (and one table
+    # update) per batch keeps the event loop responsive for thousands of files.
+    items_ready = Signal(list)
     progress = Signal(int, int)
     activity = Signal(int, int, int)
     result_ready = Signal(object)
     error = Signal(str)
+
+    BATCH_INTERVAL = 0.2
 
     def __init__(
         self,
@@ -41,25 +45,19 @@ class RepairWorker(ManagedThread):
         self.move_to_output = bool(move_to_output)
         self.items = list(items or [])
         self.options = dict(options or {})
-        self._last_progress_emit = 0.0
+        self._pending_items: list[dict[str, Any]] = []
+        self._last_batch_emit = 0.0
         self._last_activity_emit = 0.0
 
     def run(self):
         def callback(item: dict[str, Any], index: int, total: int) -> bool:
             if self.isInterruptionRequested():
                 return False
-            # A scan can contain hundreds of rows. Keep its result off the
-            # table until all worker futures finish; repainting the table for
-            # every resolved file makes the Qt event loop increasingly costly.
-            if self.mode != "scan":
-                self.item_ready.emit(dict(item))
+            self._pending_items.append(dict(item))
             now = time.monotonic()
-            if (
-                self.mode != "scan"
-                or index == total
-                or now - self._last_progress_emit >= 0.15
-            ):
-                self._last_progress_emit = now
+            if index == total or now - self._last_batch_emit >= self.BATCH_INTERVAL:
+                self._last_batch_emit = now
+                self._flush_items()
                 self.progress.emit(index, total)
             return True
 
@@ -67,7 +65,7 @@ class RepairWorker(ManagedThread):
             if self.isInterruptionRequested():
                 return
             now = time.monotonic()
-            if completed == total or now - self._last_activity_emit >= 0.2:
+            if completed == total or now - self._last_activity_emit >= self.BATCH_INTERVAL:
                 self._last_activity_emit = now
                 self.activity.emit(completed, total, active)
 
@@ -78,6 +76,7 @@ class RepairWorker(ManagedThread):
                     filename_template=self.filename_template,
                     output_root=self.output_root,
                     move_to_output=self.move_to_output,
+                    preview_options=self.options,
                     progress_callback=callback,
                     activity_callback=activity_callback,
                 )
@@ -87,6 +86,45 @@ class RepairWorker(ManagedThread):
                     options=self.options,
                     progress_callback=callback,
                 )
+            self._flush_items()
             self.result_ready.emit(result)
         except Exception as exc:
+            self._flush_items()
             self.error.emit(str(exc))
+
+    def _flush_items(self):
+        if self._pending_items:
+            batch, self._pending_items = self._pending_items, []
+            self.items_ready.emit(batch)
+
+
+class RepairPreviewWorker(ManagedThread):
+    """Plan target paths and check them for conflicts off the GUI thread.
+
+    The conflict check stats several paths per file; for a large folder that
+    took seconds and used to run on every option change in the GUI thread.
+    """
+
+    result_ready = Signal(int, object)
+    error = Signal(str)
+
+    def __init__(
+        self,
+        generation: int,
+        items: list[dict[str, Any]],
+        options: dict[str, Any],
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self.generation = generation
+        self.items = [dict(item) for item in items]
+        self.options = dict(options)
+
+    def run(self):
+        try:
+            result = download_manager.preview_repair_files(self.items, options=self.options)
+        except Exception as exc:
+            self.error.emit(str(exc))
+            return
+        if not self.isInterruptionRequested():
+            self.result_ready.emit(self.generation, result)

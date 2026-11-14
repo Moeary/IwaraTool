@@ -28,6 +28,7 @@ def _item(video_id, **kwargs):
     return data
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class ItemHelperTests(unittest.TestCase):
     def test_state_priority(self):
         self.assertEqual(item_queries.item_state(_item("a")), "")
@@ -491,13 +492,15 @@ class StartupPageTests(_QtCase):
         defaults = {a.id: a.default for a in shortcut_defs.all_actions()}
         order = ["nav_home", "nav_subscriptions", "nav_search", "nav_download", "nav_repair", "nav_history", "nav_rules", "nav_settings"]
         self.assertEqual([defaults[a] for a in order], [f"Ctrl+{n}" for n in range(1, 9)])
+        # Tools came later; it takes the next free number rather than renumbering Rules / Settings.
+        self.assertEqual(defaults["nav_tools"], "Ctrl+9")
 
     def test_setting_chooses_the_first_page(self):
         from types import SimpleNamespace
 
         from app.ui.main_window import MainWindow
 
-        names = ("home", "subscription", "search", "download", "repair", "history", "rules", "settings")
+        names = ("home", "subscription", "search", "download", "repair", "history", "tools", "rules", "settings")
         fake = SimpleNamespace(**{f"_{name}_page": object() for name in names})
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -505,7 +508,10 @@ class StartupPageTests(_QtCase):
         with patch.object(app_config, "_qs", settings):
             self.assertEqual(app_config.startup_page, "home")
             self.assertIs(MainWindow._startup_page(fake), fake._home_page)
-            for key, attr in (("search", "_search_page"), ("subscriptions", "_subscription_page"), ("settings", "_settings_page")):
+            for key, attr in (
+                ("search", "_search_page"), ("subscriptions", "_subscription_page"),
+                ("tools", "_tools_page"), ("settings", "_settings_page"),
+            ):
                 app_config.startup_page = key
                 self.assertIs(MainWindow._startup_page(fake), getattr(fake, attr))
             app_config.startup_page = "no-such-page"

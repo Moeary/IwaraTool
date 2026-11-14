@@ -11,7 +11,7 @@ import cloudscraper
 from ...config import app_config
 from ...i18n import tr
 from ...logging_setup import get_logger
-from .. import net_policy
+from .. import net_policy, site as sites
 from .endpoints import BASE_API, DEFAULT_API_HEADERS
 from .errors import (
     _extract_api_message,
@@ -51,8 +51,11 @@ class IwaraAPI(VideoApiMixin, UserApiMixin, ListingApiMixin):
             return {"Authorization": f"Bearer {self.token}"}
         return {}
 
-    def _headers(self, extra: dict[str, str] | None = None, *, auth: bool = True) -> dict[str, str]:
+    def _headers(
+        self, extra: dict[str, str] | None = None, *, auth: bool = True, site: str | None = None
+    ) -> dict[str, str]:
         headers = dict(DEFAULT_API_HEADERS)
+        headers.update(sites.api_headers(site))
         if auth:
             headers.update(self._auth_headers())
         if extra:
@@ -60,15 +63,29 @@ class IwaraAPI(VideoApiMixin, UserApiMixin, ListingApiMixin):
         return headers
 
     def _get_json(self, url: str, **kwargs) -> Any:
-        """GET request returning parsed JSON, or raises on failure."""
+        """GET request returning parsed JSON, or raises on failure.
+
+        A post asked for under the other site's header answers
+        ``errors.differentSite`` with its real site; that is retried once
+        there, so a link or record with the wrong site still resolves (the
+        returned post carries its ``siteId``).
+        """
         extra_headers = kwargs.pop("headers", None)
-        resp = self.scraper.get(url, headers=self._headers(extra_headers), timeout=30, **kwargs)
-        try:
+        site = None
+        for _attempt in range(2):
+            resp = self.scraper.get(url, headers=self._headers(extra_headers, site=site), timeout=30, **kwargs)
             ok, data, parse_error = _try_response_json(
                 resp,
                 action=tr("API request", "API 请求", "API リクエスト"),
             )
-            if resp.status_code >= 400:
+            correct = sites.different_site(data) if ok else ""
+            if not correct or correct == site:
+                break
+            resp.close()
+            logger.debug("%s belongs to %s; asking there", url, correct)
+            site = correct
+        try:
+            if resp.status_code >= 400 or sites.different_site(data if ok else None):
                 api_message = _extract_api_message(data) if ok else ""
                 if api_message:
                     raise RuntimeError(f"HTTP {resp.status_code}: {api_message}")

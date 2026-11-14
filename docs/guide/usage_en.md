@@ -14,13 +14,29 @@ Home is the first page. By default it shows "My subscriptions" (sign-in required
 
 F1 shows every shortcut at any time (the page you are on comes right after the global ones); all of them can be changed under Settings → Keyboard Shortcuts. Handy ones: Ctrl+K quick search, Ctrl+Tab / Ctrl+Shift+Tab switch pages, Ctrl+Alt+V paste the clipboard link and download it, Ctrl+Shift+O open the download folder, Ctrl+Shift+R cycle the content filter, Ctrl+= / Ctrl+- / Ctrl+0 cover size, Ctrl+Shift+L dark mode, F11 full screen. Home: Ctrl+E customize rows, F5 refresh, Ctrl+Home / Ctrl+End jump to top / bottom, Ctrl+Shift+Up / Down fold / unfold every row; with a post open, Ctrl+L like, Ctrl+P play, Ctrl+D download, Ctrl+O open in the browser, Ctrl+Shift+C copy the link, Ctrl+Shift+A author page, Esc back. Search: Alt+Left / Right page, Ctrl+Shift+G grid / list, Ctrl+Shift+F fold the search controls. Subscriptions: Alt+Left back to the list, Ctrl+A select all, Esc clear the selection, Ctrl+Shift+T overview / table.
 
+Ctrl+, opens Settings (Ctrl+8 still works); Ctrl+Shift+S switches between iwara.tv and iwara.ai.
+
+**macOS**: every Ctrl above is ⌘ (Command) on a Mac, and a few defaults follow Mac conventions instead: ⌘, opens Settings, ⌃Tab / ⌃⇧Tab switch pages (⌘Tab is the system app switcher), ⌘R refreshes (instead of F5), ⌘[ / ⌘] go back and turn pages (instead of Alt+←/→), ⌘↑ / ⌘↓ scroll to the top / bottom, ⌘⌫ removes records, ⌃⌘F is full screen, ⌘/ shows the shortcuts (instead of F1), ⌘W closes the window and ⌘M minimizes it. The cheat sheet and Settings show the ⌘ ⌥ ⌃ ⇧ symbols. A two-finger swipe to the right on the trackpad goes back, as in Safari and Finder (not over something that scrolls sideways itself).
+
+Back (the top-left button, Esc, the mouse back button, a trackpad swipe on a Mac) is kept per page: open a post on Home, visit Search from the sidebar and come back, and Back still leads to the Home feed rather than to Search. The sidebar and Ctrl+1… only switch pages and are not steps; after a jump from another page (a search result's "View details", an author page), Back returns to the page you came from.
+
 Every cover grid also works from the keyboard: click it or Tab into it, then arrow keys / Home / End / PageUp / PageDown move the cursor, Enter opens, Space ticks, Ctrl+A selects all, Esc clears, and the Menu key or Shift+F10 opens the context menu.
+
+## iwara.tv and iwara.ai
+
+Both sites share one account. The globe at the bottom of the sidebar (Ctrl+Shift+S, ⌘⇧S on a Mac) shows the site you are browsing; click it to switch, or choose under Settings → Account & Network → Site (iwara.tv by default). The choice is remembered, and on iwara.ai the window title ends in "· iwara.ai". After a switch Home, Search (Iwara live API) and the "More" lists browse the new site, and Home keeps a separate cache for each. Oreno3D indexes iwara.tv only, so on iwara.ai the Oreno3D source is greyed out, Search uses Iwara itself and Chinese keywords are no longer sent to Oreno3D. Posts already on screen before a switch (an open post page, subscription and history entries, download tasks) still open, play, take likes and download on their own site. Pasted links follow their own domain: an iwara.ai video, author or playlist link pasted while browsing iwara.tv is still fetched and downloaded from iwara.ai, and the other way round. A subscription remembers the site it was added on (all earlier subscriptions belong to iwara.tv), so the same creator can be followed on both. The Subscriptions page lists the current site's subscriptions and "Refresh all" refreshes only those, while the timed background refresh checks every subscription on its own site.
 
 ## Subscriptions
 
 The Subscriptions page now keeps only authors and playlists (the account feed is replaced by "My subscriptions" on Home; an old account-feed source is no longer listed). The default "Overview" is one large row per subscription: avatar, name, new / not-downloaded counts and a strip of the latest covers. Click a cover to open the video's detail page, right-click it for details, play, download or mark; click the row or "View all" to see every video of that author / playlist as a poster grid like Search, with state filters, title search and bulk download with the chosen rule. Opening a subscription puts the covers of the visible page at the front of the download queue (no longer behind hundreds of covers from the overview), the status line shows "loading covers (n left)", and covers that failed are retried the next time you look or press Refresh. "Table" in the header keeps the original list / cover view, whose cover mode uses the same cover-size slider.
 
 The Task Center now shows the total download speed of all running tasks at the top.
+
+## Download rule per page
+
+Each page downloads with its own rule: changing the rule picker on Subscriptions, Search, Home or the Download page only affects that page, and "Rule per page" at the top of the Rules page sets the rule for Subscriptions, Search, Video details, Home and Download links in one place. "Follow default" uses the rule marked ● ("Set as default" in the rule list).
+
+On first start an editable "Temporary Download" rule is added: it saves to `temp_video/{title}_{id}.mp4` under the download folder and does not write download history. Search and Video details use it by default; Subscriptions, Home and Download links follow the default rule. A temporary copy does not count as downloaded, so downloading the same video later from Subscriptions saves it again with the subscription rule and records it in history. Files inside the fixed leading folder of any no-history rule (such as `temp_video/`) are never treated as already downloaded.
 
 ## Author pages, subscription state and Like
 
@@ -44,6 +60,12 @@ If an Oreno3D result's original Iwara video is deleted or inaccessible, automati
 
 Iwara keyword and tag searches keep separate input and sort settings. Keyword search supports newest, relevance, views, and likes; use double quotes for exact phrases or leave the input blank to browse videos. Tag search accepts suggestions or exact translated names in English, Chinese, and Japanese; separate multiple tags with commas to find videos containing all of them. Sorting and pagination use the server results, and failures remain visible.
 
+## Post-search filter
+
+Iwara's search API cannot restrict likes, views, duration and the like before searching, so the Search page filters afterwards: once results are in, click **Filter** in the scope / sort / rating row and set the conditions in the popup, which takes no page height. You can limit likes and views to a range, duration to a range in minutes, the publish date (last 24 hours up to last year), a minimum like ratio (likes ÷ views) and tags to exclude, and re-sort by likes, views, like ratio, duration or publish date. Empty boxes mean no limit.
+
+The filter applies to the results loaded on the current page and stays in force while paging. The button shows how many conditions are set, and the status line reads "Found N video(s) · M after filtering". Oreno3D results join once their Iwara statistics are loaded and then appear automatically; "Reset the search" also clears the filter. Author and playlist results have no post-search filter.
+
 ## Oreno3D Tag Bridge
 
 In tag scope, a single label uses the direct `/tags/{id}` index, while multiple labels are intersected client-side; `tag:<id>`, `origin:<id>`, `character:<id>`, and Oreno3D entity URLs are also accepted. Oreno3D supports video and tag search in this bridge; for author or playlist results, switch to the Iwara live API. Results are resolved to the canonical Iwara video before opening or queueing. For tag IDs, see the [Tag index](../iwara_tags.md).
@@ -51,3 +73,14 @@ In tag scope, a single label uses the direct `/tags/{id}` index, while multiple 
 ## Subscription Cover Cache
 
 Subscription covers are saved locally automatically. To cache an author's covers in advance, first select that subscription source and refresh its video list, then use "Refresh Actions → Cache All Source Covers". This covers all videos recorded for that source, regardless of the current filter or list/cover view, and does not download videos. Running it again reuses existing covers and retries missing ones. Obtaining covers for the first time still requires network access; when it finishes, the success and failure counts are shown.
+
+## Interface font
+
+**Settings → General → Font** defaults to **Automatic**: it uses the system UI fonts for the current platform and interface language, for example Segoe UI + Microsoft YaHei UI on Windows and the system font + PingFang on macOS. A Japanese interface puts Japanese fonts ahead of Chinese ones so shared kanji keep their Japanese shapes. Click **Choose font…** to pick any installed font from a searchable list, where each font is drawn in itself with a live preview. Characters the chosen font lacks (for example Chinese or Japanese in a Latin-only font) fall back to the platform fonts and then the system default. The card lists the fonts in effect, in order; the window reloads to apply a change, and **Automatic** restores the default at any time. A chosen font that is not installed on this computer (for example after copying the settings to another machine) is replaced by Automatic.
+
+## Tools
+
+The **Tools** page at the bottom of the sidebar lists tools on the left and shows the chosen one on the right. Both tools run the ffmpeg program: with the path left empty it is looked up on PATH and in the usual install folders (Homebrew, winget, scoop, Chocolatey, next to the app), or choose `ffmpeg` / `ffmpeg.exe` under **Settings → Tools**. Install it with `brew install ffmpeg` (macOS) or `winget install ffmpeg` (Windows).
+
+- **Upload Compressor**: Iwara accepts H.264 + AAC in MP4, at least 720p, up to 300 MB (600 MB for premium). After you pick a video it works out what is needed: a file that already qualifies is reported as ready; one whose container or audio is the only problem is remuxed without touching the picture; anything else is re-encoded at the bitrate that fills "limit × (1 − margin)". The default, two-pass x264, gives the best picture for the size and hits it closely; hardware encoders (VideoToolbox / NVENC / Quick Sync / AMF) are faster, and an output that comes out over the limit is redone at a lower bitrate. Videos whose short side is under 720 are scaled up to 720p; when the budget is too small for the source resolution the video is scaled down to 1080p or 720p (never lower), which can be turned off. The output defaults to `name_iwara.mp4` beside the source.
+- **Cover Preview**: after an upload Iwara offers 16 screenshots as the cover, apparently taken at the middle of 16 equal slices of the video (duration × (2i+1)/32; a community finding, not confirmed by Iwara). Load a video to see all 16, numbered in the order of Iwara's picker. They are cropped to the 3:2 card shape by default; turn that off to see the whole frame. Arrow keys move between them; save the selected frame at full size or copy its time. After compressing, **Preview Covers of the Result** opens the finished file here.

@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import errno
 import os
+import random
 import tempfile
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -17,6 +20,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.models import DownloadTask
+from app.core.repair.candidate_index import RepairCandidateIndex
 from app.core.repair.manager import RepairManagerMixin
 from app.ui.repair.page import RepairInterface
 
@@ -399,6 +403,13 @@ class RepairInterfaceModeTests(RepairTestFixture):
             page.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
+    def wait_for_preview(self, page):
+        deadline = time.monotonic() + 10
+        while page._preview_pending() and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.assertFalse(page._preview_pending())
+
     def make_page(self):
         page = RepairInterface()
         self.pages.append(page)
@@ -517,12 +528,15 @@ class RepairInterfaceModeTests(RepairTestFixture):
         self.assertEqual(page._table.item(0, page._COL_FILE).text(), str(source))
         self.assertEqual(page._table.item(0, page._COL_TARGET).text(), scanned_target)
         page._mode_combo.setCurrentIndex(1)
+        self.wait_for_preview(page)
         organized_target = page._items[0]["target_path"]
         self.assertEqual(Path(organized_target).parent, self.output / "Alice")
         self.assertEqual(page._items[0]["path"], str(source))
         page._mode_combo.setCurrentIndex(0)
+        self.wait_for_preview(page)
         self.assertEqual(page._items[0]["target_path"], scanned_target)
         page._mode_combo.setCurrentIndex(1)
+        self.wait_for_preview(page)
         with patch.object(page, "_start_worker") as start_worker:
             page._start_repair()
         repair_worker = start_worker.call_args.args[0]
@@ -535,3 +549,118 @@ class RepairInterfaceModeTests(RepairTestFixture):
         self.assertTrue(Path(organized_target).is_file())
         self.assertFalse(source.exists())
 
+
+    def test_scan_rows_stream_into_the_table_before_the_scan_finishes(self):
+        for index in range(3):
+            self.make_video("Alice", f"VideoID0{index}")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        with patch.object(page, "_start_worker") as start_worker:
+            page._scan_folder()
+        worker = start_worker.call_args.args[0]
+        worker.BATCH_INTERVAL = 0
+        rows_seen = []
+        worker.items_ready.connect(page._on_items_ready)
+        worker.items_ready.connect(lambda _batch: rows_seen.append(page._table.rowCount()))
+        results = []
+        worker.result_ready.connect(results.append)
+        worker.run()
+        self.assertGreaterEqual(len(rows_seen), 1)
+        self.assertGreater(rows_seen[0], 0)
+        page._worker_mode = "scan"
+        page._on_result(results[0])
+        self.assertEqual(page._table.rowCount(), 3)
+        self.assertEqual(
+            [page._table.item(row, page._COL_FILE).text() for row in range(3)],
+            [item["path"] for item in results[0]],
+        )
+
+    def test_option_edits_are_coalesced_and_previewed_off_the_gui_thread(self):
+        self.make_video("Alice", "VideoID01")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        threads = []
+        preview = self.manager.preview_repair_files
+
+        def record_thread(*args, **kwargs):
+            threads.append(threading.current_thread())
+            return preview(*args, **kwargs)
+
+        with patch.object(self.manager, "preview_repair_files", side_effect=record_thread):
+            for text in ("{id}", "{id}_", "{id}_{title}"):
+                page._template_edit.setText(text)
+            self.wait_for_preview(page)
+        self.assertEqual(len(threads), 1)
+        self.assertIsNot(threads[0], threading.main_thread())
+        self.assertEqual(Path(page._items[0]["target_path"]).name, "VideoID01_New title.mp4")
+        self.assertEqual(page._table.item(0, page._COL_TARGET).text(), page._items[0]["target_path"])
+
+
+class RepairScanScalingTests(RepairTestFixture):
+    """Issue #22: scanning a folder with many files must not take minutes."""
+
+    def test_default_template_names_resolve_known_ids_without_searching(self):
+        for index in range(40):
+            video_id = f"KnownVid{index:04d}"
+            self.manager.history.records[video_id] = {
+                "video_id": video_id, "title": f"Title {index}", "author": "Alice",
+                "file_path": str(self.root / "moved" / f"{video_id}.mp4"),
+            }
+            self.manager.videos[video_id] = {"id": video_id, "title": f"Title {index}", "author": "Alice"}
+        path = self.source / "2024-05-06_Title 7_KnownVid0007.mp4"
+        path.write_bytes(b"media")
+        with patch.object(FakeAPI, "get_videos_by_query", side_effect=AssertionError("searched")):
+            items = self.scan()
+        self.assertEqual([(item["video_id"], item["source"]) for item in items], [("KnownVid0007", "known-id")])
+
+    def test_candidate_index_matches_brute_force_scoring(self):
+        rng = random.Random(22)
+        alphabet = "abcde fg"
+        candidates = [
+            {"video_id": f"Vid{index:05d}", "title": "".join(rng.choices(alphabet, k=rng.randint(1, 18))),
+             "author": rng.choice(["alice", "al", "bob", ""])}
+            for index in range(150)
+        ]
+        index = RepairCandidateIndex(candidates)
+        for _ in range(300):
+            base = rng.choice(candidates)["title"]
+            name = "".join(char for char in base if rng.random() > 0.1) or "x"
+            path = os.path.join(str(self.source), rng.choice(["alice", "bob", "misc"]), f"{name}.mp4")
+            with self.subTest(path=path):
+                expected = RepairManagerMixin._select_repair_candidate(path, candidates)
+                actual = index.select(path)
+                self.assertEqual((expected[0] or {}).get("video_id"), (actual[0] or {}).get("video_id"))
+                self.assertEqual(expected[1], actual[1])
+
+    def test_many_files_against_many_local_records_scan_quickly(self):
+        rng = random.Random(7)
+
+        def words(count):
+            return " ".join("".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=rng.randint(3, 8))) for _ in range(count))
+
+        ids = [f"Rec{index:06d}xyz" for index in range(3000)]
+        for index, video_id in enumerate(ids):
+            title = words(rng.randint(2, 5))
+            self.manager.history.records[video_id] = {
+                "video_id": video_id, "title": title, "author": f"author{index % 40}",
+                "file_path": str(self.root / "moved" / f"{video_id}.mp4"),
+            }
+            self.manager.videos[video_id] = {"id": video_id, "title": title, "author": f"author{index % 40}"}
+        for index in range(300):
+            title = self.manager.history.records[ids[index]]["title"]
+            name = (f"2024-01-01_{title}_{ids[index]}", title, words(3))[index % 3]
+            folder = self.source / f"author{index % 5}"
+            folder.mkdir(exist_ok=True)
+            (folder / f"{name}.mp4").write_bytes(b"media")
+        started = time.monotonic()
+        items = self.scan()
+        elapsed = time.monotonic() - started
+        self.assertEqual(len(items), 300)
+        self.assertEqual(sum(item["source"] == "known-id" for item in items), 100)
+        # The brute-force matcher needed well over a minute for this folder.
+        self.assertLess(elapsed, 20)

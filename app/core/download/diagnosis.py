@@ -10,6 +10,7 @@ from ...i18n import tr
 from ..models import TaskStatus, status_label
 from ..rules import rule_store
 from ..subscription.automation import matches_rule_video
+from .. import site as sites
 
 
 BLOCK = "block"  # this is why it was not (or will not be) downloaded
@@ -29,6 +30,7 @@ def _finding(level: str, text: str) -> dict[str, str]:
 class DownloadDiagnosisMixin:
     """Answer "why was this video not downloaded?" from the queue, history, disk and the site."""
 
+    @sites.scoped_to_link
     def explain_not_downloaded(self, text: str, *, rule_id: str = "", online: bool = True) -> dict[str, Any]:
         """Every reason a video was skipped, failed or is still waiting, plus a one-line verdict.
 

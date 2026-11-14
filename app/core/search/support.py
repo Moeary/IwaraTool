@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 from ..api.client import IwaraAPI
+from .. import site as sites
 
 
 class SearchSupportMixin:
@@ -74,7 +75,7 @@ class SearchSupportMixin:
             "Referer": (
                 "https://oreno3d.com/"
                 if "oreno3d.com" in str(image_url or "").casefold()
-                else "https://www.iwara.tv/"
+                else sites.home_url()
             ),
         }
         if token:

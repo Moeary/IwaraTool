@@ -18,12 +18,14 @@ class SubscriptionSourcesMixin:
     """Add, detect, list, pause and remove subscription sources."""
 
     def add_following_subscription(self) -> int:
-        return self.subscriptions.add_source(
-            "feed",
-            "subscribed",
-            tr("Following Feed", "账号订阅流", "購読フィード"),
-            source_origin="account",
-        )
+        """The signed-in account's following feed on the current site (one per site)."""
+
+        from ..site import SITE_TV, current_site
+
+        title = tr("Following Feed", "账号订阅流", "購読フィード")
+        if current_site() != SITE_TV:
+            title = f"{title} (iwara.ai)"
+        return self.subscriptions.add_source("feed", "subscribed", title, source_origin="account")
 
     def import_followed_author_subscriptions(self) -> dict[str, Any]:
         """Import followed authors from the logged-in account.
