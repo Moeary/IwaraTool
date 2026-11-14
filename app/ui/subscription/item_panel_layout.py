@@ -150,7 +150,7 @@ class SubscriptionItemPanelLayoutMixin:
         options_label = BodyLabel(tr("Download Rule", "下载规则", "保存ルール"), self)
         _style_inline_label(options_label)
         download_options_row.addWidget(options_label)
-        self._rule_picker = RulePicker(self)
+        self._rule_picker = RulePicker(self, scope="subscription")
         download_options_row.addWidget(self._rule_picker)
         item_controls_layout.addLayout(download_options_row)
 

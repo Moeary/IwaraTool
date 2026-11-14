@@ -31,10 +31,12 @@ from qfluentwidgets import (
 
 from ...core.rules import (
     BUILTIN_DEFAULT_RULE_ID,
+    PAGE_RULE_SCOPES,
     active_rule_id,
     apply_rule_payload,
     current_rule_payload,
     default_rule_payload,
+    page_rule_id,
     rule_store,
     set_active_rule_id,
 )
@@ -49,8 +51,9 @@ from ..theme import (
     set_secondary_text,
 )
 from ..fluent_dialogs import show_fluent_confirmation
+from .page_bindings import PageRuleBindings
 from .rule_form import RuleFormWidget
-from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary
+from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary, page_scope_name
 
 
 class RulesInterface(QWidget):
@@ -65,6 +68,7 @@ class RulesInterface(QWidget):
         self._build_ui()
         self._reload_list(active_rule_id())
         signal_bus.active_rule_changed.connect(self._on_active_rule_changed)
+        signal_bus.page_rule_changed.connect(lambda *_: self._reload_list(self._selected_id or None))
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -72,13 +76,16 @@ class RulesInterface(QWidget):
         root.setSpacing(PAGE_SPACING)
         root.addWidget(TitleLabel(tr("Download Rules", "下载规则", "ダウンロードルール"), self))
         intro = BodyLabel(tr(
-            "One rule combines filters, naming and download behavior. Selecting a rule on a download page applies it immediately.",
-            "一个规则统一保存筛选、命名和下载行为；在下载页选择后会立即生效并成为默认规则。",
-            "フィルター、命名、保存動作を一つにまとめ、選択時に即座に適用します。",
+            "One rule combines filters, naming and download behavior. Each page downloads with its own rule; the rule marked ● is the default.",
+            "一个规则统一保存筛选、命名和下载行为；每个页面可以使用各自的规则，带 ● 的是默认规则。",
+            "フィルター、命名、保存動作を一つにまとめます。ページごとに別のルールを使え、● が既定ルールです。",
         ), self)
         intro.setWordWrap(True)
         set_secondary_text(intro)
         root.addWidget(intro)
+        # Pages -> rules, apart from the list/editor so it is not read as part of the selected rule.
+        self._page_bindings = PageRuleBindings(self)
+        root.addWidget(self._page_bindings)
 
         splitter = FluentSplitter(Qt.Orientation.Horizontal, self)
         self._splitter = splitter
@@ -184,9 +191,13 @@ class RulesInterface(QWidget):
                 kind = tr("Unsaved draft", "未保存草稿", "未保存の下書き")
             else:
                 kind = tr("Built-in default", "内置默认", "内蔵の既定") if rule.get("builtin") else tr("Saved rule", "已保存规则", "保存済み")
-            item = QListWidgetItem(f"{active_mark}{_rule_display_name(rule)}\n{kind} · {_rule_summary(rule['payload'])}")
+            lines = [f"{active_mark}{_rule_display_name(rule)}", f"{kind} · {_rule_summary(rule['payload'])}"]
+            used_by = [page_scope_name(scope) for scope in PAGE_RULE_SCOPES if page_rule_id(scope) == rule["id"]]
+            if used_by:
+                lines.append(tr("Used by: ", "用于：", "使用先：") + tr(", ", "、", "、").join(used_by))
+            item = QListWidgetItem("\n".join(lines))
             item.setData(Qt.ItemDataRole.UserRole, rule["id"])
-            item.setSizeHint(QSize(0, 72))
+            item.setSizeHint(QSize(0, 72 + (20 if used_by else 0)))
             item.setToolTip(str(rule["payload"].get("filename_template", "")))
             self._list.addItem(item)
         self._list.blockSignals(False)

@@ -10,6 +10,7 @@ from ..oreno3d.client import Oreno3DClient
 from ..oreno3d.page_parsing import extract_iwara_video_id
 from ..oreno3d.search_query import intersect_oreno3d_listings
 from ..task_metadata import _dict_or_empty, _iwara_image_url
+from .. import site as sites
 
 
 class Oreno3DBridgeMixin:
@@ -211,7 +212,7 @@ class Oreno3DBridgeMixin:
         """Resolve an Oreno3D card and build its canonical Iwara URL from the ID."""
 
         video_id = self.resolve_oreno3d_video_id(source_id, oreno3d_url)
-        return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+        return sites.video_url(video_id, sites.SITE_TV)  # Oreno3D only indexes iwara.tv
 
 
 def _iwara_profile_target(profile: object) -> dict[str, str]:
@@ -230,7 +231,7 @@ def _iwara_profile_target(profile: object) -> dict[str, str]:
         "name": str(user.get("name", "") or username).strip() or username,
         "id": str(user.get("id", "") or "").strip(),
         "avatar_url": avatar_url,
-        "profile_url": f"https://www.iwara.tv/profile/{username}",
+        "profile_url": sites.profile_url(username, sites.SITE_TV),
     }
 
 

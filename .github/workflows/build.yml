@@ -52,28 +52,56 @@ jobs:
           QT_QPA_PLATFORM: cocoa
         run: pixi run test
 
-      - name: Build (Windows)
+      # Version resources always; Authenticode signing when the repository has a
+      # code-signing certificate in the WINDOWS_SIGN_PFX_BASE64 / _PASSWORD secrets.
+      - name: Build and sign (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          WINDOWS_SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+          WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
-          pixi run python -m nuitka \
-            --assume-yes-for-downloads \
-            --standalone \
-            --onefile \
-            --enable-plugin=pyside6 \
-            --include-qt-plugins=multimedia \
-            --windows-console-mode=disable \
-            --include-package-data=cloudscraper \
-            --windows-icon-from-ico=app/icon.ico \
-            --include-data-file=app/icon.ico=app/icon.ico \
-            --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
-            --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json \
-            --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe" \
-            --output-dir=dist \
-            --remove-output \
-            main.py
+          pixi run python scripts/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
+
+      # SignPath Foundation signing for tagged releases. Skipped until the
+      # repository variable SIGNPATH_ORGANIZATION_ID and the secret
+      # SIGNPATH_API_TOKEN are set; every request waits for manual approval in SignPath.
+      - name: Upload unsigned exe for SignPath (Windows)
+        id: upload-unsigned
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-exe  # outside the release's IwaraTool-* pattern
+          path: dist/IwaraTool-Windows-*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign with SignPath (Windows)
+        if: steps.upload-unsigned.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'IwaraTool' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist-signed
+
+      - name: Use the signed exe (Windows)
+        if: steps.upload-unsigned.outcome == 'success'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem dist-signed -Recurse -Filter 'IwaraTool-Windows-*.exe'
+          if (-not $signed) { throw 'SignPath returned no exe' }
+          foreach ($file in $signed) {
+            $status = (Get-AuthenticodeSignature $file.FullName).Status
+            if ($status -ne 'Valid') { throw "Signature of $($file.Name) is $status" }
+            Copy-Item $file.FullName (Join-Path dist $file.Name) -Force
+          }
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
@@ -97,21 +125,19 @@ jobs:
             --remove-output \
             main.py
 
-      - name: Build (macOS)
+      # scripts/build_macos.py rewrites library references that still point at
+      # this runner's pixi environment, re-signs (ad-hoc), audits every Mach-O,
+      # launches the bundle with DYLD_PRINT_LIBRARIES, builds the DMG and
+      # launches again from the mounted DMG; any failure stops the release.
+      - name: Build, repair and verify (macOS)
         if: runner.os == 'macOS'
         run: pixi run build
 
-      - name: Write SHA-256 checksums
-        shell: bash
+      - name: Verify DMG image (macOS)
+        if: runner.os == 'macOS'
         run: |
-          cd dist
-          for f in IwaraTool*; do
-            case "$f" in *.sha256) continue ;; esac
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              shasum -a 256 "$f" > "$f.sha256"
-            else
-              sha256sum "$f" > "$f.sha256"
-            fi
+          for dmg in dist/IwaraTool-macOS-*.dmg; do
+            hdiutil verify "$dmg"
           done
 
       - name: Upload artifacts
@@ -153,6 +179,10 @@ jobs:
           files: dist/IwaraTool*
           fail_on_unmatched_files: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-pre') }}
+          # Every tag starts as a pre-release, so the in-app update check
+          # (/releases/latest skips pre-releases) does not offer an untested
+          # build. After testing, publish it with:
+          #   gh release edit <tag> --prerelease=false --latest
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -16,6 +16,7 @@ from .result_authors import _author_subscription_target
 from .oreno_workers import SearchOrenoLinkWorker
 from ..worker_lifecycle import on_finished
 from .page_dependencies import signal_bus
+from ...core import site as sites
 
 
 class SearchOrenoLinksMixin:
@@ -129,7 +130,7 @@ class SearchOrenoLinksMixin:
         video.raw["oreno3d_url"] = bridge_url
         video.raw["oreno3d_id"] = video.video_id.removeprefix("oreno3d:")
         video.download_video_id = video_id
-        video.iwara_url = iwara_url or f"https://www.iwara.tv/video/{video_id}"
+        video.iwara_url = iwara_url or sites.video_url(video_id, sites.SITE_TV)
         video.downloadable = True
         video.source_kind = "iwara"
         video.source_url = video.iwara_url

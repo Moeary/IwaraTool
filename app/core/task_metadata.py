@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from ..i18n import tr
+from . import site as sites
 
 
 MAX_STORED_TEXT_CHARS = 20000
@@ -125,7 +126,7 @@ def subscription_item_from_video(video: dict[str, Any]) -> dict[str, Any]:
         "author": author,
         "username": username,
         "published_at": str(video.get("createdAt", "") or video.get("updatedAt", "") or ""),
-        "source_url": f"https://www.iwara.tv/video/{video_id}" if video_id else "",
+        "source_url": sites.video_url(video_id, sites.site_of_item(video)),
         "thumbnail_url": subscription_thumbnail_url(video),
         "download_state": download_state,
         "download_reason": download_reason,

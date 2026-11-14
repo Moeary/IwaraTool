@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt
 
 from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ...config import app_config
+from ...config import DEFAULT_PROXY_URL, app_config
 from ...core.download.policy import normalize_hhmm
 from ...i18n import tr
 from .page_dependencies import download_manager
@@ -158,9 +158,9 @@ class SettingsPersistenceMixin:
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
         app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
-        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or DEFAULT_PROXY_URL
         app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
-        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or "http://127.0.0.1:7890"
+        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or DEFAULT_PROXY_URL
         app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
         app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
         app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()

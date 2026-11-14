@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QWindow
 from PySide6.QtWidgets import QApplication, QWidget
 
 from qfluentwidgets import FluentWindow, qconfig
@@ -14,6 +15,7 @@ from ..logging_setup import get_logger
 from .navigation import NavigationController
 from .notification_dispatcher import TaskNotificationBatch
 from .shortcut_bindings import install_shortcuts
+from .swipe_back import SwipeBackTracker
 from .theme import install_accent
 from .player.preview_window import VideoPreviewWindow, keep_normal_geometry
 from .window_drag import WindowsTitleBarDragFilter
@@ -36,14 +38,25 @@ class _NotificationBridge(QObject):
 
 
 class _BackButtonFilter(QObject):
-    """The mouse's back (X1) button goes back, wherever the pointer is in the window."""
+    """The mouse's back (X1) button goes back, wherever the pointer is in the window.
+
+    On macOS a two-finger swipe to the right on the trackpad does the same.
+    """
 
     def __init__(self, window: "MainWindow"):
         super().__init__(window)
         self._window = window
+        self._swipe = SwipeBackTracker() if sys.platform == "darwin" else None
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        if kind == QEvent.Type.Wheel and self._swipe is not None and isinstance(watched, QWindow):
+            # Seen once per scroll on the window itself, before it reaches a widget.
+            if watched is self._window.windowHandle() and QApplication.activePopupWidget() is None:
+                widget = QApplication.widgetAt(event.globalPosition().toPoint())
+                if self._swipe.feed(event, widget):
+                    self._window.navigate_back()
+            return False
         if kind in (
             QEvent.Type.MouseButtonPress,
             QEvent.Type.MouseButtonRelease,
@@ -112,6 +125,7 @@ class MainWindow(
         self._init_desktop_notifications()
         self._splash_finish()
         signal_bus.language_changed.connect(self._on_language_changed)
+        signal_bus.font_changed.connect(self._on_font_changed)
         signal_bus.desktop_notification_requested.connect(self._show_desktop_notification)
         signal_bus.release_update_available.connect(self._on_release_update_available)
         signal_bus.video_preview_requested.connect(self._on_video_preview_requested)
@@ -121,6 +135,10 @@ class MainWindow(
         signal_bus.media_detail_requested.connect(self._on_media_detail_requested)
         signal_bus.search_requested.connect(self._on_search_requested)
         signal_bus.author_page_requested.connect(self._on_author_page_requested)
+        signal_bus.site_changed.connect(self._on_site_changed)
+        from ..core.site import configured_site
+
+        self._apply_site_chrome(configured_site())
         qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 

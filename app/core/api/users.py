@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ...i18n import tr
+from .. import site as sites
 from .endpoints import ALT_BASE_API, BASE_API
 from .errors import (
     _extract_api_message,
@@ -59,6 +60,14 @@ class UserApiMixin:
             if 200 <= resp.status_code < 300:
                 return True, ""
             ok, data, parse_error = _try_response_json(resp, action=action)
+            correct = sites.different_site(data) if ok else ""
+            if correct:
+                # Liking an iwara.ai post while browsing iwara.tv, for example.
+                resp.close()
+                resp = self.scraper.request(method, url, headers=self._headers(site=correct), timeout=30)
+                if 200 <= resp.status_code < 300:
+                    return True, ""
+                ok, data, parse_error = _try_response_json(resp, action=action)
             message = _extract_api_message(data) if ok else ""
             return False, f"HTTP {resp.status_code}: {message}" if message else (parse_error or _friendly_http_response(resp))
         except Exception as exc:

@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor
 from ...core.models import TaskStatus, status_label
 from ...i18n import tr
 from ..theme import palette, qcolor
+from ...core import site as sites
 
 
 def _split_title_keywords(value: str) -> list[str]:
@@ -248,18 +249,18 @@ def _source_url(source: dict[str, Any]) -> str:
     durable_url = str(source.get("source_url", "") or "").strip()
     if source_type == "author" and durable_url:
         return durable_url
+    site = str(source.get("site", "") or "") or None
     if source_type == "author" and key:
-        return f"https://www.iwara.tv/profile/{key}"
+        return sites.profile_url(key, site)
     if source_type == "playlist" and key:
-        return f"https://www.iwara.tv/playlist/{key}"
+        return sites.web_url("playlist", key, site)
     if source_type == "feed":
-        return "https://www.iwara.tv/subscriptions"
+        return sites.home_url(site) + "subscriptions"
     return ""
 
 
 def _video_url(video_id: str) -> str:
-    video_id = str(video_id or "").strip()
-    return f"https://www.iwara.tv/video/{video_id}" if video_id else ""
+    return sites.video_url(str(video_id or "").strip())
 
 
 def _open_url(url: str):
@@ -268,7 +269,7 @@ def _open_url(url: str):
 
 
 def _parse_iwara_path(text: str) -> list[str] | None:
-    if "iwara.tv" not in text:
+    if "iwara.tv" not in text and "iwara.ai" not in text:
         return None
     normalized = text if "://" in text else f"https://{text.lstrip('/')}"
     try:

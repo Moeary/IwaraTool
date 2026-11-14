@@ -16,6 +16,19 @@ def smoke_test():
     from app.qt_runtime import ensure_multimedia_plugins
     from app.version import __version__
 
+    # Native extension modules pull in libssl, libcrypto, libsqlite and friends;
+    # importing them here makes a packaged build prove those libraries load.
+    import hashlib
+    import sqlite3
+    import ssl
+
+    import cloudscraper  # noqa: F401
+    import requests  # noqa: F401
+
+    ssl.create_default_context()
+    hashlib.sha256(b"IwaraTool").hexdigest()
+    sqlite3.connect(":memory:").close()
+
     app = QApplication(sys.argv)
     ensure_multimedia_plugins()
     player = QMediaPlayer(app)
@@ -75,7 +88,10 @@ from app.qt_runtime import install_console_interrupt
 from app.signal_bus import signal_bus
 from app.core.manager import download_manager
 from app.core.background_services import background_service
+from app.core.rules import ensure_temporary_rule
+from app.ui.fonts import apply_app_font
 from app.ui.main_window import MainWindow
+from app.ui import mask_dialogs
 from app.ui.theme import apply_theme_mode
 
 
@@ -99,6 +115,12 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Mask dialogs must stay clickable once a video makes the window's views native.
+    mask_dialogs.install()
+
+    # Fonts first: qfluentwidgets reads them when widgets build their styles.
+    apply_app_font(app)
+
     # Apply the saved theme mode; "auto" follows the system dark/light mode.
     apply_theme_mode(app_config.theme_mode)
 
@@ -107,6 +129,9 @@ def main():
 
     # Restore cached token first for faster startup auth.
     download_manager.restore_cached_login()
+
+    # Search / detail downloads default to this rule (own folder, no history).
+    ensure_temporary_rule()
 
     window = MainWindow()
     download_manager.start()

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ...core.rules import active_rule_id
+from ...core.rules import page_rule_id
 from ...core.search.models import SearchVideo
 from ..downloads.staging_flow import stage_videos
 from ...i18n import tr
@@ -19,13 +19,14 @@ from ..home.workers import ApiCallWorker
 from ..formatting import _format_count
 from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
+from ...core import site as sites
 
 
 class DetailActionsMixin:
     """Play, download, like, share and author actions of the detail view."""
 
     def _page_url(self) -> str:
-        return f"https://www.iwara.tv/{self._kind}/{self._item_id}"
+        return sites.web_url(self._kind, self._item_id, self.item_site())
 
     def _can_play(self) -> bool:
         return self._video is not None and self._kind == "video" and self._video.downloadable
@@ -44,9 +45,9 @@ class DetailActionsMixin:
         video = self._video
         local = video_player.local_video_path(video.video_id)
         if local:
-            self._player.play_local(local, video.title, video.video_id)
+            self._player.play_local(local, video.title, video.video_id, site=self.item_site())
         else:
-            self._player.play_remote(video.video_id, video.title)
+            self._player.play_remote(video.video_id, video.title, site=self.item_site())
         self._stage.hide()
         self._player_box.show()
         self._player.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -81,7 +82,7 @@ class DetailActionsMixin:
         # A lone downloadable video starts at once (Settings); otherwise it waits on the workbench.
         video = self._video if self._video is not None and self._video.video_id == self._item_id else None
         videos = [video] if video is not None else [SearchVideo(video_id=self._item_id, title=self._item_id)]
-        stage_videos(self, videos, label=video.title if video is not None else self._item_id, rule_id=active_rule_id())
+        stage_videos(self, videos, label=video.title if video is not None else self._item_id, rule_id=page_rule_id("detail"))
 
     def _open_in_browser(self):
         webbrowser.open(self._page_url())
@@ -109,7 +110,7 @@ class DetailActionsMixin:
             if self._liked
             else tr("Like this post with your Iwara account", "用你的 Iwara 账号点赞", "Iwaraアカウントでいいねする")
         )
-        key = shortcut_defs.key_for("detail_like")
+        key = shortcut_defs.display_key_for("detail_like")
         self._like_btn.setToolTip(f"{text} ({key})" if key else text)
 
     def _toggle_like(self):
@@ -129,6 +130,7 @@ class DetailActionsMixin:
         self._like_busy = True
         self._like_btn.setEnabled(False)
         worker = ApiCallWorker(lambda client: client.set_liked(kind, item_id, wanted), self)
+        worker.pinned_site = self.item_site()
         worker.done.connect(lambda result, error, wanted=wanted, token=token: self._on_like_done(token, wanted, result, error))
         worker.finished.connect(lambda worker=worker: self._discard_like_worker(worker))
         self._like_workers.append(worker)

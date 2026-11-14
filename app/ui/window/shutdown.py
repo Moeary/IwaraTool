@@ -124,6 +124,7 @@ class WindowShutdownMixin:
                 getattr(self, "_search_page", None),
                 getattr(self, "_subscription_page", None),
                 getattr(self, "_repair_page", None),
+                getattr(self, "_tools_page", None),
                 getattr(self, "_history_page", None),
                 getattr(self, "_settings_page", None),
             )

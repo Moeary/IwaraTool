@@ -27,7 +27,8 @@ class SearchCoversMixin:
                     f"{kind}:{item_key}" for kind, item_key, _image_url in worker.jobs
                 )
         if self._all_videos:
-            for video in self._all_videos:
+            # Covers of results hidden by the post filter wait until shown.
+            for video in self._visible_videos():
                 if video.thumbnail_url:
                     key = f"video:{video.video_id}"
                     if key not in self._image_path_by_key and key not in pending_keys:

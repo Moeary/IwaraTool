@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -21,10 +20,11 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
-from ...config import app_config
 from ...core.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ..shortcuts import attach_hint
+from ..fonts import monospace_font
 from ..rules.rule_picker import RulePicker
 from .task_center import TaskCenterInterface
 from ..theme import (
@@ -115,6 +115,7 @@ class DownloadInterface(
         self._staging_panel = StagingPanel(right_panel)  # hidden while nothing waits
         self._task_center.set_staging_widget(self._staging_panel)
         self._staging_panel.show_requested.connect(self._task_center.show_staged)
+        self._staging_panel.emptied.connect(self._task_center.leave_staged)
         right_layout.addWidget(self._task_center, stretch=1)
 
     def _build_title_row(self) -> QHBoxLayout:
@@ -194,12 +195,14 @@ class DownloadInterface(
         self._url_edit.returnPressed.connect(self._submit)
         url_row.addWidget(self._url_edit, 1)
         self._paste_btn = ToolButton(FluentIcon.PASTE, url_card)
-        self._paste_btn.setToolTip(
+        attach_hint(
+            self._paste_btn,
             tr(
-                "Paste links from the clipboard (Ctrl+Shift+V submits directly)",
-                "从剪贴板粘贴链接（Ctrl+Shift+V 直接提交）",
-                "クリップボードから貼り付け（Ctrl+Shift+V で直接送信）",
-            )
+                "Paste links from the clipboard; this shortcut pastes and submits directly",
+                "从剪贴板粘贴链接；此快捷键会粘贴并直接提交",
+                "クリップボードから貼り付け。このショートカットは貼り付けてすぐ送信します",
+            ),
+            "download_paste_submit",
         )
         self._paste_btn.clicked.connect(self._paste_from_clipboard)
         url_row.addWidget(self._paste_btn)
@@ -210,7 +213,7 @@ class DownloadInterface(
         rule_label = BodyLabel(tr("Rule", "下载规则", "ルール"), url_card)
         set_secondary_text(rule_label)
         rule_row.addWidget(rule_label)
-        self._rule_picker = RulePicker(url_card)
+        self._rule_picker = RulePicker(url_card, scope="downloads")
         self._rule_picker.combo.setMinimumWidth(160)
         rule_row.addWidget(self._rule_picker, 1)
         url_layout.addLayout(rule_row)
@@ -248,10 +251,7 @@ class DownloadInterface(
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
         apply_scrollbars(self._log_edit)
-        mono = QFont("Consolas", 9)
-        if not mono.exactMatch():
-            mono = QFont("Courier New", 9)
-        self._log_edit.setFont(mono)
+        self._log_edit.setFont(monospace_font(9))
         self._log_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._log_edit.setMinimumHeight(140)
         self._log_edit.setPlaceholderText(
@@ -270,8 +270,6 @@ class DownloadInterface(
         self._url_edit.setText(str(state.get("url") or ""))
 
     def _submit(self):
-        # Apply the selected named rule immediately before enqueueing so the
-        # resolver and sidecar options use the same snapshot.
         urls = split_submitted_urls(self._url_edit.text())
         if not urls:
             InfoBar.warning(
@@ -285,12 +283,12 @@ class DownloadInterface(
             )
             return
         rule_id = self._rule_picker.selected_rule_id()
-        self._rule_picker.apply_selected(show_notice=False)
         if len(urls) == 1 and download_manager.listing_kind(urls[0]):
             # An author / playlist: show what it holds before queueing anything.
             self._start_listing_preview(urls[0], rule_id)
             return
-        mark_only = app_config.mark_submitted_as_downloaded or not app_config.download_video_file
+        payload = self._rule_picker.selected_payload()
+        mark_only = payload["mark_submitted_as_downloaded"] or not payload["download_video_file"]
         for url in urls:
             self._maybe_add_download_source_to_subscription(url)
             if mark_only:

@@ -1,13 +1,20 @@
-"""One back-history for the whole window.
+"""Back history, one stack per page.
 
 Every place the user can be is a *page* (a sidebar page in the main window, or
 a lone page widget in tests) plus that page's own snapshot: a plain-data
 description of what it shows (which post, which search session, which
 subscription, the page of results, the scroll position, the selection...).
 
-Before anything navigates, the current place is recorded; Back restores the
-last record exactly, from the snapshot alone, without asking the network
-again.  Pages opt in with two methods::
+Before anything navigates, the current place is recorded on the stack of the
+page being navigated to; Back pops the stack of the page in front and restores
+that record exactly, from the snapshot alone, without asking the network
+again.  So each page goes back through its own steps: opening a post on Home,
+visiting Search from the sidebar and returning, Back on Home leads back to the
+Home feed, not to Search.  A link that jumps to another page (an author page
+from a search result) is recorded on the target page, so Back there returns
+to the caller.  Plain page switches (sidebar, Ctrl+1…) are not steps.
+
+Pages opt in with two methods::
 
     def nav_snapshot(self) -> object: ...
     def nav_restore(self, state: object) -> None: ...
@@ -83,7 +90,7 @@ def _same_place(first: NavEntry, second: NavEntry) -> bool:
 
 
 class NavigationController:
-    """The back stack of one window.
+    """The back stacks of one window, one per page.
 
     ``resolve_page`` maps any widget to the page that owns it; ``switch_to``
     brings a page to the front (the main window's sidebar switch) and
@@ -100,25 +107,37 @@ class NavigationController:
         self._resolve_page = resolve_page
         self._current_page = current_page
         self._switch_to = switch_to
-        self._entries: list[NavEntry] = []
+        self._stacks: dict[QWidget, list[NavEntry]] = {}
         self._quiet = 0
 
     # ── state ────────────────────────────────────────────────────────────────
 
+    def _stack(self, page: QWidget | None) -> list[NavEntry]:
+        if page is None:
+            return []
+        return self._stacks.get(page, [])
+
     def __len__(self) -> int:
-        return len(self._entries)
+        """Steps Back can take on the page in front."""
+
+        return len(self._stack(self._current_page()))
 
     def can_go_back(self) -> bool:
-        return bool(self._entries)
+        return bool(self._stack(self._current_page()))
 
-    def entries(self) -> list[NavEntry]:
-        return list(self._entries)
+    def entries(self, page: QWidget | None = None) -> list[NavEntry]:
+        """The back stack of ``page`` (default: the page in front), oldest first."""
 
-    def replace(self, entries: list[NavEntry]) -> None:
-        self._entries = list(entries)[-HISTORY_LIMIT:]
+        return list(self._stack(page if page is not None else self._current_page()))
+
+    def stacks(self) -> dict[QWidget, list[NavEntry]]:
+        return {page: list(entries) for page, entries in self._stacks.items() if entries}
+
+    def replace(self, stacks: dict[QWidget, list[NavEntry]]) -> None:
+        self._stacks = {page: list(entries)[-HISTORY_LIMIT:] for page, entries in stacks.items() if entries}
 
     def clear(self) -> None:
-        self._entries.clear()
+        self._stacks.clear()
 
     @contextmanager
     def quiet(self) -> Iterator[None]:
@@ -136,26 +155,34 @@ class NavigationController:
 
     # ── moves ────────────────────────────────────────────────────────────────
 
-    def record(self, widget: QWidget | None = None) -> bool:
-        """Remember where the user is, before they go somewhere else."""
+    def record(self, widget: QWidget | None = None, *, into: QWidget | None = None) -> bool:
+        """Remember where the user is, before they go somewhere else.
+
+        The record goes on the stack of ``into``, the page about to be shown
+        (default: the page being left, for a move inside one page).
+        """
 
         if self._quiet:
             return False
         page = self._resolve_page(widget) if widget is not None else self._current_page()
         if page is None:
             return False
+        target = into if into is not None else page
         entry = NavEntry(page, snapshot_of(page))
-        if self._entries and _same_place(self._entries[-1], entry):
+        stack = self._stacks.setdefault(target, [])
+        if stack and _same_place(stack[-1], entry):
             return False
-        self._entries.append(entry)
-        del self._entries[:-HISTORY_LIMIT]
+        stack.append(entry)
+        del stack[:-HISTORY_LIMIT]
         return True
 
     def back(self) -> bool:
-        """Return to the last recorded place; False (and nothing changes) without one."""
+        """Return to the last place recorded for the page in front; False (and nothing changes) without one."""
 
-        while self._entries:
-            entry = self._entries.pop()
+        current = self._current_page()
+        stack = self._stacks.get(current) if current is not None else None
+        while stack:
+            entry = stack.pop()
             try:
                 entry.page.objectName()
             except RuntimeError:  # its page is gone

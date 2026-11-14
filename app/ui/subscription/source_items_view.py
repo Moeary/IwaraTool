@@ -177,7 +177,7 @@ class SourceItemsView(QWidget):
         self._selected_label = CaptionLabel("", self)
         set_secondary_text(self._selected_label)
         tools.addWidget(self._selected_label)
-        self._rule_picker = RulePicker(self)
+        self._rule_picker = RulePicker(self, scope="subscription")
         tools.addWidget(self._rule_picker)
         self._download_selected_btn = PrimaryPushButton(tr("Download selected", "下载选中", "選択を保存"), self, FluentIcon.DOWNLOAD)
         self._download_selected_btn.clicked.connect(self._download_selected)
@@ -427,7 +427,6 @@ class SourceItemsView(QWidget):
         self._download_all_btn.setEnabled(bool(downloadable_ids(self._filtered)))
 
     def _queue(self, ids: list[str]):
-        self._rule_picker.apply_selected(show_notice=False)
         self._page._enqueue_ids(ids, rule_id=self._rule_picker.selected_rule_id())
 
     def _download_selected(self):

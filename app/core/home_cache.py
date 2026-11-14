@@ -37,9 +37,15 @@ class CacheEntry:
         return ttl_seconds > 0 and self.age(now) < ttl_seconds
 
 
-def cache_key(section_id: str, tab_id: str, rating: str, *, account: bool = False) -> str:
+def cache_key(section_id: str, tab_id: str, rating: str, *, account: bool = False, site: str | None = None) -> str:
+    """Cache key of one Home row; iwara.ai rows live beside the (unprefixed) iwara.tv ones."""
+
+    from .site import SITE_TV, current_site, normalize
+
     prefix = ACCOUNT_PREFIX if account else ""
-    return f"{prefix}{section_id}|{tab_id}|{rating or 'all'}"
+    key = normalize(site) if site else current_site()
+    site_part = "" if key == SITE_TV else f"{key}|"
+    return f"{prefix}{site_part}{section_id}|{tab_id}|{rating or 'all'}"
 
 
 def rows_signature(rows: list[dict[str, Any]]) -> tuple[str, ...]:

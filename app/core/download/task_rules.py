@@ -52,6 +52,28 @@ class TaskRulesMixin:
                 return normalize_rule_payload(snapshot)
         return self._rule_payload_for_id(task.rule_id)
 
+    def is_temporary_copy(self, task: DownloadTask) -> bool:
+        """A finished download its rule kept out of history (a temporary copy).
+
+        It must not block downloading the same video again under another rule.
+        """
+
+        return task.status == TaskStatus.COMPLETED and not self._task_rule_payload(task)["record_to_history"]
+
+    def _release_temporary_copies(self, video_ids) -> list[str]:
+        """Forget finished temporary tasks of these videos; returns the removed task ids."""
+
+        removed: list[str] = []
+        with self._lock:
+            for video_id in video_ids:
+                task = self._tasks.get(self._task_id_by_video_id.get(str(video_id or "").strip().lower(), ""))
+                if task is not None and self.is_temporary_copy(task) and self._forget_task_locked(task.task_id):
+                    removed.append(task.task_id)
+        if removed:
+            signal_bus.tasks_removed.emit(removed)
+            self._schedule_task_persist()
+        return removed
+
     def _passes_filters(
         self,
         title: str,

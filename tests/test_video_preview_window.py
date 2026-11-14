@@ -7,14 +7,14 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtCore import QMetaObject, QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from app.core import preview_stream
 from app.ui.player import playback
-from app.ui.player.backend import Backend
+from app.ui.player.backend import Backend, release_source
 from app.ui.player.preview_window import VideoPreviewWindow, keep_normal_geometry
 from app.ui.player.playback import format_time, nearest_speed_index
 from app.ui.player.video_player import VideoPlayer
@@ -284,6 +284,57 @@ class EmbeddedPlayerTests(_PlayerCase):
         self.assertEqual(layout.indexOf(player), 1)  # the same place in the page
         self.assertTrue(player.isVisible())
 
+    def _fill_mode(self):
+        patch = mock.patch("app.ui.player.fullscreen.FILL_FULLSCREEN_WINDOW", True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.page.showFullScreen()
+        QApplication.processEvents()
+        self.assertTrue(self.page.isFullScreen())
+
+    def test_fullscreen_inside_a_fullscreen_window_fills_it_without_a_new_window(self):
+        # macOS aborted showing a second native fullscreen window from a
+        # fullscreen Space ("Must have content controller").
+        player = self.player_widget
+        layout = self.page.layout()
+        self._fill_mode()
+        player.toggle_fullscreen()
+        self.assertTrue(player.is_fullscreen())
+        self.assertFalse(player.isWindow())
+        self.assertIs(player.parentWidget(), self.page)
+        self.assertEqual(layout.indexOf(player), -1)
+        self.assertEqual(player.geometry(), self.page.rect())
+        player.toggle_fullscreen()
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(layout.indexOf(player), 1)
+        player.toggle_fullscreen()  # again at once, which also aborted
+        self.assertTrue(player.is_fullscreen())
+        self.assertFalse(player.isWindow())
+
+    def test_filled_window_keys_reach_the_player_before_window_shortcuts(self):
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        player = self.player_widget
+        went_back = []
+        back = QShortcut(QKeySequence("Esc"), self.page)
+        back.setContext(Qt.ShortcutContext.WindowShortcut)
+        back.activated.connect(lambda: went_back.append(True))
+        self._fill_mode()
+        player.toggle_fullscreen()
+        QTest.keyClick(player, Qt.Key.Key_Escape)
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(went_back, [])
+
+    def test_filled_window_leaving_fullscreen_returns_the_player(self):
+        player = self.player_widget
+        self._fill_mode()
+        player.toggle_fullscreen()
+        self.page.showNormal()
+        QApplication.processEvents()
+        QApplication.processEvents()
+        self.assertFalse(player.is_fullscreen())
+        self.assertEqual(self.page.layout().indexOf(player), 1)
+
     def test_closing_the_fullscreen_window_returns_to_the_page(self):
         player = self.player_widget
         player.toggle_fullscreen()
@@ -335,6 +386,7 @@ class EmbeddedPlayerTests(_PlayerCase):
         self.proxy.unregister_all.assert_not_called()
 
 
+@mock.patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class DetailInlinePlaybackTests(_PlayerCase):
     """Play on a post page plays on the page; only the window buttons open a window."""
 
@@ -379,7 +431,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
         self.assertEqual(windows, [])  # no separate window
         self.assertTrue(self.view._player_box.isVisible())
         self.assertFalse(self.view._stage.isVisible())
-        self.remote.assert_called_once_with("abc", "Dance")
+        self.remote.assert_called_once_with("abc", "Dance", site="tv")
         self.assertIsNotNone(self.view._player)
 
     def test_local_file_plays_from_disk(self):
@@ -453,6 +505,36 @@ class NormalGeometryTests(unittest.TestCase):
         for _ in range(5):
             QApplication.processEvents()
         self.assertEqual(window.geometry().topLeft().toTuple(), moved)
+
+
+class ReleaseSourceTests(unittest.TestCase):
+    """Clearing the media runs from Qt's event loop, where the GIL is released."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def test_a_qt_player_gets_the_empty_source_through_the_event_loop(self):
+        class SlotPlayer(QObject):
+            def __init__(self):
+                super().__init__()
+                self.sources = []
+
+            @Slot(QUrl)
+            def setSource(self, url):
+                self.sources.append(url)
+
+        player = SlotPlayer()
+        with mock.patch("app.ui.player.backend.QMetaObject.invokeMethod", wraps=QMetaObject.invokeMethod) as invoke:
+            release_source(player)
+        self.assertEqual(player.sources, [QUrl()])  # delivered before returning
+        self.assertEqual(invoke.call_args_list[0].args[:3], (player, "setSource", Qt.ConnectionType.QueuedConnection))
+
+    def test_a_test_double_without_the_slot_is_called_directly(self):
+        player = FakePlayer()
+        player.source = QUrl("file:///a.mp4")
+        release_source(player)
+        self.assertEqual(player.source, QUrl())
 
 
 if __name__ == "__main__":

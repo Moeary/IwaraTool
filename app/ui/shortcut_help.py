@@ -21,7 +21,7 @@ def grouped_shortcuts(current_scope: str = "") -> list[tuple[str, list[tuple[str
     titles = shortcut_defs.scope_titles()
     by_scope: dict[str, list[tuple[str, str]]] = {}
     for action in shortcut_defs.all_actions():
-        key = shortcut_defs.key_for(action.id)
+        key = shortcut_defs.display_key_for(action.id)
         if key:
             by_scope.setdefault(action.scope, []).append((action.label, key))
     order = [shortcut_defs.SCOPE_GLOBAL]

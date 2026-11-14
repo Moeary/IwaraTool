@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ...i18n import tr
+from ...i18n import pin_language, tr
 from .matching import repair_target_path
 from ..task_metadata import _dict_or_empty
 
@@ -13,6 +13,7 @@ from ..task_metadata import _dict_or_empty
 class RepairPreviewMixin:
     """Preview the target names a repair would give the scanned files."""
 
+    @pin_language
     def preview_repair_files(
         self,
         items: list[dict[str, Any]],

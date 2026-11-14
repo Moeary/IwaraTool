@@ -165,6 +165,8 @@ class SearchPageLayoutMixin:
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         options_row.addWidget(self._sort_combo)
         options_row.addWidget(self._build_rating_selector(query_card))
+        # Post-search conditions open in a popup instead of taking a row.
+        options_row.addWidget(self._build_post_filter_button(query_card))
         options_row.addStretch(1)
 
         self._view_combo = self._make_combo(
@@ -247,7 +249,7 @@ class SearchPageLayoutMixin:
         rule_group_layout = QHBoxLayout(rule_group)
         rule_group_layout.setContentsMargins(0, 0, 0, 0)
         rule_group_layout.setSpacing(0)
-        self._rule_picker = RulePicker(rule_group)
+        self._rule_picker = RulePicker(rule_group, scope="search")
         self._rule_picker.setToolTip(
             tr(
                 "Download rule: controls filtering, naming and download behavior.",

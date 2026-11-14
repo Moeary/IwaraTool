@@ -21,6 +21,7 @@ from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
 from ..rules import rule_store
 from .listing_preview import HAVE_FILE, HAVE_HISTORY, HAVE_QUEUED
+from .. import site as sites
 
 
 STAGE_READY = "ready"
@@ -87,6 +88,7 @@ class StagingMixin:
         if direct_single and len(items) == 1 and stage_verdict(items[0])[0] == STAGE_READY:
             return self._download_now(items[0], preview, label)
         batch_id = uuid.uuid4().hex[:12]
+        self._release_temporary_copies(item.get("video_id", "") for item in items)
         added, updated, in_list = self._stage_items(items, batch_id=batch_id, label=label, rule_id=rule_id)
         if added:
             signal_bus.tasks_added.emit(added)
@@ -127,7 +129,7 @@ class StagingMixin:
                     continue
                 task = DownloadTask(
                     task_id=str(uuid.uuid4()),
-                    url=f"https://www.iwara.tv/video/{video_id}",
+                    url=str(item.get("source_url") or "") or sites.video_url(video_id, sites.site_of_item(item.get("raw") or item)),
                     video_id=video_id,
                     status=TaskStatus.STAGED,
                 )
