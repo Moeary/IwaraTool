@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 
+import shiboken6
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import BodyLabel, FluentIcon, LineEdit, PushButton, SubtitleLabel
@@ -96,6 +97,13 @@ class ToolSettingsCards:
 
     def _show_state(self):
         state = ffmpeg_state()
+        if not shiboken6.isValid(self._status):
+            # The settings page was rebuilt or closed; the shared state outlives it.
+            try:
+                state.changed.disconnect(self._show_state)
+            except (RuntimeError, TypeError):
+                pass
+            return
         if state.busy or not state.checked:
             self._status.setText(tr("Checking…", "检测中…", "確認中…"))
             set_status_text(self._status, "text")
