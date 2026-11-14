@@ -111,7 +111,7 @@ def main() -> None:
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     stem = f"IwaraTool-macOS-{arch}-v{__version__}"
-    dmg = build_dmg(target, dist / f"{stem}.dmg", work_dir=build_dir, icon=icon)
+    dmg = build_dmg(target, dist / f"{stem}.dmg", work_dir=build_dir, icon=icon, version=__version__)
     with mounted(dmg) as volume:
         issues = verify_dmg_layout(volume, target.name)
         if issues:

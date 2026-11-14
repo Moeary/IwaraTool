@@ -12,33 +12,44 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-WINDOW_SIZE = (660, 420)
+WINDOW_SIZE = (680, 480)
 ICON_SIZE = 112
-APP_ICON_POS = (170, 190)
-APPLICATIONS_POS = (490, 190)
+APP_ICON_POS = (190, 196)
+APPLICATIONS_POS = (490, 196)
 
 # Finder draws the icon labels in black (light mode) or white (dark mode) and a
-# custom background cannot change that, so the background is a mid-tone slate
-# that keeps both readable.
-_BACKGROUND_TOP = "#8a95a5"
-_BACKGROUND_BOTTOM = "#6b7686"
+# custom background cannot change that, so the background is a mid-tone
+# lavender (the logo's colour) that keeps both readable.
+_BACKGROUND_TOP = "#958bd0"
+_BACKGROUND_BOTTOM = "#6c64a8"
+_MINT = "#b8f0cf"
+_PINK = "#f7c6e6"
 
+# A disk image cannot follow the viewer's language, so every line is shown in
+# Chinese, Japanese and English, each in a font that draws its script natively.
 INSTALL_LINES = (
-    "将 IwaraTool 拖到 Applications 文件夹即可完成安装",
-    "Drag IwaraTool onto Applications to install",
+    ("zh", "将 IwaraTool 拖到 Applications 文件夹即可完成安装"),
+    ("ja", "IwaraTool を Applications フォルダへドラッグしてインストール"),
+    ("en", "Drag IwaraTool onto Applications to install"),
 )
 FIRST_LAUNCH_LINES = (
-    "首次打开被拦截？系统设置 › 隐私与安全性 › 仍要打开",
-    "Blocked on first launch? System Settings › Privacy & Security › Open Anyway",
+    ("zh", "首次打开被拦截？系统设置 › 隐私与安全性 › 仍要打开"),
+    ("ja", "初回起動がブロックされたら：システム設定 › プライバシーとセキュリティ › このまま開く"),
+    ("en", "Blocked on first launch? System Settings › Privacy & Security › Open Anyway"),
 )
+_FAMILIES = {
+    "zh": ["PingFang SC", "Hiragino Sans GB", "Heiti SC"],
+    "ja": ["Hiragino Sans", "Hiragino Kaku Gothic ProN", "PingFang SC"],
+    "en": ["SF Pro Text", "Helvetica Neue", "Helvetica"],
+}
 
 
-def render_background(path: Path, scale: int = 1) -> Path:
+def render_background(path: Path, scale: int = 1, version: str = "") -> Path:
     """Draw the installer background at ``scale`` (1 or 2) into ``path``."""
 
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import (
-        QColor, QFont, QGuiApplication, QImage, QLinearGradient, QPainter, QPainterPath, QPen,
+        QColor, QFont, QFontMetricsF, QGuiApplication, QImage, QLinearGradient, QPainter, QPainterPath, QPen,
     )
 
     _app = QGuiApplication.instance() or QGuiApplication([])
@@ -49,39 +60,96 @@ def render_background(path: Path, scale: int = 1) -> Path:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-    gradient = QLinearGradient(0, 0, 0, height)
+    gradient = QLinearGradient(0, 0, width * 0.35, height)
     gradient.setColorAt(0, QColor(_BACKGROUND_TOP))
     gradient.setColorAt(1, QColor(_BACKGROUND_BOTTOM))
     painter.fillRect(QRectF(0, 0, width, height), gradient)
 
-    # Arrow from the app icon towards the Applications folder.
+    def font(language: str, size: float, weight: QFont.Weight) -> QFont:
+        result = QFont()
+        result.setFamilies(_FAMILIES.get(language, _FAMILIES["en"]))
+        result.setPixelSize(round(size))
+        result.setWeight(weight)
+        return result
+
+    def sparkle(x: float, y: float, r: float, color: str, alpha: int):
+        # A four-pointed star: tips on the axes, waist on the diagonals.
+        star = QPainterPath(QPointF(x, y - r))
+        for dx, dy in ((0.28, -0.28), (1, 0), (0.28, 0.28), (0, 1), (-0.28, 0.28), (-1, 0), (-0.28, -0.28)):
+            star.lineTo(x + dx * r, y + dy * r)
+        star.closeSubpath()
+        tint = QColor(color)
+        tint.setAlpha(alpha)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(tint)
+        painter.drawPath(star)
+
+    # A few of the logo's sparkles, kept faint so they never compete with the icons.
+    for x, y, r, color, alpha in (
+        (52, 64, 9, _MINT, 150), (628, 52, 7, _PINK, 170), (612, 300, 6, _MINT, 120),
+        (70, 300, 6, _PINK, 140), (340, 92, 5, "#ffffff", 120),
+    ):
+        sparkle(x, y, r, color, alpha)
+
+    # Title and version.
+    title_font = font("en", 24, QFont.Weight.Bold)
+    painter.setFont(title_font)
+    title = "IwaraTool"
+    title_width = QFontMetricsF(title_font).horizontalAdvance(title)
+    badge_font = font("en", 12, QFont.Weight.DemiBold)
+    badge_text = f"v{version}" if version else ""
+    badge_width = QFontMetricsF(badge_font).horizontalAdvance(badge_text) + 18 if badge_text else 0
+    gap = 10 if badge_text else 0
+    left = (width - title_width - gap - badge_width) / 2
+    painter.setPen(QColor(255, 255, 255))
+    painter.drawText(QRectF(left, 26, title_width + 2, 34), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+    if badge_text:
+        badge = QRectF(left + title_width + gap, 33, badge_width, 21)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 56))
+        painter.drawRoundedRect(badge, 10.5, 10.5)
+        painter.setFont(badge_font)
+        painter.setPen(QColor(255, 255, 255, 240))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, badge_text)
+
+    # Soft plates behind the two icons (their Finder labels sit inside them).
+    for cx, cy in (APP_ICON_POS, APPLICATIONS_POS):
+        plate = QRectF(cx - 84, cy - 80, 168, 178)
+        painter.setPen(QPen(QColor(255, 255, 255, 70), 1.2))
+        painter.setBrush(QColor(255, 255, 255, 30))
+        painter.drawRoundedRect(plate, 26, 26)
+
+    # Arrow from the app towards the Applications folder, in the logo's mint.
     y = APP_ICON_POS[1]
-    start_x = APP_ICON_POS[0] + ICON_SIZE / 2 + 22
-    end_x = APPLICATIONS_POS[0] - ICON_SIZE / 2 - 22
-    pen = QPen(QColor(255, 255, 255, 230), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    start_x = APP_ICON_POS[0] + 84 + 16
+    end_x = APPLICATIONS_POS[0] - 84 - 16
+    arrow = QColor(_MINT)
+    pen = QPen(arrow, 5, Qt.PenStyle.DotLine, Qt.PenCapStyle.RoundCap)
     painter.setPen(pen)
-    painter.drawLine(QPointF(start_x, y), QPointF(end_x - 14, y))
+    painter.drawLine(QPointF(start_x, y), QPointF(end_x - 18, y))
     head = QPainterPath(QPointF(end_x, y))
-    head.lineTo(end_x - 24, y - 16)
-    head.lineTo(end_x - 24, y + 16)
+    head.lineTo(end_x - 20, y - 14)
+    head.lineTo(end_x - 20, y + 14)
     head.closeSubpath()
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(255, 255, 255, 230))
+    painter.setBrush(arrow)
     painter.drawPath(head)
 
-    def draw_lines(lines: tuple[str, ...], top: float, size: int, weight: QFont.Weight, alpha: int):
-        font = QFont()
-        font.setPixelSize(size)
-        font.setWeight(weight)
-        painter.setFont(font)
+    def draw_lines(lines, top: float, size: float, weight: QFont.Weight, alpha: int, line_height: float):
         painter.setPen(QColor(255, 255, 255, alpha))
-        line_height = size + 8
-        for index, text in enumerate(lines):
+        for index, (language, text) in enumerate(lines):
+            painter.setFont(font(language, size, weight))
             rect = QRectF(16, top + index * line_height, width - 32, line_height)
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
-    draw_lines(INSTALL_LINES, 290, 17, QFont.Weight.DemiBold, 255)
-    draw_lines(FIRST_LAUNCH_LINES, 346, 12, QFont.Weight.Normal, 225)
+    draw_lines(INSTALL_LINES, 314, 15, QFont.Weight.DemiBold, 255, 23)
+
+    # First-launch help in a quiet box at the bottom.
+    box = QRectF(40, 398, width - 80, 66)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(40, 30, 90, 46))
+    painter.drawRoundedRect(box, 14, 14)
+    draw_lines(FIRST_LAUNCH_LINES, box.top() + 5, 11.5, QFont.Weight.Normal, 228, 19)
     painter.end()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not image.save(str(path), "PNG"):
@@ -114,12 +182,12 @@ def dmg_settings(app: Path, background: Path, icon: Path | None) -> dict:
     return settings
 
 
-def build_dmg(app: Path, output: Path, *, work_dir: Path, icon: Path | None = None) -> Path:
+def build_dmg(app: Path, output: Path, *, work_dir: Path, icon: Path | None = None, version: str = "") -> Path:
     import dmgbuild
 
     background_dir = work_dir / "dmg-background"
-    background = render_background(background_dir / "background.png", 1)
-    render_background(background_dir / "background@2x.png", 2)
+    background = render_background(background_dir / "background.png", 1, version)
+    render_background(background_dir / "background@2x.png", 2, version)
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         output.unlink()
