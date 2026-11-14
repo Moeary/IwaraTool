@@ -49,7 +49,7 @@ def _bind_window(window) -> None:
     # Ctrl+Tab walks the sidebar in the order it is drawn.
     cycle = [
         window._home_page, window._subscription_page, window._search_page, window._download_page,
-        window._repair_page, window._history_page, window._tools_page, window._rules_page, window._settings_page,
+        window._repair_page, window._history_page, window._rules_page, window._tools_page, window._settings_page,
     ]
     handlers.update({
         "nav_next": lambda: window.switchTo(cycle[(_index_of(window, cycle) + 1) % len(cycle)]),

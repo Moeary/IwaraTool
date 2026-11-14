@@ -127,16 +127,16 @@ class WindowNavigationMixin:
         )
 
         self.addSubInterface(
-            self._tools_page,
-            icon=FluentIcon.APPLICATION,
-            text=tr("Tools", "工具", "ツール"),
+            self._rules_page,
+            icon=FluentIcon.FILTER,
+            text=tr("Rules", "下载规则", "ルール"),
             position=NavigationItemPosition.BOTTOM,
         )
 
         self.addSubInterface(
-            self._rules_page,
-            icon=FluentIcon.FILTER,
-            text=tr("Rules", "下载规则", "ルール"),
+            self._tools_page,
+            icon=FluentIcon.APPLICATION,
+            text=tr("Tools", "工具", "ツール"),
             position=NavigationItemPosition.BOTTOM,
         )
 

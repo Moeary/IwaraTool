@@ -120,8 +120,8 @@ class SystemSettingsCards:
             ("download", tr("Download Hub", "下载工作台", "ダウンロードハブ")),
             ("repair", tr("Repair", "修复", "修復")),
             ("history", tr("History", "历史记录", "履歴")),
-            ("tools", tr("Tools", "工具", "ツール")),
             ("rules", tr("Rules", "下载规则", "ルール")),
+            ("tools", tr("Tools", "工具", "ツール")),
             ("settings", tr("Settings", "应用设置", "設定")),
         ]
 

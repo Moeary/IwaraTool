@@ -12,6 +12,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 
 - **Download in bulk**: paste a creator, playlist, search or video link and download everything in one go. Unfinished tasks pick up again the next time you open the app.
 - **Search and browse**: search Iwara and Oreno3D, get tag suggestions in Chinese, English and Japanese, and build a Home page of your own rows (your subscriptions, hot lists, any tag or keyword). Videos you already have are marked.
+- **iwara.tv and iwara.ai**: switch the site you browse from the sidebar or with Ctrl+Shift+S; both share one account, and pasted links and subscriptions always use their own site.
 - **Follow creators**: subscribe to authors and playlists, see new videos at a glance, and download only what's new.
 - **Preview before you download**: double-click any video to play it, right inside the app.
 - **Download only what you want**: save rules filter by likes, views, date, tags and title keywords, and each page can use its own rule.
