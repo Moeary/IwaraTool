@@ -351,21 +351,37 @@ class FfmpegProcess:
             )
         except OSError as exc:
             raise FfmpegError(str(exc)) from exc
-        drain = threading.Thread(target=self._drain_stderr, args=(self._proc.stderr,), daemon=True)
-        drain.start()
-        assert self._proc.stdout is not None
-        for line in self._proc.stdout:
-            key, _, value = line.strip().partition("=")
-            if key in ("out_time_us", "out_time_ms") and on_progress is not None:
-                try:
-                    seconds = int(value) / 1_000_000
-                except ValueError:
-                    continue
-                on_progress(max(0.0, min(seconds / self.duration, 1.0)))
-            elif key == "progress" and value == "end" and on_progress is not None:
-                on_progress(1.0)
-        code = self._proc.wait()
-        drain.join(timeout=2)
+        proc = self._proc
+        assert proc.stdout is not None and proc.stderr is not None
+        drain = threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True)
+        try:
+            drain.start()
+            # Cancellation may arrive while Popen is still creating the child.
+            if self._cancelled.is_set():
+                self.cancel()
+            for line in proc.stdout:
+                key, _, value = line.strip().partition("=")
+                if key in ("out_time_us", "out_time_ms") and on_progress is not None:
+                    try:
+                        seconds = int(value) / 1_000_000
+                    except ValueError:
+                        continue
+                    on_progress(max(0.0, min(seconds / self.duration, 1.0)))
+                elif key == "progress" and value == "end" and on_progress is not None:
+                    on_progress(1.0)
+            code = proc.wait()
+        finally:
+            # Also reap the child if reading stdout or the progress callback
+            # raises; closing its pipes alone can leave ffmpeg running.
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
+            finally:
+                if drain.ident is not None:
+                    drain.join()
+                proc.stdout.close()
+                proc.stderr.close()
         if self._cancelled.is_set():
             raise Cancelled()
         if code != 0:

@@ -40,9 +40,12 @@ def cover_times(duration: float, count: int = COVER_COUNT) -> list[float]:
 
 def cover_candidates(duration: float, fps: float) -> list[CoverCandidate]:
     rate = fps if fps > 0 else 30.0
+    # Duration includes the last frame's display interval. Seeking inside that
+    # interval can return EOF, so short clips must stop at its start instead.
+    last_frame_time = max(0.0, duration - 1 / rate)
     return [
         CoverCandidate(index, seconds, max(0, round(seconds * rate)))
-        for index, seconds in enumerate(cover_times(duration))
+        for index, seconds in enumerate(min(t, last_frame_time) for t in cover_times(duration))
     ]
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,6 +60,17 @@ class CoverMathTests(unittest.TestCase):
 
     def test_unknown_rate_assumes_thirty(self):
         self.assertEqual(covers.cover_candidates(32.0, 0)[0].frame, 30)
+
+    def test_short_clip_candidates_stop_at_the_last_frame(self):
+        candidates = covers.cover_candidates(2.0, 10.0)
+        self.assertEqual(len(candidates), 16)
+        self.assertAlmostEqual(candidates[-1].seconds, 1.9)
+        self.assertEqual(candidates[-1].frame, 19)
+
+    def test_single_frame_clip_uses_the_first_frame(self):
+        candidates = covers.cover_candidates(1 / 10, 10)
+        self.assertEqual(len(candidates), 16)
+        self.assertTrue(all(c.seconds == 0 and c.frame == 0 for c in candidates))
 
     def test_timecode(self):
         self.assertEqual(covers.format_timecode(3723.4567), "01:02:03.457")
@@ -217,6 +229,75 @@ class CommandTests(unittest.TestCase):
             Compressor(FAKE_FFMPEG, source, plan_compression(source, options), options, source.path).run()
 
 
+class FfmpegProcessTests(unittest.TestCase):
+    def _process(self, script):
+        process = compress.FfmpegProcess([sys.executable, "-u", "-c", script], 1.0)
+        # Even a broken cleanup must not leave this test's child running.
+        self.addCleanup(self._cleanup, process)
+        return process
+
+    @staticmethod
+    def _cleanup(process):
+        child = process._proc
+        if child is not None:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=10)
+            child.stdout.close()
+            child.stderr.close()
+
+    def _assert_closed(self, process):
+        self.assertIsNotNone(process._proc.poll())
+        self.assertTrue(process._proc.stdout.closed)
+        self.assertTrue(process._proc.stderr.closed)
+
+    def test_success_closes_pipes_and_drains_stderr(self):
+        process = self._process(
+            "import sys; sys.stderr.write('x' * 100000 + '\\nlast diagnostic\\n'); "
+            "print('out_time_us=500000'); print('progress=end')"
+        )
+        progress = []
+        process.run(progress.append)
+        self.assertEqual(progress, [0.5, 1.0])
+        self.assertTrue(process.stderr_tail.endswith("last diagnostic"))
+        self._assert_closed(process)
+
+    def test_failure_closes_pipes_and_preserves_diagnostics(self):
+        process = self._process("import sys; print('encoder failed', file=sys.stderr); sys.exit(2)")
+        with self.assertRaisesRegex(ffmpeg.FfmpegError, "encoder failed"):
+            process.run()
+        self._assert_closed(process)
+
+    def test_cancel_closes_pipes_and_reaps_the_child(self):
+        process = self._process("import time; print('out_time_us=1'); time.sleep(60)")
+        with self.assertRaises(compress.Cancelled):
+            process.run(lambda _fraction: process.cancel())
+        self._assert_closed(process)
+
+    def test_cancellation_during_launch_stops_the_child(self):
+        process = self._process("import time; time.sleep(60)")
+        popen = subprocess.Popen
+
+        def launch(*args, **kwargs):
+            process.cancel()
+            return popen(*args, **kwargs)
+
+        with mock.patch.object(compress.subprocess, "Popen", side_effect=launch):
+            with self.assertRaises(compress.Cancelled):
+                process.run()
+        self._assert_closed(process)
+
+    def test_callback_failure_closes_pipes_and_reaps_the_child(self):
+        process = self._process("import time; print('out_time_us=1'); time.sleep(60)")
+
+        def fail(_fraction):
+            raise RuntimeError("progress callback failed")
+
+        with self.assertRaisesRegex(RuntimeError, "progress callback failed"):
+            process.run(fail)
+        self._assert_closed(process)
+
+
 class ProbeParsingTests(unittest.TestCase):
     def test_ffprobe_json(self):
         data = {
@@ -365,6 +446,24 @@ class RealFfmpegTests(unittest.TestCase):
             self.assertTrue(data.startswith(b"\x89PNG"))
         target = self.folder / "frame.png"
         covers.save_frame(self.info, self.source, 1.0, target)
+        self.assertGreater(target.stat().st_size, 0)
+
+    def test_short_clip_extracts_and_saves_the_sixteenth_cover(self):
+        fixture = Path(__file__).parent / "fixtures" / "video-smoke.mp4"
+        source = ffmpeg.probe(self.info, fixture)
+        candidates = covers.cover_candidates(source.duration, source.fps)
+        got = {}
+        covers.extract_covers(
+            self.info, fixture, candidates,
+            lambda c, data, error: got.__setitem__(c.index, (data, error)),
+        )
+        self.assertEqual(sorted(got), list(range(16)))
+        for index, (data, error) in got.items():
+            with self.subTest(cover=index + 1):
+                self.assertEqual(error, "")
+                self.assertTrue(data.startswith(b"\x89PNG"))
+        target = self.folder / "sixteenth-cover.png"
+        covers.save_frame(self.info, fixture, candidates[-1].seconds, target)
         self.assertGreater(target.stat().st_size, 0)
 
 
