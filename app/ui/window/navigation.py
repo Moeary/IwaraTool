@@ -89,7 +89,6 @@ class WindowNavigationMixin:
     def _add_bottom_items(self):
         """Quick actions, Rules and Settings at the bottom of the sidebar."""
 
-
         self.navigationInterface.addItem(
             routeKey="open-github",
             icon=FluentIcon.GITHUB,
@@ -98,6 +97,19 @@ class WindowNavigationMixin:
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
             tooltip=tr("Open project GitHub", "打开项目 GitHub链接", "プロジェクト GitHub を開く"),
+        )
+
+        from ...core import site as sites
+
+        current_site = sites.configured_site()
+        self._site_nav_item = self.navigationInterface.addItem(
+            routeKey="toggle-site",
+            icon=FluentIcon.GLOBE,
+            text=sites.SITES[current_site].label,
+            onClick=self.toggle_site,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+            tooltip=self._site_nav_tooltip(current_site),
         )
 
         self.navigationInterface.addItem(

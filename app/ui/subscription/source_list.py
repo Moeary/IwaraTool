@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QTableWidgetItem
 from qfluentwidgets import FluentIcon
 
 from ...config import app_config
+from ...core.site import SITE_TV, current_site, normalize as normalize_site
 from ...i18n import tr
 from .helpers import (
     _source_origin_color,
@@ -65,9 +66,13 @@ class SubscriptionSourceListMixin:
         )
 
     def _fetch_sources(self) -> list[dict[str, Any]]:
-        """Authors and playlists; the old account-feed source lives on Home now."""
+        """Authors and playlists of the current site; the old account-feed source lives on Home now."""
 
-        return [s for s in download_manager.get_subscription_sources() if not is_feed_source(s)]
+        site = current_site()
+        return [
+            s for s in download_manager.get_subscription_sources()
+            if not is_feed_source(s) and normalize_site(s.get("site") or SITE_TV) == site
+        ]
 
     def _load_sources(self):
         previous_source_id = self._selected_source_id()

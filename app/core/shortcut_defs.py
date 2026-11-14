@@ -105,6 +105,7 @@ def _global_actions() -> tuple[ShortcutAction, ...]:
         A("card_size_up", SCOPE_GLOBAL, "Ctrl+=", tr("Larger covers", "放大封面", "カバーを大きく")),
         A("card_size_down", SCOPE_GLOBAL, "Ctrl+-", tr("Smaller covers", "缩小封面", "カバーを小さく")),
         A("card_size_reset", SCOPE_GLOBAL, "Ctrl+0", tr("Default cover size", "恢复默认封面大小", "カバーサイズを初期化")),
+        A("toggle_site", SCOPE_GLOBAL, "Ctrl+Shift+S", tr("Switch between iwara.tv and iwara.ai", "切换 iwara.tv / iwara.ai", "iwara.tv / iwara.ai を切り替え")),
         A("toggle_theme", SCOPE_GLOBAL, "Ctrl+Shift+L", tr("Toggle dark mode", "切换黑夜模式", "ダークモード切替")),
         A("toggle_fullscreen", SCOPE_GLOBAL, _key("F11", mac="Ctrl+Meta+F"), tr("Toggle full screen", "切换全屏", "全画面の切り替え")),
         A("shortcut_help", SCOPE_GLOBAL, _key("F1", mac="Ctrl+/"), tr("Show all keyboard shortcuts", "显示全部快捷键", "ショートカット一覧を表示")),

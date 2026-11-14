@@ -122,6 +122,10 @@ class MainWindow(
         signal_bus.media_detail_requested.connect(self._on_media_detail_requested)
         signal_bus.search_requested.connect(self._on_search_requested)
         signal_bus.author_page_requested.connect(self._on_author_page_requested)
+        signal_bus.site_changed.connect(self._on_site_changed)
+        from ..core.site import configured_site
+
+        self._apply_site_chrome(configured_site())
         qconfig.themeChanged.connect(self._on_theme_changed)
         MainWindow._window_ref = self
 

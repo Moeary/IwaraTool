@@ -104,6 +104,9 @@ class TaskSignalBus(QObject):
     # The set or order of Home rows was edited (Settings or Home).
     home_layout_changed = Signal()
 
+    # The current iwara site ("tv" / "ai", already saved) was switched.
+    site_changed = Signal(str)
+
     # Runtime automation/download policy settings were changed.
     background_settings_changed = Signal()
 

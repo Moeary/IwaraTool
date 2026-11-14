@@ -138,6 +138,7 @@ class SearchInterface(
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_state_changed)
         signal_bus.search_source_changed.connect(self._on_default_source_changed)
+        signal_bus.site_changed.connect(self._on_site_changed)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -157,7 +158,12 @@ class SearchInterface(
     def _load_initial_results(self):
         """An empty page loads the listing at once instead of waiting for a refresh."""
 
-        if not self.isVisible() or self._loading or self._active_search_request is not None:
+        if not self.isVisible():
+            return
+        if getattr(self, "_site_search_pending", False):
+            self._rerun_for_site()
+            return
+        if self._loading or self._active_search_request is not None:
             return
         if self._all_videos or self._all_authors or self._all_playlists:
             return

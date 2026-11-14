@@ -1,6 +1,7 @@
 """Shared cooperative shutdown helpers for page-owned Qt worker threads."""
 from __future__ import annotations
 
+import functools
 import time
 from collections.abc import Callable, Iterable
 
@@ -19,9 +20,33 @@ class ManagedThread(QThread):
     is garbage-collected, or a Qt parent widget is destroyed.  ``start()``
     therefore keeps a strong reference, and detaches the thread from any Qt
     parent, until the thread's own ``finished`` has been delivered.
+
+    The thread also works for the iwara site that was current when it was
+    started, so switching sites mid-request cannot mix the two.
     """
 
+    _site = ""
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        run = cls.__dict__.get("run")
+        if run is None or getattr(run, "_site_scoped", False):
+            return
+
+        @functools.wraps(run)
+        def scoped_run(self, *args, **kw):
+            from ..core.site import site_scope
+
+            with site_scope(self._site):
+                return run(self, *args, **kw)
+
+        scoped_run._site_scoped = True
+        cls.run = scoped_run
+
     def start(self, *args, **kwargs):
+        from ..core.site import current_site
+
+        self._site = current_site()
         if self.parent() is not None:
             self.setParent(None)
         if self not in _RUNNING:

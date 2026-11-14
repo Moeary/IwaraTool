@@ -63,6 +63,20 @@ def configured_site() -> str:
     return normalize(app_config.iwara_site)
 
 
+def set_configured_site(key: str) -> bool:
+    """Make ``key`` the site browsing follows; announces it with ``site_changed``."""
+
+    from ..config import app_config
+    from ..signal_bus import signal_bus
+
+    new = normalize(key)
+    if new == configured_site():
+        return False
+    app_config.iwara_site = new
+    signal_bus.site_changed.emit(new)
+    return True
+
+
 def current_site() -> str:
     """The site this thread is working for: a ``site_scope`` or the user's choice."""
 

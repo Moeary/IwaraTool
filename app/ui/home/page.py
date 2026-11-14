@@ -85,6 +85,7 @@ class HomeInterface(QWidget):
         signal_bus.content_rating_changed.connect(self._on_rating_broadcast)
         signal_bus.login_state_changed.connect(self._on_login_changed)
         signal_bus.home_layout_changed.connect(self._on_layout_changed)
+        signal_bus.site_changed.connect(self._on_site_changed)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -136,6 +137,18 @@ class HomeInterface(QWidget):
                 self._feed.reload_all()
             else:
                 self._feed.invalidate()
+
+    def _on_site_changed(self, _site: str):
+        """Rows are cached per site; a "More" list starts over on the new site."""
+
+        if self._browse.section is not None:
+            self._browse._go(0)
+        if not self._loaded_once:
+            return
+        if self.isVisible():
+            self._feed.reload_all()
+        else:
+            self._feed.invalidate()
 
     def _on_login_changed(self, _logged_in: bool):
         if not self._loaded_once:

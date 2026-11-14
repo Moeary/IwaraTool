@@ -62,7 +62,7 @@ class LegacyMigrationMixin:
             target.execute(
                 "INSERT INTO sources (source_type, source_origin, source_key, title, remote_id, source_url, enabled, created_at, last_checked_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), ?) "
-                "ON CONFLICT(source_type, source_key) DO UPDATE SET "
+                "ON CONFLICT(source_type, source_key, site) DO UPDATE SET "
                 "source_origin=CASE WHEN excluded.source_origin != '' THEN excluded.source_origin ELSE source_origin END, "
                 "title=CASE WHEN excluded.title != '' THEN excluded.title ELSE title END, "
                 "remote_id=CASE WHEN excluded.remote_id != '' THEN excluded.remote_id ELSE remote_id END, "

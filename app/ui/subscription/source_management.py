@@ -34,10 +34,13 @@ class SubscriptionSourceManagementMixin:
         if not key:
             self._show_error(tr("Invalid subscription input", "订阅输入无效", "購読入力が不正です"))
             return
-        if kind == "playlist":
-            source_id = download_manager.add_playlist_subscription(key)
-        else:
-            source_id = download_manager.add_author_subscription(key)
+        from ...core.site import site_of_url, site_scope
+
+        with site_scope(site_of_url(text.strip())):  # a pasted iwara.ai link subscribes there
+            if kind == "playlist":
+                source_id = download_manager.add_playlist_subscription(key)
+            else:
+                source_id = download_manager.add_author_subscription(key)
         self._load_sources()
         if source_id:
             self._select_source_id(source_id)

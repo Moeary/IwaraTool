@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+import tempfile
 import threading
 import unittest
+from contextlib import closing
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -149,6 +152,138 @@ class LinkParsingTests(unittest.TestCase):
         self.assertEqual(video.source_url, "https://www.iwara.ai/video/abc")
         video = normalize_video({"id": "abc", "title": "t", "siteId": "iwara"})
         self.assertEqual(video.source_url, "https://www.iwara.tv/video/abc")
+
+
+class SiteSwitchTests(unittest.TestCase):
+    def setUp(self):
+        self._saved = app_config.iwara_site
+        self.addCleanup(setattr, app_config, "iwara_site", self._saved)
+        app_config.iwara_site = "tv"
+
+    def test_switching_saves_and_announces(self):
+        from app.signal_bus import signal_bus
+
+        seen = []
+
+        def record(key):
+            seen.append(key)
+
+        signal_bus.site_changed.connect(record)
+        self.addCleanup(signal_bus.site_changed.disconnect, record)
+        self.assertTrue(sites.set_configured_site("ai"))
+        self.assertFalse(sites.set_configured_site("ai"))
+        self.assertEqual(app_config.iwara_site, "ai")
+        self.assertEqual(seen, ["ai"])
+
+    def test_home_rows_are_cached_per_site(self):
+        from app.core.home_cache import cache_key
+
+        self.assertEqual(cache_key("latest", "videos", "all"), "latest|videos|all")
+        self.assertEqual(cache_key("latest", "videos", "all", site="ai"), "ai|latest|videos|all")
+        with sites.site_scope("ai"):
+            self.assertEqual(cache_key("feed", "videos", "", account=True), "acct:ai|feed|videos|all")
+
+    def test_a_worker_keeps_the_site_it_was_started_on(self):
+        from PySide6.QtCore import QCoreApplication
+
+        from app.ui.worker_lifecycle import ManagedThread
+
+        QCoreApplication.instance() or QCoreApplication([])
+
+        class Worker(ManagedThread):
+            def run(self):
+                self.seen = sites.current_site()
+
+        worker = Worker()
+        app_config.iwara_site = "ai"
+        worker.start()
+        app_config.iwara_site = "tv"  # switched while the request is out
+        self.assertTrue(worker.wait(5000))
+        self.assertEqual(worker.seen, "ai")
+
+    def test_the_toggle_has_a_shortcut(self):
+        from app.core.shortcut_defs import actions_by_id
+
+        self.assertEqual(actions_by_id()["toggle_site"].default, "Ctrl+Shift+S")
+
+
+class SubscriptionSiteTests(unittest.TestCase):
+    def setUp(self):
+        self._saved = app_config.iwara_site
+        self.addCleanup(setattr, app_config, "iwara_site", self._saved)
+        app_config.iwara_site = "tv"
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.db = os.path.join(self._tmp.name, "subscriptions.db")
+
+    def _store(self):
+        from app.core.subscription.store import SubscriptionStore
+
+        return SubscriptionStore(self.db, legacy_db_path="")
+
+    def test_old_databases_get_the_site_column(self):
+        with closing(sqlite3.connect(self.db)) as conn:
+            conn.execute(
+                "CREATE TABLE sources (id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, "
+                "source_key TEXT NOT NULL, title TEXT DEFAULT '', remote_id TEXT DEFAULT '', enabled INTEGER DEFAULT 1, "
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "last_checked_at TEXT DEFAULT '', UNIQUE(source_type, source_key))"
+            )
+            conn.execute("INSERT INTO sources (id, source_type, source_key, title) VALUES (7, 'author', 'maker', 'Maker')")
+            conn.commit()
+        store = self._store()
+        source = store.get_source(7)
+        self.assertEqual(source["site"], "tv")
+        self.assertEqual(source["title"], "Maker")
+        # The same creator can now be followed on iwara.ai as well.
+        ai_id = store.add_source("author", "maker", "Maker", site="ai")
+        self.assertNotIn(ai_id, (0, 7))
+        self.assertEqual(store.add_source("author", "MAKER", "Maker"), 7)
+
+    def test_new_sources_take_the_site_of_their_link_or_the_current_one(self):
+        store = self._store()
+        tv_id = store.add_source("author", "maker")
+        ai_link = store.add_source("author", "maker2", source_url="https://www.iwara.ai/profile/maker2")
+        with sites.site_scope("ai"):
+            ai_scoped = store.add_source("playlist", "p1")
+        self.assertEqual(store.get_source(tv_id)["site"], "tv")
+        self.assertEqual(store.get_source(ai_link)["site"], "ai")
+        self.assertEqual(store.get_source(ai_scoped)["site"], "ai")
+
+    def test_the_backup_remembers_the_site(self):
+        store = self._store()
+        store.add_source("author", "maker", site="ai")
+        os.remove(self.db)
+        restored = self._store()
+        self.assertEqual([s["site"] for s in restored.list_sources()], ["ai"])
+
+    def test_a_source_refreshes_on_its_own_site(self):
+        from app.core.history import DownloadHistory
+        from app.core.manager import DownloadManager
+
+        mgr = DownloadManager()
+        mgr.history = DownloadHistory(os.path.join(self._tmp.name, "history.db"))
+        mgr.subscriptions = self._store()
+        source_id = mgr.subscriptions.add_source("playlist", "p1", site="ai")
+        seen = []
+
+        def fake_api_call(method_name, *args, **_kwargs):
+            seen.append((method_name, sites.current_site()))
+            return []
+
+        mgr._api_call = fake_api_call
+        mgr.refresh_subscription_source(source_id)
+        self.assertEqual(seen, [("get_playlist_videos", "ai")])
+
+    def test_author_lookup_follows_the_current_site(self):
+        from app.core.manager import DownloadManager
+
+        mgr = DownloadManager()
+        mgr.subscriptions = self._store()
+        mgr.subscriptions.add_source("author", "maker", site="ai")
+        self.assertIsNone(mgr.find_author_subscription("maker"))
+        with sites.site_scope("ai"):
+            self.assertEqual(mgr.find_author_subscription("Maker")["site"], "ai")
 
 
 if __name__ == "__main__":

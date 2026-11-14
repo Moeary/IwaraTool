@@ -63,6 +63,7 @@ def _bind_window(window) -> None:
         "card_size_down": lambda: step_card_width(-1),
         "card_size_reset": reset_card_width,
         "toggle_theme": lambda: window._toggle_dark_mode(),
+        "toggle_site": window.toggle_site,
         "toggle_fullscreen": window.toggle_fullscreen,
         "shortcut_help": window.show_shortcut_help,
         "open_settings": lambda: window.switchTo(window._settings_page),
