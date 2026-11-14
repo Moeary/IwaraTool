@@ -40,6 +40,7 @@ def _bind_window(window) -> None:
         ("nav_repair", window._repair_page),
         ("nav_rules", window._rules_page),
         ("nav_settings", window._settings_page),
+        ("nav_tools", window._tools_page),
     ]
     handlers = {
         action_id: (lambda page=page: window.switchTo(page)) for action_id, page in pages
@@ -48,7 +49,7 @@ def _bind_window(window) -> None:
     # Ctrl+Tab walks the sidebar in the order it is drawn.
     cycle = [
         window._home_page, window._subscription_page, window._search_page, window._download_page,
-        window._repair_page, window._history_page, window._rules_page, window._settings_page,
+        window._repair_page, window._history_page, window._tools_page, window._rules_page, window._settings_page,
     ]
     handlers.update({
         "nav_next": lambda: window.switchTo(cycle[(_index_of(window, cycle) + 1) % len(cycle)]),

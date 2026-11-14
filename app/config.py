@@ -126,11 +126,12 @@ class AppConfig:
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
-        "startup_page": "home",  # home / subscriptions / search / download / repair / history / rules / settings
+        "startup_page": "home",  # home / subscriptions / search / download / repair / history / tools / rules / settings
         "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see core/shortcut_defs
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews
+        "ffmpeg_path": "",  # empty: find ffmpeg on PATH / usual install folders, see core/tools/ffmpeg
     }
 
     # Never copied out of the old registry-based store.
@@ -578,6 +579,7 @@ class AppConfig:
     preview_player_mode = _Setting()
     preview_player_command = _Setting()
     preview_quality = _Setting()
+    ffmpeg_path = _Setting()
 
     @property
     def theme_mode(self) -> str:

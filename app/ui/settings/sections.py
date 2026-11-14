@@ -114,6 +114,17 @@ def _feature_categories() -> tuple[SettingsCategory, ...]:
             ("subscription_automation", "subscription_prompt", "cover_performance"),
         ),
         (
+            "tools",
+            FluentIcon.APPLICATION,
+            tr("Tools", "工具", "ツール"),
+            tr(
+                "The ffmpeg program used by upload compression and cover preview.",
+                "上传压缩与封面预览使用的 ffmpeg 程序。",
+                "アップロード用圧縮とカバーのプレビューが使う ffmpeg。",
+            ),
+            ("ffmpeg",),
+        ),
+        (
             "system",
             FluentIcon.DEVELOPER_TOOLS,
             tr("System & Maintenance", "系统与维护", "システムと保守"),

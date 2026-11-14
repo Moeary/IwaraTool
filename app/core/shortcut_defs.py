@@ -69,6 +69,7 @@ def _global_actions() -> tuple[ShortcutAction, ...]:
         A("nav_history", SCOPE_GLOBAL, "Ctrl+6", tr("Go to History", "前往历史记录", "履歴へ移動")),
         A("nav_rules", SCOPE_GLOBAL, "Ctrl+7", tr("Go to Rules", "前往下载规则", "ルールへ移動")),
         A("nav_settings", SCOPE_GLOBAL, "Ctrl+8", tr("Go to Settings", "前往应用设置", "設定へ移動")),
+        A("nav_tools", SCOPE_GLOBAL, "Ctrl+9", tr("Go to Tools", "前往工具", "ツールへ移動")),
         A("nav_next", SCOPE_GLOBAL, "Ctrl+Tab", tr("Next page", "下一个页面", "次のページ")),
         A("nav_prev", SCOPE_GLOBAL, "Ctrl+Shift+Tab", tr("Previous page", "上一个页面", "前のページ")),
         A("nav_back", SCOPE_GLOBAL, "Esc", tr(

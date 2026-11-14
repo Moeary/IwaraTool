@@ -13,6 +13,7 @@ from .home_cards import HomeSettingsCards
 from .sections import SettingsSections
 from .shortcuts_cards import ShortcutSettingsCards
 from .system_cards import SystemSettingsCards
+from .tool_cards import ToolSettingsCards
 from ..tag_dictionary_worker import TagDictionaryUpdateWorker
 from ..theme import PAGE_MARGINS
 from ..worker_lifecycle import stop_qthreads
@@ -90,6 +91,12 @@ class SettingsInterface(
         self.ensure_built()
         self._settings_board.select_category("shortcuts")
 
+    def show_category(self, key: str):
+        """Jump to one settings category (e.g. "tools" from the Tools page)."""
+
+        self.ensure_built()
+        self._settings_board.select_category(key)
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*PAGE_MARGINS)
@@ -123,6 +130,7 @@ class SettingsInterface(
         self._system_cards = SystemSettingsCards(self._settings_board, self)
         self._home_cards = HomeSettingsCards(self._settings_board, self)
         self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
+        self._tool_cards = ToolSettingsCards(self._settings_board, self)
 
         # ── Save button ───────────────────────────────────────────────────────
         # Kept under the category list so it is reachable from every page.

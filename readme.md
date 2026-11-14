@@ -17,6 +17,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 - **Download only what you want**: save rules filter by likes, views, date, tags and title keywords, and each page can use its own rule.
 - **Name files your way**: pick a naming preset, or build one by choosing fields (author, title, ID, date, quality…) and what goes between them, with a live preview.
 - **Tidy existing files**: the Repair Center renames or reorganizes videos you already downloaded.
+- **Get ready to upload**: the Tools page fits a video under Iwara's 300 / 600 MB upload limit (H.264 + AAC, MP4, at least 720p) and previews the 16 cover choices Iwara will offer. Needs ffmpeg installed.
 - **Keep track**: download history with search and filters, duplicate detection, optional cover images and `.nfo` files for media libraries.
 - **Made to live with**: Chinese / English / Japanese, light and dark themes, system tray, launch at login, backup and one-click update on Windows.
 
