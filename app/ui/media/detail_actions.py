@@ -19,13 +19,15 @@ from ..home.workers import ApiCallWorker
 from ..formatting import _format_count
 from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
+from ...core import site as sites
 
 
 class DetailActionsMixin:
     """Play, download, like, share and author actions of the detail view."""
 
     def _page_url(self) -> str:
-        return f"https://www.iwara.tv/{self._kind}/{self._item_id}"
+        site = sites.site_of_item(self._video) if self._video is not None else None
+        return sites.web_url(self._kind, self._item_id, site)
 
     def _can_play(self) -> bool:
         return self._video is not None and self._kind == "video" and self._video.downloadable

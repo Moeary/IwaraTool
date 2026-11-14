@@ -131,6 +131,7 @@ class AppConfig:
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews
+        "iwara_site": "tv",  # tv / ai: the site browsing follows, see core/site
         "ffmpeg_path": "",  # empty: find ffmpeg on PATH / usual install folders, see core/tools/ffmpeg
     }
 
@@ -580,6 +581,7 @@ class AppConfig:
     preview_player_command = _Setting()
     preview_quality = _Setting()
     ffmpeg_path = _Setting()
+    iwara_site = _Setting()
 
     @property
     def theme_mode(self) -> str:

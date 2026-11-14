@@ -11,6 +11,7 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
+from .. import site as sites
 
 
 class EnqueueingMixin:
@@ -26,7 +27,7 @@ class EnqueueingMixin:
     ) -> int:
         """Queue a list of video ids and return how many were accepted for parsing."""
         items = [
-            (str(raw_id or "").strip(), f"https://www.iwara.tv/video/{str(raw_id or '').strip()}")
+            (str(raw_id or "").strip(), sites.video_url(str(raw_id or '').strip()))
             for raw_id in video_ids
             if str(raw_id or "").strip()
         ]
@@ -173,7 +174,7 @@ class EnqueueingMixin:
                 skipped_input_duplicate += 1
                 continue
             seen_input.add(key)
-            normalized.append((video_id, original_url or f"https://www.iwara.tv/video/{video_id}"))
+            normalized.append((video_id, original_url or sites.video_url(video_id)))
         return normalized, skipped_empty, skipped_input_duplicate
 
     def _existing_paths_for(self, normalized: list[tuple[str, str]]) -> dict[str, str]:
@@ -223,7 +224,7 @@ class EnqueueingMixin:
         )
         self._enqueue_video_ids_bulk(
             [
-                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                (str(video.get("id", "") or "").strip(), sites.video_url(str(video.get('id', '') or '').strip(), sites.site_of_item(video)))
                 for video in videos
                 if str(video.get("id", "") or "").strip()
             ],
@@ -249,7 +250,7 @@ class EnqueueingMixin:
         )
         self._enqueue_video_ids_bulk(
             [
-                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                (str(video.get("id", "") or "").strip(), sites.video_url(str(video.get('id', '') or '').strip(), sites.site_of_item(video)))
                 for video in videos
                 if str(video.get("id", "") or "").strip()
             ],
@@ -323,7 +324,7 @@ class EnqueueingMixin:
         )
         self._enqueue_video_ids_bulk(
             [
-                (str(video.get("id", "") or "").strip(), f"https://www.iwara.tv/video/{str(video.get('id', '') or '').strip()}")
+                (str(video.get("id", "") or "").strip(), sites.video_url(str(video.get('id', '') or '').strip(), sites.site_of_item(video)))
                 for video in videos
                 if str(video.get("id", "") or "").strip()
             ],

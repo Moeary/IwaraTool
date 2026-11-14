@@ -8,6 +8,7 @@ from typing import Any
 from ...i18n import tr
 from ..api.client import IwaraAPI
 from ..task_metadata import _dict_or_empty, _iwara_image_url, _subscription_thumbnail_url
+from .. import site as sites
 
 
 class SubscriptionMediaCacheMixin:
@@ -72,7 +73,7 @@ class SubscriptionMediaCacheMixin:
             token = client.token or ""
         headers = {
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Referer": "https://www.iwara.tv/",
+            "Referer": sites.home_url(),
         }
         if token:
             headers["Authorization"] = f"Bearer {token}"

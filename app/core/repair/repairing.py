@@ -10,6 +10,7 @@ from ...i18n import pin_language, tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
 from ..task_metadata import _author_fields_from_user, _dict_or_empty
+from .. import site as sites
 
 
 class RepairingMixin:
@@ -114,7 +115,7 @@ class RepairingMixin:
         video_id = str(item.get("video_id", "") or "").strip()
         metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
         cached_meta = item.get("cached_meta") if isinstance(item.get("cached_meta"), dict) else {}
-        source_url = str(cached_meta.get("source_url", "") or f"https://www.iwara.tv/video/{video_id}")
+        source_url = str(cached_meta.get("source_url", "") or sites.video_url(video_id))
         task = self._repair_task(video_id, metadata, cached_meta, source_url, path)
         # Use the batch plan, including the exact paths shown by the preview.
         target_path = str(item.get("target_path", "") or path)

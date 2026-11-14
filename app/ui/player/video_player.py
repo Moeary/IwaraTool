@@ -28,6 +28,7 @@ from .fullscreen import PlayerFullscreenMixin
 from .keyboard import PlayerKeyboardMixin
 from .media_events import PlayerMediaEventsMixin
 from .player_layout import PlayerLayoutMixin
+from ...core import site as sites
 
 logger = get_logger(__name__)
 
@@ -173,7 +174,7 @@ class VideoPlayer(
         self._release_stream()
         self._video_id = str(video_id or "")
         self._remote = remote
-        self._page_url = f"https://www.iwara.tv/video/{self._video_id}" if self._video_id else ""
+        self._page_url = sites.video_url(self._video_id)
         self._browser_btn.setEnabled(bool(self._page_url))
         self._popout_btn.setEnabled(bool(self._video_id))
         self._pending_error = ""

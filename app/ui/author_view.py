@@ -41,6 +41,7 @@ from .downloads.staging_flow import stage_videos
 from .media.pixmaps import read_pixmap
 from .home.workers import CoverFetcher
 from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..core import site as sites
 
 
 @dataclass
@@ -175,7 +176,7 @@ class AuthorView(QWidget):
 
     def _open_on_site(self):
         if self._username:
-            webbrowser.open(f"https://www.iwara.tv/profile/{self._username}")
+            webbrowser.open(sites.profile_url(self._username))
 
     def _open_post(self, video: SearchVideo):
         kind = "image" if video.source_kind == IWARA_IMAGE_SOURCE_KIND else "video"

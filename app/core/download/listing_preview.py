@@ -16,6 +16,7 @@ from ..task_metadata import (
     _dict_or_empty,
     _subscription_download_block_from_video_info,
 )
+from .. import site as sites
 
 
 HAVE_FILE = "file"  # the video file is on disk
@@ -42,6 +43,7 @@ class ListingPreviewMixin:
         parsed = self._parse_iwara_url(str(url or "").strip())
         return parsed[0] if parsed and parsed[0] in PREVIEW_KINDS else ""
 
+    @sites.scoped_to_link
     def preview_listing(self, url: str, *, rule_id: str = "") -> dict[str, Any]:
         """Every video behind an author / playlist link, with what is already here and what the rule keeps.
 

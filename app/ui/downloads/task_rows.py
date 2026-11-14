@@ -13,7 +13,8 @@ from ..table_column_dialog import open_table_column_dialog
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES
 from .task_staging import staged_detail, staged_state_color, staged_state_text
-from .task_text import _video_url
+from .task_text import _task_url
+from ...core import site as sites
 
 
 class TaskRowsMixin:
@@ -71,7 +72,7 @@ class TaskRowsMixin:
             task.speed_str,
             task.quality,
             self._priority_text(task.priority),
-            _video_url(task.video_id),
+            _task_url(task),
             task.video_id,
         ]
 
@@ -100,7 +101,7 @@ class TaskRowsMixin:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         action_key, action_text, action_tip, action_enabled = self._primary_action(task)
-        task_url = _video_url(task.video_id)
+        task_url = _task_url(task)
         self._set_action_item(
             row_idx,
             self._COL_URL,
@@ -198,7 +199,7 @@ class TaskRowsMixin:
             status = TaskStatus.QUEUED_META
         return DownloadTask(
             task_id=task_id,
-            url=f"https://www.iwara.tv/video/{video_id}",
+            url=str(info.get("url", "") or "") or sites.video_url(video_id),
             video_id=video_id,
             title=str(info.get("title", "") or video_id),
             author=str(info.get("author", "") or ""),

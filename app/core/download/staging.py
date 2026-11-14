@@ -21,6 +21,7 @@ from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
 from ..rules import rule_store
 from .listing_preview import HAVE_FILE, HAVE_HISTORY, HAVE_QUEUED
+from .. import site as sites
 
 
 STAGE_READY = "ready"
@@ -128,7 +129,7 @@ class StagingMixin:
                     continue
                 task = DownloadTask(
                     task_id=str(uuid.uuid4()),
-                    url=f"https://www.iwara.tv/video/{video_id}",
+                    url=str(item.get("source_url") or "") or sites.video_url(video_id, sites.site_of_item(item.get("raw") or item)),
                     video_id=video_id,
                     status=TaskStatus.STAGED,
                 )

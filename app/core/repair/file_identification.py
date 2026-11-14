@@ -16,6 +16,7 @@ from .matching import (
     repair_target_path,
 )
 from ..task_metadata import _dict_or_empty
+from .. import site as sites
 
 
 class RepairFileIdentificationMixin:
@@ -187,7 +188,7 @@ class RepairFileIdentificationMixin:
         meta["video_id"] = video_id
         meta["source_url"] = str(
             metadata_source.get("source_url", "")
-            or f"https://www.iwara.tv/video/{video_id}"
+            or sites.video_url(video_id)
         )
         user = _dict_or_empty(metadata_source.get("user"))
         author = str(meta.get("author", "") or user.get("username", "") or "").strip()

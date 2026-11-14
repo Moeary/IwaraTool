@@ -13,6 +13,7 @@ from ..formatting import _format_count, _format_duration, _short_text
 from ..theme import qcolor
 
 from .results_layout import _DEFAULT_GRID_HEIGHT
+from ...core import site as sites
 
 
 class SearchResultItemsMixin:
@@ -188,7 +189,7 @@ class SearchResultItemsMixin:
             if video.iwara_url:
                 return video.iwara_url
             if video.download_video_id:
-                return f"https://www.iwara.tv/video/{video.download_video_id}"
+                return sites.video_url(video.download_video_id, sites.site_of_item(video))
             return "解析中…" if video.source_kind == "oreno3d" else "—"
         if key == "source_url":
             return video.source_url or "—"

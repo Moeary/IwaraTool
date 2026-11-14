@@ -6,6 +6,7 @@ from typing import Any
 
 from ...core.search.models import SearchVideo
 from .helpers import _item_date_key, _title_matcher
+from ...core import site as sites
 
 
 STATE_FILTERS = ("all", "ready", "new", "downloaded", "moved", "queued", "unavailable")
@@ -46,7 +47,7 @@ def item_to_video(item: dict[str, Any], *, author_name: str = "") -> SearchVideo
         author_name=author_name or author,
         published_at=str(item.get("published_at", "") or ""),
         thumbnail_url=str(item.get("thumbnail_url", "") or ""),
-        source_url=str(item.get("source_url", "") or "") or f"https://www.iwara.tv/video/{video_id}",
+        source_url=str(item.get("source_url", "") or "") or sites.video_url(video_id),
         raw={"_state": item_state(item), "_thumbnail_path": str(item.get("thumbnail_path", "") or "")},
     )
 

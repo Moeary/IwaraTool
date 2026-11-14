@@ -11,6 +11,7 @@ from PySide6.QtCore import QTimer, Signal
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
 from ..worker_lifecycle import ManagedThread
+from ...core import site as sites
 
 
 class SearchDownloadStatus(Enum):
@@ -35,7 +36,7 @@ def iwara_history_id(video: SearchVideo) -> str:
             continue
         parts = parsed.path.split("/")
         if (
-            (host == "iwara.tv" or host.endswith(".iwara.tv"))
+            sites.site_of_host(host)
             and len(parts) >= 3
             and parts[1] == "video"
             and parts[2]

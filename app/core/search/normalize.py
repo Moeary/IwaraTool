@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from urllib.parse import quote, urlparse
 
 from .filtering import split_search_terms
+from .. import site as sites
 from .models import IWARA_IMAGE_SOURCE_KIND, SearchAuthor, SearchPlaylist, SearchVideo
 
 
@@ -156,7 +157,7 @@ def normalize_video(value: Mapping[str, Any] | Any) -> SearchVideo | None:
     slug = _first_text(video, "slug")
     source_url = _first_text(video, "source_url", "url")
     if not source_url:
-        source_url = f"https://www.iwara.tv/video/{quote(video_id)}"
+        source_url = sites.video_url(video_id, sites.site_of_item(video))
     rating = video.get("rating")
     if isinstance(rating, Mapping):
         rating = _first_text(rating, "name", "label", "id")
@@ -269,7 +270,7 @@ def normalize_author(value: Mapping[str, Any] | Any) -> SearchAuthor | None:
     )
     source_url = _first_text(raw, "source_url", "url")
     if not source_url:
-        source_url = f"https://www.iwara.tv/profile/{quote(username)}"
+        source_url = sites.profile_url(username)
     return SearchAuthor(
         author_id=author_id or username,
         username=username,
@@ -297,7 +298,7 @@ def normalize_image(value: Mapping[str, Any] | Any) -> SearchVideo | None:
     """Normalize an Iwara image post into a browse-only search card.
 
     Image posts share the video card layout but have no video file, so they
-    are never queueable; the card opens the post on iwara.tv instead.
+    are never queueable; the card opens the post on its site instead.
     """
 
     image = dict(value) if isinstance(value, Mapping) else {}
@@ -305,7 +306,7 @@ def normalize_image(value: Mapping[str, Any] | Any) -> SearchVideo | None:
     if normalized is None:
         return None
     image_id = normalized.video_id
-    normalized.source_url = f"https://www.iwara.tv/image/{quote(image_id)}"
+    normalized.source_url = sites.web_url("image", image_id, sites.site_of_item(image))
     normalized.iwara_url = ""
     normalized.source_kind = IWARA_IMAGE_SOURCE_KIND
     normalized.downloadable = False
@@ -338,6 +339,6 @@ def normalize_playlist(value: Mapping[str, Any] | Any) -> SearchPlaylist | None:
         author_username=_first_text(user, "username"),
         author_name=_first_text(user, "name", "username"),
         thumbnail_url=thumbnail_url,
-        source_url=f"https://www.iwara.tv/playlist/{quote(playlist_id)}",
+        source_url=sites.web_url("playlist", playlist_id, sites.site_of_item(raw)),
         raw=raw,
     )

@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from .. import site as sites
 
 
 class UrlIntakeMixin:
@@ -21,6 +22,7 @@ class UrlIntakeMixin:
         """Parse URL and mark resolved videos as already downloaded in history."""
         self._parse_executor.submit(self._parse_and_mark_downloaded, url, str(rule_id or ""))
 
+    @sites.scoped_to_link
     def _parse_and_enqueue(self, raw: str, rule_id: str = ""):
         url = raw.strip()
         if not url:
@@ -87,6 +89,7 @@ class UrlIntakeMixin:
         )
         self._enqueue_video_id(url, url, rule_id=rule_id)
 
+    @sites.scoped_to_link
     def _parse_and_mark_downloaded(self, raw: str, rule_id: str = ""):
         url = raw.strip()
         if not url:
@@ -182,9 +185,12 @@ class UrlIntakeMixin:
     def _parse_iwara_url(
         self, raw_url: str
     ) -> tuple[str, str | dict[str, str]] | None:
-        """Parse iwara URLs into ('video'|'user'|'playlist'|'search', value)."""
+        """Parse iwara.tv / iwara.ai URLs into ('video'|'user'|'playlist'|'search', value).
+
+        Which site the link is on comes from ``site.site_of_url``.
+        """
         normalized = raw_url.strip()
-        if "iwara.tv" in normalized and "://" not in normalized:
+        if ("iwara.tv" in normalized or "iwara.ai" in normalized) and "://" not in normalized:
             normalized = f"https://{normalized.lstrip('/')}"
 
         try:
@@ -193,7 +199,7 @@ class UrlIntakeMixin:
             return None
 
         host = (parsed.netloc or "").lower()
-        if host and "iwara.tv" not in host:
+        if host and not sites.site_of_host(host):
             return None
 
         parts = [p for p in parsed.path.split("/") if p]

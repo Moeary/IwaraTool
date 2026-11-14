@@ -17,6 +17,7 @@ from .result_authors import (
 )
 from ..navigation import record_navigation
 from .page_dependencies import signal_bus
+from ...core import site as sites
 
 
 class SearchOpeningMixin:
@@ -185,7 +186,7 @@ class SearchOpeningMixin:
             return
         target = _author_subscription_target(data)
         if target:
-            webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
+            webbrowser.open(sites.profile_url(target[0], sites.SITE_TV))  # Oreno3D only covers iwara.tv
 
     def _open_iwara_author_page_for_result(self):
         values = self._selected_data()
@@ -194,7 +195,7 @@ class SearchOpeningMixin:
         data = values[0].get("data")
         target = self._author_navigation_target(data)
         if target:
-            webbrowser.open(f"https://www.iwara.tv/profile/{target[0]}")
+            webbrowser.open(sites.profile_url(target[0], sites.site_of_item(data)))
 
     @classmethod
     def _detail_target(cls, video: SearchVideo) -> tuple[str, str] | None:

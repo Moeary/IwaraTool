@@ -12,6 +12,7 @@ from ..api.client import IwaraAPI
 from .candidate_index import RepairCandidateIndex
 from .matching import scan_video_files
 from .file_identification import RepairFileIdentificationMixin
+from .. import site as sites
 
 
 class RepairScanningMixin(RepairFileIdentificationMixin):
@@ -261,6 +262,6 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
             key = video_id.casefold()
             candidate = dict(source)
             candidate["video_id"] = video_id
-            candidate.setdefault("source_url", f"https://www.iwara.tv/video/{video_id}")
+            candidate.setdefault("source_url", sites.video_url(video_id))
             candidates.setdefault(key, candidate)
         return list(candidates.values())
