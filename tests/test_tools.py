@@ -161,8 +161,8 @@ class CommandTests(unittest.TestCase):
         self.assertIn("-an", first)
         self.assertEqual(first[-1], os.devnull)
         self.assertEqual(second[second.index("-pass") + 1], "2")
-        self.assertEqual(second[second.index("-passlogfile") + 1], "/tmp/log")
-        self.assertEqual(second[-3:], ["-f", "mp4", "/out/x.mp4.part"])
+        self.assertEqual(second[second.index("-passlogfile") + 1], str(Path("/tmp/log")))  # native separators
+        self.assertEqual(second[-3:], ["-f", "mp4", str(Path("/out/x.mp4.part"))])
         self.assertIn("+faststart", second)
         self.assertIn(f"{plan.video_kbps}k", second)
 
