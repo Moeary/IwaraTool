@@ -6,7 +6,7 @@
 
 Say goodbye to tedious command-line tools! Iwara batches downloader with a modern Fluent-style interface, making it easy for anyone to download all videos from a creator with one click.
 
-![demo](./docs/iwaratool_demo_v0.6.gif)
+![demo](./docs/iwaratool_demo.gif)
 
 ## What you can do
 
@@ -24,24 +24,30 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 
 ## Screenshots
 
-All screenshots use the English interface with sample data and no cover images.
+All screenshots use the English interface with made-up sample data; the covers are generated placeholder art. `scripts/record_demo.py` re-records the GIF and these screenshots offline.
 
-1. Download Workbench
+1. Home
 
-   ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
+   ![Home](./docs/panel_view/iwaratool_home_panel.jpg)
 2. Search
 
    ![Search](./docs/panel_view/iwaratool_search_panel.jpg)
-3. Subscriptions
+3. Download Workbench
+
+   ![Download Workbench](./docs/panel_view/iwaratool_download_panel.jpg)
+4. Subscriptions
 
    ![Subscriptions](./docs/panel_view/iwaratool_subscription_panel.jpg)
-4. History
+5. Tools (upload compressor and cover preview)
+
+   ![Tools](./docs/panel_view/iwaratool_tools_panel.jpg)
+6. History
 
    ![History](./docs/panel_view/iwaratool_history_panel.jpg)
-5. Rules (including the rule per page)
+7. Rules (including the rule per page)
 
    ![Rules](./docs/panel_view/iwaratool_rule_panel.jpg)
-6. Settings
+8. Settings
 
    ![Settings](./docs/panel_view/iwaratool_settings_panel.jpg)
 

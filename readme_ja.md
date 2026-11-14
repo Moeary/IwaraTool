@@ -6,7 +6,7 @@
 
 煩わしいコマンドラインにさよなら！モダンな Fluent スタイルのインターフェースを備えた Iwara 一括ダウンローダー。初心者でもワンクリックで作者の全動画をダウンロードできます。
 
-![demo](./docs/iwaratool_demo_v0.6.gif)
+![demo](./docs/iwaratool_demo.gif)
 
 ## できること
 
@@ -24,22 +24,30 @@
 
 ## 画面紹介
 
-1. ダウンロードワークベンチ
+スクリーンショットは英語 UI と架空のサンプルデータで、カバーは生成したプレースホルダー画像です。`scripts/record_demo.py` で GIF とスクリーンショットをオフラインで撮り直せます。
 
-   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+1. ホーム
+
+   ![ホーム](./docs/panel_view/iwaratool_home_panel.jpg)
 2. 検索
 
    ![検索](./docs/panel_view/iwaratool_search_panel.jpg)
-3. 購読
+3. ダウンロードワークベンチ
+
+   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+4. 購読
 
    ![購読](./docs/panel_view/iwaratool_subscription_panel.jpg)
-4. 履歴
+5. ツール（アップロード圧縮とカバープレビュー）
+
+   ![ツール](./docs/panel_view/iwaratool_tools_panel.jpg)
+6. 履歴
 
    ![履歴](./docs/panel_view/iwaratool_history_panel.jpg)
-5. ルール
+7. ルール
 
    ![ルール](./docs/panel_view/iwaratool_rule_panel.jpg)
-6. 設定
+8. 設定
 
    ![設定](./docs/panel_view/iwaratool_settings_panel.jpg)
 

@@ -6,7 +6,7 @@
 
 告别繁琐的命令行！拥有现代化 Fluent 风格界面的 Iwara 批量下载器，小白也能一键下载作者全视频。
 
-![demo](./docs/iwaratool_demo_v0.6.gif)
+![demo](./docs/iwaratool_demo.gif)
 
 ## 能做什么
 
@@ -24,22 +24,30 @@
 
 ## 页面展示
 
-1. 下载工作台
+截图均为英文界面与虚构的示例数据，封面是生成的占位图；`scripts/record_demo.py` 可离线重新录制 GIF 与这些截图。
 
-   ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
+1. 首页
+
+   ![首页](./docs/panel_view/iwaratool_home_panel.jpg)
 2. 搜索页
 
    ![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
-3. 订阅页
+3. 下载工作台
+
+   ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
+4. 订阅页
 
    ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
-4. 历史记录页
+5. 工具页（上传压缩与封面预览）
+
+   ![工具页](./docs/panel_view/iwaratool_tools_panel.jpg)
+6. 历史记录页
 
    ![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
-5. 规则页
+7. 规则页
 
    ![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
-6. 设置页
+8. 设置页
 
    ![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
 
