@@ -57,6 +57,7 @@ class FakeScraper:
         return self.response
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class IwaraAPILoginTests(unittest.TestCase):
     def setUp(self):
         self._language = app_config.ui_language

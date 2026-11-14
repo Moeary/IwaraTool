@@ -26,6 +26,7 @@ class ManagedThread(QThread):
     """
 
     _site = ""
+    pinned_site = ""  # set before start() to work for that site instead of the current one
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -46,7 +47,7 @@ class ManagedThread(QThread):
     def start(self, *args, **kwargs):
         from ..core.site import current_site
 
-        self._site = current_site()
+        self._site = self.pinned_site or current_site()
         if self.parent() is not None:
             self.setParent(None)
         if self not in _RUNNING:

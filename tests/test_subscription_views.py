@@ -28,6 +28,7 @@ def _item(video_id, **kwargs):
     return data
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class ItemHelperTests(unittest.TestCase):
     def test_state_priority(self):
         self.assertEqual(item_queries.item_state(_item("a")), "")

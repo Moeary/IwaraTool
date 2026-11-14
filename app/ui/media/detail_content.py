@@ -8,6 +8,8 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 
+from ...core import site as sites
+
 from qfluentwidgets import PushButton
 
 from ...config import app_config
@@ -78,12 +80,14 @@ class DetailContentMixin:
             worker.requestInterruption()
         self._reset_content()
         self._video = preview
+        self._opened_site = sites.current_site()
         self._scroll.verticalScrollBar().setValue(0)
         self._status.setText(tr("Loading…", "加载中…", "読み込み中…"))
         if preview is not None:
             self._apply_summary(preview)
             self._request_stage_cover(preview)
         worker = DetailWorker(self._token, self._kind, self._item_id)
+        worker.pinned_site = self.item_site()
         worker.info_ready.connect(self._on_info)
         worker.related_ready.connect(self._on_related)
         worker.comments_ready.connect(self._on_comments)
@@ -95,6 +99,22 @@ class DetailContentMixin:
     @property
     def item(self) -> tuple[str, str]:
         return self._kind, self._item_id
+
+    def item_site(self) -> str:
+        """The site the post on screen belongs to, even after the user switched sites.
+
+        Its ``siteId`` once loaded, else its card's link, else the site it was opened on.
+        """
+
+        info = getattr(self, "_info", None)
+        if isinstance(info, dict) and (info.get("siteId") or info.get("site_id")):
+            return sites.site_of_item(info)
+        video = getattr(self, "_video", None)
+        if video is not None:
+            found = sites.site_of_url(str(getattr(video, "source_url", "") or ""))
+            if found:
+                return found
+        return getattr(self, "_opened_site", "") or sites.current_site()
 
     def view_state(self) -> DetailState:
         return DetailState(

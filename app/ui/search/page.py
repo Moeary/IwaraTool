@@ -132,6 +132,7 @@ class SearchInterface(
         self._pending_author_subscription_video_ids: set[str] = set()
         self._init_download_status(download_manager.history, signal_bus)
         self._build_ui()
+        self._sync_source_options_for_site()
         self._auto_search_ready = True
 
     def _connect_global_signals(self):

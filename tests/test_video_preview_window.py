@@ -386,6 +386,7 @@ class EmbeddedPlayerTests(_PlayerCase):
         self.proxy.unregister_all.assert_not_called()
 
 
+@mock.patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class DetailInlinePlaybackTests(_PlayerCase):
     """Play on a post page plays on the page; only the window buttons open a window."""
 
@@ -430,7 +431,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
         self.assertEqual(windows, [])  # no separate window
         self.assertTrue(self.view._player_box.isVisible())
         self.assertFalse(self.view._stage.isVisible())
-        self.remote.assert_called_once_with("abc", "Dance")
+        self.remote.assert_called_once_with("abc", "Dance", site="tv")
         self.assertIsNotNone(self.view._player)
 
     def test_local_file_plays_from_disk(self):

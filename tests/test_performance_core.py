@@ -1001,6 +1001,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             app_config.mark_submitted_as_downloaded = old_mark_submitted
 
 
+@patch("app.core.site.configured_site", new=lambda: "tv")  # not the machine's own choice
 class UiPerformanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

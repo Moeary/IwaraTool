@@ -130,19 +130,22 @@ class VideoPlayer(
     def position(self) -> int:
         return int(self._player.position() or 0)
 
-    def play_local(self, path: str, title: str = "", video_id: str = "", *, start_ms: int = 0):
-        self._begin_session(video_id, title, remote=False, start_ms=start_ms)
+    def play_local(self, path: str, title: str = "", video_id: str = "", *, start_ms: int = 0, site: str = ""):
+        self._begin_session(video_id, title, remote=False, start_ms=start_ms, site=site)
         self._load(QUrl.fromLocalFile(path))
 
-    def play_remote(self, video_id: str, title: str = "", *, start_ms: int = 0):
-        self._begin_session(video_id, title, remote=True, start_ms=start_ms)
+    def play_remote(self, video_id: str, title: str = "", *, start_ms: int = 0, site: str = ""):
+        self._begin_session(video_id, title, remote=True, start_ms=start_ms, site=site)
         self._show_status(tr("Loading the video…", "正在加载视频…", "動画を読み込み中…"))
         request_id = self._request_id
         from ...core.manager import download_manager
 
+        from ...core.site import site_scope
+
         def work():
             try:
-                stream = preview_stream.open_stream(download_manager.api, video_id)
+                with site_scope(site):
+                    stream = preview_stream.open_stream(download_manager.api, video_id)
                 self._stream_ready.emit(stream, "", request_id)
             except Exception as exc:
                 logger.warning("Preview stream failed for %s", video_id, exc_info=True)
@@ -169,12 +172,12 @@ class VideoPlayer(
         self.stop()
         self._save_volume()
 
-    def _begin_session(self, video_id: str, title: str, *, remote: bool, start_ms: int = 0):
+    def _begin_session(self, video_id: str, title: str, *, remote: bool, start_ms: int = 0, site: str = ""):
         self._request_id += 1
         self._release_stream()
         self._video_id = str(video_id or "")
         self._remote = remote
-        self._page_url = sites.video_url(self._video_id)
+        self._page_url = sites.video_url(self._video_id, site or None)
         self._browser_btn.setEnabled(bool(self._page_url))
         self._popout_btn.setEnabled(bool(self._video_id))
         self._pending_error = ""

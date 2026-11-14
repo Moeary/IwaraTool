@@ -156,11 +156,11 @@ class WindowCommandsMixin:
             "current": keys.get(current, ""),
             "state": snapshot_of(current) if current is not None else None,
             "drafts": {key: draft for key, page in self._pages().items() if (draft := draft_of(page)) is not None},
-            "history": [
-                (keys[entry.page], entry.state)
-                for entry in self.navigation.entries()
-                if entry.page in keys
-            ],
+            "history": {
+                keys[target]: [(keys[entry.page], entry.state) for entry in entries if entry.page in keys]
+                for target, entries in self.navigation.stacks().items()
+                if target in keys
+            },
         }
 
     def import_session(self, session: dict):
@@ -173,9 +173,11 @@ class WindowCommandsMixin:
             if page is not None:
                 super().switchTo(page)
                 restore_into(page, session.get("state"))
-        self.navigation.replace([
-            NavEntry(pages[key], state) for key, state in session.get("history") or [] if key in pages
-        ])
+        self.navigation.replace({
+            pages[target]: [NavEntry(pages[key], state) for key, state in entries if key in pages]
+            for target, entries in (session.get("history") or {}).items()
+            if target in pages
+        })
 
     def _on_language_changed(self, _lang: str):
         # The automatic font stack puts the UI language's CJK fonts first.

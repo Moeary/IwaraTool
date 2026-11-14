@@ -44,7 +44,7 @@ class WindowNavigationMixin:
         self._settings_page = SettingsInterface(self)
         self._tools_page.open_settings_requested.connect(self._open_settings_category)
         self._home_page.open_settings_requested.connect(
-            lambda: self.switchTo(self._settings_page)
+            lambda: self._show_page(self._settings_page, lambda: None)
         )
 
         self._add_main_pages()
@@ -185,8 +185,7 @@ class WindowNavigationMixin:
         return {key: getattr(self, name) for key, name in names.items() if getattr(self, name, None) is not None}
 
     def _open_settings_category(self, key: str):
-        self.switchTo(self._settings_page)
-        self._settings_page.show_category(key)
+        self._show_page(self._settings_page, lambda: self._settings_page.show_category(key))
 
     def _page_of(self, widget: QWidget | None) -> QWidget | None:
         pages = set(self._pages().values())
@@ -195,11 +194,8 @@ class WindowNavigationMixin:
         return widget
 
     def switchTo(self, interface):
-        """Any page switch (sidebar, shortcut, link) is a step Back can undo."""
+        """A plain page switch (sidebar, Ctrl+1…): each page keeps its own Back steps."""
 
-        current = self.stackedWidget.currentWidget()
-        if current is not None and interface is not current and hasattr(self, "navigation"):
-            self.navigation.record(current)
         super().switchTo(interface)
 
     def _show_page(self, page: QWidget, show):
@@ -207,7 +203,8 @@ class WindowNavigationMixin:
         if self._closing or self._close_complete:
             return
 
-        self.navigation.record(self.stackedWidget.currentWidget())
+        # Recorded on the target page, so Back there returns to the caller.
+        self.navigation.record(self.stackedWidget.currentWidget(), into=page)
         with self.navigation.quiet():
             show()
             if self.stackedWidget.currentWidget() is not page:

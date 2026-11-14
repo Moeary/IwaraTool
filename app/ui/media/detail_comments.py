@@ -59,6 +59,7 @@ class DetailCommentsMixin:
 
     def _start_comment_worker(self, *, page: int, parent: str):
         worker = CommentsWorker(self._token, self._kind, self._item_id, page=page, parent=parent)
+        worker.pinned_site = self.item_site()
         worker.comments_ready.connect(self._on_more_comments)
         worker.finished.connect(lambda worker=worker: self._comment_workers.remove(worker) if worker in self._comment_workers else None)
         worker.finished.connect(worker.deleteLater)

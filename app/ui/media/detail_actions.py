@@ -26,8 +26,7 @@ class DetailActionsMixin:
     """Play, download, like, share and author actions of the detail view."""
 
     def _page_url(self) -> str:
-        site = sites.site_of_item(self._video) if self._video is not None else None
-        return sites.web_url(self._kind, self._item_id, site)
+        return sites.web_url(self._kind, self._item_id, self.item_site())
 
     def _can_play(self) -> bool:
         return self._video is not None and self._kind == "video" and self._video.downloadable
@@ -46,9 +45,9 @@ class DetailActionsMixin:
         video = self._video
         local = video_player.local_video_path(video.video_id)
         if local:
-            self._player.play_local(local, video.title, video.video_id)
+            self._player.play_local(local, video.title, video.video_id, site=self.item_site())
         else:
-            self._player.play_remote(video.video_id, video.title)
+            self._player.play_remote(video.video_id, video.title, site=self.item_site())
         self._stage.hide()
         self._player_box.show()
         self._player.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -131,6 +130,7 @@ class DetailActionsMixin:
         self._like_busy = True
         self._like_btn.setEnabled(False)
         worker = ApiCallWorker(lambda client: client.set_liked(kind, item_id, wanted), self)
+        worker.pinned_site = self.item_site()
         worker.done.connect(lambda result, error, wanted=wanted, token=token: self._on_like_done(token, wanted, result, error))
         worker.finished.connect(lambda worker=worker: self._discard_like_worker(worker))
         self._like_workers.append(worker)

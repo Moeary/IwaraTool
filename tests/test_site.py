@@ -288,3 +288,29 @@ class SubscriptionSiteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SiteSettingsCardTests(unittest.TestCase):
+    def setUp(self):
+        from PySide6.QtWidgets import QApplication
+
+        self.app = QApplication.instance() or QApplication([])
+        self._saved = app_config.iwara_site
+        self.addCleanup(setattr, app_config, "iwara_site", self._saved)
+        app_config.iwara_site = "tv"
+
+    def test_the_card_switches_and_follows_the_site(self):
+        from PySide6.QtWidgets import QWidget
+
+        from app.ui.settings.sections import SettingsSections
+        from app.ui.settings.site_cards import SiteSettingsCard
+
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        board = SettingsSections(host)
+        card = SiteSettingsCard(board, host)
+        self.assertEqual(card._combo.currentData(), "tv")
+        card._combo.setCurrentIndex(1)
+        self.assertEqual(app_config.iwara_site, "ai")
+        sites.set_configured_site("tv")
+        self.assertEqual(card._combo.currentData(), "tv")

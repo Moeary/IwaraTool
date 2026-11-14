@@ -69,11 +69,11 @@ def _app_categories() -> tuple[SettingsCategory, ...]:
             FluentIcon.GLOBE,
             tr("Account & Network", "账号与网络", "アカウントとネットワーク"),
             tr(
-                "Iwara sign-in and the proxies used for API requests and downloads.",
-                "Iwara 账号登录，以及 API 请求与下载使用的代理。",
-                "Iwaraへのログインと、API・ダウンロードに使うプロキシ。",
+                "The iwara site to browse, Iwara sign-in and the proxies used for API requests and downloads.",
+                "浏览的 iwara 站点、Iwara 账号登录，以及 API 请求与下载使用的代理。",
+                "表示する iwara サイト、Iwaraへのログイン、API・ダウンロードに使うプロキシ。",
             ),
-            ("account", "proxy"),
+            ("site", "account", "proxy"),
         ),
         (
             "downloads",

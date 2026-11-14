@@ -13,6 +13,7 @@ from .home_cards import HomeSettingsCards
 from .sections import SettingsSections
 from .shortcuts_cards import ShortcutSettingsCards
 from .system_cards import SystemSettingsCards
+from .site_cards import SiteSettingsCard
 from .tool_cards import ToolSettingsCards
 from ..tag_dictionary_worker import TagDictionaryUpdateWorker
 from ..theme import PAGE_MARGINS
@@ -131,6 +132,7 @@ class SettingsInterface(
         self._home_cards = HomeSettingsCards(self._settings_board, self)
         self._shortcut_cards = ShortcutSettingsCards(self._settings_board, self)
         self._tool_cards = ToolSettingsCards(self._settings_board, self)
+        self._site_card = SiteSettingsCard(self._settings_board, self)
 
         # ── Save button ───────────────────────────────────────────────────────
         # Kept under the category list so it is reachable from every page.
