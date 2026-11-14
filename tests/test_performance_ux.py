@@ -700,7 +700,8 @@ class ShortcutCatalogueTests(_QtCase):
         self.assertEqual(groups[0][0], titles[defs.SCOPE_GLOBAL])
         self.assertEqual(groups[1][0], titles[defs.SCOPE_SEARCH])
         rows = dict(groups[0][1])
-        self.assertEqual(rows[defs.actions_by_id()["shortcut_help"].label], "F1")
+        # Shown in the platform's notation: "F1", or "⌘/" on macOS.
+        self.assertEqual(rows[defs.actions_by_id()["shortcut_help"].label], defs.display_key_for("shortcut_help"))
 
     def test_unassigned_actions_are_not_listed(self):
         from app.ui.shortcut_help import grouped_shortcuts
@@ -728,7 +729,7 @@ class ShortcutCatalogueTests(_QtCase):
         self.addCleanup(button.deleteLater)
         with mock.patch.object(defs, "key_for", return_value="Ctrl+Q"):
             attach_hint(button, "Do it", "home_refresh")
-            self.assertEqual(button.toolTip(), "Do it (Ctrl+Q)")
+            self.assertEqual(button.toolTip(), f"Do it ({defs.display_key('Ctrl+Q')})")
         with mock.patch.object(defs, "key_for", return_value=""):
             from app.signal_bus import signal_bus
 
