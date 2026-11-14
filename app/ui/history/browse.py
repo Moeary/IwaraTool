@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from functools import cmp_to_key
 from typing import Any
 
 from PySide6.QtCore import QCollator, QLocale, Qt
@@ -44,11 +45,16 @@ def author_name_collator() -> QCollator:
 def sort_authors(counts: dict[str, int], order: str) -> list[tuple[str, int]]:
     """Named authors with their record counts, by count or by name."""
 
-    named = [(name, n) for name, n in counts.items() if name]
     collator = author_name_collator()
+
+    def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
+        # compare(), not sortKey(): Qt's Windows sort keys order wrongly when compared.
+        return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
+
+    named = sorted(((name, n) for name, n in counts.items() if name), key=cmp_to_key(by_name))
     if order == AUTHOR_SORT_NAME:
-        return sorted(named, key=lambda pair: (collator.sortKey(pair[0]), pair[0]))
-    return sorted(named, key=lambda pair: (-pair[1], collator.sortKey(pair[0]), pair[0]))
+        return named
+    return sorted(named, key=lambda pair: -pair[1])  # stable: equal counts stay in name order
 
 
 class HistoryBrowseMixin:
