@@ -271,6 +271,40 @@ class HistoryBrowseTests(unittest.TestCase):
         self.page._author_list.setCurrentRow(bob)
         self.assertEqual(sorted(self._ids()), ["vid4", "vid5"])
 
+    def _author_names(self):
+        return [self.page._author_list.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(1, self.page._author_list.count())]
+
+    def test_authors_sort_by_count_or_by_name_and_keep_the_choice(self):
+        from app.ui.history import browse
+
+        self.page._set_scope("author")
+        self.assertEqual(self._author_names(), ["alice", "bob"])  # 4 videos before 2
+        bob = self._author_names().index("bob") + 1
+        self.page._author_list.setCurrentRow(bob)
+        with patch.object(browse, "current_language", return_value="en"):
+            self.page._all_records.append({"video_id": "x1", "title": "X", "author": "Aaron", "file_path": ""})
+            self.page._author_sort_bar.items["name"].click()
+        self.assertEqual(self._author_names(), ["Aaron", "alice", "bob"])
+        self.assertEqual(self.page._author_list.currentItem().data(Qt.ItemDataRole.UserRole), "bob")  # still chosen
+        app_config.set_ui_value.assert_any_call(browse._AUTHOR_SORT_KEY, "name")
+        self.page._author_sort_bar.items["count"].click()
+        self.assertEqual(self._author_names(), ["alice", "bob", "Aaron"])
+
+    def test_name_order_follows_the_ui_language(self):
+        from app.ui.history import browse
+
+        counts = {"张三": 1, "阿明": 5, "李四": 2, "Bob": 3, "file10": 1, "file2": 1, "": 9}
+        with patch.object(browse, "current_language", return_value="zh"):
+            names = [name for name, _n in browse.sort_authors(counts, browse.AUTHOR_SORT_NAME)]
+        self.assertLess(names.index("阿明"), names.index("李四"))  # pinyin: a, l, z
+        self.assertLess(names.index("李四"), names.index("张三"))
+        self.assertLess(names.index("file2"), names.index("file10"))
+        self.assertNotIn("", names)
+        with patch.object(browse, "current_language", return_value="zh"):
+            by_count = browse.sort_authors(counts, browse.AUTHOR_SORT_COUNT)
+        self.assertEqual(by_count[:2], [("阿明", 5), ("Bob", 3)])
+
     def test_the_view_bar_switches_back_and_forth(self):
         for key, widget in (("grid", "_cover_grid"), ("list", "_table"), ("cover", "_cover_grid"), ("list", "_table")):
             self.page._view_bar.items[key].click()  # clicks pass a bool to the handler
