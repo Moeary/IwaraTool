@@ -15,7 +15,7 @@ Download the file for your system from [Releases](https://github.com/Moeary/Iwar
 | macOS · Apple Silicon (M-series chips) | `IwaraTool-macOS-AppleSilicon-ARM64-v<version>.dmg` | Recommended |
 | macOS · Intel processors | `IwaraTool-macOS-Intel-x86_64-v<version>.dmg` | Recommended |
 
-Each macOS build also ships a `.zip` with the same app for people who prefer extracting it. Every file comes with a `.sha256` checksum.
+Each macOS build also ships a `.zip` with the same app for people who prefer extracting it.
 
 **Which chip does my Mac have?** Click  in the top-left corner → About This Mac. If **Chip** says **Apple M1 / M2 / M3 / M4…**, take AppleSilicon-ARM64; if it says "Processor … Intel Core …", take Intel-x86_64. Apple Silicon Macs can run the Intel build through Rosetta, only slower; Intel Macs cannot run the ARM64 build. CI verifies on macOS 15; older macOS versions are unverified.
 

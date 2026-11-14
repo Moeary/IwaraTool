@@ -140,19 +140,6 @@ jobs:
             hdiutil verify "$dmg"
           done
 
-      - name: Write SHA-256 checksums
-        shell: bash
-        run: |
-          cd dist
-          for f in IwaraTool*; do
-            case "$f" in *.sha256) continue ;; esac
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              shasum -a 256 "$f" > "$f.sha256"
-            else
-              sha256sum "$f" > "$f.sha256"
-            fi
-          done
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

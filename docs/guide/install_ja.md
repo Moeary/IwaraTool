@@ -15,7 +15,7 @@
 | macOS · Apple シリコン（M シリーズ） | `IwaraTool-macOS-AppleSilicon-ARM64-v<バージョン>.dmg` | 推奨 |
 | macOS · Intel プロセッサ | `IwaraTool-macOS-Intel-x86_64-v<バージョン>.dmg` | 推奨 |
 
-macOS 版には同じアプリを収めた `.zip` も付いています。すべてのファイルに `.sha256` チェックサムがあります。
+macOS 版には同じアプリを収めた `.zip` も付いています。
 
 **Mac のチップの確認方法**：画面左上の  →「この Mac について」を開きます。「チップ」が **Apple M1 / M2 / M3 / M4…** なら AppleSilicon-ARM64、「プロセッサ … Intel Core …」なら Intel-x86_64 を選んでください。Apple シリコンの Mac は Rosetta で Intel 版も動きますが遅くなります。Intel Mac では ARM64 版は動きません。CI は macOS 15 で検証しており、それより古いバージョンは未検証です。
 

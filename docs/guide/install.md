@@ -15,7 +15,7 @@
 | macOS · Apple Silicon（M 系列芯片） | `IwaraTool-macOS-AppleSilicon-ARM64-v<版本>.dmg` | 推荐 |
 | macOS · Intel 处理器 | `IwaraTool-macOS-Intel-x86_64-v<版本>.dmg` | 推荐 |
 
-每个 macOS 版本另附同名 `.zip`，内容与 DMG 相同，供习惯解压安装的用户使用。所有文件都附带 `.sha256` 校验值。
+每个 macOS 版本另附同名 `.zip`，内容与 DMG 相同，供习惯解压安装的用户使用。
 
 **如何确认 Mac 的芯片**：点击屏幕左上角  →“关于本机”。“芯片”一栏写着 **Apple M1 / M2 / M3 / M4…** 时选 AppleSilicon-ARM64；写着“处理器 … Intel Core …”时选 Intel-x86_64。Apple Silicon 的 Mac 也能借助 Rosetta 运行 Intel 版，但速度较慢；Intel Mac 无法运行 ARM64 版。CI 在 macOS 15 上验证，更旧的系统版本尚未验证。
 
