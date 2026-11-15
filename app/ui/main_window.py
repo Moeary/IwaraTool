@@ -51,8 +51,10 @@ class _BackButtonFilter(QObject):
     def eventFilter(self, watched, event):
         kind = event.type()
         if kind == QEvent.Type.Wheel and self._swipe is not None and isinstance(watched, QWindow):
-            # Seen once per scroll on the window itself, before it reaches a widget.
-            if watched is self._window.windowHandle() and QApplication.activePopupWidget() is None:
+            # Seen once per scroll on the window that gets it, before it reaches a
+            # widget.  A QVideoWidget in a scroll area makes the page's widgets
+            # native, and the scroll then goes to the child window under the pointer.
+            if self._is_own_window(watched) and QApplication.activePopupWidget() is None:
                 widget = QApplication.widgetAt(event.globalPosition().toPoint())
                 if self._swipe.feed(event, widget):
                     self._window.navigate_back()
@@ -66,6 +68,16 @@ class _BackButtonFilter(QObject):
                 if kind == QEvent.Type.MouseButtonPress:
                     self._window.navigate_back()
                 return True
+        return False
+
+    def _is_own_window(self, window: QWindow) -> bool:
+        """The main window's QWindow, or a native child window inside it."""
+
+        top = self._window.windowHandle()
+        while window is not None:
+            if window is top:
+                return True
+            window = window.parent()
         return False
 
 

@@ -526,3 +526,35 @@ class SwipeBackWindowTests(_WindowCase):
             )
             QApplication.sendEvent(handle, event)
         self.assertIs(self._current(), self.window._search_page)
+
+    def test_a_swipe_still_goes_back_once_the_page_has_native_views(self):
+        # A QVideoWidget in a scroll area (the post page) makes the page's
+        # widgets native; macOS then sends the scroll to the child window under
+        # the pointer instead of the main window's.
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QWheelEvent
+        from PySide6.QtWidgets import QWidget
+
+        from app.signal_bus import signal_bus
+
+        self.window.switchTo(self.window._search_page)
+        with mock.patch.object(self.window._subscription_page, "show_author"):
+            signal_bus.author_page_requested.emit(("bob", "Bob", "u2", ""))
+        self.assertIs(self._current(), self.window._subscription_page)
+        native = QWidget(self.window._subscription_page)
+        native.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+        native.setGeometry(0, 0, 200, 150)
+        native.show()
+        QApplication.processEvents()
+        handle = native.windowHandle()
+        self.assertIsNotNone(handle)
+        self.assertIsNot(handle, self.window.windowHandle())
+        point = QPointF(20, 20)
+        global_point = QPointF(native.mapToGlobal(point.toPoint()))
+        for phase, dx in [(Qt.ScrollPhase.ScrollBegin, 0)] + [(Qt.ScrollPhase.ScrollUpdate, 25)] * 10 + [(Qt.ScrollPhase.ScrollEnd, 0)]:
+            event = QWheelEvent(
+                point, global_point, QPoint(dx, 0), QPoint(dx, 0),
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, phase, True,
+            )
+            QApplication.sendEvent(handle, event)
+        self.assertIs(self._current(), self.window._search_page)
