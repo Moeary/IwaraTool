@@ -20,6 +20,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from ..logging_setup import get_logger
+from ..qt_support import qt_available
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,8 @@ class RequestCancelled(Exception):
 
 def cancellation_requested() -> bool:
     """Whether the calling QThread was asked to stop (False on plain threads)."""
+    if not qt_available():
+        return False
     try:
         from PySide6.QtCore import QThread
 

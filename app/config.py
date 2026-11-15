@@ -1,10 +1,14 @@
-"""Application configuration backed by QSettings."""
+"""Application configuration in ``config.ini``.
+
+The file is read through QSettings on the desktop and through a compatible
+pure-Python store where Qt is not available (see ``app.settings_store``).
+"""
 import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from PySide6.QtCore import QSettings
 from .paths import app_data_dir, app_root_dir, default_download_dir
+from .settings_store import legacy_settings, open_settings
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
@@ -33,7 +37,7 @@ def _app_data_dir() -> str:
 
 
 class _Setting:
-    """Plain persisted setting: the attribute name is the QSettings key."""
+    """Plain persisted setting: the attribute name is the settings key."""
 
     def __set_name__(self, owner, name):
         self._key = name
@@ -143,7 +147,7 @@ class AppConfig:
         self._config_path = os.path.join(self._data_dir, "config.ini")
         self._history_db_path = os.path.join(self._data_dir, "history.db")
 
-        self._qs = QSettings(self._config_path, QSettings.Format.IniFormat)
+        self._qs = open_settings(self._config_path)
         # QSettings is reentrant, not thread-safe: the download watchdog and
         # subscription workers read settings while the GUI thread writes them.
         self._lock = threading.RLock()
@@ -166,7 +170,9 @@ class AppConfig:
         """
         if os.path.exists(self._config_path):
             return
-        legacy = QSettings("IwaraTool", "IwaraTool")
+        legacy = legacy_settings()
+        if legacy is None:
+            return
         safe_keys = set(self._DEFAULTS) - self._LEGACY_UNMIGRATED_KEYS
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
@@ -180,8 +186,8 @@ class AppConfig:
 
         We now persist only to portable data/config.ini.
         """
-        legacy = QSettings("IwaraTool", "IwaraTool")
-        if legacy.allKeys():
+        legacy = legacy_settings()
+        if legacy is not None and legacy.allKeys():
             legacy.clear()
             legacy.sync()
 
