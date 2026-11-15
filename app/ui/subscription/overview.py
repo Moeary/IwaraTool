@@ -172,7 +172,7 @@ class SubscriptionOverview(OverviewRowsMixin, QWidget):
         import_btn = PushButton(tr("Import followed", "导入关注作者", "フォローを取込"), self, FluentIcon.PEOPLE)
         import_btn.clicked.connect(page._import_followed_authors)
         bar.addWidget(import_btn)
-        self.refresh_all_btn = PushButton(tr("Refresh all", "全部刷新", "全件更新"), self, FluentIcon.SYNC)
+        self.refresh_all_btn = PushButton(tr("Refresh all", "全部刷新", "すべて更新"), self, FluentIcon.SYNC)
         self.refresh_all_btn.clicked.connect(page._refresh_all)
         bar.addWidget(self.refresh_all_btn)
         return bar

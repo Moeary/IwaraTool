@@ -155,8 +155,8 @@ class SearchPageLayoutMixin:
                 (tr("Newest", "最新", "新着"), "date"),
                 (tr("Trending", "趋势", "トレンド"), "trending"),
                 (tr("Popularity", "热度", "人気"), "popularity"),
-                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
-                (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
+                (tr("Most viewed", "播放最多", "再生数順"), "views"),
+                (tr("Most liked", "点赞最多", "いいね順"), "likes"),
             ],
             query_card,
         )
@@ -369,7 +369,7 @@ class SearchPageLayoutMixin:
                 tr("Published", "发布时间", "公開日"),
                 tr("Tags", "标签", "タグ"),
                 tr("Iwara URL", "Iwara 链接", "Iwara URL"),
-                tr("Source URL", "来源链接", "元URL"),
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Source", "来源", "ソース"),
                 tr("Download status", "下载状态", "ダウンロード状態"),
             ]

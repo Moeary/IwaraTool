@@ -186,7 +186,7 @@ class DetailContentMixin:
 
     def _meta_text(self, video: SearchVideo) -> str:
         parts = [
-            tr(f"{_format_count(video.views)} views", f"{_format_count(video.views)} 次观看", f"{_format_count(video.views)} 回再生"),
+            tr(f"{_format_count(video.views)} views", f"{_format_count(video.views)} 次播放", f"{_format_count(video.views)} 回再生"),
             tr(f"{_format_count(video.likes)} likes", f"{_format_count(video.likes)} 喜欢", f"{_format_count(video.likes)} いいね"),
             tr(f"{_format_count(video.comments)} comments", f"{_format_count(video.comments)} 评论", f"{_format_count(video.comments)} コメント"),
         ]

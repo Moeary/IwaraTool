@@ -82,7 +82,7 @@ class SubscriptionItemPanelLayoutMixin:
         history_menu = RoundMenu(parent=self)
         history_menu.addAction(Action(FluentIcon.HISTORY, tr("Show This Source", "显示这个作者的全部视频", "この購読元の全動画を表示"), self, triggered=self._show_selected_source_all_items))
         history_menu.addAction(Action(FluentIcon.ACCEPT, tr("Mark Selected as Downloaded", "将选中标为已下载", "選択を保存済みにする"), self, triggered=self._mark_selected_downloaded_moved))
-        history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済みを復元"), self, triggered=self._restore_selected_downloaded_moved))
+        history_menu.addAction(Action(FluentIcon.RETURN, tr("Restore Selected Moved", "还原选中的已移走记录", "選択した移動済み記録を復元"), self, triggered=self._restore_selected_downloaded_moved))
         history_btn = DropDownPushButton(tr("History Actions", "历史操作", "履歴操作"), self, FluentIcon.HISTORY)
         history_btn.setMenu(history_menu)
         history_btn.setToolTip(tr("History and moved-record actions", "历史和已移走记录操作", "履歴・移動済み操作"))
@@ -202,7 +202,7 @@ class SubscriptionItemPanelLayoutMixin:
         self._install_filter_combo = ComboBox(self)
         self._install_filter_combo.addItems(
             [
-                tr("All", "全部", "全て"),
+                tr("All", "全部", "すべて"),
                 tr("Ready", "可下载", "保存可能"),
                 tr("Not Downloadable", "不可下载", "保存不可"),
                 tr("Downloaded", "已下载", "保存済み"),
@@ -220,7 +220,7 @@ class SubscriptionItemPanelLayoutMixin:
         self._new_filter_combo = ComboBox(self)
         self._new_filter_combo.addItems(
             [
-                tr("All", "全部", "全て"),
+                tr("All", "全部", "すべて"),
                 tr("New Only", "仅新增", "新規のみ"),
                 tr("Not New", "非新增", "新規以外"),
             ]

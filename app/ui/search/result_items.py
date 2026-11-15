@@ -202,7 +202,7 @@ class SearchResultItemsMixin:
         author = f"@{video.author_username}" if video.author_username else tr("Unknown author", "未知作者", "作者不明")
         stats = tr(
             f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
-            f"{_format_count(video.views)} 次观看 · {_format_count(video.likes)} 喜欢",
+            f"{_format_count(video.views)} 播放 · {_format_count(video.likes)} 点赞",
             f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
         )
         duration = _format_duration(video.duration) if video.duration else "—"

@@ -170,7 +170,7 @@ class SettingsGeneralCardsMixin:
         path = str(path or "").strip()
         if not path or not os.path.isdir(path):
             InfoBar.warning(
-                title=tr("Folder not found", "目录不存在", "フォルダーが見つかりません"),
+                title=tr("Folder not found", "文件夹不存在", "フォルダーが見つかりません"),
                 content=path,
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,

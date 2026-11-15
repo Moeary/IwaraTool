@@ -353,7 +353,7 @@ class ResolvingMixin:
             if not self._current_token():
                 return tr(
                     "Private video. Please login and try again.",
-                    "私有作品，请先登录后重试。",
+                    "私有视频，请先登录后重试。",
                     "非公開動画です。ログインして再試行してください。",
                 )
             return tr(

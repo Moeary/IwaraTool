@@ -221,7 +221,7 @@ class TaskCenterInterface(
         self._state_combo = ComboBox(self)
         self._state_combo.addItems(
             [
-                tr("All States", "全部状态", "全状态"),
+                tr("All States", "全部状态", "全状態"),
                 tr("Active", "进行中", "実行中"),
                 tr("Queued", "排队中", "待機中"),
                 tr("Failed", "失败", "失敗"),

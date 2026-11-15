@@ -113,7 +113,7 @@ class VideoApiMixin:
         if message == "errors.privateVideo":
             return tr(
                 "Private video. Please login and try again.",
-                "私有视频，请先登录后重试",
+                "私有视频，请先登录后重试。",
                 "非公開動画です。ログインして再試行してください。",
             )
         return tr(

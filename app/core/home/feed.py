@@ -268,8 +268,8 @@ def sort_label(sort: str) -> str:
         "date": tr("Newest", "最新", "新着"),
         "trending": tr("Trending", "趋势", "トレンド"),
         "popularity": tr("Popular", "热度", "人気"),
-        "views": tr("Most viewed", "最多观看", "再生数順"),
-        "likes": tr("Most liked", "最多喜欢", "いいね順"),
+        "views": tr("Most viewed", "播放最多", "再生数順"),
+        "likes": tr("Most liked", "点赞最多", "いいね順"),
         "relevance": tr("Relevance", "相关度", "関連度"),
     }.get(sort, sort)
 

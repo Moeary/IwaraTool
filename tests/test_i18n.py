@@ -1,4 +1,6 @@
 import ast
+import importlib.util
+import sys
 import tempfile
 import threading
 import unittest
@@ -83,6 +85,32 @@ class I18nTest(unittest.TestCase):
                         relative = path.relative_to(PROJECT_ROOT)
                         frozen.append(f"{relative}:{node.lineno}")
         self.assertEqual(frozen, [], f"module-scope translations found: {frozen}")
+
+    def test_extract_script_collects_every_translation_call(self):
+        spec = importlib.util.spec_from_file_location("i18n_extract", PROJECT_ROOT / "scripts" / "i18n_extract.py")
+        extract = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {spec.name: extract}):  # dataclasses look the module up
+            spec.loader.exec_module(extract)
+
+        with tempfile.TemporaryDirectory(dir=PROJECT_ROOT) as temp:
+            source = Path(temp)
+            (source / "sample.py").write_text(
+                "def f(n):\n"
+                "    tr('Cancel', '取消', 'キャンセル')\n"
+                "    tr('Cancel', '中断', '中断')\n"
+                "    tr(f'{n} items', f'{n} 项', f'{n} 件')\n"
+                "    tr('Cancel', '取消', 'キャンセル')\n"
+                "    tr('Only English', '仅中文')\n",
+                encoding="utf-8",
+            )
+            entries = extract.collect(source)
+
+        by_key = {(e.en, e.zh): e for e in entries}
+        self.assertEqual(len(entries), 4)
+        self.assertEqual(len(by_key[("Cancel", "取消")].places), 2)
+        self.assertTrue(by_key[("{n} items", "{n} 项")].dynamic)
+        self.assertEqual(by_key[("Only English", "仅中文")].ja, "Only English")
+        self.assertEqual(list(extract.conflicts(entries)), ["Cancel"])
 
 
 if __name__ == "__main__":

@@ -277,7 +277,7 @@ class SubscriptionItemListMixin:
             video_id,
             "open_url",
             tr("Page", "页面", "ページ"),
-            tr("Open video page", "打开视频页", "動画ページを開く"),
+            tr("Open video page", "打开视频页面", "動画ページを開く"),
             bool(video_id),
             action_url=_video_url(video_id),
         )

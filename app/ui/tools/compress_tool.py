@@ -689,7 +689,7 @@ class CompressTool(DropArea):
     def _cancel(self):
         if self._worker is not None:
             self._worker.requestInterruption()
-            self._status_label.setText(tr("Stopping…", "正在停止…", "停止しています…"))
+            self._status_label.setText(tr("Stopping…", "正在停止…", "停止中…"))
 
     def _on_worker_finished(self, worker):
         if self._worker is worker:

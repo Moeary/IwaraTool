@@ -104,7 +104,7 @@ class HistoryActionsMixin:
             if os.path.exists(target):
                 return False, tr(
                     f"Sidecar target already exists: {target}",
-                    f"同名附属文件已存在: {target}",
+                    f"同名附属文件已存在：{target}",
                     f"関連ファイルの変更先が既に存在します: {target}",
                 )
 

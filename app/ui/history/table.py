@@ -94,12 +94,12 @@ class HistoryTableMixin:
         records = self._render_records
         labels = {
             "page": tr("Page", "页面", "ページ"),
-            "page_tip": tr("Open video page", "打开视频页", "動画ページを開く"),
-            "folder": tr("Folder", "目录", "フォルダー"),
+            "page_tip": tr("Open video page", "打开视频页面", "動画ページを開く"),
+            "folder": tr("Folder", "文件夹", "フォルダー"),
             "folder_tip": tr("Open folder", "打开文件夹", "フォルダーを開く"),
             "file": tr("File", "文件", "ファイル"),
             "file_tip": tr("Open file", "打开文件", "ファイルを開く"),
-            "rename": tr("Rename", "改名", "名前変更"),
+            "rename": tr("Rename", "重命名", "名前を変更"),
             "rename_tip": tr("Rename file", "重命名文件", "ファイル名を変更"),
             "delete": tr("Delete", "删除", "削除"),
             "delete_tip": tr("Remove DB record", "删除数据库记录", "DB履歴を削除"),

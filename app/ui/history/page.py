@@ -281,7 +281,7 @@ class HistoryInterface(
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
-                tr("Rename", "重命名", "名前変更"),
+                tr("Rename", "重命名", "名前を変更"),
                 tr("Delete", "删记录", "削除"),
             ]
         )

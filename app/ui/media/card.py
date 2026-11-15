@@ -417,7 +417,7 @@ class MediaCard(QWidget):
         else:
             stats = tr(
                 f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
-                f"{_format_count(video.views)} 观看 · {_format_count(video.likes)} 喜欢",
+                f"{_format_count(video.views)} 播放 · {_format_count(video.likes)} 点赞",
                 f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
             )
             if date and small_metrics.horizontalAdvance(f"{stats} · {date}") <= text_width:

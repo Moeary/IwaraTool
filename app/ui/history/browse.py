@@ -135,7 +135,7 @@ class HistoryBrowseMixin:
         self._view_bar = SegmentedWidget(self)
         for key, text in (
             (VIEW_LIST, tr("List", "列表", "リスト")),
-            (MODE_GRID, tr("Grid", "方格", "グリッド")),
+            (MODE_GRID, tr("Grid", "网格", "グリッド")),
             (MODE_COVER, tr("Covers", "封面", "カバー")),
         ):
             self._view_bar.addItem(key, text, lambda _checked=False, key=key: self._set_view_mode(key))

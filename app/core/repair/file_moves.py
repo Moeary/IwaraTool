@@ -119,7 +119,7 @@ class RepairFileMovesMixin:
             if source_key != target_key and os.path.lexists(target):
                 return tr(
                     f"Sidecar target already exists: {target}",
-                    f"附属文件目标已存在：{target}",
+                    f"同名附属文件已存在：{target}",
                     f"関連ファイルの変更先が既に存在します: {target}",
                 )
         return ""
