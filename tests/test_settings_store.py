@@ -46,6 +46,21 @@ FROM_DISK = {
 }
 
 
+def ini_entries(text):
+    """Compare raw encoded entries per section without relying on key order."""
+    sections = {}
+    section = ""
+    for line in text.splitlines():
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+            sections.setdefault(section, [])
+        else:
+            sections.setdefault(section, []).append(line)
+    return {section: sorted(entries) for section, entries in sections.items()}
+
+
 class IniSettingsStoreTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -101,7 +116,7 @@ class IniSettingsStoreTests(unittest.TestCase):
             store.setValue("dict", {"k": 1})
 
     @unittest.skipIf(QSettings is None, "needs PySide6 to compare with")
-    def test_writes_the_same_file_as_qsettings(self):
+    def test_writes_the_same_encoded_entries_as_qsettings(self):
         qt_path, ini_path = self._path("qt.ini"), self._path("ini.ini")
         qt = QSettings(qt_path, QSettings.Format.IniFormat)
         ini = IniSettingsStore(ini_path)
@@ -110,8 +125,10 @@ class IniSettingsStoreTests(unittest.TestCase):
             ini.setValue(key, value)
         qt.sync()
         ini.sync()
+        # Windows Qt preserves insertion order; Unix Qt forgets it. Keep the
+        # encoding and section checks exact without requiring identical order.
         with open(qt_path, encoding="utf-8") as a, open(ini_path, encoding="utf-8") as b:
-            self.assertEqual(b.read(), a.read())
+            self.assertEqual(ini_entries(b.read()), ini_entries(a.read()))
 
     @unittest.skipIf(QSettings is None, "needs PySide6 to compare with")
     def test_each_backend_reads_what_the_other_wrote(self):
