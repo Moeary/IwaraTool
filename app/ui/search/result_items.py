@@ -9,8 +9,8 @@ from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem
 from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from .download_status import iwara_history_id
-from ..formatting import _format_count, _format_duration, _short_text
-from ..theme import qcolor
+from ..common.formatting import _format_count, _format_duration, _short_text
+from ..style.theme import qcolor
 
 from .results_layout import _DEFAULT_GRID_HEIGHT
 from ...core import site as sites

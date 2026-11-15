@@ -11,7 +11,7 @@ from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
-from ..task_metadata import (
+from .task_metadata import (
     _author_fields_from_user,
     _compact_video_raw_json,
     _dict_or_empty,

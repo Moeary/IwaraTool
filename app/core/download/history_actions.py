@@ -51,7 +51,7 @@ class HistoryActionsMixin:
 
     def _open_video_file(self, path: str, *, video_id: str = "", title: str = "") -> tuple[bool, str]:
         """Open a downloaded video in the player chosen in Settings."""
-        from ..video_player import MODE_BUILTIN, open_local_video, player_mode
+        from ..playback.video_player import MODE_BUILTIN, open_local_video, player_mode
 
         if player_mode() == MODE_BUILTIN:
             # The preview window marks it watched when it plays the local file.

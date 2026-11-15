@@ -8,7 +8,7 @@ import time
 
 from ...config import app_config
 from ..rules import rule_store
-from ..manager_state import EXISTING_FILE_INDEX_TTL_SECONDS as _EXISTING_FILE_INDEX_TTL_SECONDS
+from .manager_state import EXISTING_FILE_INDEX_TTL_SECONDS as _EXISTING_FILE_INDEX_TTL_SECONDS
 
 
 class ExistingFilesMixin:

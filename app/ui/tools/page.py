@@ -12,7 +12,7 @@ from qfluentwidgets import FluentIcon, ListWidget, TitleLabel
 
 from ...config import app_config
 from ...i18n import tr
-from ..theme import PAGE_MARGINS, PAGE_SPACING
+from ..style.theme import PAGE_MARGINS, PAGE_SPACING
 from .common import ffmpeg_state
 
 
@@ -169,7 +169,7 @@ class ToolsInterface(QWidget):
         return any(getattr(tool, "busy", False) for tool in self._tools.values())
 
     def shutdown(self, *, timeout_ms: int = 30_000) -> bool:
-        from ..worker_lifecycle import stop_qthreads
+        from ..common.worker_lifecycle import stop_qthreads
 
         results = [stop_qthreads([ffmpeg_state().worker()], timeout_ms=timeout_ms)]
         for tool in self._tools.values():

@@ -24,7 +24,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..tag_dictionary_worker import TagDictionaryUpdateWorker
+from .tag_dictionary_worker import TagDictionaryUpdateWorker
 
 
 class SettingsSearchCardsMixin:

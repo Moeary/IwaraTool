@@ -10,7 +10,7 @@ from PySide6.QtGui import QPixmap
 from ...config import app_config
 from ..media.pixmaps import read_pixmap
 from .components import SubscriptionThumbnailWorker
-from ..worker_lifecycle import stop_qthreads
+from ..common.worker_lifecycle import stop_qthreads
 
 
 def load_pixmap(path: str, max_width: int = 360) -> QPixmap | None:

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QAbstractItemView, QHBoxLayout, QListWidgetItem, Q
 
 from qfluentwidgets import BodyLabel, ListWidget, MessageBoxBase, PushButton, SubtitleLabel
 
-from ..i18n import tr
+from ...i18n import tr
 from .fluent_dialogs import show_fluent_confirmation
 from .ui_state import (
     _all_columns,

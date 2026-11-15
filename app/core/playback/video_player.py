@@ -12,9 +12,9 @@ import subprocess
 import sys
 from typing import Callable
 
-from ..config import app_config
-from ..i18n import tr
-from ..logging_setup import get_logger
+from ...config import app_config
+from ...i18n import tr
+from ...logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -53,7 +53,7 @@ def build_custom_command(command: str, file_path: str, *, windows: bool | None =
 def local_video_path(video_id: str, history=None) -> str:
     """Path of the downloaded file for ``video_id`` if it still exists."""
     if history is None:
-        from .manager import download_manager
+        from ..download.manager import download_manager
 
         history = download_manager.history
     video_id = str(video_id or "").strip()

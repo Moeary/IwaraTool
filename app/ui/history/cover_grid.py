@@ -10,13 +10,13 @@ from PySide6.QtGui import QFontMetrics, QIcon, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
 
 from ...i18n import tr
-from ..card_list import CardGridList
+from ..common.card_list import CardGridList
 from ..media.pixmaps import PixmapLRU, read_pixmap
 from ..subscription.cover_loader import CoverLoader
 from ...signal_bus import signal_bus
 from ..media.card_size import saved_card_width
 from ..search.grid_style import _search_grid_style
-from ..theme import qcolor
+from ..style.theme import qcolor
 from .page_dependencies import download_manager
 from .record_state import _date_only
 

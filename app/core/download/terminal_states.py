@@ -8,7 +8,7 @@ import time
 from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
-from ..manager_state import (
+from .manager_state import (
     CANCEL_ORIGIN_MANUAL as _CANCEL_ORIGIN_MANUAL,
     PRUNABLE_TERMINAL_STATUSES as _PRUNABLE_TERMINAL_STATUSES,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,

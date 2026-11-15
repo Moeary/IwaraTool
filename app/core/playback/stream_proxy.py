@@ -12,7 +12,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
-from ..logging_setup import get_logger
+from ...logging_setup import get_logger
 
 logger = get_logger(__name__)
 

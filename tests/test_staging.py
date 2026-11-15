@@ -11,10 +11,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from app.config import app_config
 from app.core.download.staging import STAGE_READY, STAGE_SKIP, STAGE_UNAVAILABLE
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.models import TaskStatus
 from app.core.subscription.store import SubscriptionStore
-from app.core.task_queue import TaskQueueStore
+from app.core.download.task_queue import TaskQueueStore
 
 
 class _NoExecutor:

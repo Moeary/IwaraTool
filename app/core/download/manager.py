@@ -20,37 +20,37 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .api.client import IwaraAPI
-from .download.paths import DownloadPathMixin
-from .download.aria2 import Aria2DownloadMixin
-from .download.artifacts import DownloadArtifactsMixin
-from .download.runtime import DownloadRuntimeMixin
-from .repair.manager import RepairManagerMixin
-from .rules import active_rule_id  # noqa: F401 - patch point, see download.task_rules.active_rule_id
-from .search.manager import SearchManagerMixin
-from .subscription.manager import SubscriptionManagerMixin
-from .download.policy import SharedRateLimiter
-from .history import DownloadHistory
-from .image_cache import SearchImageCache, SubscriptionImageCache
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from ..api.client import IwaraAPI
+from .paths import DownloadPathMixin
+from .aria2 import Aria2DownloadMixin
+from .artifacts import DownloadArtifactsMixin
+from .runtime import DownloadRuntimeMixin
+from ..repair.manager import RepairManagerMixin
+from ..rules import active_rule_id  # noqa: F401 - patch point, see download.task_rules.active_rule_id
+from ..search.manager import SearchManagerMixin
+from ..subscription.manager import SubscriptionManagerMixin
+from .policy import SharedRateLimiter
+from ..history import DownloadHistory
+from ..image_cache import SearchImageCache, SubscriptionImageCache
 from .manager_state import (
     CANCEL_ORIGIN_SHUTDOWN as _CANCEL_ORIGIN_SHUTDOWN,
     LIVE_TERMINAL_KEEP_LIMIT as _LIVE_TERMINAL_KEEP_LIMIT,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
-from .models import DownloadTask, TaskStatus
-from .subscription.store import SubscriptionStore
-from .tag_dictionary import TagDictionary
+from ..models import DownloadTask, TaskStatus
+from ..subscription.store import SubscriptionStore
+from ..tag_dictionary import TagDictionary
 from .task_queue import TaskPersistenceCoordinator, TaskQueueStore
-from .download.diagnosis import DownloadDiagnosisMixin
-from .download.enqueueing import EnqueueingMixin
-from .download.listing_preview import ListingPreviewMixin
-from .download.staging import StagingMixin
-from .download.history_actions import HistoryActionsMixin
-from .download.session import SessionMixin
-from .download.task_control import TaskControlMixin
-from .download.url_intake import UrlIntakeMixin
+from .diagnosis import DownloadDiagnosisMixin
+from .enqueueing import EnqueueingMixin
+from .listing_preview import ListingPreviewMixin
+from .staging import StagingMixin
+from .history_actions import HistoryActionsMixin
+from .session import SessionMixin
+from .task_control import TaskControlMixin
+from .url_intake import UrlIntakeMixin
 
 if TYPE_CHECKING:
     pass

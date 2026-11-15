@@ -8,7 +8,7 @@ from typing import Any
 from ..config import app_config
 from ..i18n import tr
 from ..signal_bus import signal_bus
-from .manager import download_manager
+from .download.manager import download_manager
 from .subscription.automation import auto_enqueue_subscription_videos
 from .update_checker import GitHubReleaseChecker
 

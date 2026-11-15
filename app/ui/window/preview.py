@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...i18n import tr
-from ...core import video_player
-from ...core.manager import download_manager
+from ...core.playback import video_player
+from ...core.download.manager import download_manager
 from ..player.preview_window import VideoPreviewWindow
 
 

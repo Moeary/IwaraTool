@@ -30,7 +30,7 @@ from ...core.search.normalize import (
 )
 from ...core.rating import filter_by_rating
 from ...i18n import tr
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 
 

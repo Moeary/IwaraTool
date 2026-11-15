@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 
-from .media.card_size import reset_card_width, step_card_width
-from .shortcuts import registry
+from ..media.card_size import reset_card_width, step_card_width
+from .registry import registry
 
 
 def _index_of(window, cycle) -> int:

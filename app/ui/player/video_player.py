@@ -18,7 +18,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtWidgets import QWidget
 
-from ...core import preview_stream
+from ...core.playback import preview_stream
 from ...i18n import tr
 from ...logging_setup import get_logger
 from .backend import Backend, create_backend, release_source
@@ -138,7 +138,7 @@ class VideoPlayer(
         self._begin_session(video_id, title, remote=True, start_ms=start_ms, site=site)
         self._show_status(tr("Loading the video…", "正在加载视频…", "動画を読み込み中…"))
         request_id = self._request_id
-        from ...core.manager import download_manager
+        from ...core.download.manager import download_manager
 
         from ...core.site import site_scope
 

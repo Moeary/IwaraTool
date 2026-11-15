@@ -23,9 +23,9 @@ from qfluentwidgets import (
 from ...core.rules import default_rule_payload, normalize_rule_payload
 from ...core.download.paths import validate_filename_template
 from ...core.download.template_builder import preview_template
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...i18n import tr
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 from .rule_text import _rule_summary
 from .tag_popup import _RuleTagSuggestionPopup
 from .template_builder import FilenameTemplateBuilder

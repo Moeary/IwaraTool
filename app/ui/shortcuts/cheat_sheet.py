@@ -6,10 +6,10 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import BodyLabel, CaptionLabel, MessageBoxBase, PushButton, SubtitleLabel
 
-from ..core import shortcut_defs
-from ..i18n import tr
-from .media.grid import transparent_scroll_area
-from .theme import palette, set_secondary_text
+from . import catalog as shortcut_defs
+from ...i18n import tr
+from ..media.grid import transparent_scroll_area
+from ..style.theme import palette, set_secondary_text
 
 
 def grouped_shortcuts(current_scope: str = "") -> list[tuple[str, list[tuple[str, str]]]]:

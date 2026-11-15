@@ -21,7 +21,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 
 

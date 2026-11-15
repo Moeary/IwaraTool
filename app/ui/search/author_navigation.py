@@ -7,8 +7,8 @@ from typing import Any
 from ...core.search.models import SearchAuthor, SearchVideo
 from ...i18n import tr
 from .result_authors import _author_source_info, _author_subscription_target
-from ..navigation import record_navigation
-from ..worker_lifecycle import on_finished
+from ..window.back_stack import record_navigation
+from ..common.worker_lifecycle import on_finished
 from .author_workers import SearchAuthorProfileWorker
 
 

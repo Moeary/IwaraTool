@@ -121,13 +121,13 @@ class AppConfig:
         "update_check_enabled": True,
         "update_last_prompted_version": "",
         "theme_mode": "auto",  # auto / light / dark
-        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/fonts
+        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/style/fonts
         "request_min_interval_ms": 200,  # spacing between API requests per host
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
         "startup_page": "home",  # home / subscriptions / search / download / repair / history / tools / rules / settings
-        "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see core/shortcut_defs
+        "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see ui/shortcuts/catalog
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews

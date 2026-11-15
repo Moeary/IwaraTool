@@ -18,8 +18,8 @@ from ...core.search.models import SearchVideo
 from ...core.search.normalize import avatar_url, normalize_image, normalize_video, small_cover_url
 from ...i18n import current_language, tr
 from .pixmaps import read_pixmap
-from ..navigation import restore_scroll
-from ..formatting import _format_count, _format_duration
+from ..window.back_stack import restore_scroll
+from ..common.formatting import _format_count, _format_duration
 from .comment_widget import CommentWidget
 from .detail_state import DetailState
 from .detail_text import format_date, linkify

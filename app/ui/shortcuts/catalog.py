@@ -1,6 +1,6 @@
 """Keyboard shortcut catalogue: actions, defaults, user overrides and conflicts.
 
-Only data and rules live here; ``app.ui.shortcuts`` turns them into QShortcuts.
+Only data and rules live here; ``app.ui.shortcuts.registry`` turns them into QShortcuts.
 Overrides are stored as JSON in ``shortcut_overrides`` (``{action_id: "Ctrl+K"}``,
 an empty string meaning "unassigned").
 
@@ -18,9 +18,9 @@ from dataclasses import dataclass
 
 from PySide6.QtGui import QKeySequence
 
-from ..config import app_config
-from ..i18n import tr
-from ..logging_setup import get_logger
+from ...config import app_config
+from ...i18n import tr
+from ...logging_setup import get_logger
 
 logger = get_logger(__name__)
 

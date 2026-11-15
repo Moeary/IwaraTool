@@ -11,8 +11,8 @@ from PySide6.QtWidgets import QSplitter, QWidget
 
 from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton
 
-from ..worker_lifecycle import ManagedThread
-from ..theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
+from ..common.worker_lifecycle import ManagedThread
+from ..style.theme import FluentSplitter, apply_scrollbars, cover_grid_qss, set_secondary_text, style_splitter
 from .page_dependencies import download_manager
 
 

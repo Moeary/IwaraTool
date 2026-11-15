@@ -12,13 +12,13 @@ from PySide6.QtWidgets import QWidget
 
 from qfluentwidgets import FluentIcon, InfoBar, InfoBarPosition, PrimaryPushButton, PushButton
 
-from ..core.manager import download_manager
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .chrome import StatusChip
-from .home.workers import ApiCallWorker, stop_workers
-from .flow_layout import ResponsiveFlowLayout
-from .fluent_dialogs import show_fluent_confirmation
+from ...core.download.manager import download_manager
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from ..common.chrome import StatusChip
+from ..home.workers import ApiCallWorker, stop_workers
+from ..common.flow_layout import ResponsiveFlowLayout
+from ..common.fluent_dialogs import show_fluent_confirmation
 
 
 def clean_username(value: str) -> str:

@@ -4,9 +4,9 @@ import unittest
 
 from app.config import DEFAULT_FILENAME_TEMPLATE, app_config
 from app.core.download.paths import validate_filename_template
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.rules import normalize_rule_payload
-from app.core.task_metadata import author_fields_from_user
+from app.core.download.task_metadata import author_fields_from_user
 
 
 class FilenameSanitizationTests(unittest.TestCase):

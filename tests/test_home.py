@@ -16,8 +16,8 @@ from PySide6.QtWidgets import QApplication
 from app.config import app_config
 from app.core import rating
 from app.core.api.client import IwaraAPI
-from app.core.home_cache import HomeFeedCache
-from app.core.home_feed import default_specs, home_sections
+from app.core.home.cache import HomeFeedCache
+from app.core.home.feed import default_specs, home_sections
 from app.core.search.models import SearchFilters, SearchVideo
 from app.core.search.query_params import build_image_query_params, build_video_query_params
 from app.core.search.filtering import filter_videos
@@ -239,8 +239,8 @@ class HomeInterfaceTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         for target, value in (
-            ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self._tmp.name, "cache.json"))),
+            ("app.core.home.feed.load_specs", lambda store=None: default_specs()),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(self._tmp.name, "cache.json"))),
         ):
             patch = mock.patch(target, value)
             patch.start()

@@ -7,9 +7,9 @@ proxies, so one patch covers the whole view.
 
 from __future__ import annotations
 
-from ...core.manager import download_manager as _default_download_manager
+from ...core.download.manager import download_manager as _default_download_manager
 from ..home.workers import DetailWorker as _DefaultDetailWorker
-from ..page_dependency import PageDependency
+from ..common.page_dependency import PageDependency
 
 PAGE_MODULE = "app.ui.media.detail_view"
 

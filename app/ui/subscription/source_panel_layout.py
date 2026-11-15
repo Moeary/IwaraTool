@@ -28,8 +28,8 @@ from .components import (
     _style_action_button,
     _style_inline_label,
 )
-from ..flow_layout import ResponsiveFlowLayout
-from ..ui_state import (
+from ..common.flow_layout import ResponsiveFlowLayout
+from ..common.ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,
     restore_table_columns,

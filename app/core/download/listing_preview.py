@@ -11,7 +11,7 @@ from ...i18n import tr
 from ..models import TaskStatus
 from ..rules import normalize_rule_payload, rule_store
 from ..subscription.automation import matches_rule_video
-from ..task_metadata import (
+from .task_metadata import (
     _author_fields_from_user,
     _dict_or_empty,
     _subscription_download_block_from_video_info,

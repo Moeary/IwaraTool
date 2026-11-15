@@ -17,8 +17,8 @@ from typing import Callable
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
-from ..config import app_config
-from ..i18n import tr
+from ...config import app_config
+from ...i18n import tr
 
 ACTION_SELECT = "select"
 ACTION_DETAIL = "detail"
@@ -47,8 +47,8 @@ def double_click_action() -> str:
 def play_in_window(video) -> bool:
     """Ask for the player window for an Iwara video; False when there is nothing to play."""
 
-    from ..core.search.models import IWARA_IMAGE_SOURCE_KIND
-    from ..signal_bus import signal_bus
+    from ...core.search.models import IWARA_IMAGE_SOURCE_KIND
+    from ...signal_bus import signal_bus
 
     if getattr(video, "source_kind", "") == IWARA_IMAGE_SOURCE_KIND or not getattr(video, "downloadable", True):
         return False

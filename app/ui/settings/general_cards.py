@@ -21,7 +21,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import apply_theme_mode, normalize_theme_mode
+from ..style.theme import apply_theme_mode, normalize_theme_mode
 
 
 class SettingsGeneralCardsMixin:

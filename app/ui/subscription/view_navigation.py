@@ -8,8 +8,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from ...config import app_config
-from ..author_view import clean_username
-from ..navigation import navigate_back, record_navigation, restore_scroll
+from ..author.view import clean_username
+from ..window.back_stack import navigate_back, record_navigation, restore_scroll
 from .helpers import _source_url
 from .page_dependencies import download_manager, signal_bus
 

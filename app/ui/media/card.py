@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from ...core.rating import is_adult
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
-from ..formatting import _format_count, _format_duration
-from ..theme import palette, to_qcolor
+from ..common.formatting import _format_count, _format_duration
+from ..style.theme import palette, to_qcolor
 
 COVER_RATIO = 9 / 16
 CARD_RADIUS = 8

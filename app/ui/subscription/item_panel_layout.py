@@ -41,9 +41,9 @@ from .components import (
     _thumbnail_list_style,
 )
 from ..rules.rule_picker import RulePicker
-from ..theme import set_secondary_text
-from ..flow_layout import ResponsiveFlowLayout
-from ..ui_state import (
+from ..style.theme import set_secondary_text
+from ..common.flow_layout import ResponsiveFlowLayout
+from ..common.ui_state import (
     connect_splitter_saver,
     connect_table_column_saver,
     connect_table_width_saver,

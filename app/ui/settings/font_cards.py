@@ -20,7 +20,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import current_language, tr
 from ...signal_bus import signal_bus
-from ..fonts import (
+from ..style.fonts import (
     AUTO_FONT,
     build_font_stack,
     current_platform,
@@ -30,7 +30,7 @@ from ..fonts import (
     system_ui_family,
     user_font_family,
 )
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 
 PREVIEW_TEXT = "IwaraTool Aa 0123 · 中文界面示例 · 日本語のサンプル"
 

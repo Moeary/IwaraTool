@@ -1,7 +1,7 @@
 """Shared task-state constants for DownloadManager mixins."""
 from __future__ import annotations
 
-from .models import TaskStatus
+from ..models import TaskStatus
 
 
 ACTIVE_STATUSES = frozenset(

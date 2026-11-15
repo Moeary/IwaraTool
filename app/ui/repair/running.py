@@ -8,7 +8,7 @@ from typing import Any
 
 from ...config import app_config
 from ...i18n import tr
-from ..worker_lifecycle import stop_qthreads
+from ..common.worker_lifecycle import stop_qthreads
 from .worker import RepairWorker
 
 

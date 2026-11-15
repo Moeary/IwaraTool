@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QWidget
 
 from qfluentwidgets import InfoBadge, InfoBadgePosition
 
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...signal_bus import signal_bus
 
 

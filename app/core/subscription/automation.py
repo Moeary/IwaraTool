@@ -7,7 +7,7 @@ from typing import Any
 from ...config import app_config
 from ...i18n import tr
 from ..rules import BUILTIN_DEFAULT_RULE_ID, normalize_rule_payload, rule_store
-from ..task_metadata import extract_date_text, normalize_video_tags, split_filter_tags
+from ..download.task_metadata import extract_date_text, normalize_video_tags, split_filter_tags
 
 
 def matches_rule_metadata(

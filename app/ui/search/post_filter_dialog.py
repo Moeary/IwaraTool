@@ -19,7 +19,7 @@ from qfluentwidgets import (
 from ...core.search.filtering import split_search_terms
 from ...core.search.post_filter import POST_FILTER_SORTS, PUBLISHED_WITHIN_DAYS, PostFilter
 from ...i18n import tr
-from ..theme import set_secondary_text, set_status_text
+from ..style.theme import set_secondary_text, set_status_text
 
 _INTEGER = QRegularExpression(r"^\d{0,10}$")
 _DECIMAL = QRegularExpression(r"^\d{0,6}([.,]\d{0,2})?$")

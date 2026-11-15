@@ -9,12 +9,12 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from ...i18n import tr
 from ...config import app_config
-from ...core import preview_stream
+from ...core.playback import preview_stream
 from ...core import memory
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...logging_setup import get_logger
-from ..fluent_dialogs import show_fluent_confirmation
-from ..worker_lifecycle import ShutdownPoller
+from ..common.fluent_dialogs import show_fluent_confirmation
+from ..common.worker_lifecycle import ShutdownPoller
 
 logger = get_logger(__name__)
 
@@ -185,7 +185,7 @@ class WindowShutdownMixin:
 
     def _retire(self, event: QCloseEvent):
         """Close a window that was replaced (language change): stop, then destroy it."""
-        from ..shortcuts import registry
+        from ..shortcuts.registry import registry
 
         registry.unbind_window(self)
         self._close_preview_window()

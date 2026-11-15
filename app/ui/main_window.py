@@ -12,14 +12,14 @@ from qfluentwidgets import FluentWindow, qconfig
 
 from ..signal_bus import signal_bus
 from ..logging_setup import get_logger
-from .navigation import NavigationController
-from .notification_dispatcher import TaskNotificationBatch
-from .shortcut_bindings import install_shortcuts
-from .swipe_back import SwipeBackTracker
-from .theme import install_accent
+from .window.back_stack import NavigationController
+from .window.notification_dispatcher import TaskNotificationBatch
+from .shortcuts.bindings import install_shortcuts
+from .window.swipe_back import SwipeBackTracker
+from .style.theme import install_accent
 from .player.preview_window import VideoPreviewWindow, keep_normal_geometry
-from .window_drag import WindowsTitleBarDragFilter
-from .worker_lifecycle import ShutdownPoller
+from .window.drag import WindowsTitleBarDragFilter
+from .common.worker_lifecycle import ShutdownPoller
 from .window.commands import WindowCommandsMixin
 from .window.navigation import WindowNavigationMixin
 from .window.notifications import WindowNotificationsMixin

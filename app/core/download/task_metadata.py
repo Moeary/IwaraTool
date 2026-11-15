@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from ..i18n import tr
-from . import site as sites
+from ...i18n import tr
+from .. import site as sites
 
 
 MAX_STORED_TEXT_CHARS = 20000

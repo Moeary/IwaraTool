@@ -137,7 +137,7 @@ class ApiSiteTests(unittest.TestCase):
 
 class LinkParsingTests(unittest.TestCase):
     def test_iwara_ai_links_are_parsed(self):
-        from app.core.manager import download_manager
+        from app.core.download.manager import download_manager
 
         parse = download_manager._parse_iwara_url
         self.assertEqual(parse("https://www.iwara.ai/video/abc/slug"), ("video", "abc"))
@@ -176,7 +176,7 @@ class SiteSwitchTests(unittest.TestCase):
         self.assertEqual(seen, ["ai"])
 
     def test_home_rows_are_cached_per_site(self):
-        from app.core.home_cache import cache_key
+        from app.core.home.cache import cache_key
 
         self.assertEqual(cache_key("latest", "videos", "all"), "latest|videos|all")
         self.assertEqual(cache_key("latest", "videos", "all", site="ai"), "ai|latest|videos|all")
@@ -186,7 +186,7 @@ class SiteSwitchTests(unittest.TestCase):
     def test_a_worker_keeps_the_site_it_was_started_on(self):
         from PySide6.QtCore import QCoreApplication
 
-        from app.ui.worker_lifecycle import ManagedThread
+        from app.ui.common.worker_lifecycle import ManagedThread
 
         QCoreApplication.instance() or QCoreApplication([])
 
@@ -202,7 +202,7 @@ class SiteSwitchTests(unittest.TestCase):
         self.assertEqual(worker.seen, "ai")
 
     def test_the_toggle_has_a_shortcut(self):
-        from app.core.shortcut_defs import actions_by_id
+        from app.ui.shortcuts.catalog import actions_by_id
 
         self.assertEqual(actions_by_id()["toggle_site"].default, "Ctrl+Shift+S")
 
@@ -259,7 +259,7 @@ class SubscriptionSiteTests(unittest.TestCase):
 
     def test_a_source_refreshes_on_its_own_site(self):
         from app.core.history import DownloadHistory
-        from app.core.manager import DownloadManager
+        from app.core.download.manager import DownloadManager
 
         mgr = DownloadManager()
         mgr.history = DownloadHistory(os.path.join(self._tmp.name, "history.db"))
@@ -276,7 +276,7 @@ class SubscriptionSiteTests(unittest.TestCase):
         self.assertEqual(seen, [("get_playlist_videos", "ai")])
 
     def test_author_lookup_follows_the_current_site(self):
-        from app.core.manager import DownloadManager
+        from app.core.download.manager import DownloadManager
 
         mgr = DownloadManager()
         mgr.subscriptions = self._store()

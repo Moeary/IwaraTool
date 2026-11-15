@@ -5,9 +5,9 @@ import unittest
 from collections import deque
 from pathlib import Path
 
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.models import DownloadTask
-from app.core.task_queue import TaskQueueStore
+from app.core.download.task_queue import TaskQueueStore
 
 
 class TaskPriorityTests(unittest.TestCase):

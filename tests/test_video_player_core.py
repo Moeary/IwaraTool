@@ -10,8 +10,9 @@ from unittest import mock
 import requests
 
 from app.config import app_config
-from app.core import preview_stream, video_player
-from app.core.stream_proxy import StreamProxy, StreamSource
+from app.core.playback import preview_stream
+from app.core.playback import video_player
+from app.core.playback.stream_proxy import StreamProxy, StreamSource
 
 DATA = bytes(range(256)) * 400  # 102400 bytes
 

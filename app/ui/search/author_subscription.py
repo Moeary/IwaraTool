@@ -17,7 +17,7 @@ from .result_authors import (
     _author_subscription_target,
     _extract_iwara_video_id,
 )
-from ..worker_lifecycle import on_finished
+from ..common.worker_lifecycle import on_finished
 from .page_dependencies import download_manager, signal_bus
 from .author_workers import SearchIwaraAuthorWorker, SearchOrenoAuthorWorker
 from ...core import site as sites

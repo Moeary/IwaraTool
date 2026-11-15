@@ -1,7 +1,7 @@
 import unittest
 
 from app.config import DEFAULT_PROXY_URL, AppConfig, app_config
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 
 
 class FakeAPI:

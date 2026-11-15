@@ -40,7 +40,7 @@ class CacheEntry:
 def cache_key(section_id: str, tab_id: str, rating: str, *, account: bool = False, site: str | None = None) -> str:
     """Cache key of one Home row; iwara.ai rows live beside the (unprefixed) iwara.tv ones."""
 
-    from .site import SITE_TV, current_site, normalize
+    from ..site import SITE_TV, current_site, normalize
 
     prefix = ACCOUNT_PREFIX if account else ""
     key = normalize(site) if site else current_site()
@@ -67,7 +67,7 @@ class HomeFeedCache:
     def _resolve_path(self) -> str:
         if self._path:
             return self._path
-        from ..config import app_config
+        from ...config import app_config
 
         return os.path.join(app_config.app_data_dir, CACHE_FILENAME)
 

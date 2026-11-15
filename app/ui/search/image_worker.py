@@ -8,7 +8,7 @@ from typing import Any
 
 from PySide6.QtCore import Signal
 
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 from .worker_limits import DEFAULT_COVER_DOWNLOAD_CONCURRENCY, MAX_COVER_DOWNLOAD_CONCURRENCY
 

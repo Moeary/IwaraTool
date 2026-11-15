@@ -7,10 +7,10 @@ from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget
 
-from ..core import shortcut_defs
-from ..logging_setup import get_logger
-from ..signal_bus import signal_bus
-from .mask_dialogs import open_mask_dialog
+from . import catalog as shortcut_defs
+from ...logging_setup import get_logger
+from ...signal_bus import signal_bus
+from ..common.mask_dialogs import open_mask_dialog
 
 logger = get_logger(__name__)
 

@@ -10,7 +10,7 @@ from PySide6.QtCore import QTimer, Signal
 
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from ...core import site as sites
 
 

@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor
 
 from ...core.models import TaskStatus, status_label
 from ...i18n import tr
-from ..theme import palette, qcolor
+from ..style.theme import palette, qcolor
 from ...core import site as sites
 
 

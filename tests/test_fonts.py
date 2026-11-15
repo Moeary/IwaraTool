@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app.config import AppConfig, app_config
-from app.ui import fonts
-from app.ui.fonts import AUTO_FONT, build_font_stack
+from app.ui.style import fonts
+from app.ui.style.fonts import AUTO_FONT, build_font_stack
 from app.ui.settings.sections import settings_categories
 
 

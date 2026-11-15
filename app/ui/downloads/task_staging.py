@@ -12,7 +12,7 @@ from ...config import app_config
 from ...core.download.staging import STAGE_READY, STAGE_SKIP, STAGE_UNAVAILABLE
 from ...core.models import DownloadTask, TaskStatus
 from ...i18n import tr
-from ..theme import qcolor
+from ..style.theme import qcolor
 from .page_dependencies import download_manager
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 
-from ..core.manager import download_manager
-from .worker_lifecycle import ManagedThread
+from ...core.download.manager import download_manager
+from ..common.worker_lifecycle import ManagedThread
 
 
 class TagDictionaryUpdateWorker(ManagedThread):

@@ -221,9 +221,9 @@ The global filter switch applies during the resolve stage.
 
 ## 10. Tag crawl script and local translation cache
 
-- Script: `app/core/crawl_iwara_tags.py`. It crawls `https://apiq.iwara.tv/tags?filter={A-Z0-9}&page={n}` and exports a three-language-ready dataset to `data/iwara_tags.json` and `docs/iwara_tags.md`.
+- Script: `scripts/crawl_iwara_tags.py`. It crawls `https://apiq.iwara.tv/tags?filter={A-Z0-9}&page={n}` and exports a three-language-ready dataset to `data/iwara_tags.json` and `docs/iwara_tags.md`.
 - Each tag gets `name_en`, `name_zh`, `name_ja` (default: the original text; override with `--translation-map path/to/map.json`).
-- Example: `pixi run python app/core/crawl_iwara_tags.py`
+- Example: `pixi run python scripts/crawl_iwara_tags.py`
 
 Local translation cache:
 - Project-generated offline index: `data/iwara_tags.json`; LoveIwara MIT cache: `data/tag_translations/loveiwara_iwara_tags_localized.json`.

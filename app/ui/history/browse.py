@@ -17,7 +17,7 @@ from qfluentwidgets import ComboBox, FluentIcon, ListWidget, SegmentedWidget, To
 from ...config import app_config
 from ...i18n import current_language, tr
 from ...signal_bus import signal_bus
-from ..flow_layout import ResponsiveFlowLayout
+from ..common.flow_layout import ResponsiveFlowLayout
 from ..media.card_size import CardSizeControl
 from .cover_grid import MODE_COVER, MODE_GRID, HistoryCoverGrid
 

@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
 from .image_worker import SearchImageWorker
-from ..theme import qcolor
-from ..worker_lifecycle import on_finished
+from ..style.theme import qcolor
+from ..common.worker_lifecycle import on_finished
 
 from .results_layout import _VIDEO_ICON_SIZE
 from .page_dependencies import read_pixmap

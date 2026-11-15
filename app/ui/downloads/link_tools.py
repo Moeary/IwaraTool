@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...i18n import tr
-from ..worker_lifecycle import on_finished
+from ..common.worker_lifecycle import on_finished
 from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
 from .page_dependencies import download_manager

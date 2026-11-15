@@ -7,7 +7,7 @@ from typing import Any
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..task_metadata import (
+from ..download.task_metadata import (
     SUBSCRIPTION_UNAVAILABLE_STATE as _SUBSCRIPTION_UNAVAILABLE_STATE,
     _dict_or_empty,
     _iwara_image_url,

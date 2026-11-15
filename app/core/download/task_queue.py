@@ -8,8 +8,8 @@ from dataclasses import fields
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
-from ..config import app_config
-from .models import DownloadTask, TaskStatus
+from ...config import app_config
+from ..models import DownloadTask, TaskStatus
 
 
 TASK_QUEUE_SCHEMA_VERSION = 1

@@ -24,14 +24,14 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..chrome import EmptyState
+from ..common.chrome import EmptyState
 from ..media.card_size import CardSizeControl, saved_card_width
 from ..media.pixmaps import PixmapLRU
 from ..media.grid import transparent_scroll_area
-from ..scroll_intent import UserScrollWatcher
+from ..common.scroll_intent import UserScrollWatcher
 from .helpers import _source_search_text, _source_sort_key, _source_sort_label
-from ..theme import PAGE_SPACING, set_secondary_text, summary_text
-from ..flow_layout import ResponsiveFlowLayout
+from ..style.theme import PAGE_SPACING, set_secondary_text, summary_text
+from ..common.flow_layout import ResponsiveFlowLayout
 from .cover_loader import CoverLoader, load_pixmap
 from .item_queries import is_feed_source
 from .source_row import SourceRow

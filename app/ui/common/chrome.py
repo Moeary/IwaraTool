@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from qfluentwidgets import BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, SubtitleLabel, TitleLabel
 
-from .theme import palette, set_secondary_text, to_qcolor
+from ..style.theme import palette, set_secondary_text, to_qcolor
 
 
 class PageHeader(QWidget):
@@ -236,7 +236,7 @@ class EmptyState(QWidget):
 def format_age(seconds: float) -> str:
     """"just now" / "5 min ago" / "3 h ago" / "2 d ago" in the UI language."""
 
-    from ..i18n import tr
+    from ...i18n import tr
 
     seconds = max(0.0, float(seconds))
     if seconds < 60:

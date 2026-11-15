@@ -16,9 +16,9 @@ from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
-from app.core import home_cache
-from app.core.home_cache import HomeFeedCache, cache_key, rows_signature
-from app.core.home_feed import (
+from app.core.home import cache as home_cache
+from app.core.home.cache import HomeFeedCache, cache_key, rows_signature
+from app.core.home.feed import (
     MODE_AUTHOR,
     MODE_BROWSE,
     MODE_KEYWORD,
@@ -575,8 +575,8 @@ class HomeInterfaceLayoutTests(_QtCase):
         self.addCleanup(self.tmp.cleanup)
         self.specs = default_specs()
         for target, value in (
-            ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "cache.json"))),
+            ("app.core.home.feed.load_specs", lambda store=None: list(self.specs)),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "cache.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda self: None),
             ("app.ui.media.detail_view.DetailWorker.run", lambda self: None),
         ):

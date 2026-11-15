@@ -86,13 +86,13 @@ from app.config import app_config  # noqa: E402
 from app.logging_setup import get_logger, setup_logging
 from app.qt_runtime import install_console_interrupt
 from app.signal_bus import signal_bus
-from app.core.manager import download_manager
+from app.core.download.manager import download_manager
 from app.core.background_services import background_service
 from app.core.rules import ensure_temporary_rule
-from app.ui.fonts import apply_app_font
+from app.ui.style.fonts import apply_app_font
 from app.ui.main_window import MainWindow
-from app.ui import mask_dialogs
-from app.ui.theme import apply_theme_mode
+from app.ui.common import mask_dialogs
+from app.ui.style.theme import apply_theme_mode
 
 
 def main():

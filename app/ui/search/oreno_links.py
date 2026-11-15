@@ -14,7 +14,7 @@ from ...core.search.normalize import normalize_video
 from ...i18n import tr
 from .result_authors import _author_subscription_target
 from .oreno_workers import SearchOrenoLinkWorker
-from ..worker_lifecycle import on_finished
+from ..common.worker_lifecycle import on_finished
 from .page_dependencies import signal_bus
 from ...core import site as sites
 

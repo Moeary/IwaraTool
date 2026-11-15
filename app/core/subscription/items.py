@@ -7,7 +7,7 @@ from typing import Any
 
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..task_metadata import _subscription_download_block_from_error
+from ..download.task_metadata import _subscription_download_block_from_error
 from .. import site as sites
 
 

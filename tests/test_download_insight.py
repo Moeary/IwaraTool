@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QListWidgetItem
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.models import DownloadTask, TaskStatus
 from app.core.subscription.store import SubscriptionStore
 
@@ -130,7 +130,7 @@ class ListingPreviewTests(_ManagerCase):
 
     def test_subscription_rows_keep_stats_for_the_rule(self):
         source_id = self.mgr.subscriptions.add_source("author", "bob", "Bob")
-        from app.core.task_metadata import subscription_item_from_video
+        from app.core.download.task_metadata import subscription_item_from_video
 
         self.mgr.subscriptions.upsert_items(source_id, [subscription_item_from_video(dict(VIDEOS[1], tags=[{"id": "dance"}]))])
         row = self.mgr.subscriptions.get_items_by_video_ids(["fresh0000002"])[0]
@@ -330,7 +330,7 @@ class HistoryBrowseTests(unittest.TestCase):
 
 class ScrollTests(unittest.TestCase):
     def test_card_grid_scrolls_under_half_a_row_per_notch(self):
-        from app.ui.card_list import CardGridList
+        from app.ui.common.card_list import CardGridList
 
         grid = CardGridList()
         self.addCleanup(grid.deleteLater)
@@ -348,7 +348,7 @@ class ScrollTests(unittest.TestCase):
     def test_user_scroll_input_is_counted(self):
         from qfluentwidgets import ScrollArea
 
-        from app.ui.scroll_intent import UserScrollWatcher
+        from app.ui.common.scroll_intent import UserScrollWatcher
 
         area = ScrollArea()
         self.addCleanup(area.deleteLater)

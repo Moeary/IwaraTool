@@ -36,7 +36,7 @@ class ManagedThread(QThread):
 
         @functools.wraps(run)
         def scoped_run(self, *args, **kw):
-            from ..core.site import site_scope
+            from ...core.site import site_scope
 
             with site_scope(self._site):
                 return run(self, *args, **kw)
@@ -45,7 +45,7 @@ class ManagedThread(QThread):
         cls.run = scoped_run
 
     def start(self, *args, **kwargs):
-        from ..core.site import current_site
+        from ...core.site import current_site
 
         self._site = self.pinned_site or current_site()
         if self.parent() is not None:

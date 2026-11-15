@@ -14,8 +14,8 @@ from qfluentwidgets import Action, FluentIcon, ListWidget, PlainTextEdit
 
 from app.config import app_config
 from app.core.history import DownloadHistory
-from app.core.manager import DownloadManager, download_manager
-from app.core.task_metadata import (
+from app.core.download.manager import DownloadManager, download_manager
+from app.core.download.task_metadata import (
     _compact_video_raw_json,
     _iwara_image_url,
     _subscription_item_from_video,
@@ -37,7 +37,7 @@ from app.ui.subscription.helpers import (
     _title_matches_keywords,
 )
 from app.ui.downloads.task_center import TaskCenterInterface
-from app.ui.ui_state import (
+from app.ui.common.ui_state import (
     apply_table_column_layout,
     connect_table_width_saver,
     restore_table_columns,
@@ -100,7 +100,7 @@ class ManagerPerformanceTests(unittest.TestCase):
 
     def test_queued_rule_snapshot_can_skip_history_without_affecting_later_rules(self):
         mgr = make_manager()
-        with patch("app.core.manager.active_rule_id", return_value="search-rule"):
+        with patch("app.core.download.manager.active_rule_id", return_value="search-rule"):
             with patch(
                 "app.core.rules.rule_store.find",
                 return_value={"payload": {"record_to_history": False}},
@@ -1218,7 +1218,7 @@ class UiPerformanceTests(unittest.TestCase):
         restore_table_widths(table, key, {0: 50, 1: 60, 2: 70})
         connect_table_width_saver(table, key)
 
-        with patch("app.ui.ui_state._user_dragging", return_value=True):
+        with patch("app.ui.common.ui_state._user_dragging", return_value=True):
             table.setColumnWidth(1, 234)
         self.app.processEvents()
         raw = str(app_config.get_ui_value(key, "") or "")

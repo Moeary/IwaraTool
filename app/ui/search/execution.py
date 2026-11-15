@@ -17,7 +17,7 @@ from .worker_limits import (
     MAX_SEARCH_RESOLUTION_CONCURRENCY as _MAX_SEARCH_RESOLUTION_CONCURRENCY,
 )
 from .search_worker import SearchWorker
-from ..worker_lifecycle import on_finished, stop_qthreads
+from ..common.worker_lifecycle import on_finished, stop_qthreads
 
 
 class SearchExecutionMixin:

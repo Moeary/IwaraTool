@@ -20,7 +20,7 @@ from .components import (
     _MAX_SUBSCRIPTION_GRID_COLUMNS,
     _grid_text_height,
 )
-from ..theme import qcolor
+from ..style.theme import qcolor
 
 
 class SubscriptionItemGridMixin:

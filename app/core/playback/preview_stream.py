@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import cloudscraper
 
-from ..config import app_config
-from ..i18n import tr
-from ..logging_setup import get_logger
+from ...config import app_config
+from ...i18n import tr
+from ...logging_setup import get_logger
 from .stream_proxy import StreamProxy, StreamSource
 
 logger = get_logger(__name__)

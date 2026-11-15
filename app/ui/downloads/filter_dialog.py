@@ -19,7 +19,7 @@ from qfluentwidgets import (
 
 from ...config import app_config
 from ...i18n import tr
-from ..theme import palette
+from ..style.theme import palette
 
 
 def option_button_style(checked: bool) -> str:

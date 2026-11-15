@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 
 

@@ -16,9 +16,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app.config import AppConfig, app_config
-from app.core import shortcut_defs as defs
-from app.core.home_cache import HomeFeedCache
-from app.core.home_feed import MODE_TAGS, HomeSectionSpec, default_specs
+from app.ui.shortcuts import catalog as defs
+from app.core.home.cache import HomeFeedCache
+from app.core.home.feed import MODE_TAGS, HomeSectionSpec, default_specs
 from app.core.search.models import SearchVideo
 from qt_helpers import activate_window, wait_until
 
@@ -219,8 +219,8 @@ class HomeIncrementalRebuildTests(_QtCase):
         self.addCleanup(self.tmp.cleanup)
         self.specs = default_specs()
         for target, value in (
-            ("app.core.home_feed.load_specs", lambda store=None: list(self.specs)),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
+            ("app.core.home.feed.load_specs", lambda store=None: list(self.specs)),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
@@ -286,7 +286,7 @@ class HomeIncrementalRebuildTests(_QtCase):
 class SubscriptionOverviewTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
-        from app.core.manager import DownloadManager
+        from app.core.download.manager import DownloadManager
         from app.core.subscription.store import SubscriptionStore
         from app.ui.subscription.page import SubscriptionInterface
 
@@ -693,7 +693,7 @@ class ShortcutCatalogueTests(_QtCase):
             self.assertTrue(defs.normalize(defs.actions_by_id()[action_id].default), action_id)
 
     def test_grouped_shortcuts_put_global_first_then_the_current_page(self):
-        from app.ui.shortcut_help import grouped_shortcuts
+        from app.ui.shortcuts.cheat_sheet import grouped_shortcuts
 
         groups = grouped_shortcuts(defs.SCOPE_SEARCH)
         titles = defs.scope_titles()
@@ -704,14 +704,14 @@ class ShortcutCatalogueTests(_QtCase):
         self.assertEqual(rows[defs.actions_by_id()["shortcut_help"].label], defs.display_key_for("shortcut_help"))
 
     def test_unassigned_actions_are_not_listed(self):
-        from app.ui.shortcut_help import grouped_shortcuts
+        from app.ui.shortcuts.cheat_sheet import grouped_shortcuts
 
         with mock.patch.object(defs, "key_for", side_effect=lambda action_id: "" if action_id == "shortcut_help" else "Ctrl+X"):
             labels = [label for _title, rows in grouped_shortcuts() for label, _key in rows]
         self.assertNotIn(defs.actions_by_id()["shortcut_help"].label, labels)
 
     def test_the_help_dialog_builds_and_can_ask_for_the_settings_page(self):
-        from app.ui.shortcut_help import ShortcutHelpDialog
+        from app.ui.shortcuts.cheat_sheet import ShortcutHelpDialog
 
         host = QWidget()
         host.resize(900, 700)
@@ -723,7 +723,7 @@ class ShortcutCatalogueTests(_QtCase):
         self.assertTrue(dialog.customize_requested)
 
     def test_hints_follow_the_users_binding(self):
-        from app.ui.shortcuts import attach_hint
+        from app.ui.shortcuts.registry import attach_hint
 
         button = QWidget()
         self.addCleanup(button.deleteLater)
@@ -751,7 +751,7 @@ class GlobalActionTests(_QtCase):
         for target, value in (
             ("app.config.app_config._qs", settings),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)
             patcher.start()
@@ -776,7 +776,7 @@ class GlobalActionTests(_QtCase):
         self.window.switchTo(self.window._home_page)
 
     def _fire(self, action_id, parent=None):
-        from app.ui.shortcuts import registry
+        from app.ui.shortcuts.registry import registry
 
         parent = parent or self.window
         shortcut = [s for s in registry.live(action_id) if s.parent() is parent][0]
@@ -852,7 +852,7 @@ class GlobalActionTests(_QtCase):
 
     def test_toggle_theme_and_fullscreen_are_wired(self):
         with mock.patch.object(self.window, "_toggle_dark_mode") as toggle:
-            from app.ui.shortcuts import registry
+            from app.ui.shortcuts.registry import registry
 
             [s for s in registry.live("toggle_theme") if s.parent() is self.window][0].activated.emit()
         toggle.assert_called_once()
@@ -886,7 +886,7 @@ class GlobalActionTests(_QtCase):
 
     def test_f1_opens_the_cheat_sheet_and_can_jump_to_settings(self):
         window = self.window
-        with mock.patch("app.ui.shortcut_help.ShortcutHelpDialog.exec") as run:
+        with mock.patch("app.ui.shortcuts.cheat_sheet.ShortcutHelpDialog.exec") as run:
             self._fire("shortcut_help")
         run.assert_called_once()
 
@@ -894,7 +894,7 @@ class GlobalActionTests(_QtCase):
             dialog.customize_requested = True
             return 1
 
-        with mock.patch("app.ui.shortcut_help.ShortcutHelpDialog.exec", accept_with_customize):
+        with mock.patch("app.ui.shortcuts.cheat_sheet.ShortcutHelpDialog.exec", accept_with_customize):
             window.show_shortcut_help()
         self.assertIs(window.stackedWidget.currentWidget(), window._settings_page)
         self.assertEqual(window._settings_page._settings_board.current_category(), "shortcuts")
@@ -907,8 +907,8 @@ class HomeKeyboardActionTests(_QtCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         for target, value in (
-            ("app.core.home_feed.load_specs", lambda store=None: default_specs()),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
+            ("app.core.home.feed.load_specs", lambda store=None: default_specs()),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(self.tmp.name, "c.json"))),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.media.detail_view.DetailWorker.run", lambda worker: None),
         ):
@@ -965,7 +965,7 @@ class HomeKeyboardActionTests(_QtCase):
 class SubscriptionKeyboardActionTests(_QtCase):
     def setUp(self):
         from app.core.history import DownloadHistory
-        from app.core.manager import DownloadManager
+        from app.core.download.manager import DownloadManager
         from app.core.subscription.store import SubscriptionStore
         from app.ui.subscription.page import SubscriptionInterface
 

@@ -16,8 +16,8 @@ from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMenu
 
 from ...config import app_config
-from ...core.home_feed import MODE_AUTHOR
-from ...core.manager import download_manager
+from ...core.home.feed import MODE_AUTHOR
+from ...core.download.manager import download_manager
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ...core.rules import page_rule_id
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
@@ -27,7 +27,7 @@ from ...signal_bus import signal_bus
 from .workers import CoverFetcher
 from ..media.detail_state import DetailState
 from ..media.detail_view import DetailView
-from ..navigation import navigate_back, record_navigation, restore_scroll
+from ..window.back_stack import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView
 from .feed_view import HomeFeedView
 from .section_block import queueable_ids

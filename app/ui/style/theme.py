@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QSplitter, QSplitterHandle, QWidget
 from qfluentwidgets import Theme, isDarkTheme, qconfig, setTheme
 from qfluentwidgets.common.style_sheet import ThemeColor
 
-from ..core.models import TaskStatus
+from ...core.models import TaskStatus
 
 # Page chrome shared by every sub-interface.
 PAGE_MARGINS = (28, 20, 28, 18)

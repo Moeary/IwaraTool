@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon, PrimaryPushButton, TitleLabel
 
 from ...config import app_config
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .home_cards import HomeSettingsCards
@@ -15,9 +15,9 @@ from .shortcuts_cards import ShortcutSettingsCards
 from .system_cards import SystemSettingsCards
 from .site_cards import SiteSettingsCard
 from .tool_cards import ToolSettingsCards
-from ..tag_dictionary_worker import TagDictionaryUpdateWorker
-from ..theme import PAGE_MARGINS
-from ..worker_lifecycle import stop_qthreads
+from .tag_dictionary_worker import TagDictionaryUpdateWorker
+from ..style.theme import PAGE_MARGINS
+from ..common.worker_lifecycle import stop_qthreads
 from .account import LoginWorker, SettingsAccountMixin
 from .download_cards import SettingsDownloadCardsMixin
 from .font_cards import SettingsFontCardsMixin

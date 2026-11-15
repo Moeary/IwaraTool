@@ -5,7 +5,7 @@ from __future__ import annotations
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..manager_state import (
+from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
     CANCEL_ORIGIN_MANUAL as _CANCEL_ORIGIN_MANUAL,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,

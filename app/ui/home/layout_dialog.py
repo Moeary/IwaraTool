@@ -24,7 +24,7 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ...core.home_feed import (
+from ...core.home.feed import (
     BROWSE_SORTS,
     KEYWORD_SORTS,
     MAX_SECTIONS,
@@ -43,8 +43,8 @@ from ...core.home_feed import (
 )
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import set_secondary_text
-from ..fluent_dialogs import show_fluent_confirmation
+from ..style.theme import set_secondary_text
+from ..common.fluent_dialogs import show_fluent_confirmation
 
 
 def mode_label(mode: str) -> str:

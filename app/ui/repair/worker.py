@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 
 

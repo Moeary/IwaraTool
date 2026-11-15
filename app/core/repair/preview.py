@@ -7,7 +7,7 @@ from typing import Any
 
 from ...i18n import pin_language, tr
 from .matching import repair_target_path
-from ..task_metadata import _dict_or_empty
+from ..download.task_metadata import _dict_or_empty
 
 
 class RepairPreviewMixin:

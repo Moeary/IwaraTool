@@ -6,7 +6,7 @@ import json
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QHeaderView, QSplitter, QTableWidget
 
-from ..config import app_config
+from ...config import app_config
 
 
 def restore_splitter_sizes(splitter: QSplitter, key: str, default_sizes: list[int]):

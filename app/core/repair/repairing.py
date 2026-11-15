@@ -9,7 +9,7 @@ from typing import Any, Callable
 from ...i18n import pin_language, tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
-from ..task_metadata import _author_fields_from_user, _dict_or_empty
+from ..download.task_metadata import _author_fields_from_user, _dict_or_empty
 from .. import site as sites
 
 

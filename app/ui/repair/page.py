@@ -33,12 +33,12 @@ from qfluentwidgets import (
 )
 
 from ...core.download.template_builder import template_presets
-from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
+from ...core.download.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..fonts import monospace_font
-from ..ui_state import keep_table_widths
-from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, apply_scrollbars, set_secondary_text
+from ..style.fonts import monospace_font
+from ..common.ui_state import keep_table_widths
+from ..style.theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, apply_scrollbars, set_secondary_text
 from .controls import RepairControlsMixin
 from .folder_input import FolderDropLineEdit
 from .log_panel import RepairLogMixin

@@ -12,8 +12,8 @@ import uuid
 from dataclasses import dataclass, replace
 from typing import Any
 
-from ..i18n import tr
-from .rating import api_rating
+from ...i18n import tr
+from ..rating import api_rating
 
 HOME_PAGE_LIMIT = 24  # items fetched per section on the Home page
 BROWSE_PAGE_LIMIT = 32  # items per page in the full "More" view
@@ -233,7 +233,7 @@ def load_specs(store: Any = None) -> list[HomeSectionSpec]:
     """The saved layout; a missing or corrupt value yields :func:`default_specs`."""
 
     if store is None:
-        from ..config import app_config as store
+        from ...config import app_config as store
     stored = store.get_ui_value(HOME_SECTIONS_KEY, "")
     if not stored:
         return default_specs()
@@ -248,7 +248,7 @@ def load_specs(store: Any = None) -> list[HomeSectionSpec]:
 
 def save_specs(specs: list[HomeSectionSpec], store: Any = None) -> None:
     if store is None:
-        from ..config import app_config as store
+        from ...config import app_config as store
     store.set_ui_value(
         HOME_SECTIONS_KEY,
         json.dumps([spec.to_json() for spec in sanitize_specs([s.to_json() for s in specs])], ensure_ascii=False),

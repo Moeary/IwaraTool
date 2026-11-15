@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
 from ...i18n import tr
-from ..theme import qcolor, summary_text
+from ..style.theme import qcolor, summary_text
 from .worker import RepairPreviewWorker
 
 

@@ -20,14 +20,14 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..shortcuts import attach_hint
-from ..fonts import monospace_font
+from ..shortcuts.registry import attach_hint
+from ..style.fonts import monospace_font
 from ..rules.rule_picker import RulePicker
 from .task_center import TaskCenterInterface
-from ..theme import (
+from ..style.theme import (
     CARD_MARGINS,
     PAGE_MARGINS,
     PAGE_SPACING,

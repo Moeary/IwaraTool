@@ -9,9 +9,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
 from ...i18n import tr
-from ..theme import link_color, qcolor, summary_text
-from ..ui_state import fit_table_last_column
-from ..table_column_dialog import open_table_column_dialog
+from ..style.theme import link_color, qcolor, summary_text
+from ..common.ui_state import fit_table_last_column
+from ..common.table_column_dialog import open_table_column_dialog
 from .record_state import _date_only, _video_url
 
 

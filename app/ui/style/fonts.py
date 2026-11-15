@@ -15,9 +15,9 @@ from collections.abc import Callable, Iterable
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-from ..config import app_config
-from ..i18n import current_language
-from ..logging_setup import get_logger
+from ...config import app_config
+from ...i18n import current_language
+from ...logging_setup import get_logger
 
 _log = get_logger(__name__)
 

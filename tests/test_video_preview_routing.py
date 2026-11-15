@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from app.core import video_player
+from app.core.playback import video_player
 from app.core.search.models import SearchVideo
 from app.ui.window import preview as preview_module
 from app.ui.search import opening as search_opening

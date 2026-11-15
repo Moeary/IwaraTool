@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, StrongBodyLabel
 
 from ...core.rules import PAGE_RULE_SCOPES
 from ...i18n import tr
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 from .rule_picker import RulePicker
 from .rule_text import page_scope_name
 

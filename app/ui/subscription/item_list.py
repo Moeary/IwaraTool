@@ -18,7 +18,7 @@ from .helpers import (
     _title_matcher,
     _video_url,
 )
-from ..theme import qcolor, summary_text
+from ..style.theme import qcolor, summary_text
 from .page_dependencies import download_manager
 
 

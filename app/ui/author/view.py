@@ -26,22 +26,22 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..config import app_config
-from ..core.home_feed import MODE_AUTHOR, FeedSection, FeedTab
-from ..core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
-from ..core.rules import page_rule_id
-from ..core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
-from ..core.search.normalize import avatar_url
-from ..i18n import tr
-from ..signal_bus import signal_bus
-from .author_status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
-from .home.browse_view import BrowseState, BrowseView
-from .home.section_block import queueable_ids
-from .downloads.staging_flow import stage_videos
-from .media.pixmaps import read_pixmap
-from .home.workers import CoverFetcher
-from .theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
-from ..core import site as sites
+from ...config import app_config
+from ...core.home.feed import MODE_AUTHOR, FeedSection, FeedTab
+from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
+from ...core.rules import page_rule_id
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.search.normalize import avatar_url
+from ...i18n import tr
+from ...signal_bus import signal_bus
+from .status import AuthorStatusBar, clean_username, local_chip_state, web_chip_state
+from ..home.browse_view import BrowseState, BrowseView
+from ..home.section_block import queueable_ids
+from ..downloads.staging_flow import stage_videos
+from ..media.pixmaps import read_pixmap
+from ..home.workers import CoverFetcher
+from ..style.theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ...core import site as sites
 
 
 @dataclass

@@ -9,14 +9,14 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from ...core.search.models import SearchVideo
 from ...core.search.normalize import small_cover_url
 from ...signal_bus import signal_bus
-from ..click_dispatch import (
+from ..common.click_dispatch import (
     ACTION_DETAIL,
     ACTION_PLAY,
     ACTION_SELECT,
     ClickDispatcher,
     play_in_window,
 )
-from ..theme import palette, to_qcolor
+from ..style.theme import palette, to_qcolor
 from .card import CARD_PAD, CARD_RADIUS, COVER_RATIO, MediaCard
 from .card_size import CARD_WIDTH_MAX, CARD_WIDTH_MIN, saved_card_width
 from .pixmaps import PixmapLRU, read_pixmap

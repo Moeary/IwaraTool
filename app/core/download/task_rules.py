@@ -21,7 +21,7 @@ from ..subscription.automation import matches_rule_metadata
 def active_rule_id() -> str:
     """Resolve the manager-level hook lazily for test/integration overrides."""
 
-    manager_module = sys.modules.get("app.core.manager")
+    manager_module = sys.modules.get("app.core.download.manager")
     resolver = getattr(manager_module, "active_rule_id", _default_active_rule_id)
     return str(resolver())
 
