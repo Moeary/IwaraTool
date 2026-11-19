@@ -14,6 +14,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMenu
+from ..media.local_folder import add_local_folder_action
 
 from ...config import app_config
 from ...core.home.feed import MODE_AUTHOR
@@ -340,6 +341,8 @@ class HomeInterface(QWidget):
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):
         menu = RoundMenu(parent=self)
         is_image = video.source_kind == IWARA_IMAGE_SOURCE_KIND
+        if not is_image:
+            add_local_folder_action(menu, self, download_manager, video.video_id)
         menu.addAction(Action(FluentIcon.VIEW, tr("View details", "查看详情", "詳細を表示"), self, triggered=lambda: self._open_video(video)))
         if not is_image and video.downloadable:
             menu.addAction(Action(

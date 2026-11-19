@@ -94,6 +94,8 @@ class SearchVideo:
     downloadable: bool = True
     iwara_url: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    width: int = 0
+    height: int = 0
 
 
 @dataclass(slots=True)

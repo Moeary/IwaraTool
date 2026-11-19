@@ -13,6 +13,7 @@ from qfluentwidgets import (
     LineEdit,
     MessageBoxBase,
     PushButton,
+    SegmentedWidget,
     SubtitleLabel,
 )
 
@@ -125,6 +126,25 @@ class SearchPostFilterDialog(MessageBoxBase):
         for key in POST_FILTER_SORTS:
             self._sort_combo.addItem(_sort_label(key), userData=key)
         grid.addWidget(self._sort_combo, 5, 1, 1, 3)
+        grid.addWidget(BodyLabel(tr("Video orientation", "视频方向", "動画の向き"), self), 6, 0)
+        # Keep these three choices inline: a transient combo popup can lose
+        # focus inside a macOS mask dialog and crash while Qt deletes it.
+        self._orientation_selector = SegmentedWidget(self)
+        for label, key in (
+            (tr("Any orientation", "不限方向", "指定なし"), "any"),
+            (tr("Portrait", "竖屏", "縦長"), "portrait"),
+            (tr("Landscape", "横屏", "横長"), "landscape"),
+        ):
+            self._orientation_selector.addItem(key, label)
+        grid.addWidget(self._orientation_selector, 6, 1, 1, 3)
+        orientation_hint = CaptionLabel(tr(
+            "Uses video resolution: portrait width < height; landscape width > height. Square videos and unknown resolutions only appear with Any orientation.",
+            "依据视频分辨率判断：宽 < 高为竖屏，宽 > 高为横屏。方形视频和分辨率未知的视频仅在不限方向时显示。",
+            "動画の解像度で判定します。幅 < 高さは縦長、幅 > 高さは横長です。正方形と解像度不明の動画は指定なしの場合のみ表示します。",
+        ), self)
+        orientation_hint.setWordWrap(True)
+        set_secondary_text(orientation_hint)
+        grid.addWidget(orientation_hint, 7, 0, 1, 4)
         self.viewLayout.addLayout(grid)
 
         self._error_label = CaptionLabel("", self)
@@ -175,12 +195,14 @@ class SearchPostFilterDialog(MessageBoxBase):
         self._within_combo.setCurrentIndex(max(0, within))
         sort = self._sort_combo.findData(value.sort)
         self._sort_combo.setCurrentIndex(max(0, sort))
+        self._orientation_selector.setCurrentItem(value.orientation or "any")
 
     def _clear(self):
         self._load(PostFilter())
         self._error_label.hide()
 
     def post_filter(self) -> PostFilter:
+        orientation = self._orientation_selector.currentRouteKey()
         return PostFilter(
             min_likes=_parse_int(self._min_likes.text()),
             max_likes=_parse_int(self._max_likes.text()),
@@ -192,6 +214,7 @@ class SearchPostFilterDialog(MessageBoxBase):
             min_like_ratio_percent=_parse_float(self._ratio_edit.text()),
             exclude_tags=split_search_terms(self._exclude_edit.text()),
             sort=str(self._sort_combo.currentData() or "server"),
+            orientation="" if orientation == "any" else orientation,
         )
 
     def validate(self) -> bool:

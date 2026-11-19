@@ -110,6 +110,8 @@ class SearchOrenoLinksMixin:
                 "likes",
                 "views",
                 "duration",
+                "width",
+                "height",
                 "comments",
                 "rating",
                 "tags",

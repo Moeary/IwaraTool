@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.search.models import SearchVideo
+from app.core.search.normalize import normalize_video
 from app.core.search.post_filter import PostFilter, apply_post_filter
 from app.i18n import tr
 from app.ui.search.page import SearchInterface
@@ -90,6 +91,24 @@ class PostFilterCoreTests(unittest.TestCase):
         self.assertEqual(PostFilter(min_views=10, max_views=5).validation_error(), "views")
         self.assertEqual(PostFilter(min_views=5, max_views=10).validation_error(), "")
 
+    def test_orientation_uses_video_dimensions_and_leaves_unknowns_unclassified(self):
+        videos = [normalize_video({"id": key, "file": {"width": width, "height": height}})
+                  for key, width, height in (
+                      ("portrait", "1080", "1920"), ("landscape", 3840, 2160),
+                      ("square", 1080, 1080), ("unknown", None, None),
+                      ("partial", 1920, 0), ("invalid", "bad", -1),
+                  )]
+        self.assertEqual(_ids(apply_post_filter(videos, PostFilter(orientation="portrait"))), ["portrait"])
+        self.assertEqual(_ids(apply_post_filter(videos, PostFilter(orientation="landscape"))), ["landscape"])
+        self.assertEqual(len(apply_post_filter(videos, PostFilter())), 6)
+        self.assertEqual(PostFilter(orientation="portrait").condition_count(), 1)
+        self.assertEqual(normalize_video({"id": "top", "width": 720, "height": 1280}).width, 720)
+
+    def test_orientation_composes_with_other_filters(self):
+        videos = [_video("low", width=720, height=1280, likes=5),
+                  _video("high", width=1080, height=1920, likes=200)]
+        self.assertEqual(_ids(apply_post_filter(videos, PostFilter(orientation="portrait", min_likes=100))), ["high"])
+
 
 class PostFilterInterfaceTests(unittest.TestCase):
     @classmethod
@@ -156,7 +175,7 @@ class PostFilterInterfaceTests(unittest.TestCase):
 
     def test_dialog_round_trip_and_validation(self):
         current = PostFilter(min_likes=10, max_duration_minutes=2.5, published_within_days=7,
-                             exclude_tags=("a", "b"), sort="views")
+                             exclude_tags=("a", "b"), sort="views", orientation="portrait")
         dialog = SearchPostFilterDialog(self.page, current)
         self.addCleanup(dialog.deleteLater)
         self.assertEqual(dialog.post_filter(), current)
@@ -167,6 +186,24 @@ class PostFilterInterfaceTests(unittest.TestCase):
         dialog._clear()
         self.assertEqual(dialog.post_filter(), PostFilter())
         self.assertTrue(dialog.validate())
+
+    def test_resolved_oreno_dimensions_update_filtered_grid_and_list(self):
+        page = self.page
+        pending = _video("oreno3d:1", source_kind="oreno3d")
+        page._all_videos = [pending]
+        page._set_post_filter(PostFilter(orientation="portrait"))
+        self.assertEqual(self.grid_ids(), [])
+        page._apply_oreno_link(pending, {
+            "id": "iwara1", "metadata": {"id": "iwara1", "file": {"width": 1080, "height": 1920}},
+        })
+        page._update_video_presentation(pending)
+        page._post_filter_refresh_timer.stop()
+        page._refresh_post_filtered_results()
+        self.assertEqual(self.grid_ids(), ["oreno3d:1"])
+        page._set_combo_data(page._view_combo, "list")
+        self.assertEqual(page._results_table.rowCount(), 1)
+        page._set_post_filter(PostFilter(orientation="landscape"))
+        self.assertEqual(page._results_table.rowCount(), 0)
 
 
 if __name__ == "__main__":

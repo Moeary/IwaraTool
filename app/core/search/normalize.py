@@ -168,6 +168,8 @@ def normalize_video(value: Mapping[str, Any] | Any) -> SearchVideo | None:
         downloadable = bool(video.get("downloadable"))
     return SearchVideo(
         video_id=video_id,
+        width=max(0, _as_int(file_info.get("width", video.get("width", 0)))),
+        height=max(0, _as_int(file_info.get("height", video.get("height", 0)))),
         title=_first_text(video, "title", "name") or video_id,
         author_username=author_username,
         author_name=author_name,

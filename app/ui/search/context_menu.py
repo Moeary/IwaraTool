@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
 
-from ...core.search.models import SearchPlaylist, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
+from ..media.local_folder import add_local_folder_action
+from .download_status import iwara_history_id
+from .page_dependencies import download_manager
 from .result_authors import _author_source_info, _oreno3d_video_url
 
 
@@ -71,6 +74,8 @@ class SearchContextMenuMixin:
                 )
             )
             detail_video = video_values[0].get("data")
+            if isinstance(detail_video, SearchVideo) and detail_video.source_kind != IWARA_IMAGE_SOURCE_KIND:
+                add_local_folder_action(menu, self, download_manager, iwara_history_id(detail_video))
             if isinstance(detail_video, SearchVideo) and self._detail_target(detail_video):
                 menu.addAction(
                     Action(

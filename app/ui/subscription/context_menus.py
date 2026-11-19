@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
+from ..media.local_folder import add_local_folder_action
 
 from ...i18n import tr
 from .helpers import _open_url, _source_url, _video_url
@@ -71,6 +72,7 @@ class SubscriptionContextMenusMixin:
         return _video_url(video_id)
 
     def _add_single_video_actions(self, menu: RoundMenu, single: str):
+        add_local_folder_action(menu, self, download_manager, single)
         menu.addAction(
             Action(
                 FluentIcon.VIEW,
@@ -237,6 +239,7 @@ class SubscriptionContextMenusMixin:
         ids = list(selection) if selection and len(selection) > 1 else [video_id]
         menu = RoundMenu(parent=self)
         menu.addAction(Action(FluentIcon.VIEW, tr("View Details", "查看详情", "詳細を表示"), self, triggered=lambda: self._show_video_detail(video)))
+        add_local_folder_action(menu, self, download_manager, video_id)
         menu.addAction(Action(FluentIcon.PLAY, tr("Play", "播放", "再生"), self, triggered=lambda: self._activate_video_id(video_id)))
         menu.addAction(Action(FluentIcon.GLOBE, tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: _open_url(str(getattr(video, "source_url", "") or "") or _video_url(video_id))))
         menu.addSeparator()
