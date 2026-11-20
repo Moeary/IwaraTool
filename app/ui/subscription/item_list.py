@@ -80,7 +80,8 @@ class SubscriptionItemListMixin:
             return bool(item.get("downloaded"))
 
         def file_exists(item: dict[str, Any]) -> bool:
-            return bool(item.get("download_file_exists"))
+            # A copy on the NAS counts as downloaded, never as moved.
+            return bool(item.get("download_file_exists") or item.get("download_remote"))
 
         def unavailable(item: dict[str, Any]) -> bool:
             return _item_not_downloadable(item)
@@ -120,7 +121,7 @@ class SubscriptionItemListMixin:
         new_count = downloaded_count = moved_count = queued_count = unavailable_count = 0
         for item_data in self._all_items:
             downloaded = bool(item_data.get("downloaded"))
-            file_exists = bool(item_data.get("download_file_exists"))
+            file_exists = bool(item_data.get("download_file_exists") or item_data.get("download_remote"))
             queued = bool(item_data.get("queued"))
             is_new = bool(int(item_data.get("is_new", 0) or 0))
             if is_new:
@@ -209,6 +210,7 @@ class SubscriptionItemListMixin:
         download_reason = str(item_data.get("download_reason", "") or "")
         is_new = bool(int(item_data.get("is_new", 0) or 0))
         file_exists = bool(item_data.get("download_file_exists"))
+        remote = bool(item_data.get("download_remote"))
         source_title = str(item_data.get("source_title", "") or "")
         source_url = str(item_data.get("source_url", "") or _video_url(video_id))
         state = _item_state_text(
@@ -218,6 +220,7 @@ class SubscriptionItemListMixin:
             task_status=task_status,
             download_state=str(item_data.get("download_state", "") or ""),
             download_reason=download_reason,
+            remote=remote,
         )
         values = [
             state,
@@ -253,6 +256,7 @@ class SubscriptionItemListMixin:
                         file_exists=file_exists,
                         task_status=task_status,
                         download_state=str(item_data.get("download_state", "") or ""),
+                        remote=remote,
                     )
                 )
             elif col == self._ITEM_REASON and download_reason:
@@ -261,7 +265,8 @@ class SubscriptionItemListMixin:
                 cell.setForeground(qcolor("warning"))
             self._item_table.setItem(row, col, cell)
 
-        self._render_item_link_cells(row, video_id, source_url, file_exists)
+        # A NAS copy opens here only through its local mount (download_file_path).
+        self._render_item_link_cells(row, video_id, source_url, file_exists or (remote and bool(item_data.get("download_file_path"))))
         if video_id in self._pending_video_ids:
             self._set_pending_row_background(row, True)
 

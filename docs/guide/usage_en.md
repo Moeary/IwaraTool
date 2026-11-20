@@ -50,9 +50,21 @@ To rename existing videos in bulk, select a folder and naming rule in Repair Cen
 
 ## Search Download Status
 
-Search status reflects local history and file availability: a recorded file that still exists is marked as downloaded locally, while a missing path is marked as moved. Oreno3D results are checked after their Iwara ID is resolved. Viewing an author's works does not add a subscription; "Add subscription and go" selects that author's subscription source.
+Search status reflects local history and file availability: a recorded file that still exists is marked as downloaded locally, while a missing path is marked as moved and a copy saved by a remote aria2 as downloaded to NAS. Oreno3D results are checked after their Iwara ID is resolved. Viewing an author's works does not add a subscription; "Add subscription and go" selects that author's subscription source.
 
-Right-click a locally downloaded video in Search, Home, or Subscriptions and choose **Open containing folder**. This uses the actual file path saved in history, including folders created with older naming rules or author account names. The action is hidden for missing files and videos with no history record.
+## One right-click menu everywhere
+
+Video menus on Home, Search, Subscriptions, author pages, History and the download workbench share one order: View details → Play → Open containing folder / Copy file path → Download → Open in browser / Copy link → author entries → page entries (pending, mark, delete records …). **Play** reads *Play local file*, *Play NAS copy* or *Play online* depending on where the copy is. **Open containing folder** uses the actual path saved in history, including folders created with older naming rules or author account names; it is hidden for missing files and videos with no history record.
+
+## Downloading to a NAS / server (aria2)
+
+Turn on aria2 RPC in **Settings → Download → aria2**, then **aria2 runs on another device (NAS / server)**, and fill in:
+
+- **Download folder on the aria2 device** (required): the path as that machine sees it, e.g. `/volume1/iwara`. Filename templates still apply; the remote aria2 writes the video there, never into the local download folder, and a failed submit does not fall back to the built-in downloader.
+- **Local mount folder** (optional): the same folder mounted here over SMB / NFS, e.g. `/Volumes/iwara` or `Z:\iwara`. With it you can open the folder, play with your configured player, and covers / NFO are written next to the video.
+- **HTTP address** (optional): a URL serving that folder, e.g. `http://nas:8080/iwara`, so the built-in player or a custom player command (such as mpv) can stream it without a mount.
+
+History marks these downloads **On NAS**, separate from *Downloaded locally* and *Moved*: a NAS copy is never treated as a file on this machine, and *Clean moved records* / *Sync with download folder* leave them alone. In remote mode videos already on the NAS are skipped. Covers are always cached locally, so History, Subscriptions and Search show them; without a mount the NFO is skipped and the cover is handed to the remote aria2. **Test connection** checks that aria2 answers and the mount is reachable.
 
 ## Oreno3D Author Fallback
 

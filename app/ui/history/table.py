@@ -8,6 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
+from ...core.download.locations import resolve_record_location
 from ...i18n import tr
 from ..style.theme import link_color, qcolor, summary_text
 from ..common.ui_state import fit_table_last_column
@@ -37,12 +38,15 @@ class HistoryTableMixin:
         state_idx = self._state_combo.currentIndex() if hasattr(self, "_state_combo") else 0
 
         visible_records: list[dict[str, Any]] = []
-        ok_count = moved_count = unwatched_count = 0
+        ok_count = moved_count = remote_count = unwatched_count = 0
         recent_cutoff = self._recent_cutoff()
         for record in self._all_records:
             _, state_key, _ = self._record_state(record)
-            if state_key == "ok":
-                ok_count += 1
+            if state_key in ("ok", "remote"):
+                if state_key == "ok":
+                    ok_count += 1
+                else:
+                    remote_count += 1  # on the aria2 host: neither here nor "moved"
                 if not str(record.get("watched_at", "") or ""):
                     unwatched_count += 1
             else:
@@ -50,7 +54,7 @@ class HistoryTableMixin:
 
             if not self._scope_accepts(record, state_key, recent_cutoff):
                 continue
-            if state_idx == 1 and state_key != "ok":
+            if state_idx == 1 and state_key not in ("ok", "remote"):
                 continue
             if state_idx == 2 and state_key != "moved":
                 continue
@@ -68,6 +72,7 @@ class HistoryTableMixin:
                     (tr("Visible", "当前显示", "表示"), len(visible_records)),
                     (tr("OK", "正常", "正常"), ok_count),
                     (tr("Moved", "已移走", "移動済み"), moved_count),
+                    *([(tr("On NAS", "远端", "リモート"), remote_count)] if remote_count else []),
                     (tr("Unwatched", "未观看", "未視聴"), unwatched_count),
                 ]
             )
@@ -125,7 +130,11 @@ class HistoryTableMixin:
     def _render_record_row(self, row_idx: int, record: dict, labels: dict[str, str]):
         state, state_key, state_detail, file_exists = self._record_state_full(record)
         video_id = str(record.get("video_id", "") or "")
-        file_path = str(record.get("file_path", "") or "")
+        remote = state_key == "remote"
+        file_path = (
+            f"[aria2] {record.get('remote_path', '') or ''}" if remote else str(record.get("file_path", "") or "")
+        )
+        playable = file_exists or (remote and bool(resolve_record_location(record).stream_url))
         values = [
             state,
             str(record.get("title", "") or video_id),
@@ -147,7 +156,7 @@ class HistoryTableMixin:
                 item.setToolTip(value)  # short columns need no tooltip (3000 rows x 16 cells add up)
             if col_idx == self._COL_STATE:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setForeground(qcolor("success" if state_key == "ok" else "warning"))
+                item.setForeground(qcolor({"ok": "success", "remote": "info"}.get(state_key, "warning")))
             elif col_idx in (self._COL_LIKES, self._COL_VIEWS):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._table.setItem(row_idx, col_idx, item)
@@ -166,11 +175,11 @@ class HistoryTableMixin:
         )
         self._set_action_item(
             row_idx, self._COL_OPEN_FILE, labels["file"], labels["file_tip"], "file",
-            file_exists, video_id,
+            playable, video_id,
         )
         self._set_action_item(
             row_idx, self._COL_RENAME, labels["rename"], labels["rename_tip"], "rename",
-            file_exists, video_id,
+            file_exists and not remote, video_id,
         )
         self._set_action_item(
             row_idx, self._COL_REMOVE, labels["delete"], labels["delete_tip"], "remove",

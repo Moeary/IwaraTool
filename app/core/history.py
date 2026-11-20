@@ -9,6 +9,7 @@ from typing import Any
 
 from ..config import app_config
 from ..signal_bus import signal_bus
+from .download.locations import STORAGE_REMOTE, normalize_storage
 from .sqlite_utils import connect as _sqlite_connect
 
 
@@ -34,6 +35,8 @@ class DownloadHistory:
         "quality",
         "downloaded_at",
         "watched_at",
+        "storage",
+        "remote_path",
     )
     _HEAVY_COLUMNS = frozenset(("tags_json", "raw_json"))
     _LIGHT_COLUMNS = (
@@ -53,6 +56,8 @@ class DownloadHistory:
         "quality",
         "downloaded_at",
         "watched_at",
+        "storage",
+        "remote_path",
     )
 
     def __init__(self, db_path: str | None = None):
@@ -118,6 +123,9 @@ class DownloadHistory:
             "thumbnail_path": "TEXT DEFAULT ''",
             "quality": "TEXT DEFAULT ''",
             "watched_at": "TEXT DEFAULT ''",  # last time the file was played; '' = never
+            # 'local' (file_path on this machine) or 'remote' (remote_path on the aria2 host)
+            "storage": "TEXT DEFAULT 'local'",
+            "remote_path": "TEXT DEFAULT ''",
         }
         for col, ddl in required.items():
             if col not in existing:
@@ -176,8 +184,8 @@ class DownloadHistory:
             self._ensure_db_ready()
             sql = (
                 "INSERT INTO downloaded ("
-                "video_id, title, author, published_at, likes, views, slug, rating, duration, comments, tags_json, raw_json, source_url, file_path, thumbnail_path, quality, downloaded_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                "video_id, title, author, published_at, likes, views, slug, rating, duration, comments, tags_json, raw_json, source_url, file_path, thumbnail_path, quality, storage, remote_path, downloaded_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
                 "ON CONFLICT(video_id) DO UPDATE SET "
                 "title=excluded.title, "
                 "author=excluded.author, "
@@ -194,6 +202,8 @@ class DownloadHistory:
                 "file_path=excluded.file_path, "
                 "thumbnail_path=excluded.thumbnail_path, "
                 "quality=excluded.quality, "
+                "storage=excluded.storage, "
+                "remote_path=excluded.remote_path, "
                 "downloaded_at=CURRENT_TIMESTAMP"
             )
             params = (
@@ -213,6 +223,8 @@ class DownloadHistory:
                 str(meta.get("file_path", "") or ""),
                 str(meta.get("thumbnail_path", "") or ""),
                 str(meta.get("quality", "") or ""),
+                normalize_storage(meta.get("storage")),
+                str(meta.get("remote_path", "") or "") if normalize_storage(meta.get("storage")) == STORAGE_REMOTE else "",
             )
             try:
                 with closing(_sqlite_connect(self._db_path)) as conn:
@@ -400,17 +412,25 @@ class DownloadHistory:
         file_path: str,
         thumbnail_path: str = "",
     ):
-        """Update stored local paths after file operations."""
+        """Update stored local paths after file operations.
+
+        A local file path makes the row a local one again (a repair or rename
+        always works on a file on this machine).
+        """
         video_id = str(video_id or "").strip()
         if not video_id:
             return
+        sql = (
+            "UPDATE downloaded SET file_path=?, thumbnail_path=?, storage='local', remote_path='' WHERE video_id=?"
+            if str(file_path or "").strip()
+            else "UPDATE downloaded SET file_path=?, thumbnail_path=? WHERE video_id=?"
+        )
         with self._lock:
             self._ensure_db_ready()
             try:
                 with closing(_sqlite_connect(self._db_path)) as conn:
                     conn.execute(
-                        "UPDATE downloaded SET file_path=?, thumbnail_path=? WHERE video_id=?",
-                        (file_path, thumbnail_path, video_id),
+                        sql, (file_path, thumbnail_path, video_id),
                     )
                     conn.commit()
             except sqlite3.OperationalError as exc:
@@ -419,8 +439,7 @@ class DownloadHistory:
                 self._ensure_db_ready()
                 with closing(_sqlite_connect(self._db_path)) as conn:
                     conn.execute(
-                        "UPDATE downloaded SET file_path=?, thumbnail_path=? WHERE video_id=?",
-                        (file_path, thumbnail_path, video_id),
+                        sql, (file_path, thumbnail_path, video_id),
                     )
                     conn.commit()
 
@@ -440,6 +459,10 @@ class DownloadHistory:
             video_id = str(record.get("video_id", "") or "").strip()
             file_path = str(record.get("file_path", "") or "").strip()
             if not video_id:
+                continue
+            if normalize_storage(record.get("storage")) == STORAGE_REMOTE:
+                # Lives on the aria2 host: this machine cannot tell whether it is gone.
+                stats["kept"] += 1
                 continue
 
             if not file_path or not os.path.isfile(file_path):

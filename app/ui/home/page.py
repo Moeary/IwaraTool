@@ -7,14 +7,13 @@ the batch download tools stay one click away (select cards, pick a rule, queue).
 """
 from __future__ import annotations
 
-import webbrowser
 from dataclasses import dataclass, replace as dataclass_replace
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMenu
-from ..media.local_folder import add_local_folder_action
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 
 from ...config import app_config
 from ...core.home.feed import MODE_AUTHOR
@@ -341,22 +340,20 @@ class HomeInterface(QWidget):
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):
         menu = RoundMenu(parent=self)
         is_image = video.source_kind == IWARA_IMAGE_SOURCE_KIND
+        add_detail_action(menu, self, lambda: self._open_video(video))
         if not is_image:
-            add_local_folder_action(menu, self, download_manager, video.video_id)
-        menu.addAction(Action(FluentIcon.VIEW, tr("View details", "查看详情", "詳細を表示"), self, triggered=lambda: self._open_video(video)))
+            add_play_actions(
+                menu, self, download_manager, video.video_id,
+                title=video.title, can_stream=video.downloadable,
+            )
         if not is_image and video.downloadable:
-            menu.addAction(Action(
-                FluentIcon.PLAY, tr("Play", "播放", "再生"), self,
-                triggered=lambda: signal_bus.video_preview_requested.emit(video.video_id, video.title, ""),
-            ))
+            add_section(menu)
             menu.addAction(Action(FluentIcon.DOWNLOAD, tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"), self, triggered=lambda: self._queue([video])))
-        menu.addAction(Action(
-            FluentIcon.GLOBE, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), self,
-            triggered=lambda: webbrowser.open(video.source_url),
-        ))
+        add_section(menu)
+        add_link_actions(menu, self, video.source_url)
         target = self._author_target(video)
         if target:
-            menu.addSeparator()
+            add_section(menu)
             menu.addAction(Action(
                 FluentIcon.PEOPLE, tr("Open author page", "打开作者页", "作者ページを開く"), self,
                 triggered=lambda: signal_bus.author_page_requested.emit(target),

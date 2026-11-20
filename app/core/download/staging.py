@@ -20,7 +20,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
 from ..rules import rule_store
-from .listing_preview import HAVE_FILE, HAVE_HISTORY, HAVE_QUEUED
+from .listing_preview import HAVE_FILE, HAVE_HISTORY, HAVE_QUEUED, HAVE_REMOTE
 from .. import site as sites
 
 
@@ -37,6 +37,8 @@ def stage_verdict(item: dict[str, Any]) -> tuple[str, str]:
     have, detail = str(item.get("have", "") or ""), str(item.get("have_detail", "") or "")
     if have == HAVE_FILE:
         return STAGE_SKIP, tr(f"Already downloaded: {detail}", f"已有文件：{detail}", f"保存済み: {detail}")
+    if have == HAVE_REMOTE:
+        return STAGE_SKIP, tr(f"Already on the NAS: {detail}", f"已下载到远端：{detail}", f"リモートに保存済み: {detail}")
     if have == HAVE_QUEUED:
         return STAGE_SKIP, tr("Already in the task list", "已在任务列表中", "タスク一覧にあります")
     if have == HAVE_HISTORY:

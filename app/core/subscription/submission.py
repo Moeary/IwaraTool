@@ -268,6 +268,9 @@ class SubscriptionSubmissionMixin:
             "file_path": str(existing.get("file_path", "") or "") if existing else "",
             "thumbnail_path": str(existing.get("thumbnail_path", "") or "") if existing else "",
             "quality": str(existing.get("quality", "") or "") if existing else "",
+            # Keep where an earlier download put the file (this machine or the aria2 host).
+            "storage": str(existing.get("storage", "") or "") if existing else "",
+            "remote_path": str(existing.get("remote_path", "") or "") if existing else "",
         }
 
     def _metadata_task_from_video_info(

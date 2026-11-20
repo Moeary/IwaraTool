@@ -79,6 +79,10 @@ class DownloadTask:
     remove_after_cancel: bool = False
     cancel_origin: str = ""
     aria2_gid: str = ""
+    # "" / "local": ``file_path`` on this machine.  "remote": aria2 on another
+    # machine writes ``remote_path`` (a path on that host); ``file_path`` stays empty.
+    storage: str = ""
+    remote_path: str = ""
     # Stable profile handle is stored in ``author``; this is the mutable
     # display name used by the {username} filename token.
     username: str = ""

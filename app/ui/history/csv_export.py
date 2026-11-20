@@ -26,6 +26,8 @@ HISTORY_CSV_FIELDS = (
     "views",
     "downloaded_at",
     "file_path",
+    "storage",  # local / remote (saved by aria2 on a NAS / server)
+    "remote_path",
     "source_url",
 )
 

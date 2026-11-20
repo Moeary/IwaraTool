@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition
 
+from ...core.download.locations import resolve_record_location
 from ...i18n import tr
 
 
@@ -14,7 +13,8 @@ def add_local_folder_action(menu, parent, manager, video_id: str):
     if not video_id:
         return
     record = manager.history.get_record(video_id)
-    if not record or not os.path.isfile(str(record.get("file_path") or "")):
+    # A NAS copy counts only through its local mount: never "local" by itself.
+    if not record or not resolve_record_location(record).local_path:
         return
 
     def open_folder():

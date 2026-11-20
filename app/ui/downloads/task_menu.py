@@ -8,6 +8,9 @@ from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMe
 
 from ...core.models import DownloadTask, TaskStatus
 from ...i18n import tr
+from ...core.download.locations import STORAGE_REMOTE
+from ...signal_bus import signal_bus
+from ..media.video_menu import add_detail_action, add_link_actions, add_section, copy_text
 from .page_dependencies import download_manager
 from .task_statuses import _ACTIVE_STATUSES, _TERMINAL_STATUSES
 from .task_text import _task_url, _video_url
@@ -31,7 +34,7 @@ class TaskMenuMixin:
                 "open",
                 tr("Open", "打开", "開く"),
                 tr("Open downloaded file", "打开下载文件", "保存ファイルを開く"),
-                bool(task.file_path),
+                bool(task.file_path or task.remote_path),
             )
         if task.status == TaskStatus.CANCELLED:
             return (
@@ -138,11 +141,10 @@ class TaskMenuMixin:
         if completed_ids and (
             failed_ids or cancelled_ids or interruptible_ids or cancelling_ids
         ):
-            menu.addSeparator()
+            add_section(menu)
         self._add_task_state_actions(menu, failed_ids, cancelled_ids, interruptible_ids, cancelling_ids)
         self._add_explain_action(menu, task_ids, completed_ids)
-        if menu.actions():
-            menu.addSeparator()
+        add_section(menu)
         menu.addAction(
             Action(
                 FluentIcon.DELETE,
@@ -180,38 +182,51 @@ class TaskMenuMixin:
             completed_id = completed_ids[0]
             completed_task = self._tasks_by_id.get(completed_id)
             video_id = completed_task.video_id if completed_task else ""
+            remote = bool(completed_task and completed_task.storage == STORAGE_REMOTE)
+            if video_id:
+                add_detail_action(menu, self, lambda vid=video_id: signal_bus.media_detail_requested.emit("video", vid))
             menu.addAction(
                 Action(
-                    FluentIcon.HISTORY,
-                    tr("Open video page", "打开视频页面", "動画ページを開く"),
-                    self,
-                    triggered=lambda _checked=False, url=(_task_url(completed_task) if completed_task else _video_url(video_id)): self._open_url(url),
-                )
-            )
-            menu.addAction(
-                Action(
-                    FluentIcon.FOLDER,
-                    tr("Open folder", "打开文件夹", "フォルダーを開く"),
-                    self,
-                    triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
-                        selected_id, open_file=False
-                    ),
-                )
-            )
-            menu.addAction(
-                Action(
-                    FluentIcon.DOCUMENT,
-                    tr("Open file", "打开文件", "ファイルを開く"),
+                    FluentIcon.PLAY,
+                    tr("Play NAS copy", "播放远端文件", "リモートのファイルを再生")
+                    if remote
+                    else tr("Play local file", "播放本地文件", "ローカルファイルを再生"),
                     self,
                     triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
                         selected_id, open_file=True
                     ),
                 )
             )
+            menu.addAction(
+                Action(
+                    FluentIcon.FOLDER,
+                    tr("Open containing folder", "打开所在文件夹", "保存先フォルダーを開く"),
+                    self,
+                    triggered=lambda _checked=False, selected_id=completed_id: self._open_task_output(
+                        selected_id, open_file=False
+                    ),
+                )
+            )
+            path = (completed_task.remote_path if remote else completed_task.file_path) if completed_task else ""
+            if path:
+                menu.addAction(
+                    Action(
+                        FluentIcon.COPY,
+                        tr("Copy NAS path", "复制远端路径", "リモートのパスをコピー")
+                        if remote
+                        else tr("Copy file path", "复制文件路径", "ファイルパスをコピー"),
+                        self,
+                        triggered=lambda _checked=False, value=path: copy_text(self, value),
+                    )
+                )
+            add_section(menu)
+            add_link_actions(
+                menu, self, _task_url(completed_task) if completed_task else _video_url(video_id),
+            )
         else:
             menu.addAction(
                 Action(
-                    FluentIcon.HISTORY,
+                    FluentIcon.GLOBE,
                     tr(
                         f"Open selected video pages ({len(completed_ids)})",
                         f"打开所选视频页面（{len(completed_ids)}）",

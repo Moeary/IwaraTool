@@ -43,7 +43,7 @@ class DetailActionsMixin:
             self._player.popout_requested.connect(self._pop_out)
             self._player_box.layout().addWidget(self._player)
         video = self._video
-        local = video_player.local_video_path(video.video_id)
+        local = video_player.playable_video_target(video.video_id)
         if local:
             self._player.play_local(local, video.title, video.video_id, site=self.item_site())
         else:

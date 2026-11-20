@@ -11,6 +11,7 @@ from ..models import TaskStatus, status_label
 from ..rules import rule_store
 from ..subscription.automation import matches_rule_video
 from .. import site as sites
+from .locations import record_is_remote, remote_mode_enabled
 
 
 BLOCK = "block"  # this is why it was not (or will not be) downloaded
@@ -154,7 +155,14 @@ class DownloadDiagnosisMixin:
             result["title"] = result["title"] or str(record.get("title", "") or "")
             recorded_path = str(record.get("file_path", "") or "")
             when = str(record.get("downloaded_at", "") or "")[:16]
-            if recorded_path and os.path.isfile(recorded_path):
+            if record_is_remote(record):
+                remote_path = str(record.get("remote_path", "") or "")
+                findings.append(_finding(BLOCK if remote_mode_enabled() else WARN, tr(
+                    f"Already downloaded to the NAS ({when}): {remote_path}",
+                    f"已经下载到远端（{when}）：{remote_path}",
+                    f"リモートに保存済みです（{when}）: {remote_path}",
+                )))
+            elif recorded_path and os.path.isfile(recorded_path):
                 findings.append(_finding(BLOCK, tr(
                     f"Already downloaded ({when}): {recorded_path}",
                     f"已经下载过（{when}）：{recorded_path}",

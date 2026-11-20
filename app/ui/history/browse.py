@@ -265,7 +265,7 @@ class HistoryBrowseMixin:
         if self._scope == SCOPE_RECENT:
             return str(record.get("downloaded_at", "") or "") >= recent_cutoff
         if self._scope == SCOPE_UNWATCHED:
-            return state_key == "ok" and not str(record.get("watched_at", "") or "")
+            return state_key in ("ok", "remote") and not str(record.get("watched_at", "") or "")
         if self._scope == SCOPE_AUTHOR and self._author_filter:
             return str(record.get("author", "") or "") == self._author_filter
         return True

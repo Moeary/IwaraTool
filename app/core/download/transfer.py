@@ -10,6 +10,7 @@ from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
 from .integrity import classify_416, incomplete_reason, resume_offset_mismatch
+from .locations import STORAGE_REMOTE
 from .speed_format import _fmt_bytes, _fmt_speed
 
 
@@ -24,6 +25,9 @@ class TransferMixin:
         if not task:
             return
         if self._cancel_if_requested(task_id):
+            return
+        if task.storage == STORAGE_REMOTE:
+            self._download_task_aria2_remote(task_id)
             return
 
         # Determine save path

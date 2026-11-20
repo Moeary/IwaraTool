@@ -111,6 +111,7 @@ class MediaCard(QWidget):
             "new": (tr("NEW", "新增", "新着"), QColor(0, 120, 212, 225)),
             "downloaded": (tr("Downloaded", "已下载", "保存済み"), QColor(16, 124, 16, 225)),
             "moved": (tr("Moved", "已移走", "移動済み"), QColor(120, 120, 120, 225)),
+            "remote": (tr("On NAS", "远端", "リモート"), QColor(0, 99, 177, 225)),
             "queued": (tr("Queued", "已入队", "キュー内"), QColor(202, 120, 0, 225)),
             "unavailable": (tr("Unavailable", "不可下载", "保存不可"), QColor(150, 60, 60, 225)),
         }

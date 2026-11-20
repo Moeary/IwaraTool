@@ -12,6 +12,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
 from .. import site as sites
+from .locations import record_is_remote, remote_mode_enabled
 
 
 class EnqueueingMixin:
@@ -183,9 +184,14 @@ class EnqueueingMixin:
         existing_paths: dict[str, str] = {}
         if app_config.skip_existing_files and normalized:
             history_records = self.history.get_records([video_id for video_id, _ in normalized])
+            remote_mode = remote_mode_enabled()
             file_index = self._get_existing_file_index()
             for video_id, _ in normalized:
                 record = history_records.get(video_id)
+                if record and remote_mode and record_is_remote(record) and record.get("remote_path"):
+                    # Saving to the aria2 host again would duplicate the copy already there.
+                    existing_paths[video_id.lower()] = str(record["remote_path"])
+                    continue
                 if record:
                     file_path = str(record.get("file_path", "") or "")
                     if file_path and os.path.isfile(file_path) and os.path.getsize(file_path) > 0:

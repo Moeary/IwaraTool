@@ -44,6 +44,11 @@ class SettingsPersistenceMixin:
         self._aria2_url_edit.setText(app_config.aria2_rpc_url)
         self._aria2_token_edit.setText(app_config.aria2_rpc_token)
         self._aria2_widget.setVisible(app_config.aria2_rpc_enabled)
+        self._aria2_remote_switch.setChecked(app_config.aria2_remote_enabled)
+        self._aria2_remote_dir_edit.setText(app_config.aria2_remote_dir)
+        self._aria2_remote_mount_edit.setText(app_config.aria2_remote_mount_dir)
+        self._aria2_remote_http_edit.setText(app_config.aria2_remote_http_base)
+        self._aria2_remote_widget.setVisible(app_config.aria2_remote_enabled)
 
     def _load_background_settings(self):
         self._auto_refresh_switch.setChecked(app_config.subscription_auto_refresh_enabled)
@@ -161,9 +166,7 @@ class SettingsPersistenceMixin:
         app_config.api_proxy_url = self._api_proxy_edit.text().strip() or DEFAULT_PROXY_URL
         app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
         app_config.download_proxy_url = self._download_proxy_edit.text().strip() or DEFAULT_PROXY_URL
-        app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
-        app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
-        app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
+        self._save_aria2_settings()
         app_config.skip_existing_files = self._skip_existing_switch.isChecked()
         app_config.direct_download_single = self._direct_single_switch.isChecked()
         app_config.completed_task_click_action = (

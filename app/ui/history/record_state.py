@@ -8,6 +8,7 @@ from typing import Any
 from ...config import app_config
 from ...i18n import tr
 from ...core import site as sites
+from ...core.download.locations import record_is_remote, resolve_record_location
 
 
 def _date_only(value: str) -> str:
@@ -41,6 +42,32 @@ class HistoryRecordStateMixin:
         return result
 
     def _compute_record_state(self, record: dict[str, Any]) -> tuple[str, str, str, bool]:
+        if record_is_remote(record):
+            location = resolve_record_location(record)
+            if location.local_path:
+                detail = tr(
+                    f"Saved on the aria2 host; reachable through the mount: {location.local_path}",
+                    f"保存在 aria2 远端，可通过本机挂载访问：{location.local_path}",
+                    f"aria2 ホストに保存。マウント経由で開けます: {location.local_path}",
+                )
+            elif location.stream_url:
+                detail = tr(
+                    "Saved on the aria2 host; plays over HTTP",
+                    "保存在 aria2 远端，可通过 HTTP 播放",
+                    "aria2 ホストに保存。HTTP で再生できます",
+                )
+            else:
+                detail = tr(
+                    "Saved on the aria2 host; not reachable from this machine",
+                    "保存在 aria2 远端，本机无法直接访问",
+                    "aria2 ホストに保存。この PC からは開けません",
+                )
+            return (
+                tr("On NAS", "远端", "リモート"),
+                "remote",
+                f"{detail}\n{location.remote_path}",
+                bool(location.local_path),
+            )
         file_path = str(record.get("file_path", "") or "")
         if not file_path or not os.path.isfile(file_path):
             return (
@@ -81,7 +108,7 @@ class HistoryRecordStateMixin:
             5: [record.get("published_at", ""), record.get("downloaded_at", "")],
             6: [record.get("video_id", "")],
             7: [record.get("source_url", ""), record.get("video_id", "")],
-            8: [record.get("file_path", "")],
+            8: [record.get("file_path", ""), record.get("remote_path", "")],
         }
         if field_idx in fields:
             values = fields[field_idx]
@@ -99,5 +126,6 @@ class HistoryRecordStateMixin:
                 record.get("video_id", ""),
                 record.get("source_url", ""),
                 record.get("file_path", ""),
+                record.get("remote_path", ""),
             ]
         return " ".join(str(v or "") for v in values).lower()

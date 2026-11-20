@@ -25,6 +25,7 @@ from ...signal_bus import signal_bus
 from ..api.client import IwaraAPI
 from .paths import DownloadPathMixin
 from .aria2 import Aria2DownloadMixin
+from .aria2_remote import Aria2RemoteMixin
 from .artifacts import DownloadArtifactsMixin
 from .runtime import DownloadRuntimeMixin
 from ..repair.manager import RepairManagerMixin
@@ -67,6 +68,7 @@ class DownloadManager(
     EnqueueingMixin,
     DownloadRuntimeMixin,
     Aria2DownloadMixin,
+    Aria2RemoteMixin,
     DownloadArtifactsMixin,
     SubscriptionManagerMixin,
     SearchManagerMixin,

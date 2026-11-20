@@ -213,6 +213,8 @@ class RepairingMixin:
             history_item["source_url"] = source_url
             history_meta = self._history_meta_from_item(history_item, existing)
             history_meta["file_path"] = task.file_path
+            history_meta["storage"] = "local"  # repair works on a file on this machine
+            history_meta["remote_path"] = ""
             history_meta["thumbnail_path"] = task.thumbnail_path or str(
                 history_meta.get("thumbnail_path", "") or ""
             )

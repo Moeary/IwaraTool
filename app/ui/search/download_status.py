@@ -12,11 +12,13 @@ from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
 from ..common.worker_lifecycle import ManagedThread
 from ...core import site as sites
+from ...core.download.locations import record_is_remote
 
 
 class SearchDownloadStatus(Enum):
     DOWNLOADED = "downloaded"
     MOVED = "moved"
+    REMOTE = "remote"  # saved by aria2 on the NAS / server, not on this machine
     NOT_DOWNLOADED = "not_downloaded"
     UNIDENTIFIED = "unidentified"
 
@@ -50,6 +52,8 @@ def iwara_history_id(video: SearchVideo) -> str:
 def download_status_text(status: SearchDownloadStatus) -> str:
     if status is SearchDownloadStatus.DOWNLOADED:
         return tr("Downloaded locally", "本地已下载", "ローカル保存済み")
+    if status is SearchDownloadStatus.REMOTE:
+        return tr("Downloaded to NAS", "已下载到远端", "リモート保存済み")
     if status is SearchDownloadStatus.MOVED:
         return tr("Moved or missing", "已移走", "移動済み・見つからない")
     if status is SearchDownloadStatus.NOT_DOWNLOADED:
@@ -74,6 +78,9 @@ def query_download_statuses(
         record = records.get(video_id)
         if record is None:
             statuses[video_id] = SearchDownloadStatus.NOT_DOWNLOADED
+            continue
+        if record_is_remote(record):
+            statuses[video_id] = SearchDownloadStatus.REMOTE
             continue
         file_path = str(record.get("file_path") or "").strip()
         if file_path not in file_exists:

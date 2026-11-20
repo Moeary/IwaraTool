@@ -102,6 +102,12 @@ class AppConfig:
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
+        # aria2 runs on another machine (NAS / server): files are written to
+        # ``aria2_remote_dir`` on that machine, never to the local download folder.
+        "aria2_remote_enabled": False,
+        "aria2_remote_dir": "",  # download root as the aria2 host sees it, e.g. /volume1/iwara
+        "aria2_remote_mount_dir": "",  # optional: the same folder mounted here (SMB/NFS), e.g. /Volumes/iwara
+        "aria2_remote_http_base": "",  # optional: http(s) URL serving that folder, for streaming
         "download_video_file": True,
         "download_thumbnail": False,
         "collect_nfo_info": False,
@@ -490,6 +496,32 @@ class AppConfig:
     aria2_rpc_url = _Setting()
 
     aria2_rpc_token = _Setting()
+
+    aria2_remote_enabled = _Setting()
+
+    @property
+    def aria2_remote_dir(self) -> str:
+        return str(self._get("aria2_remote_dir") or "").strip()
+
+    @aria2_remote_dir.setter
+    def aria2_remote_dir(self, v: str):
+        self._set("aria2_remote_dir", str(v or "").strip())
+
+    @property
+    def aria2_remote_mount_dir(self) -> str:
+        return str(self._get("aria2_remote_mount_dir") or "").strip()
+
+    @aria2_remote_mount_dir.setter
+    def aria2_remote_mount_dir(self, v: str):
+        self._set("aria2_remote_mount_dir", str(v or "").strip())
+
+    @property
+    def aria2_remote_http_base(self) -> str:
+        return str(self._get("aria2_remote_http_base") or "").strip()
+
+    @aria2_remote_http_base.setter
+    def aria2_remote_http_base(self, v: str):
+        self._set("aria2_remote_http_base", str(v or "").strip())
 
     download_video_file = _Setting()
 

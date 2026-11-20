@@ -19,6 +19,7 @@ from .task_metadata import (
     _subscription_download_block_from_video_info,
 )
 from .. import site as sites
+from .locations import STORAGE_REMOTE, join_remote_path, remote_mode_enabled
 
 
 logger = get_logger(__name__)
@@ -290,26 +291,43 @@ class ResolvingMixin:
             rating=meta["rating"],
             filename_template=rule_payload["filename_template"],
         )
-        file_path = os.path.join(app_config.download_dir, output_rel_path)
-        filename = os.path.basename(file_path)
+        if remote_mode_enabled():
+            # aria2 on the NAS / server writes straight into its own folder.
+            storage = STORAGE_REMOTE
+            remote_path = join_remote_path(app_config.aria2_remote_dir, output_rel_path)
+            file_path = ""
+            filename = remote_path.replace("\\", "/").rsplit("/", 1)[-1]
+            exists = app_config.skip_existing_files and self._remote_copy_exists(task.video_id, remote_path)
+            skipped_text = tr(
+                f"[Skipped] \"{title}\" already exists on the aria2 host, marked completed",
+                f"[跳过] 《{title}》 远端已存在，标记完成",
+                f"[スキップ] 「{title}」は aria2 ホストに存在するため完了扱い",
+            )
+        else:
+            storage = ""
+            remote_path = ""
+            file_path = os.path.join(app_config.download_dir, output_rel_path)
+            filename = os.path.basename(file_path)
+            exists = (
+                app_config.skip_existing_files
+                and os.path.exists(file_path)
+                and os.path.getsize(file_path) > 0
+            )
+            skipped_text = tr(
+                f"[Skipped] \"{title}\" already exists locally, marked completed",
+                f"[跳过] 《{title}》 本地已存在，标记完成",
+                f"[スキップ] 「{title}」はローカルに存在するため完了扱い",
+            )
 
-        if (
-            app_config.skip_existing_files
-            and os.path.exists(file_path)
-            and os.path.getsize(file_path) > 0
-        ):
+        if exists:
             with self._lock:
                 task.download_url = dl_url
                 task.quality = quality or ""
                 task.filename = filename
                 task.file_path = file_path
-            signal_bus.log_message.emit(
-                tr(
-                    f"[Skipped] \"{title}\" already exists locally, marked completed",
-                    f"[跳过] 《{title}》 本地已存在，标记完成",
-                    f"[スキップ] 「{title}」はローカルに存在するため完了扱い",
-                )
-            )
+                task.storage = storage
+                task.remote_path = remote_path
+            signal_bus.log_message.emit(skipped_text)
             self._complete_task(task_id)
             return
 
@@ -318,6 +336,8 @@ class ResolvingMixin:
             task.quality = quality or ""
             task.filename = filename
             task.file_path = file_path
+            task.storage = storage
+            task.remote_path = remote_path
             if task.cancel_requested:
                 task.status = TaskStatus.CANCELLING
             else:

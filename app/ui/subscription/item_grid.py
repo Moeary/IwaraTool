@@ -136,6 +136,7 @@ class SubscriptionItemGridMixin:
                     task_status=str(item_data.get("task_status", "") or ""),
                     download_state=str(item_data.get("download_state", "") or ""),
                     download_reason=str(item_data.get("download_reason", "") or ""),
+                    remote=bool(item_data.get("download_remote")),
                 )
                 label = _ellipsize(title, 56)
                 if author:

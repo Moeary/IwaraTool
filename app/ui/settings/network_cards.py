@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     InfoBar,
     InfoBarPosition,
     LineEdit,
     PasswordLineEdit,
     PrimaryPushButton,
+    PushButton,
     SubtitleLabel,
     SwitchButton,
 )
@@ -19,6 +24,8 @@ from qfluentwidgets import (
 from ...config import DEFAULT_PROXY_URL, app_config
 from ...i18n import tr
 from .page_dependencies import download_manager
+
+_ARIA2_TEST_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="iwara-aria2-test")
 
 
 class SettingsNetworkCardsMixin:
@@ -137,9 +144,147 @@ class SettingsNetworkCardsMixin:
         self._aria2_token_edit = PasswordLineEdit(self._aria2_widget)
         self._aria2_token_edit.setPlaceholderText(tr("RPC token, optional", "RPC token，可留空", "RPC token、任意"))
         aria2_inner.addWidget(self._aria2_token_edit)
+        self._build_aria2_remote_section(aria2_inner)
 
         aria2_layout.addWidget(self._aria2_widget)
         self._settings_board.add_card("aria2", aria2_card)
+
+    def _build_aria2_remote_section(self, layout: QVBoxLayout):
+        """aria2 on a NAS / server: where it saves, and how this machine reaches those files."""
+
+        parent = self._aria2_widget
+        header = QHBoxLayout()
+        header.addWidget(BodyLabel(tr(
+            "aria2 runs on another device (NAS / server)",
+            "aria2 运行在其他设备上（NAS / 服务器）",
+            "aria2 は別のデバイスで動作（NAS / サーバー）",
+        ), parent))
+        header.addStretch()
+        self._aria2_remote_switch = SwitchButton(parent)
+        self._aria2_remote_switch.checkedChanged.connect(self._on_aria2_remote_toggle)
+        header.addWidget(self._aria2_remote_switch)
+        layout.addLayout(header)
+
+        self._aria2_remote_widget = QWidget(parent)
+        inner = QVBoxLayout(self._aria2_remote_widget)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(6)
+        hint = CaptionLabel(tr(
+            "Videos are saved by aria2 on that device, not in the local download folder. History marks them as \"On NAS\" instead of local. "
+            "Covers are cached on this machine; NFO and covers go next to the video only when the folder is mounted here.",
+            "视频由该设备上的 aria2 直接保存，不会写入本机下载目录；历史记录会标为「远端」而不是本地。"
+            "封面缓存在本机；只有填写了本机挂载路径时，NFO 与封面才会写到视频旁边。",
+            "動画はそのデバイスの aria2 が保存し、ローカルの保存先には書き込みません。履歴では「リモート」と表示されます。"
+            "カバーはこの PC にキャッシュし、NFO とカバーはマウント先がある場合のみ動画の隣に保存します。",
+        ), self._aria2_remote_widget)
+        hint.setWordWrap(True)
+        inner.addWidget(hint)
+
+        self._aria2_remote_dir_edit = LineEdit(self._aria2_remote_widget)
+        self._aria2_remote_dir_edit.setPlaceholderText(tr(
+            "Download folder on the aria2 device, e.g. /volume1/iwara (required)",
+            "aria2 设备上的下载目录，如 /volume1/iwara（必填）",
+            "aria2 デバイス上の保存先（例: /volume1/iwara、必須）",
+        ))
+        inner.addWidget(self._aria2_remote_dir_edit)
+
+        self._aria2_remote_mount_edit = LineEdit(self._aria2_remote_widget)
+        self._aria2_remote_mount_edit.setPlaceholderText(tr(
+            "Same folder mounted on this machine (SMB / NFS), e.g. /Volumes/iwara or Z:\\iwara (optional)",
+            "该目录在本机的挂载路径（SMB / NFS），如 /Volumes/iwara 或 Z:\\iwara（可选）",
+            "このフォルダーのローカルマウント先（SMB / NFS、例: /Volumes/iwara や Z:\\iwara、任意）",
+        ))
+        inner.addWidget(self._aria2_remote_mount_edit)
+
+        self._aria2_remote_http_edit = LineEdit(self._aria2_remote_widget)
+        self._aria2_remote_http_edit.setPlaceholderText(tr(
+            "HTTP address serving that folder, for streaming, e.g. http://nas:8080/iwara (optional)",
+            "提供该目录访问的 HTTP 地址，用于串流播放，如 http://nas:8080/iwara（可选）",
+            "このフォルダーを配信する HTTP アドレス（ストリーミング用、例: http://nas:8080/iwara、任意）",
+        ))
+        inner.addWidget(self._aria2_remote_http_edit)
+
+        test_row = QHBoxLayout()
+        test_row.addStretch()
+        self._aria2_test_btn = PushButton(tr("Test connection", "测试连接", "接続テスト"), self._aria2_remote_widget)
+        self._aria2_test_btn.clicked.connect(self._test_aria2_connection)
+        test_row.addWidget(self._aria2_test_btn)
+        inner.addLayout(test_row)
+        layout.addWidget(self._aria2_remote_widget)
+
+    def _on_aria2_remote_toggle(self, checked: bool):
+        app_config.aria2_remote_enabled = checked
+        self._aria2_remote_widget.setVisible(checked)
+
+    def _save_aria2_settings(self):
+        app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
+        app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
+        app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
+        app_config.aria2_remote_enabled = self._aria2_remote_switch.isChecked()
+        app_config.aria2_remote_dir = self._aria2_remote_dir_edit.text()
+        app_config.aria2_remote_mount_dir = self._aria2_remote_mount_edit.text()
+        app_config.aria2_remote_http_base = self._aria2_remote_http_edit.text()
+
+    def _test_aria2_connection(self):
+        """Ask aria2 for its version off the GUI thread, then report what is set up."""
+
+        self._save_aria2_settings()
+        self._aria2_test_btn.setEnabled(False)
+        future = _ARIA2_TEST_POOL.submit(download_manager._aria2_rpc_call, "aria2.getVersion", [])
+        timer = QTimer(self)
+
+        def poll():
+            if not future.done():
+                return
+            timer.stop()
+            timer.deleteLater()
+            self._aria2_test_btn.setEnabled(True)
+            try:
+                data, error = future.result()
+            except Exception as exc:  # pragma: no cover - defensive
+                data, error = None, str(exc)
+            self._report_aria2_test(data, error)
+
+        timer.timeout.connect(poll)
+        timer.start(100)
+
+    def _report_aria2_test(self, data, error: str):
+        if not data:
+            InfoBar.error(
+                title=tr("aria2 not reachable", "无法连接 aria2", "aria2 に接続できません"),
+                content=str(error or ""),
+                orient=Qt.Orientation.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=5000, parent=self,
+            )
+            return
+        version = str((data.get("result") or {}).get("version", "") or "?")
+        notes = [tr(f"aria2 {version} is reachable.", f"已连接 aria2 {version}。", f"aria2 {version} に接続しました。")]
+        if app_config.aria2_remote_enabled:
+            if not app_config.aria2_remote_dir:
+                notes.append(tr(
+                    "Fill in the download folder on the aria2 device.",
+                    "请填写 aria2 设备上的下载目录。",
+                    "aria2 デバイス上の保存先を入力してください。",
+                ))
+            mount = app_config.aria2_remote_mount_dir
+            if mount and not os.path.isdir(mount):
+                notes.append(tr(
+                    f"The local mount folder is not reachable now: {mount}",
+                    f"本机挂载路径当前不可访问：{mount}",
+                    f"マウント先に現在アクセスできません: {mount}",
+                ))
+            elif not mount and not app_config.aria2_remote_http_base:
+                notes.append(tr(
+                    "Without a mount folder or HTTP address, NAS copies cannot be played or opened here.",
+                    "未填写挂载路径或 HTTP 地址时，本机无法播放或打开远端文件。",
+                    "マウント先か HTTP アドレスがないと、リモートのファイルはここで再生できません。",
+                ))
+        InfoBar.success(
+            title=tr("Connection OK", "连接成功", "接続成功"),
+            content=" ".join(notes),
+            orient=Qt.Orientation.Horizontal, isClosable=True,
+            position=InfoBarPosition.TOP, duration=6000, parent=self,
+        )
 
     def _on_api_proxy_toggle(self, checked: bool):
         app_config.api_proxy_enabled = checked

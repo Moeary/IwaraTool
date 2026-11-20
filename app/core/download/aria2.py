@@ -63,9 +63,11 @@ class Aria2DownloadMixin:
             return
         self._follow_aria2_download(task, task_id, gid, temp_path, final_path)
 
-    def _aria2_options(self, temp_path: str) -> dict[str, str | list[str]]:
-        save_dir = os.path.dirname(temp_path)
-        filename = os.path.basename(temp_path)
+    def _aria2_options(self, temp_path: str, *, save_dir: str = "", filename: str = "") -> dict[str, str | list[str]]:
+        """Options for ``aria2.addUri``; ``save_dir`` / ``filename`` name a path on a remote host."""
+
+        save_dir = save_dir or os.path.dirname(temp_path)
+        filename = filename or os.path.basename(temp_path)
         headers: list[str] = []
         token = self._current_token()
         if token:
@@ -103,7 +105,9 @@ class Aria2DownloadMixin:
         )
         return True
 
-    def _follow_aria2_download(self, task, task_id: str, gid: str, temp_path: str, final_path: str):
+    def _follow_aria2_download(
+        self, task, task_id: str, gid: str, temp_path: str, final_path: str, *, remote: bool = False,
+    ):
         """Poll aria2 until the download completes, fails or is cancelled."""
 
         last_emit = 0.0
@@ -144,7 +148,10 @@ class Aria2DownloadMixin:
                 last_emit = now
 
             if status == "complete":
-                self._finish_aria2_download(task, task_id, gid, done, total, temp_path, final_path)
+                if remote:
+                    self._finish_aria2_remote_download(task, task_id, gid, done, total)
+                else:
+                    self._finish_aria2_download(task, task_id, gid, done, total, temp_path, final_path)
                 return
             if status in ("error", "removed"):
                 self._end_failed_aria2_download(task_id, gid, status, status_info)

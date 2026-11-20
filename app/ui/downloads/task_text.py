@@ -43,6 +43,7 @@ class TaskTextMixin:
                 task.quality,
                 task.error_msg,
                 task.file_path,
+                task.remote_path,
             ]
         ).lower()
 

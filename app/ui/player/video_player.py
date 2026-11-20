@@ -131,8 +131,11 @@ class VideoPlayer(
         return int(self._player.position() or 0)
 
     def play_local(self, path: str, title: str = "", video_id: str = "", *, start_ms: int = 0, site: str = ""):
+        """Play a file on disk, or a NAS / server copy given as an http(s) URL."""
+
         self._begin_session(video_id, title, remote=False, start_ms=start_ms, site=site)
-        self._load(QUrl.fromLocalFile(path))
+        is_url = str(path or "").lower().startswith(("http://", "https://"))
+        self._load(QUrl(path) if is_url else QUrl.fromLocalFile(path))
 
     def play_remote(self, video_id: str, title: str = "", *, start_ms: int = 0, site: str = ""):
         self._begin_session(video_id, title, remote=True, start_ms=start_ms, site=site)

@@ -33,6 +33,9 @@ class LocalFolderTests(unittest.TestCase):
         self.manager.open_history_output = lambda *args, **kwargs: HistoryActionsMixin.open_history_output(
             self.manager, *args, **kwargs
         )
+        self.manager._open_location = lambda *args, **kwargs: HistoryActionsMixin._open_location(
+            self.manager, *args, **kwargs
+        )
         self.parent = QWidget()
         self.addCleanup(self.parent.deleteLater)
         self.menu = RoundMenu(parent=self.parent)

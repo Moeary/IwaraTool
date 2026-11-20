@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
-
 from PySide6.QtWidgets import QTableWidgetItem
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
 
+from ...core.download.locations import resolve_record_location
 from ...i18n import tr
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 from ...signal_bus import signal_bus
 from .page_dependencies import download_manager
 from .record_state import _video_url
@@ -75,8 +75,7 @@ class HistorySelectionMixin:
         if len(video_ids) == 1:
             self._add_single_record_actions(menu, video_ids[0], records[0])
 
-        if menu.actions():
-            menu.addSeparator()
+        add_section(menu)
         if moved_ids:
             menu.addAction(
                 Action(
@@ -124,45 +123,23 @@ class HistorySelectionMixin:
             ))
 
     def _add_single_record_actions(self, menu: RoundMenu, video_id: str, record: dict):
-        file_path = str(record.get("file_path", "") or "")
-        file_exists = bool(file_path and os.path.isfile(file_path))
-        menu.addAction(
-            Action(
-                FluentIcon.HISTORY,
-                tr("Open video page", "打开视频页面", "動画ページを開く"),
-                self,
-                triggered=lambda _checked=False, item_id=video_id: self._open_video_url(item_id),
-            )
+        add_detail_action(menu, self, lambda: signal_bus.media_detail_requested.emit("video", video_id))
+        location = add_play_actions(
+            menu, self, download_manager, video_id,
+            title=str(record.get("title", "") or ""),
+            location=resolve_record_location(record),
         )
-        if file_exists:
+        if location.local_path and not location.is_remote:
             menu.addAction(
                 Action(
-                    FluentIcon.FOLDER,
-                    tr("Open folder", "打开文件夹", "フォルダーを開く"),
-                    self,
-                    triggered=lambda _checked=False, item_id=video_id: self._open_record(
-                        item_id, open_file=False
-                    ),
-                )
-            )
-            menu.addAction(
-                Action(
-                    FluentIcon.DOCUMENT,
-                    tr("Open file", "打开文件", "ファイルを開く"),
-                    self,
-                    triggered=lambda _checked=False, item_id=video_id: self._open_record(
-                        item_id, open_file=True
-                    ),
-                )
-            )
-            menu.addAction(
-                Action(
-                    FluentIcon.SETTING,
+                    FluentIcon.EDIT,
                     tr("Rename file", "重命名文件", "ファイル名を変更"),
                     self,
                     triggered=lambda _checked=False, item_id=video_id: self._rename_record(item_id),
                 )
             )
+        add_section(menu)
+        add_link_actions(menu, self, str(record.get("source_url", "") or "") or _video_url(video_id))
 
     def _on_cell_clicked(self, row: int, column: int):
         if column not in {

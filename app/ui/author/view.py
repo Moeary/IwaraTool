@@ -31,6 +31,7 @@ from ...core.home.feed import MODE_AUTHOR, FeedSection, FeedTab
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ...core.rules import page_rule_id
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
+from ...core.download.manager import download_manager
 from ...core.search.normalize import avatar_url
 from ...i18n import tr
 from ...signal_bus import signal_bus
@@ -39,6 +40,7 @@ from ..home.browse_view import BrowseState, BrowseView
 from ..home.section_block import queueable_ids
 from ..downloads.staging_flow import stage_videos
 from ..media.pixmaps import read_pixmap
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 from ..home.workers import CoverFetcher
 from ..style.theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from ...core import site as sites
@@ -202,14 +204,18 @@ class AuthorView(QWidget):
 
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):
         menu = RoundMenu(parent=self)
-        menu.addAction(Action(FluentIcon.VIEW, tr("View details", "查看详情", "詳細を表示"), self, triggered=lambda: self._open_post(video)))
-        if video.source_kind != IWARA_IMAGE_SOURCE_KIND and video.downloadable:
-            menu.addAction(Action(
-                FluentIcon.PLAY, tr("Play", "播放", "再生"), self,
-                triggered=lambda: signal_bus.video_preview_requested.emit(video.video_id, video.title, ""),
-            ))
+        is_image = video.source_kind == IWARA_IMAGE_SOURCE_KIND
+        add_detail_action(menu, self, lambda: self._open_post(video))
+        if not is_image:
+            add_play_actions(
+                menu, self, download_manager, video.video_id,
+                title=video.title, can_stream=video.downloadable,
+            )
+        if not is_image and video.downloadable:
+            add_section(menu)
             menu.addAction(Action(FluentIcon.DOWNLOAD, tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"), self, triggered=lambda: self._queue([video])))
-        menu.addAction(Action(FluentIcon.GLOBE, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: webbrowser.open(video.source_url)))
+        add_section(menu)
+        add_link_actions(menu, self, video.source_url)
         menu.exec(global_pos)
 
     def shutdown(self, timeout_ms: int = 30_000) -> bool:

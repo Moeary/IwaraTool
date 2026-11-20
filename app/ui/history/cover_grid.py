@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
 
+from ...core.download.locations import record_is_remote
 from ...i18n import tr
 from ..common.card_list import CardGridList
 from ..media.pixmaps import PixmapLRU, read_pixmap
@@ -151,7 +152,9 @@ class HistoryCoverGrid(CardGridList):
         author = _ellipsize(str(record.get("author", "") or ""), 26)
         downloaded = _date_only(str(record.get("downloaded_at", "") or ""))
         details = "  ·  ".join(part for part in (author, downloaded) if part)
-        if not self._file_ok(record):
+        if record_is_remote(record):
+            state = tr("Saved on NAS", "已存远端", "リモート保存済み")
+        elif not self._file_ok(record):
             state = tr("Moved", "已移走", "移動済み")
         elif str(record.get("watched_at", "") or ""):
             state = tr("Watched", "已观看", "視聴済み")
