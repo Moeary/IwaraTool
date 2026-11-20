@@ -24,7 +24,7 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ...core.home_feed import (
+from ...core.home.feed import (
     BROWSE_SORTS,
     KEYWORD_SORTS,
     MAX_SECTIONS,
@@ -43,8 +43,8 @@ from ...core.home_feed import (
 )
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import set_secondary_text
-from ..fluent_dialogs import show_fluent_confirmation
+from ..style.theme import set_secondary_text
+from ..common.fluent_dialogs import show_fluent_confirmation
 
 
 def mode_label(mode: str) -> str:
@@ -238,7 +238,7 @@ class HomeLayoutDialog(MessageBoxBase):
 
     def __init__(self, parent=None, specs: list[HomeSectionSpec] | None = None):
         super().__init__(parent)
-        self.viewLayout.addWidget(SubtitleLabel(tr("Customize Home", "自定义首页", "ホームのカスタマイズ"), self))
+        self.viewLayout.addWidget(SubtitleLabel(tr("Customize Home", "自定义首页", "ホームをカスタマイズ"), self))
         hint = BodyLabel(
             tr(
                 "Tick the rows to show and move them into the order you like. "
@@ -268,7 +268,7 @@ class HomeLayoutDialog(MessageBoxBase):
         self._add_btn.clicked.connect(self._add)
         self._edit_btn = PushButton(tr("Edit", "编辑", "編集"), self, FluentIcon.EDIT)
         self._edit_btn.clicked.connect(self._edit_current)
-        self._remove_btn = PushButton(tr("Remove", "删除", "削除"), self, FluentIcon.DELETE)
+        self._remove_btn = PushButton(tr("Remove", "移除", "削除"), self, FluentIcon.DELETE)
         self._remove_btn.clicked.connect(self._remove_current)
         self._up_btn = ToolButton(FluentIcon.UP, self)
         self._up_btn.setToolTip(tr("Move up", "上移", "上へ"))

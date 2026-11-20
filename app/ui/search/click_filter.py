@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, Qt
 from PySide6.QtWidgets import QTableWidget
 
-from ..click_dispatch import ClickDispatcher
+from ..common.click_dispatch import ClickDispatcher
 
 
 class _ResultClickFilter(QObject):

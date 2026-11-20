@@ -6,12 +6,13 @@ import json
 import os
 from typing import Any
 
+from .locations import record_is_remote
 from ...config import app_config
 from ...i18n import tr
 from ..models import TaskStatus
 from ..rules import normalize_rule_payload, rule_store
 from ..subscription.automation import matches_rule_video
-from ..task_metadata import (
+from .task_metadata import (
     _author_fields_from_user,
     _dict_or_empty,
     _subscription_download_block_from_video_info,
@@ -21,6 +22,7 @@ from .. import site as sites
 
 HAVE_FILE = "file"  # the video file is on disk
 HAVE_HISTORY = "history"  # downloaded once, the file has moved since
+HAVE_REMOTE = "remote"  # saved by aria2 on the NAS / server
 HAVE_QUEUED = "queued"  # already in the task list
 
 PREVIEW_KINDS = frozenset(("user", "playlist"))
@@ -238,7 +240,9 @@ class ListingPreviewMixin:
             key = video_id.lower()
             record = records.get(video_id) or {}
             path = str(record.get("file_path", "") or "")
-            if path and os.path.isfile(path):
+            if record_is_remote(record):
+                states[key] = (HAVE_REMOTE, str(record.get("remote_path", "") or ""))
+            elif path and os.path.isfile(path):
                 states[key] = (HAVE_FILE, path)
             elif index.get(key):
                 states[key] = (HAVE_FILE, index[key])

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from qfluentwidgets import InfoBar as _DefaultInfoBar, isDarkTheme as _default_is_dark_theme
 
-from ...core.manager import download_manager as _default_download_manager
+from ...core.download.manager import download_manager as _default_download_manager
 from ...signal_bus import signal_bus as _default_signal_bus
-from ..page_dependency import PageDependency
+from ..common.page_dependency import PageDependency
 
 PAGE_MODULE = "app.ui.subscription.page"
 

@@ -8,8 +8,8 @@ from PySide6.QtWidgets import QHeaderView
 from qfluentwidgets import FluentIcon
 
 from ...i18n import tr
-from ..ui_state import fit_table_last_column
-from ..table_column_dialog import open_table_column_dialog
+from ..common.ui_state import fit_table_last_column
+from ..common.table_column_dialog import open_table_column_dialog
 
 
 class SubscriptionPanelsMixin:

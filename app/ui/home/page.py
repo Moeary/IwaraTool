@@ -7,17 +7,17 @@ the batch download tools stay one click away (select cards, pick a rule, queue).
 """
 from __future__ import annotations
 
-import webbrowser
 from dataclasses import dataclass, replace as dataclass_replace
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMenu
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 
 from ...config import app_config
-from ...core.home_feed import MODE_AUTHOR
-from ...core.manager import download_manager
+from ...core.home.feed import MODE_AUTHOR
+from ...core.download.manager import download_manager
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ...core.rules import page_rule_id
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
@@ -27,7 +27,7 @@ from ...signal_bus import signal_bus
 from .workers import CoverFetcher
 from ..media.detail_state import DetailState
 from ..media.detail_view import DetailView
-from ..navigation import navigate_back, record_navigation, restore_scroll
+from ..window.back_stack import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView
 from .feed_view import HomeFeedView
 from .section_block import queueable_ids
@@ -340,20 +340,20 @@ class HomeInterface(QWidget):
     def _show_menu(self, video: SearchVideo, global_pos: QPoint):
         menu = RoundMenu(parent=self)
         is_image = video.source_kind == IWARA_IMAGE_SOURCE_KIND
-        menu.addAction(Action(FluentIcon.VIEW, tr("View details", "查看详情", "詳細を表示"), self, triggered=lambda: self._open_video(video)))
+        add_detail_action(menu, self, lambda: self._open_video(video))
+        if not is_image:
+            add_play_actions(
+                menu, self, download_manager, video.video_id,
+                title=video.title, can_stream=video.downloadable,
+            )
         if not is_image and video.downloadable:
-            menu.addAction(Action(
-                FluentIcon.PLAY, tr("Play", "播放", "再生"), self,
-                triggered=lambda: signal_bus.video_preview_requested.emit(video.video_id, video.title, ""),
-            ))
+            add_section(menu)
             menu.addAction(Action(FluentIcon.DOWNLOAD, tr("Add to download queue", "加入下载队列", "ダウンロードキューに追加"), self, triggered=lambda: self._queue([video])))
-        menu.addAction(Action(
-            FluentIcon.GLOBE, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), self,
-            triggered=lambda: webbrowser.open(video.source_url),
-        ))
+        add_section(menu)
+        add_link_actions(menu, self, video.source_url)
         target = self._author_target(video)
         if target:
-            menu.addSeparator()
+            add_section(menu)
             menu.addAction(Action(
                 FluentIcon.PEOPLE, tr("Open author page", "打开作者页", "作者ページを開く"), self,
                 triggered=lambda: signal_bus.author_page_requested.emit(target),

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
 
-from ...core.search.models import SearchPlaylist, SearchVideo
+from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
+from .download_status import iwara_history_id
+from .page_dependencies import download_manager
 from .result_authors import _author_source_info, _oreno3d_video_url
 
 
 def _separate(menu: RoundMenu):
-    if menu.actions():
-        menu.addSeparator()
+    add_section(menu)
 
 
 class SearchContextMenuMixin:
@@ -31,15 +33,16 @@ class SearchContextMenuMixin:
         if len(values) == 1 and (video_values or author_values):
             self._add_author_menu_actions(menu, values[0])
         self._add_author_favorite_menu_action(menu, values, video_values, author_values)
-        _separate(menu)
-        menu.addAction(
-            Action(
-                FluentIcon.VIEW,
-                tr("Open page", "打开页面", "ページを開く"),
-                self,
-                triggered=self._open_selected,
+        if not (len(values) == 1 and video_values):  # one video already has "Open in browser"
+            _separate(menu)
+            menu.addAction(
+                Action(
+                    FluentIcon.VIEW,
+                    tr("Open page", "打开页面", "ページを開く"),
+                    self,
+                    triggered=self._open_selected,
+                )
             )
-        )
         menu.exec(global_position)
 
     def _select_context_menu_target(self, position):
@@ -62,24 +65,25 @@ class SearchContextMenuMixin:
     def _add_result_menu_actions(self, menu, values, video_values, author_values, playlist_values):
         single_video = len(video_values) == 1 and len(values) == 1
         if single_video:
-            menu.addAction(
-                Action(
-                    FluentIcon.PLAY,
-                    tr("Play / Preview", "播放 / 预览", "再生 / プレビュー"),
-                    self,
-                    triggered=self._preview_selected,
-                )
-            )
             detail_video = video_values[0].get("data")
             if isinstance(detail_video, SearchVideo) and self._detail_target(detail_video):
+                add_detail_action(menu, self, lambda video=detail_video: self._show_media_detail(video))
+            if isinstance(detail_video, SearchVideo) and detail_video.source_kind != IWARA_IMAGE_SOURCE_KIND:
+                # Play the local / NAS copy when there is one; Oreno3D results resolve first.
+                add_play_actions(
+                    menu, self, download_manager, iwara_history_id(detail_video),
+                    title=detail_video.title, play=self._preview_selected,
+                )
+            else:
                 menu.addAction(
                     Action(
-                        FluentIcon.VIEW,
-                        tr("View details", "查看详情", "詳細を表示"),
+                        FluentIcon.PLAY,
+                        tr("Play / Preview", "播放 / 预览", "再生 / プレビュー"),
                         self,
-                        triggered=lambda _checked=False, video=detail_video: self._show_media_detail(video),
+                        triggered=self._preview_selected,
                     )
                 )
+        _separate(menu)
         if any(self._is_queueable(value) for value in values):
             menu.addAction(
                 Action(
@@ -100,6 +104,11 @@ class SearchContextMenuMixin:
                         triggered=lambda _checked=False, playlist=playlist: self._open_playlist_videos(playlist),
                     )
                 )
+        if single_video:
+            link_video = video_values[0].get("data")
+            if isinstance(link_video, SearchVideo):
+                _separate(menu)
+                add_link_actions(menu, self, link_video.iwara_url or link_video.source_url)
         if single_video and not author_values:
             selected_video = video_values[0].get("data")
             if isinstance(selected_video, SearchVideo) and _oreno3d_video_url(selected_video):

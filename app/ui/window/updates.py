@@ -7,7 +7,7 @@ from PySide6.QtGui import QDesktopServices
 
 from ...i18n import tr
 from ...config import app_config
-from ..fluent_dialogs import show_fluent_confirmation
+from ..common.fluent_dialogs import show_fluent_confirmation
 
 
 class WindowUpdatesMixin:

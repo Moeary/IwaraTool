@@ -24,8 +24,8 @@ from ...config import app_config
 from ...core.tools.covers import COVER_COUNT, CoverCandidate, cover_candidates, format_timecode
 from ...core.tools.ffmpeg import MediaInfo
 from ...i18n import tr
-from ..theme import qcolor, set_secondary_text, set_status_text
-from ..worker_lifecycle import on_finished, stop_qthreads
+from ..style.theme import qcolor, set_secondary_text, set_status_text
+from ..common.worker_lifecycle import on_finished, stop_qthreads
 from .common import (
     DropArea,
     FfmpegMissingCard,

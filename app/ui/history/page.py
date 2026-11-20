@@ -29,13 +29,13 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...core.models import TaskStatus
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, set_secondary_text
-from ..flow_layout import ResponsiveFlowLayout
-from ..ui_state import (
+from ..style.theme import PAGE_MARGINS, PAGE_SPACING, FluentSplitter, set_secondary_text
+from ..common.flow_layout import ResponsiveFlowLayout
+from ..common.ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,
     fit_table_last_column,
@@ -281,7 +281,7 @@ class HistoryInterface(
                 tr("Page", "页面", "ページ"),
                 tr("Folder", "文件夹", "フォルダー"),
                 tr("File", "文件", "ファイル"),
-                tr("Rename", "重命名", "名前変更"),
+                tr("Rename", "重命名", "名前を変更"),
                 tr("Delete", "删记录", "削除"),
             ]
         )

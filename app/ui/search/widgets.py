@@ -9,7 +9,7 @@ from qfluentwidgets import LineEdit, ListWidget
 
 from ...core.tag_dictionary import TagSuggestion
 from ...i18n import tr
-from ..theme import popup_list_qss
+from ..style.theme import popup_list_qss
 
 
 class TagSuggestionPopup(ListWidget):

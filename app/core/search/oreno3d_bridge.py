@@ -9,7 +9,7 @@ import cloudscraper
 from ..oreno3d.client import Oreno3DClient
 from ..oreno3d.page_parsing import extract_iwara_video_id
 from ..oreno3d.search_query import intersect_oreno3d_listings
-from ..task_metadata import _dict_or_empty, _iwara_image_url
+from ..download.task_metadata import _dict_or_empty, _iwara_image_url
 from .. import site as sites
 
 

@@ -18,8 +18,8 @@ from ...core.search.models import SearchVideo
 from ...core.search.normalize import avatar_url, normalize_image, normalize_video, small_cover_url
 from ...i18n import current_language, tr
 from .pixmaps import read_pixmap
-from ..navigation import restore_scroll
-from ..formatting import _format_count, _format_duration
+from ..window.back_stack import restore_scroll
+from ..common.formatting import _format_count, _format_duration
 from .comment_widget import CommentWidget
 from .detail_state import DetailState
 from .detail_text import format_date, linkify
@@ -186,7 +186,7 @@ class DetailContentMixin:
 
     def _meta_text(self, video: SearchVideo) -> str:
         parts = [
-            tr(f"{_format_count(video.views)} views", f"{_format_count(video.views)} 次观看", f"{_format_count(video.views)} 回再生"),
+            tr(f"{_format_count(video.views)} views", f"{_format_count(video.views)} 次播放", f"{_format_count(video.views)} 回再生"),
             tr(f"{_format_count(video.likes)} likes", f"{_format_count(video.likes)} 喜欢", f"{_format_count(video.likes)} いいね"),
             tr(f"{_format_count(video.comments)} comments", f"{_format_count(video.comments)} 评论", f"{_format_count(video.comments)} コメント"),
         ]

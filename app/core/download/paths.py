@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 
 from ...config import DEFAULT_FILENAME_TEMPLATE, app_config
-from ..task_metadata import extract_date_text
+from .task_metadata import extract_date_text
 
 
 WINDOWS_SAFE_PATH_LIMIT = 240

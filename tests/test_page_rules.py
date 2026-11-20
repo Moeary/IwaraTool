@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 from app.config import AppConfig, app_config
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.models import DownloadTask, TaskStatus
 from app.core.rules import (
     BUILTIN_DEFAULT_RULE_ID,
@@ -19,7 +19,7 @@ from app.core.rules import (
     set_page_rule_choice,
     temporary_rule,
 )
-from app.core.task_queue import TaskQueueStore
+from app.core.download.task_queue import TaskQueueStore
 
 
 class _IsolatedRules(unittest.TestCase):

@@ -1,10 +1,14 @@
-"""Application configuration backed by QSettings."""
+"""Application configuration in ``config.ini``.
+
+The file is read through QSettings on the desktop and through a compatible
+pure-Python store where Qt is not available (see ``app.settings_store``).
+"""
 import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from PySide6.QtCore import QSettings
 from .paths import app_data_dir, app_root_dir, default_download_dir
+from .settings_store import legacy_settings, open_settings
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
@@ -33,7 +37,7 @@ def _app_data_dir() -> str:
 
 
 class _Setting:
-    """Plain persisted setting: the attribute name is the QSettings key."""
+    """Plain persisted setting: the attribute name is the settings key."""
 
     def __set_name__(self, owner, name):
         self._key = name
@@ -98,6 +102,12 @@ class AppConfig:
         "aria2_rpc_enabled": False,
         "aria2_rpc_url": "http://127.0.0.1:6800/jsonrpc",
         "aria2_rpc_token": "",
+        # aria2 runs on another machine (NAS / server): files are written to
+        # ``aria2_remote_dir`` on that machine, never to the local download folder.
+        "aria2_remote_enabled": False,
+        "aria2_remote_dir": "",  # download root as the aria2 host sees it, e.g. /volume1/iwara
+        "aria2_remote_mount_dir": "",  # optional: the same folder mounted here (SMB/NFS), e.g. /Volumes/iwara
+        "aria2_remote_http_base": "",  # optional: http(s) URL serving that folder, for streaming
         "download_video_file": True,
         "download_thumbnail": False,
         "collect_nfo_info": False,
@@ -121,13 +131,13 @@ class AppConfig:
         "update_check_enabled": True,
         "update_last_prompted_version": "",
         "theme_mode": "auto",  # auto / light / dark
-        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/fonts
+        "ui_font_family": "",  # empty: platform-adaptive stack, see ui/style/fonts
         "request_min_interval_ms": 200,  # spacing between API requests per host
         "request_max_retries": 2,  # retries for 429/5xx and transient network errors
         "x_version_salts": "",  # extra X-Version salts (comma separated), tried first
         "minimize_to_tray": False,
         "startup_page": "home",  # home / subscriptions / search / download / repair / history / tools / rules / settings
-        "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see core/shortcut_defs
+        "shortcut_overrides": "{}",  # JSON {action_id: "Ctrl+K"}, see ui/shortcuts/catalog
         "preview_player_mode": "system",  # system / builtin / custom
         "preview_player_command": "",  # custom player, "{file}" is the video path
         "preview_quality": "540",  # Source / 540 / 360 for streamed previews
@@ -143,7 +153,7 @@ class AppConfig:
         self._config_path = os.path.join(self._data_dir, "config.ini")
         self._history_db_path = os.path.join(self._data_dir, "history.db")
 
-        self._qs = QSettings(self._config_path, QSettings.Format.IniFormat)
+        self._qs = open_settings(self._config_path)
         # QSettings is reentrant, not thread-safe: the download watchdog and
         # subscription workers read settings while the GUI thread writes them.
         self._lock = threading.RLock()
@@ -166,7 +176,9 @@ class AppConfig:
         """
         if os.path.exists(self._config_path):
             return
-        legacy = QSettings("IwaraTool", "IwaraTool")
+        legacy = legacy_settings()
+        if legacy is None:
+            return
         safe_keys = set(self._DEFAULTS) - self._LEGACY_UNMIGRATED_KEYS
         for key, default in self._DEFAULTS.items():
             if key not in safe_keys:
@@ -180,8 +192,8 @@ class AppConfig:
 
         We now persist only to portable data/config.ini.
         """
-        legacy = QSettings("IwaraTool", "IwaraTool")
-        if legacy.allKeys():
+        legacy = legacy_settings()
+        if legacy is not None and legacy.allKeys():
             legacy.clear()
             legacy.sync()
 
@@ -484,6 +496,32 @@ class AppConfig:
     aria2_rpc_url = _Setting()
 
     aria2_rpc_token = _Setting()
+
+    aria2_remote_enabled = _Setting()
+
+    @property
+    def aria2_remote_dir(self) -> str:
+        return str(self._get("aria2_remote_dir") or "").strip()
+
+    @aria2_remote_dir.setter
+    def aria2_remote_dir(self, v: str):
+        self._set("aria2_remote_dir", str(v or "").strip())
+
+    @property
+    def aria2_remote_mount_dir(self) -> str:
+        return str(self._get("aria2_remote_mount_dir") or "").strip()
+
+    @aria2_remote_mount_dir.setter
+    def aria2_remote_mount_dir(self, v: str):
+        self._set("aria2_remote_mount_dir", str(v or "").strip())
+
+    @property
+    def aria2_remote_http_base(self) -> str:
+        return str(self._get("aria2_remote_http_base") or "").strip()
+
+    @aria2_remote_http_base.setter
+    def aria2_remote_http_base(self, v: str):
+        self._set("aria2_remote_http_base", str(v or "").strip())
 
     download_video_file = _Setting()
 

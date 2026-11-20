@@ -30,13 +30,13 @@ from qfluentwidgets import (
 )
 
 from ...core.download.speed_format import format_speed
-from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
+from ...core.download.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...core.models import DownloadTask
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import CARD_MARGINS, PAGE_MARGINS, PAGE_SPACING, set_secondary_text
-from ..flow_layout import ResponsiveFlowLayout
-from ..ui_state import (
+from ..style.theme import CARD_MARGINS, PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..common.flow_layout import ResponsiveFlowLayout
+from ..common.ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,
     fit_table_last_column,
@@ -221,7 +221,7 @@ class TaskCenterInterface(
         self._state_combo = ComboBox(self)
         self._state_combo.addItems(
             [
-                tr("All States", "全部状态", "全状态"),
+                tr("All States", "全部状态", "全状態"),
                 tr("Active", "进行中", "実行中"),
                 tr("Queued", "排队中", "待機中"),
                 tr("Failed", "失败", "失敗"),

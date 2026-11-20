@@ -19,11 +19,11 @@ from qfluentwidgets import (
 
 from ...core.search.models import SearchVideo
 from ...i18n import tr
-from ..chrome import StatusChip
-from ..click_dispatch import ACTION_DETAIL, ACTION_PLAY, ClickDispatcher, play_in_window
+from ..common.chrome import StatusChip
+from ..common.click_dispatch import ACTION_DETAIL, ACTION_PLAY, ClickDispatcher, play_in_window
 from ..media.card import MediaCard
 from .helpers import _date_only, _source_origin_label, _source_type_label
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 from .cover_loader import load_pixmap
 from .item_queries import item_to_video
 

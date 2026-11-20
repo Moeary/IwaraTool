@@ -185,8 +185,8 @@ class SearchQueryControlsMixin:
         keyword = self._keyword_edit.text().strip()
         newest = (tr("Newest", "最新", "新着"), "date")
         relevance = (tr("Relevance", "相关度", "関連度"), "relevance")
-        views = (tr("Most viewed", "最多人观看", "再生数最多"), "views")
-        likes = (tr("Most liked", "喜欢最多", "いいね順"), "likes")
+        views = (tr("Most viewed", "播放最多", "再生数順"), "views")
+        likes = (tr("Most liked", "点赞最多", "いいね順"), "likes")
         if iwara and scope in {"images", "videos"} and keyword:
             # Native /search for videos and images accepts four orders.
             items = [newest, relevance, views, likes]

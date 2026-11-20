@@ -13,7 +13,7 @@ from ...core.search.normalize import avatar_url
 from ...i18n import tr
 from ..home.workers import CoverFetcher
 from .pixmaps import read_pixmap
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 from .detail_text import format_date, linkify
 
 

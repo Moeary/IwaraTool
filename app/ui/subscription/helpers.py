@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor
 
 from ...core.models import TaskStatus, status_label
 from ...i18n import tr
-from ..theme import palette, qcolor
+from ..style.theme import palette, qcolor
 from ...core import site as sites
 
 
@@ -146,7 +146,10 @@ def _item_state_text(
     task_status: str = "",
     download_state: str = "",
     download_reason: str = "",
+    remote: bool = False,
 ) -> str:
+    if downloaded and remote:
+        return tr("Saved on NAS", "已存远端", "リモート保存済み")
     if downloaded and file_exists:
         return tr("Downloaded", "已下载", "保存済み")
     if downloaded:
@@ -168,7 +171,10 @@ def _state_color(
     file_exists: bool,
     task_status: str = "",
     download_state: str = "",
+    remote: bool = False,
 ) -> QColor:
+    if downloaded and remote:
+        return qcolor("info")
     if downloaded and file_exists:
         return qcolor("success")
     if downloaded:

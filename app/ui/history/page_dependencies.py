@@ -6,8 +6,8 @@ history mixins reach it through this proxy, so one patch covers them all.
 
 from __future__ import annotations
 
-from ...core.manager import download_manager as _default_download_manager
-from ..page_dependency import PageDependency
+from ...core.download.manager import download_manager as _default_download_manager
+from ..common.page_dependency import PageDependency
 
 PAGE_MODULE = "app.ui.history.page"
 

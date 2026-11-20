@@ -15,7 +15,7 @@ from .result_authors import (
     _extract_iwara_video_id,
     _oreno3d_video_url,
 )
-from ..navigation import record_navigation
+from ..window.back_stack import record_navigation
 from .page_dependencies import signal_bus
 from ...core import site as sites
 
@@ -218,7 +218,7 @@ class SearchOpeningMixin:
     def _perform_result_click(self, action: str, item):
         """One Settings click action on a result (``item``: grid item or the row's first cell)."""
 
-        from ..click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT
+        from ..common.click_dispatch import ACTION_DETAIL, ACTION_PLAY, ACTION_SELECT
 
         if action == ACTION_SELECT:
             self._toggle_result_selected(item)

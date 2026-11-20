@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout
 from qfluentwidgets import BodyLabel, CaptionLabel, IconWidget, InfoBarIcon, MessageBoxBase, StrongBodyLabel, SubtitleLabel
 
 from ...i18n import tr
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 
 
 _LEVEL_ICONS = {

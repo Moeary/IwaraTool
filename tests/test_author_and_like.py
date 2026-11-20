@@ -97,14 +97,14 @@ class ApiActionTests(unittest.TestCase):
 
 class ChipStateTests(unittest.TestCase):
     def test_local_states(self):
-        from app.ui.author_status import local_chip_state
+        from app.ui.author.status import local_chip_state
 
         self.assertEqual(local_chip_state(None)[1], "neutral")
         self.assertEqual(local_chip_state({"id": 1, "enabled": 1})[1], "success")
         self.assertEqual(local_chip_state({"id": 1, "enabled": 0})[1], "warning")
 
     def test_web_states(self):
-        from app.ui.author_status import web_chip_state
+        from app.ui.author.status import web_chip_state
 
         self.assertEqual(web_chip_state("signed_out")[1], "neutral")
         self.assertEqual(web_chip_state("loading")[1], "neutral")
@@ -116,14 +116,14 @@ class ChipStateTests(unittest.TestCase):
         self.assertNotEqual(followed[0], not_followed[0])
 
     def test_usernames_are_cleaned(self):
-        from app.ui.author_status import clean_username
+        from app.ui.author.status import clean_username
 
         self.assertEqual(clean_username(" @alice/ "), "alice")
 
 
 class AuthorStatusBarTests(_QtCase):
     def setUp(self):
-        from app.ui import author_status
+        from app.ui.author import status as author_status
 
         self.module = author_status
         self.manager = Mock()
@@ -140,7 +140,7 @@ class AuthorStatusBarTests(_QtCase):
         self.client.set_following.return_value = (True, "")
         _sync_api_calls(self, self.client)
         for target in ("InfoBar.success", "InfoBar.error", "InfoBar.warning"):
-            infobar = mock.patch(f"app.ui.author_status.{target}")
+            infobar = mock.patch(f"app.ui.author.status.{target}")
             infobar.start()
             self.addCleanup(infobar.stop)
         self.host = QWidget()
@@ -297,7 +297,7 @@ class DetailLikeTests(_QtCase):
             self.infobars = getattr(self, "infobars", {})
             self.infobars[target] = infobar.start()
             self.addCleanup(infobar.stop)
-        status = mock.patch("app.ui.author_status.download_manager", Mock(find_author_subscription=Mock(return_value=None)))
+        status = mock.patch("app.ui.author.status.download_manager", Mock(find_author_subscription=Mock(return_value=None)))
         status.start()
         self.addCleanup(status.stop)
         self.view = media_detail.DetailView(CoverFetcher())

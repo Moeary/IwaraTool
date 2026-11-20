@@ -7,7 +7,7 @@ from typing import Any
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from ..downloads.staging_flow import video_payload
-from ..worker_lifecycle import on_finished
+from ..common.worker_lifecycle import on_finished
 from .page_dependencies import download_manager
 from .oreno_workers import SearchQueueResolveWorker
 

@@ -27,6 +27,8 @@ def item_state(item: dict[str, Any]) -> str:
     if str(item.get("download_state", "") or ""):
         return "unavailable"
     if item.get("downloaded"):
+        if item.get("download_remote"):
+            return "remote"  # on the aria2 host: downloaded, but not on this machine
         return "downloaded" if item.get("download_file_exists") else "moved"
     if item.get("queued"):
         return "queued"
@@ -60,7 +62,9 @@ def filter_items(items: list[dict[str, Any]], mode: str, query: str = "") -> lis
         result = [i for i in result if matcher(str(i.get("title", "") or i.get("video_id", "") or ""))]
     if mode == "ready":
         result = [i for i in result if item_state(i) in {"", "new"}]
-    elif mode in {"new", "downloaded", "moved", "queued", "unavailable"}:
+    elif mode == "downloaded":
+        result = [i for i in result if item_state(i) in {"downloaded", "remote"}]
+    elif mode in {"new", "moved", "queued", "unavailable"}:
         result = [i for i in result if item_state(i) == mode]
     return result
 

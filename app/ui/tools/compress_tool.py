@@ -41,9 +41,9 @@ from ...core.tools.compress import (
 )
 from ...core.tools.ffmpeg import MediaInfo
 from ...i18n import tr
-from ..fonts import monospace_font
-from ..theme import set_secondary_text, set_status_text
-from ..worker_lifecycle import on_finished, stop_qthreads
+from ..style.fonts import monospace_font
+from ..style.theme import set_secondary_text, set_status_text
+from ..common.worker_lifecycle import on_finished, stop_qthreads
 from .common import (
     DropArea,
     FfmpegMissingCard,
@@ -689,7 +689,7 @@ class CompressTool(DropArea):
     def _cancel(self):
         if self._worker is not None:
             self._worker.requestInterruption()
-            self._status_label.setText(tr("Stopping…", "正在停止…", "停止しています…"))
+            self._status_label.setText(tr("Stopping…", "正在停止…", "停止中…"))
 
     def _on_worker_finished(self, worker):
         if self._worker is worker:

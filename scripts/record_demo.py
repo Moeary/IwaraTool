@@ -188,7 +188,7 @@ class Tour:
 def seed(root: Path):
     """History records with files on disk, and subscriptions filled by a (fake) refresh."""
 
-    from app.core.manager import download_manager
+    from app.core.download.manager import download_manager
 
     downloads = root / "Downloads"
     for index in range(30, 52):
@@ -340,12 +340,12 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("IwaraTool")
     # The same start-up steps as main.py.
-    from app.core.manager import download_manager
+    from app.core.download.manager import download_manager
     from app.core.rules import ensure_temporary_rule
-    from app.ui import mask_dialogs
-    from app.ui.fonts import apply_app_font
+    from app.ui.common import mask_dialogs
+    from app.ui.style.fonts import apply_app_font
     from app.ui.main_window import MainWindow
-    from app.ui.theme import apply_theme_mode
+    from app.ui.style.theme import apply_theme_mode
 
     mask_dialogs.install()
     apply_app_font(app)

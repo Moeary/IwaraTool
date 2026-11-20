@@ -25,7 +25,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...i18n import tr
 from .shortcuts_cards import shortcut_card_keys
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 
 
 SettingsCategory = tuple[str, FluentIcon, str, str, tuple[str, ...]]

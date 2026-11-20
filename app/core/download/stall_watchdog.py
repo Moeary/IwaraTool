@@ -7,7 +7,7 @@ import time
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..manager_state import (
+from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
     STALL_WATCHDOG_INTERVAL_SECONDS as _STALL_WATCHDOG_INTERVAL_SECONDS,
     STALL_WATCH_STATUSES as _STALL_WATCH_STATUSES,

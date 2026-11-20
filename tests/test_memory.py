@@ -142,7 +142,7 @@ class DetailReleaseTests(_QtCase):
 
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        status = mock.patch("app.ui.author_status.download_manager", Mock(find_author_subscription=Mock(return_value=None)))
+        status = mock.patch("app.ui.author.status.download_manager", Mock(find_author_subscription=Mock(return_value=None)))
         status.start()
         self.addCleanup(status.stop)
         self.view = media_detail.DetailView(CoverFetcher())
@@ -387,7 +387,7 @@ class IdleTrimTests(_QtCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        from app.core.home_cache import HomeFeedCache
+        from app.core.home.cache import HomeFeedCache
         from app.ui.main_window import MainWindow
 
         cls.tmp = tempfile.TemporaryDirectory()
@@ -396,7 +396,7 @@ class IdleTrimTests(_QtCase):
             ("app.config.app_config._qs", QSettings(os.path.join(cls.tmp.name, "config.ini"), QSettings.Format.IniFormat)),
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.search.page.SearchInterface._load_initial_results", lambda page: None),
-            ("app.core.home_cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
+            ("app.core.home.cache._shared", HomeFeedCache(os.path.join(cls.tmp.name, "cache.json"))),
         ):
             patcher = mock.patch(target, value)
             patcher.start()

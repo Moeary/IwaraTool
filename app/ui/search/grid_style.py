@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from qfluentwidgets import ListWidget
 
-from ..theme import palette, scrollbar_qss
+from ..style.theme import palette, scrollbar_qss
 
 
 def _grid_item_height(

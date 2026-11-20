@@ -8,12 +8,13 @@ import time
 from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
-from ..manager_state import (
+from .manager_state import (
     CANCEL_ORIGIN_MANUAL as _CANCEL_ORIGIN_MANUAL,
     PRUNABLE_TERMINAL_STATUSES as _PRUNABLE_TERMINAL_STATUSES,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
 from ..models import DownloadTask, TaskStatus
+from .locations import STORAGE_LOCAL, STORAGE_REMOTE
 
 
 logger = get_logger(__name__)
@@ -199,10 +200,14 @@ class TerminalStatesMixin:
         with self._lock:
             task.status = TaskStatus.COMPLETED
         rule_payload = self._task_rule_payload(task)
-        if rule_payload["download_thumbnail"]:
-            self._download_thumbnail(task)
-        if rule_payload["collect_nfo_info"]:
-            self._write_nfo(task)
+        remote = task.storage == STORAGE_REMOTE
+        if remote:
+            self._save_remote_artifacts(task, rule_payload)
+        else:
+            if rule_payload["download_thumbnail"]:
+                self._download_thumbnail(task)
+            if rule_payload["collect_nfo_info"]:
+                self._write_nfo(task)
         if rule_payload["record_to_history"]:
             try:
                 self.history.upsert_downloaded(
@@ -220,9 +225,11 @@ class TerminalStatesMixin:
                         "tags_json": task.tags_json,
                         "raw_json": task.raw_json,
                         "source_url": task.url,
-                        "file_path": task.file_path,
+                        "file_path": "" if remote else task.file_path,
                         "thumbnail_path": task.thumbnail_path,
                         "quality": task.quality,
+                        "storage": STORAGE_REMOTE if remote else STORAGE_LOCAL,
+                        "remote_path": task.remote_path if remote else "",
                     }
                 )
             except Exception as exc:
@@ -245,7 +252,7 @@ class TerminalStatesMixin:
         with self._lock:
             live_task = self._tasks.get(task_id)
             if live_task:
-                if rule_payload["record_to_history"]:  # a temporary copy is not "already downloaded"
+                if rule_payload["record_to_history"] and not remote:  # a temporary copy is not "already downloaded"
                     with self._existing_file_index_lock:
                         self._existing_file_index[live_task.video_id.lower()] = live_task.file_path
                 self._mark_terminal_locked(live_task)

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QDialog
 from qfluentwidgets import BodyLabel, CheckBox, MessageBoxBase, PushButton, SubtitleLabel
 
 from ...config import app_config
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...i18n import tr
 from ...signal_bus import signal_bus
 

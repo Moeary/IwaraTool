@@ -33,9 +33,9 @@ from ...core.download.staging import STAGE_READY, STAGE_SKIP, STAGE_UNAVAILABLE
 from ...core.rules import rule_store
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..fluent_dialogs import show_fluent_confirmation
+from ..common.fluent_dialogs import show_fluent_confirmation
 from ..rules.rule_text import _rule_display_name
-from ..theme import qcolor, set_secondary_text
+from ..style.theme import qcolor, set_secondary_text
 from .page_dependencies import download_manager
 
 

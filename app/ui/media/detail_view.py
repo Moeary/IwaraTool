@@ -11,7 +11,7 @@ from typing import Any
 from PySide6.QtCore import QEvent, QPoint, Signal
 from PySide6.QtWidgets import QWidget
 
-from ...core.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
+from ...core.download.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
 from ...core.search.models import SearchVideo
 from ..home.workers import ApiCallWorker, CommentsWorker, CoverFetcher, DetailWorker, stop_workers
 from ..player.video_player import VideoPlayer

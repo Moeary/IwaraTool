@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QListWidgetItem, QWidget
 from qfluentwidgets import InfoBar, InfoBarPosition, ProgressBar, isDarkTheme  # noqa: F401
 
 from ...config import app_config
-from ...core.manager import download_manager  # noqa: F401
+from ...core.download.manager import download_manager  # noqa: F401
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .actions import SubscriptionActionsMixin
@@ -29,7 +29,7 @@ from .components import (
     _thumbnail_list_style,
 )
 from .cover_loader import CoverLoader
-from ..worker_lifecycle import stop_qthreads
+from ..common.worker_lifecycle import stop_qthreads
 from .item_grid import SubscriptionItemGridMixin
 from .item_list import SubscriptionItemListMixin
 from .panels import SubscriptionPanelsMixin

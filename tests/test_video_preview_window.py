@@ -12,7 +12,7 @@ from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from app.core import preview_stream
+from app.core.playback import preview_stream
 from app.ui.player import playback
 from app.ui.player.backend import Backend, release_source
 from app.ui.player.preview_window import VideoPreviewWindow, keep_normal_geometry
@@ -399,7 +399,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
         patcher = mock.patch.object(media_detail.DetailView, "player_backend_factory", staticmethod(fake_backend))
         patcher.start()
         self.addCleanup(patcher.stop)
-        local = mock.patch("app.core.video_player.local_video_path", return_value="")
+        local = mock.patch("app.core.playback.video_player.local_video_path", return_value="")
         local.start()
         self.addCleanup(local.stop)
         self.view = media_detail.DetailView(CoverFetcher())
@@ -435,7 +435,7 @@ class DetailInlinePlaybackTests(_PlayerCase):
         self.assertIsNotNone(self.view._player)
 
     def test_local_file_plays_from_disk(self):
-        with mock.patch("app.core.video_player.local_video_path", return_value=r"C:\v\abc.mp4"):
+        with mock.patch("app.core.playback.video_player.local_video_path", return_value=r"C:\v\abc.mp4"):
             self.view._play()
         self.assertTrue(self.view._player._player.source.isLocalFile())
         self.remote.assert_not_called()

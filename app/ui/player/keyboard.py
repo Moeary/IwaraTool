@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
-from ..shortcuts import action_for_event
+from ..shortcuts.registry import action_for_event
 from .playback import HOLD_BOOST_RATE, SEEK_STEP_MS, VOLUME_STEP
 
 

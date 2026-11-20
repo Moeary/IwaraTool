@@ -11,7 +11,7 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
-from ..task_metadata import (
+from ..download.task_metadata import (
     SUBSCRIPTION_UNAVAILABLE_STATE as _SUBSCRIPTION_UNAVAILABLE_STATE,
     _author_fields_from_user,
     _compact_video_raw_json,
@@ -268,6 +268,9 @@ class SubscriptionSubmissionMixin:
             "file_path": str(existing.get("file_path", "") or "") if existing else "",
             "thumbnail_path": str(existing.get("thumbnail_path", "") or "") if existing else "",
             "quality": str(existing.get("quality", "") or "") if existing else "",
+            # Keep where an earlier download put the file (this machine or the aria2 host).
+            "storage": str(existing.get("storage", "") or "") if existing else "",
+            "remote_path": str(existing.get("remote_path", "") or "") if existing else "",
         }
 
     def _metadata_task_from_video_info(

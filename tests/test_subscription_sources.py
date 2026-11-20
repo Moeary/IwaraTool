@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from app.core.subscription.store import SubscriptionStore
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 
 
 class SubscriptionSourceOriginTests(unittest.TestCase):

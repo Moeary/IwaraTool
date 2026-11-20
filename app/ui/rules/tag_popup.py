@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem, QWidget
 from qfluentwidgets import ListWidget
 
 from ...core.tag_dictionary import TagSuggestion
-from ..theme import popup_list_qss
+from ..style.theme import popup_list_qss
 
 
 class _RuleTagSuggestionPopup(ListWidget):

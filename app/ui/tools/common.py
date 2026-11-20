@@ -14,8 +14,8 @@ from qfluentwidgets import BodyLabel, CardWidget, FluentIcon, LineEdit, PushButt
 from ...config import app_config
 from ...core.tools.ffmpeg import FfmpegError, FfmpegInfo, locate
 from ...i18n import tr
-from ..theme import CARD_MARGINS, set_secondary_text
-from ..worker_lifecycle import ManagedThread
+from ..style.theme import CARD_MARGINS, set_secondary_text
+from ..common.worker_lifecycle import ManagedThread
 
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".flv", ".wmv", ".ts", ".mpg", ".mpeg")
 

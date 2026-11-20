@@ -10,7 +10,7 @@ from ...core.tools import covers
 from ...core.tools.compress import Cancelled, Compressor, CompressOptions, CompressPlan
 from ...core.tools.ffmpeg import FfmpegError, FfmpegInfo, MediaInfo, probe
 from ...logging_setup import get_logger
-from ..worker_lifecycle import ManagedThread
+from ..common.worker_lifecycle import ManagedThread
 
 logger = get_logger(__name__)
 

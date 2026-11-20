@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from qfluentwidgets import Action, FluentIcon, RoundMenu
+from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 
 from ...i18n import tr
 from .helpers import _open_url, _source_url, _video_url
@@ -71,30 +72,19 @@ class SubscriptionContextMenusMixin:
         return _video_url(video_id)
 
     def _add_single_video_actions(self, menu: RoundMenu, single: str):
-        menu.addAction(
-            Action(
-                FluentIcon.VIEW,
-                tr("View Details", "查看详情", "詳細を表示"),
-                self,
-                triggered=lambda _checked=False: signal_bus.media_detail_requested.emit("video", single),
-            )
+        add_detail_action(menu, self, lambda: signal_bus.media_detail_requested.emit("video", single))
+        add_play_actions(
+            menu, self, download_manager, single,
+            title=self._item_title(single), play=lambda: self._activate_video_id(single),
         )
-        menu.addAction(
-            Action(
-                FluentIcon.PLAY,
-                tr("Play", "播放", "再生"),
-                self,
-                triggered=lambda _checked=False: self._activate_video_id(single),
-            )
-        )
-        menu.addAction(
-            Action(
-                FluentIcon.GLOBE,
-                tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"),
-                self,
-                triggered=lambda _checked=False: _open_url(self._stored_video_url(single)),
-            )
-        )
+        add_section(menu)
+        add_link_actions(menu, self, self._stored_video_url(single))
+
+    def _item_title(self, video_id: str) -> str:
+        for item in getattr(self, "_all_items", None) or []:
+            if str(item.get("video_id", "") or "") == video_id:
+                return str(item.get("title", "") or "")
+        return ""
 
     def _add_pending_toggle_action(self, menu: RoundMenu, video_ids: list[str]):
         pending = [video_id for video_id in video_ids if video_id in self._pending_video_ids]
@@ -236,16 +226,26 @@ class SubscriptionContextMenusMixin:
         video_id = video.video_id
         ids = list(selection) if selection and len(selection) > 1 else [video_id]
         menu = RoundMenu(parent=self)
-        menu.addAction(Action(FluentIcon.VIEW, tr("View Details", "查看详情", "詳細を表示"), self, triggered=lambda: self._show_video_detail(video)))
-        menu.addAction(Action(FluentIcon.PLAY, tr("Play", "播放", "再生"), self, triggered=lambda: self._activate_video_id(video_id)))
-        menu.addAction(Action(FluentIcon.GLOBE, tr("Open in Browser", "在浏览器打开", "ブラウザーで開く"), self, triggered=lambda: _open_url(str(getattr(video, "source_url", "") or "") or _video_url(video_id))))
-        menu.addSeparator()
+        add_detail_action(menu, self, lambda: self._show_video_detail(video))
+        add_play_actions(
+            menu, self, download_manager, video_id,
+            title=video.title, play=lambda: self._activate_video_id(video_id),
+        )
+        add_section(menu)
         label = (
             tr("Download Selected", "下载选中", "選択を保存")
             if len(ids) > 1
             else tr("Download", "下载", "保存")
         )
         menu.addAction(Action(FluentIcon.DOWNLOAD, label, self, triggered=lambda: self._download_selected_with_rule(ids)))
+        add_section(menu)
+        add_link_actions(menu, self, str(getattr(video, "source_url", "") or "") or _video_url(video_id))
+        if video.author_username:
+            author = (video.author_username, video.author_name or video.author_username, "", "")
+            add_section(menu)
+            menu.addAction(Action(FluentIcon.PEOPLE, tr("Open Author Page", "打开作者页", "作者ページを開く"), self, triggered=lambda: signal_bus.author_page_requested.emit(author)))
+            menu.addAction(Action(FluentIcon.SEARCH, tr("Search Author's Works", "查看作者作品", "作者の作品を表示"), self, triggered=lambda: signal_bus.search_requested.emit({"author": author})))
+        add_section(menu)
         menu.addAction(
             Action(
                 FluentIcon.ACCEPT,
@@ -254,8 +254,4 @@ class SubscriptionContextMenusMixin:
                 triggered=lambda: self._mark_selected_downloaded_moved(ids),
             )
         )
-        if video.author_username:
-            author = (video.author_username, video.author_name or video.author_username, "", "")
-            menu.addAction(Action(FluentIcon.PEOPLE, tr("Open Author Page", "打开作者页", "作者ページを開く"), self, triggered=lambda: signal_bus.author_page_requested.emit(author)))
-            menu.addAction(Action(FluentIcon.SEARCH, tr("Search Author's Works", "查看作者作品", "作者の作品を表示"), self, triggered=lambda: signal_bus.search_requested.emit({"author": author})))
         menu.exec(global_pos)

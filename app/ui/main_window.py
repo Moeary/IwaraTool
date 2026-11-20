@@ -12,14 +12,14 @@ from qfluentwidgets import FluentWindow, qconfig
 
 from ..signal_bus import signal_bus
 from ..logging_setup import get_logger
-from .navigation import NavigationController
-from .notification_dispatcher import TaskNotificationBatch
-from .shortcut_bindings import install_shortcuts
-from .swipe_back import SwipeBackTracker
-from .theme import install_accent
+from .window.back_stack import NavigationController
+from .window.notification_dispatcher import TaskNotificationBatch
+from .shortcuts.bindings import install_shortcuts
+from .window.swipe_back import SwipeBackTracker
+from .style.theme import install_accent
 from .player.preview_window import VideoPreviewWindow, keep_normal_geometry
-from .window_drag import WindowsTitleBarDragFilter
-from .worker_lifecycle import ShutdownPoller
+from .window.drag import WindowsTitleBarDragFilter
+from .common.worker_lifecycle import ShutdownPoller
 from .window.commands import WindowCommandsMixin
 from .window.navigation import WindowNavigationMixin
 from .window.notifications import WindowNotificationsMixin
@@ -51,8 +51,10 @@ class _BackButtonFilter(QObject):
     def eventFilter(self, watched, event):
         kind = event.type()
         if kind == QEvent.Type.Wheel and self._swipe is not None and isinstance(watched, QWindow):
-            # Seen once per scroll on the window itself, before it reaches a widget.
-            if watched is self._window.windowHandle() and QApplication.activePopupWidget() is None:
+            # Seen once per scroll on the window that gets it, before it reaches a
+            # widget.  A QVideoWidget in a scroll area makes the page's widgets
+            # native, and the scroll then goes to the child window under the pointer.
+            if self._is_own_window(watched) and QApplication.activePopupWidget() is None:
                 widget = QApplication.widgetAt(event.globalPosition().toPoint())
                 if self._swipe.feed(event, widget):
                     self._window.navigate_back()
@@ -66,6 +68,16 @@ class _BackButtonFilter(QObject):
                 if kind == QEvent.Type.MouseButtonPress:
                     self._window.navigate_back()
                 return True
+        return False
+
+    def _is_own_window(self, window: QWindow) -> bool:
+        """The main window's QWindow, or a native child window inside it."""
+
+        top = self._window.windowHandle()
+        while window is not None:
+            if window is top:
+                return True
+            window = window.parent()
         return False
 
 

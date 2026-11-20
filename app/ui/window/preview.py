@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...i18n import tr
-from ...core import video_player
-from ...core.manager import download_manager
+from ...core.playback import video_player
+from ...core.download.manager import download_manager
 from ..player.preview_window import VideoPreviewWindow
 
 
@@ -20,10 +20,14 @@ class WindowPreviewMixin:
     def _on_video_preview_requested(self, video_id: str, title: str, path: str):
         """Play locally when the file is on disk, otherwise stream it in a window."""
         video_id = str(video_id or "").strip()
-        local = path if path and os.path.isfile(path) else video_player.local_video_path(video_id)
+        if path and (os.path.isfile(path) or video_player.is_url(path)):
+            local = path
+        else:
+            # The local file, the NAS copy through its mount, or its http URL.
+            local = video_player.playable_video_target(video_id)
         if local and video_id:
             download_manager.set_videos_watched([video_id])  # feeds the history's "unwatched" view
-        if local and video_player.player_mode() != video_player.MODE_BUILTIN:
+        if local and video_player.opens_externally(local):
             ok, message = video_player.open_local_video(local)
             if not ok:
                 InfoBar.warning(
@@ -44,7 +48,7 @@ class WindowPreviewMixin:
         """An embedded player asked for the window: always the built-in one, at the same spot."""
         video_id = str(video_id or "").strip()
         if video_id:
-            self._show_preview_window(video_id, title, video_player.local_video_path(video_id), start_ms=position)
+            self._show_preview_window(video_id, title, video_player.playable_video_target(video_id), start_ms=position)
 
     def _show_preview_window(self, video_id: str, title: str, local: str, *, start_ms: int = 0):
         if self._preview_window is None:

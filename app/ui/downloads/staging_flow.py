@@ -20,7 +20,7 @@ from ...config import app_config
 from ...core.rules import active_rule_id
 from ...core.search.models import SearchVideo
 from ...i18n import tr
-from ..worker_lifecycle import ManagedThread, on_finished, stop_qthreads
+from ..common.worker_lifecycle import ManagedThread, on_finished, stop_qthreads
 from .page_dependencies import download_manager
 
 

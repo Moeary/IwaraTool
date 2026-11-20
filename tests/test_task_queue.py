@@ -3,9 +3,9 @@ import os
 import tempfile
 import unittest
 
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.models import DownloadTask, TaskStatus
-from app.core.task_queue import TASK_QUEUE_SCHEMA_VERSION, TaskQueueStore
+from app.core.download.task_queue import TASK_QUEUE_SCHEMA_VERSION, TaskQueueStore
 
 
 class TaskQueueStoreTests(unittest.TestCase):

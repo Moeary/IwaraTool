@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.config import app_config
 from app.core.download.speed_format import format_speed, parse_speed
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
 from app.core.search.models import SearchVideo
@@ -277,7 +277,7 @@ class SubscriptionPageViewTests(_QtCase):
         for target, value in (
             ("app.ui.home.workers.FeedWorker.run", lambda worker: None),
             ("app.ui.home.workers.ApiCallWorker.run", lambda worker: None),
-            ("app.ui.author_status.download_manager", self.manager),
+            ("app.ui.author.status.download_manager", self.manager),
         ):
             patcher = patch(target, value)
             patcher.start()
@@ -487,7 +487,7 @@ class TaskSpeedTests(_QtCase):
 
 class StartupPageTests(_QtCase):
     def test_shortcut_numbers_follow_the_sidebar(self):
-        from app.core import shortcut_defs
+        from app.ui.shortcuts import catalog as shortcut_defs
 
         defaults = {a.id: a.default for a in shortcut_defs.all_actions()}
         order = ["nav_home", "nav_subscriptions", "nav_search", "nav_download", "nav_repair", "nav_history", "nav_rules", "nav_settings"]

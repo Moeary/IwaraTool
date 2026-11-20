@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from qfluentwidgets import MessageBoxBase
 
-from app.ui import mask_dialogs
+from app.ui.common import mask_dialogs
 
 
 class MaskDialogExecTests(unittest.TestCase):

@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...i18n import tr
-from ..fluent_dialogs import show_fluent_confirmation, show_fluent_text_input
+from ..common.fluent_dialogs import show_fluent_confirmation, show_fluent_text_input
 from .page_dependencies import download_manager
 from .record_state import _video_url
 
@@ -217,7 +217,7 @@ class HistoryRecordActionsMixin:
                 "不会删除本地文件，但这些视频之后不再被历史库视为已保存；后续可能会重新入队。",
                 "ローカルファイルは削除されませんが、履歴上は保存済み扱いではなくなります。",
             ),
-            yes_text=tr("Clean records", "清理记录", "履歴を削除"),
+            yes_text=tr("Clean records", "清理记录", "履歴を整理"),
             no_text=tr("Cancel", "取消", "キャンセル"),
         )
         if not confirmed:
@@ -226,7 +226,7 @@ class HistoryRecordActionsMixin:
         stats = download_manager.sync_history_with_download_folder()
         self._load_history()
         InfoBar.success(
-            title=tr("Cleanup Finished", "清理完成", "削除完了"),
+            title=tr("Cleanup Finished", "清理完成", "整理完了"),
             content=tr(
                 f"Kept {stats['kept']}, removed {stats['removed']}",
                 f"保留 {stats['kept']} 条，删除数据库记录 {stats['removed']} 条",

@@ -320,9 +320,9 @@ class DownloadArtifactsMixin:
     def _thumbnail_host(task: DownloadTask, *, require_video_file: bool) -> str:
         """The image host for the task's cover, or "" when the cover cannot be fetched."""
 
-        if not task.file_path:
+        if not task.file_path and not task.remote_path:
             return ""
-        if require_video_file:
+        if require_video_file and task.file_path:
             if not os.path.exists(task.file_path):
                 return ""
             if os.path.getsize(task.file_path) <= 0:

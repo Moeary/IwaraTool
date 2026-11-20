@@ -1,6 +1,6 @@
 import unittest
 
-from app.ui.worker_lifecycle import stop_qthreads
+from app.ui.common.worker_lifecycle import stop_qthreads
 
 
 class FakeThread:
@@ -115,7 +115,7 @@ class AuthSnapshotTests(unittest.TestCase):
         import time
         from unittest import mock
 
-        from app.core.manager import DownloadManager
+        from app.core.download.manager import DownloadManager
 
         manager = object.__new__(DownloadManager)
         manager._api_lock = threading.RLock()
@@ -180,7 +180,7 @@ class ManagedThreadTests(unittest.TestCase):
         from PySide6.QtCore import QCoreApplication, QEvent
         from PySide6.QtWidgets import QWidget
 
-        from app.ui.worker_lifecycle import ManagedThread
+        from app.ui.common.worker_lifecycle import ManagedThread
 
         release = threading.Event()
 
@@ -201,7 +201,7 @@ class ManagedThreadTests(unittest.TestCase):
         gc.collect()  # the process would abort here if the thread were destroyed
         self.assertIsNotNone(alive())
         self.assertTrue(alive().isRunning())
-        from app.ui import worker_lifecycle
+        from app.ui.common import worker_lifecycle
 
         self.assertIn(alive(), worker_lifecycle._RUNNING)
         release.set()
@@ -222,7 +222,7 @@ class ShutdownPollerTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def test_every_step_is_asked_at_once_and_nothing_blocks(self):
-        from app.ui.worker_lifecycle import ShutdownPoller
+        from app.ui.common.worker_lifecycle import ShutdownPoller
 
         calls = []
         poller = ShutdownPoller([
@@ -237,7 +237,7 @@ class ShutdownPollerTests(unittest.TestCase):
 
         from PySide6.QtWidgets import QApplication
 
-        from app.ui.worker_lifecycle import ShutdownPoller
+        from app.ui.common.worker_lifecycle import ShutdownPoller
 
         state = {"stopped": False}
         results = []

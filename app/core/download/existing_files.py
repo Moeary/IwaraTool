@@ -8,7 +8,8 @@ import time
 
 from ...config import app_config
 from ..rules import rule_store
-from ..manager_state import EXISTING_FILE_INDEX_TTL_SECONDS as _EXISTING_FILE_INDEX_TTL_SECONDS
+from .locations import record_is_remote, remote_mode_enabled
+from .manager_state import EXISTING_FILE_INDEX_TTL_SECONDS as _EXISTING_FILE_INDEX_TTL_SECONDS
 
 
 class ExistingFilesMixin:
@@ -20,6 +21,11 @@ class ExistingFilesMixin:
         if not video_id:
             return None
         record = self.history.get_record(video_id)
+        if record and record_is_remote(record):
+            # Only a copy on the aria2 host: it counts while downloads still go there.
+            if remote_mode_enabled() and record.get("remote_path"):
+                return str(record["remote_path"])
+            record = None
         if record:
             file_path = str(record.get("file_path", "") or "")
             if file_path and os.path.isfile(file_path) and os.path.getsize(file_path) > 0:

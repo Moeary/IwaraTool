@@ -40,6 +40,7 @@ class PostFilter:
     min_like_ratio_percent: float | None = None
     exclude_tags: tuple[str, ...] = ()
     sort: str = "server"
+    orientation: str = ""  # empty: all; portrait: width < height; landscape: width > height
 
     def condition_count(self) -> int:
         """How many filter conditions are set (the sort is not a condition)."""
@@ -49,7 +50,7 @@ class PostFilter:
             self.min_duration_minutes, self.max_duration_minutes,
             self.published_within_days, self.min_like_ratio_percent,
         )
-        return sum(value is not None for value in values) + (1 if self.exclude_tags else 0)
+        return sum(value is not None for value in values) + bool(self.exclude_tags) + bool(self.orientation)
 
     def is_active(self) -> bool:
         return self.condition_count() > 0 or self.sort != "server"
@@ -84,6 +85,13 @@ def _within(value: float, low: float | None, high: float | None) -> bool:
 def matches(video: SearchVideo, post_filter: PostFilter, *, today: date | None = None) -> bool:
     if metadata_pending(video) and post_filter.condition_count():
         return False  # unknown statistics must not pass as zero (or as a match)
+    if post_filter.orientation:
+        if video.width <= 0 or video.height <= 0:
+            return False
+        if post_filter.orientation == "portrait" and video.width >= video.height:
+            return False
+        if post_filter.orientation == "landscape" and video.width <= video.height:
+            return False
     if not _within(video.likes, post_filter.min_likes, post_filter.max_likes):
         return False
     if not _within(video.views, post_filter.min_views, post_filter.max_views):

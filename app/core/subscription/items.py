@@ -7,8 +7,9 @@ from typing import Any
 
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..task_metadata import _subscription_download_block_from_error
+from ..download.task_metadata import _subscription_download_block_from_error
 from .. import site as sites
+from ..download.locations import record_is_remote, resolve_record_location
 
 
 class SubscriptionItemsMixin:
@@ -46,9 +47,12 @@ class SubscriptionItemsMixin:
                     download_state = inferred_state
                     download_reason = inferred_reason or task_error
                     self.subscriptions.update_item_download_state(video_id, download_state, download_reason)
+            location = resolve_record_location(history_record)
             item["downloaded"] = bool(history_record)
-            item["download_file_path"] = file_path
-            item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
+            item["download_file_path"] = location.local_path or file_path
+            # A copy on the aria2 host is "remote", never "on this machine".
+            item["download_remote"] = location.is_remote
+            item["download_file_exists"] = bool(file_path and os.path.exists(file_path)) and not location.is_remote
             item["thumbnail_path"] = cached_thumbnail_path  # always the cache, never the download's own cover
             item["task_status"] = task_status
             item["queued"] = bool(task_status)
@@ -109,7 +113,8 @@ class SubscriptionItemsMixin:
                 else ""
             )
             item["downloaded"] = bool(record)
-            item["download_file_exists"] = bool(file_path and os.path.exists(file_path))
+            item["download_remote"] = record_is_remote(record)
+            item["download_file_exists"] = bool(file_path and os.path.exists(file_path)) and not item["download_remote"]
             item["thumbnail_path"] = cached  # always the cache, never the download's own cover
             item["queued"] = bool(task_status_by_video_id.get(video_id.lower()))
         return recent
@@ -136,7 +141,7 @@ class SubscriptionItemsMixin:
         restored = 0
         for video_id in ids:
             record = self.history.get_record(video_id)
-            if not record:
+            if not record or record_is_remote(record):  # a NAS copy is not "moved"
                 continue
             file_path = str(record.get("file_path", "") or "")
             if file_path and os.path.exists(file_path):

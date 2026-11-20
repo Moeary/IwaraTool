@@ -14,9 +14,9 @@ from ...core.search.models import SearchVideo
 from ..downloads.staging_flow import stage_videos
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ...core import shortcut_defs
+from ..shortcuts import catalog as shortcut_defs
 from ..home.workers import ApiCallWorker
-from ..formatting import _format_count
+from ..common.formatting import _format_count
 from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
 from ...core import site as sites
@@ -36,14 +36,14 @@ class DetailActionsMixin:
 
         if not self._can_play():
             return
-        from ...core import video_player
+        from ...core.playback import video_player
 
         if self._player is None:
             self._player = VideoPlayer(self.player_backend_factory, self._player_box, allow_popout=True)
             self._player.popout_requested.connect(self._pop_out)
             self._player_box.layout().addWidget(self._player)
         video = self._video
-        local = video_player.local_video_path(video.video_id)
+        local = video_player.playable_video_target(video.video_id)
         if local:
             self._player.play_local(local, video.title, video.video_id, site=self.item_site())
         else:

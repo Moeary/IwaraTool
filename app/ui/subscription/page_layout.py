@@ -9,8 +9,8 @@ from qfluentwidgets import CardWidget, SegmentedWidget, ToolButton
 
 from ...config import app_config
 from ...i18n import tr
-from ..author_view import AuthorView
-from ..chrome import PageHeader
+from ..author.view import AuthorView
+from ..common.chrome import PageHeader
 from .components import (
     _CONTROL_HEIGHT,
     _FluentContentSplitter,
@@ -20,8 +20,8 @@ from .components import (
 )
 from .source_items_view import SourceItemsView
 from .overview import SubscriptionOverview
-from ..theme import PAGE_MARGINS
-from ..ui_state import connect_splitter_saver, fit_table_last_column, restore_splitter_sizes
+from ..style.theme import PAGE_MARGINS
+from ..common.ui_state import connect_splitter_saver, fit_table_last_column, restore_splitter_sizes
 from .item_panel_layout import SubscriptionItemPanelLayoutMixin
 from .source_panel_layout import SubscriptionSourcePanelLayoutMixin
 

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QListWidgetItem, QWidget
 
 from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
-from ...core.manager import download_manager
+from ...core.download.manager import download_manager
 from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
 from ...core.search.post_filter import PostFilter
 from ...i18n import tr
@@ -23,7 +23,7 @@ from ..downloads.staging_flow import StagingFlow
 from .search_worker import SearchWorker
 # read_pixmap is not used here: it is the patch point for page_dependencies.
 from ..media.pixmaps import PixmapLRU, read_pixmap  # noqa: F401
-from ..theme import qcolor
+from ..style.theme import qcolor
 from .covers import SearchCoversMixin
 from .execution import SearchExecutionMixin
 from .history import SearchHistoryMixin

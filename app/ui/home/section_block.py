@@ -19,7 +19,7 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...core.home_cache import (
+from ...core.home.cache import (
     DEFAULT_CACHE_MINUTES,
     HOME_CACHE_MINUTES_KEY,
     HomeFeedCache,
@@ -27,14 +27,14 @@ from ...core.home_cache import (
     rows_signature,
     shared_cache,
 )
-from ...core.home_feed import HOME_PAGE_LIMIT, FeedSection
+from ...core.home.feed import HOME_PAGE_LIMIT, FeedSection
 from ...core.rating import RATING_ALL, normalize_rating
 from ...core.search.models import SearchVideo
 from ...i18n import tr
-from ..chrome import SectionTitle, format_age
+from ..common.chrome import SectionTitle, format_age
 from .workers import CoverFetcher, FeedResult, FeedWorker, items_from_rows, stop_workers
 from ..media.grid import MediaGrid
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 from .page_dependencies import download_manager
 
 

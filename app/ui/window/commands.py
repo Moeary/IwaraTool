@@ -12,12 +12,12 @@ from qfluentwidgets import InfoBar, InfoBarPosition, isDarkTheme
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ...config import app_config
-from ...core import shortcut_defs
+from ..shortcuts import catalog as shortcut_defs
 from ...core import site as sites
 from ...core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
-from ..navigation import NavEntry, draft_of, restore_draft_into, restore_into, snapshot_of
-from ..fonts import apply_app_font
-from ..theme import apply_theme_mode, refresh_splitters
+from .back_stack import NavEntry, draft_of, restore_draft_into, restore_into, snapshot_of
+from ..style.fonts import apply_app_font
+from ..style.theme import apply_theme_mode, refresh_splitters
 
 
 class WindowCommandsMixin:
@@ -98,7 +98,7 @@ class WindowCommandsMixin:
     def show_shortcut_help(self):
         """F1: the cheat sheet; its button opens Settings → Keyboard Shortcuts."""
 
-        from ..shortcut_help import ShortcutHelpDialog
+        from ..shortcuts.cheat_sheet import ShortcutHelpDialog
 
         page = self.stackedWidget.currentWidget()
         scope = {

@@ -12,7 +12,7 @@ from qfluentwidgets import InfoBarPosition, TableWidget
 from ...i18n import tr
 from .helpers import _open_url, _source_url, _video_url
 from .page_dependencies import InfoBar, download_manager, signal_bus
-from ..theme import link_color
+from ..style.theme import link_color
 
 
 class SubscriptionSelectionMixin:

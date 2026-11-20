@@ -42,7 +42,7 @@ from ...core.rules import (
 )
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from ..theme import (
+from ..style.theme import (
     PAGE_MARGINS,
     PAGE_SPACING,
     FluentSplitter,
@@ -50,7 +50,7 @@ from ..theme import (
     palette,
     set_secondary_text,
 )
-from ..fluent_dialogs import show_fluent_confirmation
+from ..common.fluent_dialogs import show_fluent_confirmation
 from .page_bindings import PageRuleBindings
 from .rule_form import RuleFormWidget
 from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary, page_scope_name

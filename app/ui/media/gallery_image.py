@@ -9,7 +9,7 @@ from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .pixmaps import image_size, read_pixmap
-from ..theme import palette, to_qcolor
+from ..style.theme import palette, to_qcolor
 
 
 GALLERY_MAX_WIDTH = 1280

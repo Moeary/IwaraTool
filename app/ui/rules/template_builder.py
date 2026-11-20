@@ -17,7 +17,7 @@ from ...core.download.template_builder import (
     template_presets,
 )
 from ...i18n import tr
-from ..theme import set_secondary_text
+from ..style.theme import set_secondary_text
 
 # Fields offered, in order, when the user clicks "add field".
 _ADD_ORDER = ("title", "id", "YYYY-MM-DD", "quality", "author", "username", "YYYY", "MM", "views", "likes")

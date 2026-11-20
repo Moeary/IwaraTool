@@ -33,19 +33,19 @@ from ...config import app_config
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating, rating_options
 from ...i18n import tr
 from ..rules.rule_picker import RulePicker
-from ..card_list import CardGridList
-from ..click_dispatch import ClickDispatcher
+from ..common.card_list import CardGridList
+from ..common.click_dispatch import ClickDispatcher
 from .widgets import SearchHistoryPopup, SearchKeywordEdit, TagSuggestionPopup
 from .grid_style import _search_grid_style
-from ..ui_state import (
+from ..common.ui_state import (
     connect_table_column_saver,
     connect_table_width_saver,
     restore_table_columns,
     restore_table_widths,
 )
 from ..media.card_size import CardSizeControl, saved_card_width
-from ..shortcuts import attach_hint
-from ..theme import CARD_MARGINS, PAGE_MARGINS, set_secondary_text
+from ..shortcuts.registry import attach_hint
+from ..style.theme import CARD_MARGINS, PAGE_MARGINS, set_secondary_text
 
 from .click_filter import _ResultClickFilter
 from .results_layout import _DEFAULT_GRID_HEIGHT, _VIDEO_ICON_SIZE
@@ -155,8 +155,8 @@ class SearchPageLayoutMixin:
                 (tr("Newest", "最新", "新着"), "date"),
                 (tr("Trending", "趋势", "トレンド"), "trending"),
                 (tr("Popularity", "热度", "人気"), "popularity"),
-                (tr("Most viewed", "最多人观看", "再生数最多"), "views"),
-                (tr("Most liked", "喜欢最多", "いいね順"), "likes"),
+                (tr("Most viewed", "播放最多", "再生数順"), "views"),
+                (tr("Most liked", "点赞最多", "いいね順"), "likes"),
             ],
             query_card,
         )
@@ -369,7 +369,7 @@ class SearchPageLayoutMixin:
                 tr("Published", "发布时间", "公開日"),
                 tr("Tags", "标签", "タグ"),
                 tr("Iwara URL", "Iwara 链接", "Iwara URL"),
-                tr("Source URL", "来源链接", "元URL"),
+                tr("Source URL", "来源URL", "元URL"),
                 tr("Source", "来源", "ソース"),
                 tr("Download status", "下载状态", "ダウンロード状態"),
             ]

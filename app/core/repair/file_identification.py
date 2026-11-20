@@ -15,7 +15,7 @@ from .matching import (
     pick_repair_candidate,
     repair_target_path,
 )
-from ..task_metadata import _dict_or_empty
+from ..download.task_metadata import _dict_or_empty
 from .. import site as sites
 
 

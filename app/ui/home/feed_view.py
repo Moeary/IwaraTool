@@ -8,16 +8,16 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import BodyLabel, FluentIcon, PushButton, SegmentedWidget, ToolButton
 
-from ...core.home_cache import HomeFeedCache, shared_cache
-from ...core.home_feed import home_sections
+from ...core.home.cache import HomeFeedCache, shared_cache
+from ...core.home.feed import home_sections
 from ...core.rating import RATING_ALL, normalize_rating, rating_options
 from ...i18n import tr
-from ..chrome import EmptyState, PageHeader
+from ..common.chrome import EmptyState, PageHeader
 from .workers import CoverFetcher
 from ..media.card_size import CardSizeControl
 from ..media.grid import transparent_scroll_area
-from ..shortcuts import attach_hint
-from ..theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
+from ..shortcuts.registry import attach_hint
+from ..style.theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from .section_block import SectionBlock
 
 

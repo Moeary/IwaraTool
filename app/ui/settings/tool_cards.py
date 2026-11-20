@@ -15,7 +15,7 @@ from qfluentwidgets import BodyLabel, FluentIcon, LineEdit, PushButton, Subtitle
 from ...config import app_config
 from ...core.tools.ffmpeg import program_at
 from ...i18n import tr
-from ..theme import set_secondary_text, set_status_text
+from ..style.theme import set_secondary_text, set_status_text
 from ..tools.common import ffmpeg_state
 
 

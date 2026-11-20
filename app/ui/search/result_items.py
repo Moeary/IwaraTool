@@ -9,8 +9,8 @@ from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem
 from ...core.search.models import SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
 from .download_status import iwara_history_id
-from ..formatting import _format_count, _format_duration, _short_text
-from ..theme import qcolor
+from ..common.formatting import _format_count, _format_duration, _short_text
+from ..style.theme import qcolor
 
 from .results_layout import _DEFAULT_GRID_HEIGHT
 from ...core import site as sites
@@ -202,7 +202,7 @@ class SearchResultItemsMixin:
         author = f"@{video.author_username}" if video.author_username else tr("Unknown author", "未知作者", "作者不明")
         stats = tr(
             f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
-            f"{_format_count(video.views)} 次观看 · {_format_count(video.likes)} 喜欢",
+            f"{_format_count(video.views)} 播放 · {_format_count(video.likes)} 点赞",
             f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
         )
         duration = _format_duration(video.duration) if video.duration else "—"

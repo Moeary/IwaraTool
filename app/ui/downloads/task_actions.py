@@ -231,8 +231,8 @@ class TaskActionsMixin:
             title=tr("Restore Triggered", "批量恢复已触发", "復元を開始"),
             content=tr(
                 f"Restored {restored} cancelled tasks",
-                f"恢复 {restored} 个已中断任务",
-                f"{restored} 件の中断タスクを復元しました",
+                f"已恢复 {restored} 个中断任务",
+                f"中断タスク {restored} 件を復元しました",
             ),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,

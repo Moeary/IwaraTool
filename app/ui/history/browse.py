@@ -17,7 +17,7 @@ from qfluentwidgets import ComboBox, FluentIcon, ListWidget, SegmentedWidget, To
 from ...config import app_config
 from ...i18n import current_language, tr
 from ...signal_bus import signal_bus
-from ..flow_layout import ResponsiveFlowLayout
+from ..common.flow_layout import ResponsiveFlowLayout
 from ..media.card_size import CardSizeControl
 from .cover_grid import MODE_COVER, MODE_GRID, HistoryCoverGrid
 
@@ -135,7 +135,7 @@ class HistoryBrowseMixin:
         self._view_bar = SegmentedWidget(self)
         for key, text in (
             (VIEW_LIST, tr("List", "列表", "リスト")),
-            (MODE_GRID, tr("Grid", "方格", "グリッド")),
+            (MODE_GRID, tr("Grid", "网格", "グリッド")),
             (MODE_COVER, tr("Covers", "封面", "カバー")),
         ):
             self._view_bar.addItem(key, text, lambda _checked=False, key=key: self._set_view_mode(key))
@@ -265,7 +265,7 @@ class HistoryBrowseMixin:
         if self._scope == SCOPE_RECENT:
             return str(record.get("downloaded_at", "") or "") >= recent_cutoff
         if self._scope == SCOPE_UNWATCHED:
-            return state_key == "ok" and not str(record.get("watched_at", "") or "")
+            return state_key in ("ok", "remote") and not str(record.get("watched_at", "") or "")
         if self._scope == SCOPE_AUTHOR and self._author_filter:
             return str(record.get("author", "") or "") == self._author_filter
         return True

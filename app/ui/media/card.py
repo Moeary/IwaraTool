@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from ...core.rating import is_adult
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
 from ...i18n import tr
-from ..formatting import _format_count, _format_duration
-from ..theme import palette, to_qcolor
+from ..common.formatting import _format_count, _format_duration
+from ..style.theme import palette, to_qcolor
 
 COVER_RATIO = 9 / 16
 CARD_RADIUS = 8
@@ -111,6 +111,7 @@ class MediaCard(QWidget):
             "new": (tr("NEW", "新增", "新着"), QColor(0, 120, 212, 225)),
             "downloaded": (tr("Downloaded", "已下载", "保存済み"), QColor(16, 124, 16, 225)),
             "moved": (tr("Moved", "已移走", "移動済み"), QColor(120, 120, 120, 225)),
+            "remote": (tr("On NAS", "远端", "リモート"), QColor(0, 99, 177, 225)),
             "queued": (tr("Queued", "已入队", "キュー内"), QColor(202, 120, 0, 225)),
             "unavailable": (tr("Unavailable", "不可下载", "保存不可"), QColor(150, 60, 60, 225)),
         }
@@ -417,7 +418,7 @@ class MediaCard(QWidget):
         else:
             stats = tr(
                 f"{_format_count(video.views)} views · {_format_count(video.likes)} likes",
-                f"{_format_count(video.views)} 观看 · {_format_count(video.likes)} 喜欢",
+                f"{_format_count(video.views)} 播放 · {_format_count(video.likes)} 点赞",
                 f"{_format_count(video.views)} 再生 · {_format_count(video.likes)} いいね",
             )
             if date and small_metrics.horizontalAdvance(f"{stats} · {date}") <= text_width:

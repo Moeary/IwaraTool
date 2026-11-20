@@ -13,7 +13,7 @@ from PySide6.QtCore import QSettings
 from app.config import app_config
 from app.core.api.client import IwaraAPI
 from app.core.api.auth_tokens import token_is_expired
-from app.core.manager import DownloadManager
+from app.core.download.manager import DownloadManager
 
 
 _MISSING = object()
