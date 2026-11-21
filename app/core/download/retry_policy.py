@@ -13,6 +13,11 @@ import re
 RETRY = "retry"
 SKIP = "skip"
 
+# The aria2 job's state was lost with the RPC connection: it may still be
+# writing the file, so a new attempt could share it.  Never retried
+# automatically, whatever status or wording the message carries.
+_NEVER_AUTO_MARKERS = ("aria2 rpc query failed", "aria2 rpc 查询失败", "aria2 rpc 問い合わせ失敗")
+
 # Checked before the transient markers: a permission error wrapped in a
 # connection message is still a permission error.
 _PERMANENT_MARKERS = (
@@ -80,6 +85,8 @@ def classify_failure(reason: str) -> str:
     text = str(reason or "").casefold()
     if not text:
         return ""
+    if any(marker in text for marker in _NEVER_AUTO_MARKERS):
+        return SKIP
     status = _http_status(text)
     if status >= 500 or status in _RETRY_STATUSES:
         return RETRY

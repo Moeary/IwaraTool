@@ -32,7 +32,6 @@ class TerminalStatesMixin:
         self._active_task_ids.discard(task_id)
         self._terminal_task_id_set.discard(task_id)
         self._task_last_activity.pop(task_id, None)
-        self._orphan_aria2_gids.pop(task_id, None)
         return task
 
     def _claim_task_worker_locked(self, task_id: str):

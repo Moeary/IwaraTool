@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
@@ -176,7 +174,6 @@ class TaskControlMixin:
         return (
             not self._task_worker_alive_locked(task.task_id)
             and task.task_id not in self._manual_retry_claims
-            and task.task_id not in self._orphan_aria2_gids
         )
 
     def _auto_requeue_if_idle(self, *, restore_stalled: bool = True, retry_failed: bool = True) -> tuple[int, int]:
@@ -196,7 +193,6 @@ class TaskControlMixin:
         retry_failed = retry_failed and bool(app_config.auto_retry_failed_enabled)
         if not (restore_stalled or retry_failed):
             return 0, 0
-        self._settle_orphan_aria2_gids(time.monotonic())
         max_attempts = app_config.auto_retry_failed_max_attempts
         retry_keywords = app_config.auto_retry_failed_retry_keywords
         skip_keywords = app_config.auto_retry_failed_skip_keywords

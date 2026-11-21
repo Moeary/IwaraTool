@@ -39,6 +39,8 @@ LIVE_TERMINAL_KEEP_LIMIT = 100
 EXISTING_FILE_INDEX_TTL_SECONDS = 60
 STALL_WATCHDOG_INTERVAL_SECONDS = 1.0
 CANCEL_ORIGIN_AUTO_STALL = "auto_stall"
+# Idle-cancelled, but aria2 did not confirm it stopped: only a manual restore.
+CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED = "auto_stall_unconfirmed"
 # Automatic restores of one idle-cancelled task before it waits for the user.
 STALL_AUTO_RESTORE_LIMIT = 10
 CANCEL_ORIGIN_MANUAL = "manual"

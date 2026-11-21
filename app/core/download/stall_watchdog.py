@@ -9,6 +9,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
+    CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED as _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED,
     STALL_WATCHDOG_INTERVAL_SECONDS as _STALL_WATCHDOG_INTERVAL_SECONDS,
     STALL_WATCH_STATUSES as _STALL_WATCH_STATUSES,
 )
@@ -91,6 +92,11 @@ class StallWatchdogMixin:
                 )
             )
             self._cancel_task_terminal(task_id, reason, origin=_CANCEL_ORIGIN_AUTO_STALL)
-            if aria2_gid:
-                self._aria2_rpc_cancel(aria2_gid)
+            if aria2_gid and not self._aria2_rpc_cancel(aria2_gid):
+                # aria2 may still be writing the file: leave the restore to the user
+                with self._lock:
+                    task = self._tasks.get(task_id)
+                    if task and task.status == TaskStatus.CANCELLED:
+                        task.cancel_origin = _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED
+                self._schedule_task_persist()
         return len(stale)

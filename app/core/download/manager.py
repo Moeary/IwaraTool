@@ -120,10 +120,6 @@ class DownloadManager(
         # A sign-in is running: automatic retry waits so it does not resolve
         # (and use up attempts) without the account.
         self._login_pending = False
-        # aria2 jobs whose state was lost with the RPC connection: {task_id: gid}.
-        # Their tasks are not retried automatically until aria2 confirms the stop.
-        self._orphan_aria2_gids: dict[str, str] = {}
-        self._orphan_gid_checked_at = 0.0
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False

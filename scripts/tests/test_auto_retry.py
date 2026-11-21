@@ -80,6 +80,8 @@ class RetryPolicyTests(unittest.TestCase):
             "HTTP 401: Unauthorized",
             "status=401 网络",
             "Failed to get file source list: HTTP 403",
+            "aria2 RPC query failed: HTTP 503: Service Unavailable",
+            "aria2 RPC 查询失败: Connection refused",
         ):
             with self.subTest(reason=reason):
                 self.assertEqual(classify_failure(reason), SKIP)
@@ -480,9 +482,10 @@ class ResumeIdentityTests(unittest.TestCase):
         self.assertTrue(os.path.exists(self.temp))
 
 
-class OrphanAria2Tests(unittest.TestCase):
+class LostAria2JobTests(unittest.TestCase):
     def setUp(self):
         self._saved = {key: getattr(app_config, key) for key in _KEYS}
+        self._stall_timeout = app_config.task_stall_timeout_seconds
         app_config.auto_retry_failed_enabled = True
         app_config.auto_retry_failed_max_attempts = 3
         app_config.auto_retry_failed_retry_keywords = ""
@@ -500,20 +503,27 @@ class OrphanAria2Tests(unittest.TestCase):
     def tearDown(self):
         for key, value in self._saved.items():
             setattr(app_config, key, value)
+        app_config.task_stall_timeout_seconds = self._stall_timeout
 
-    def test_lost_aria2_job_blocks_automatic_retry_until_it_stops(self):
-        replies = {"err": "('Connection aborted.', ConnectionRefusedError(61, 'Connection refused'))"}
-        self.mgr._aria2_rpc_tell_status = lambda gid: (None, replies["err"])
+    def test_lost_aria2_job_is_never_retried_automatically(self):
+        self.mgr._aria2_rpc_tell_status = lambda gid: (None, "HTTP 503: Service Unavailable")
         self.mgr._follow_aria2_download(self.task, "t", "gid1", "", "")
-
         self.assertEqual(self.task.status, TaskStatus.FAILED)
-        self.assertEqual(self.mgr._orphan_aria2_gids, {"t": "gid1"})
+        self.assertEqual(classify_failure(self.task.error_msg), SKIP)
         self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
 
-        replies["err"] = "400 Client Error: Bad Request"  # aria2 answers: GID unknown
-        self.mgr._orphan_gid_checked_at = 0.0
-        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 1)
-        self.assertEqual(self.mgr._orphan_aria2_gids, {})
+    def test_idle_cancel_without_aria2_confirmation_waits_for_the_user(self):
+        app_config.auto_restore_stalled_cancelled = True
+        app_config.task_stall_timeout_seconds = 1
+        self.task.aria2_gid = "gid1"
+        self.mgr._aria2_rpc_cancel = lambda gid: False  # RPC unreachable
+        with self.mgr._lock:
+            self.mgr._task_last_activity["t"] = 0.0  # long idle
+        self.assertEqual(self.mgr._cancel_stale_tasks(), 1)
+        self.assertEqual(self.task.status, TaskStatus.CANCELLED)
+        self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
+        self.assertTrue(self.mgr.restore_cancelled_task("t"))
 
 
 if __name__ == "__main__":

@@ -142,11 +142,8 @@ class Aria2DownloadMixin:
                 return
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
-                if not self._aria2_settle_gid(gid):
-                    # aria2 may still be writing this file; no automatic retry
-                    # until it is known to have stopped.
-                    with self._lock:
-                        self._orphan_aria2_gids[task_id] = gid
+                # aria2 may still be writing this file, so the retry policy
+                # never retries this message automatically.
                 self._fail_task(
                     task_id,
                     tr(
@@ -333,39 +330,15 @@ class Aria2DownloadMixin:
             )
         return result, ""
 
-    def _aria2_settle_gid(self, gid: str) -> bool:
-        """True once aria2 no longer runs ``gid`` (finished, removed or unknown to it)."""
-        info, err = self._aria2_rpc_tell_status(gid)
-        if info is None:
-            lower = err.lower()
-            # aria2 answered (an unknown GID is an RPC error); otherwise unreachable
-            return "not found" in lower or "400" in lower
-        if str(info.get("status", "")) in ("active", "waiting", "paused"):
-            self._aria2_rpc_call("aria2.forceRemove", [gid])
-            return False
-        self._aria2_rpc_remove_result(gid)
-        return True
-
-    def _settle_orphan_aria2_gids(self, now: float) -> None:
-        """Re-check aria2 jobs left behind by a lost RPC connection (every 30 s)."""
-        with self._lock:
-            if not self._orphan_aria2_gids or now - self._orphan_gid_checked_at < 30:
-                return
-            self._orphan_gid_checked_at = now
-            pending = dict(self._orphan_aria2_gids)
-        settled = [task_id for task_id, gid in pending.items() if self._aria2_settle_gid(gid)]
-        with self._lock:
-            for task_id in settled:
-                if self._orphan_aria2_gids.get(task_id) == pending[task_id]:
-                    self._orphan_aria2_gids.pop(task_id, None)
-
     def _aria2_rpc_remove_result(self, gid: str):
         self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
 
-    def _aria2_rpc_cancel(self, gid: str):
+    def _aria2_rpc_cancel(self, gid: str) -> bool:
+        """Stop an aria2 download; True when aria2 accepted the removal."""
         if not gid:
-            return
+            return True
         data, err = self._aria2_rpc_call("aria2.remove", [gid])
         if not data and err:
-            self._aria2_rpc_call("aria2.forceRemove", [gid])
+            data, _err = self._aria2_rpc_call("aria2.forceRemove", [gid])
         self._aria2_rpc_remove_result(gid)
+        return bool(data)
