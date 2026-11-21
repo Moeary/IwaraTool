@@ -34,6 +34,21 @@ class TerminalStatesMixin:
         self._task_last_activity.pop(task_id, None)
         return task
 
+    def _claim_task_worker_locked(self, task_id: str):
+        """Count a resolve / download job submitted for the task. Must hold self._lock."""
+        self._task_workers[task_id] = self._task_workers.get(task_id, 0) + 1
+
+    def _release_task_worker(self, task_id: str):
+        with self._lock:
+            remaining = self._task_workers.get(task_id, 0) - 1
+            if remaining > 0:
+                self._task_workers[task_id] = remaining
+            else:
+                self._task_workers.pop(task_id, None)
+
+    def _task_worker_alive_locked(self, task_id: str) -> bool:
+        return self._task_workers.get(task_id, 0) > 0
+
     def _unmark_terminal_locked(self, task_id: str):
         """Mark a previously-terminal task as live again. Must hold self._lock."""
         self._terminal_task_id_set.discard(task_id)

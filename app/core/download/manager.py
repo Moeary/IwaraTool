@@ -112,6 +112,11 @@ class DownloadManager(
         self._terminal_events_since_gc = 0
         self._last_gc_at = 0.0
         self._task_last_activity: dict[str, float] = {}
+        # Resolve / download jobs submitted per task and not yet returned.  A task
+        # is only re-queued automatically once its previous job has exited.
+        self._task_workers: dict[str, int] = {}
+        # Failed tasks a manual retry is cleaning up; automatic retry skips them.
+        self._manual_retry_claims: set[str] = set()
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False

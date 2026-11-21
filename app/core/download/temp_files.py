@@ -8,6 +8,7 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
+from .integrity import resume_meta_path
 
 
 class TempFilesMixin:
@@ -57,6 +58,7 @@ class TempFilesMixin:
             temp_path = f"{file_path}{suffix}"
             candidates.append(temp_path)
             candidates.append(f"{temp_path}.aria2")
+            candidates.append(resume_meta_path(temp_path))
 
         removed = 0
         failed = 0
@@ -93,10 +95,10 @@ class TempFilesMixin:
                 except Exception:
                     failed += 1
                     continue
-                sidecar = f"{temp_file}.aria2"
-                if os.path.exists(sidecar):
-                    try:
-                        os.remove(sidecar)
-                    except Exception:
-                        failed += 1
+                for sidecar in (f"{temp_file}.aria2", resume_meta_path(temp_file)):
+                    if os.path.exists(sidecar):
+                        try:
+                            os.remove(sidecar)
+                        except Exception:
+                            failed += 1
         return removed, failed

@@ -44,6 +44,7 @@ _INT_FIELDS = {
     "comments",
     "thumbnail_index",
     "auto_retry_count",
+    "auto_restore_count",
 }
 _SIGNED_INT_FIELDS = {"priority"}
 _BOOL_FIELDS = {

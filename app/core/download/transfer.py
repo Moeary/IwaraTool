@@ -9,7 +9,16 @@ from ...config import app_config
 from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
-from .integrity import classify_416, incomplete_reason, resume_offset_mismatch
+from .integrity import (
+    classify_416,
+    incomplete_reason,
+    read_resume_meta,
+    remove_resume_meta,
+    resume_offset_mismatch,
+    resume_source_mismatch,
+    resume_total_mismatch,
+    write_resume_meta,
+)
 from .locations import STORAGE_REMOTE
 from .speed_format import _fmt_bytes, _fmt_speed
 
@@ -21,6 +30,12 @@ class TransferMixin:
     """Transfer a resolved task's file with the built-in downloader (or hand it to aria2)."""
 
     def _download_task(self, task_id: str):
+        try:
+            self._download_task_impl(task_id)
+        finally:
+            self._release_task_worker(task_id)
+
+    def _download_task_impl(self, task_id: str):
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -148,8 +163,17 @@ class TransferMixin:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        # Resume support
+        # Resume support: only from a partial file of the same file and quality.
         existing_size = 0
+        if os.path.exists(temp_path) and resume_source_mismatch(read_resume_meta(temp_path), self._resume_source(task)):
+            self._discard_temp_file(temp_path)
+            signal_bus.log_message.emit(
+                tr(
+                    "  Partial file belongs to another file or quality; downloading again",
+                    "  已有缓存属于其他文件或画质，重新下载",
+                    "  一時ファイルは別のファイル/画質のものなので最初から保存します",
+                )
+            )
         if os.path.exists(temp_path):
             existing_size = os.path.getsize(temp_path)
             if existing_size > 0:
@@ -171,10 +195,16 @@ class TransferMixin:
         )
         return resp, existing_size
 
+    @staticmethod
+    def _resume_source(task) -> str:
+        """Which file and quality a partial download holds."""
+        return f"{task.file_id}:{task.quality}" if task.file_id else ""
+
     def _accept_download_response(self, task_id: str, resp, existing_size: int, temp_path: str, final_path: str) -> bool:
         """True to stream the body; False once the status code has finished the task."""
 
-        if resp.status_code == 416 and classify_416(resp.headers, existing_size) == "corrupt":
+        expected_total = int(read_resume_meta(temp_path).get("total", 0) or 0) if existing_size > 0 else 0
+        if resp.status_code == 416 and classify_416(resp.headers, existing_size, expected_total) == "corrupt":
             self._discard_temp_file(temp_path)
             self._fail_task(
                 task_id,
@@ -207,7 +237,9 @@ class TransferMixin:
             return False
 
         if resp.status_code == 206:
-            mismatch = resume_offset_mismatch(resp.headers, existing_size)
+            mismatch = resume_offset_mismatch(resp.headers, existing_size) or resume_total_mismatch(
+                resp.headers, existing_size, expected_total
+            )
             if mismatch:
                 self._discard_temp_file(temp_path)
                 self._fail_task(
@@ -235,6 +267,8 @@ class TransferMixin:
             task.total_bytes = total
             task.downloaded_bytes = existing_size
             self._touch_task_activity_locked(task_id)
+        if total > 0:
+            write_resume_meta(f"{task.file_path}_temp", self._resume_source(task), total)
 
         signal_bus.log_message.emit(
             tr(
@@ -332,6 +366,7 @@ class TransferMixin:
                 os.remove(temp_path)
         except OSError:
             logger.warning("Could not remove temp file %s", temp_path, exc_info=True)
+        remove_resume_meta(temp_path)
 
     def _finalize_temp_file(self, task_id: str, temp_path: str, final_path: str) -> bool:
         if self._is_cancel_requested(task_id):
@@ -363,6 +398,7 @@ class TransferMixin:
             return False
         try:
             os.replace(temp_path, final_path)
+            remove_resume_meta(temp_path)
             sidecar = f"{temp_path}.aria2"
             if os.path.exists(sidecar):
                 os.remove(sidecar)

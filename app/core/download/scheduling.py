@@ -37,6 +37,7 @@ class SchedulingMixin:
                     continue
                 task.status = TaskStatus.RESOLVING
                 self._active_task_ids.add(task.task_id)
+                self._claim_task_worker_locked(task.task_id)
                 self._touch_task_activity_locked(task.task_id)
                 to_resolve.append(task.task_id)
                 active += 1
@@ -94,6 +95,7 @@ class SchedulingMixin:
             else:
                 task.status = TaskStatus.DOWNLOADING
                 self._touch_task_activity_locked(task_id)
+                self._claim_task_worker_locked(task_id)
                 should_cancel = False
         if should_cancel:
             self._cancel_task_terminal(

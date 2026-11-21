@@ -17,7 +17,8 @@ SKIP = "skip"
 # connection message is still a permission error.
 _PERMANENT_MARKERS = (
     # permission / visibility
-    "private", "privatevideo", "permission", "forbidden", "http 403", "403 client error",
+    "private", "privatevideo", "no permission", "not have permission", "without permission",
+    "forbidden", "http 403", "403 client error", "http 401", "401 client error", "unauthorized",
     "not found", "http 404", "404 client error", "not visible", "cannot view",
     "私有", "权限", "不可见", "无法观看", "无权", "不存在",
     "非公開", "権限", "表示できません", "存在しない",
@@ -39,12 +40,17 @@ _TRANSIENT_MARKERS = (
     "read timed out", "timed out", "timeout", "max retries exceeded",
     "eof occurred", "sslerror", "ssl:", "temporarily unavailable", "temporary failure",
     "name resolution", "getaddrinfo", "proxyerror", "unable to connect to proxy",
-    "too many requests", "bad gateway", "service unavailable", "gateway timeout",
-    "http 429", "http 500", "http 502", "http 503", "http 504",
+    "too many requests", "bad gateway", "service unavailable", "gateway timeout", "http 429",
     "incomplete download", "下载不完整", "ダウンロードが不完全",
+    # the partial file was removed after a failed check; the retry starts over
+    "retry to download again", "请重试以重新下载", "一時ファイルを削除しました", "一致しないため削除しました",
     "no activity", "无响应", "応答がない",
     "网络", "连接", "超时", "ネットワーク", "接続", "タイムアウト",
 )
+
+
+# Any 5xx reply: "HTTP 520: ...", "503 Server Error: ...", "status=502".
+_SERVER_ERROR_RE = re.compile(r"\bhttp\s*5\d\d\b|\b5\d\d\s+server error|\bstatus(?:_code)?\s*[=:]?\s*5\d\d\b")
 
 
 def split_keywords(text: str) -> list[str]:
@@ -62,7 +68,7 @@ def classify_failure(reason: str) -> str:
         return ""
     if any(marker in text for marker in _PERMANENT_MARKERS):
         return SKIP
-    if any(marker in text for marker in _TRANSIENT_MARKERS):
+    if any(marker in text for marker in _TRANSIENT_MARKERS) or _SERVER_ERROR_RE.search(text):
         return RETRY
     return ""
 

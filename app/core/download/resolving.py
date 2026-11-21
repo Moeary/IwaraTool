@@ -48,6 +48,8 @@ class ResolvingMixin:
                     f"解析中に予期しないエラー: {exc}",
                 ),
             )
+        finally:
+            self._release_task_worker(task_id)
 
     def _resolve_task_impl(self, task_id: str):
         task = self._tasks.get(task_id)

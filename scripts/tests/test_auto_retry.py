@@ -8,7 +8,15 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from app.config import app_config
+from app.core.download.integrity import (
+    read_resume_meta,
+    resume_meta_path,
+    resume_source_mismatch,
+    resume_total_mismatch,
+    write_resume_meta,
+)
 from app.core.download.manager import DownloadManager
+from app.core.download.manager_state import STALL_AUTO_RESTORE_LIMIT
 from app.core.download.retry_policy import RETRY, SKIP, classify_failure, should_auto_retry, split_keywords
 from app.core.download.task_queue import TaskQueueStore
 from app.core.history import DownloadHistory
@@ -36,6 +44,11 @@ class RetryPolicyTests(unittest.TestCase):
             INCOMPLETE_READ,
             "HTTPSConnectionPool(host='x'): Read timed out. (read timeout=60)",
             "HTTP 503: Service Unavailable",
+            "HTTP 520: ",
+            "503 Server Error: Service Unavailable for url: https://example",
+            "HTTP 503: Permission service temporarily unavailable",
+            "Local partial file does not match the server file; it was removed. Retry to download again.",
+            "断点续传失败（server resumed at byte 0, expected 5），已清除缓存；请重试以重新下载。",
             "下载不完整（缺少 12 MB），重试可继续。",
             "Incomplete download (missing 12 MB). Retry to resume.",
         ):
@@ -52,6 +65,8 @@ class RetryPolicyTests(unittest.TestCase):
             "非公開動画です。現在のログインアカウントには保存権限がありません。",
             "该视频为 YouTube 嵌入，无法下载（https://youtu.be/x）",
             "HTTP 403: Forbidden",
+            "HTTP 401: 网络登录已失效",
+            "HTTP 401: Unauthorized",
         ):
             with self.subTest(reason=reason):
                 self.assertEqual(classify_failure(reason), SKIP)
@@ -59,6 +74,7 @@ class RetryPolicyTests(unittest.TestCase):
 
     def test_unknown_errors_are_not_retried_by_default(self):
         self.assertEqual(classify_failure("something odd happened"), "")
+        self.assertEqual(classify_failure("received 500 of 1000 bytes"), "")
         self.assertFalse(should_auto_retry("something odd happened"))
         self.assertFalse(should_auto_retry(""))
 
@@ -86,6 +102,7 @@ class AutoRetryManagerTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="iwaratool-retry-")
         self.mgr = DownloadManager()
         self.mgr._watchdog_stop.set()  # drive the idle check by hand
+        self.mgr._started = True
         self.mgr.history = DownloadHistory(os.path.join(self._tmp, "history.db"))
         self.mgr.subscriptions = SubscriptionStore(os.path.join(self._tmp, "subscriptions.db"))
         self.submitted = []
@@ -108,6 +125,7 @@ class AutoRetryManagerTests(unittest.TestCase):
         return task
 
     def _fail_again(self, task: DownloadTask, error: str):
+        self.mgr._release_task_worker(task.task_id)  # the fake executor never runs the job
         with self.mgr._lock:
             self.mgr._active_task_ids.discard(task.task_id)
             task.status = TaskStatus.FAILED
@@ -175,6 +193,142 @@ class AutoRetryManagerTests(unittest.TestCase):
         stalled.cancel_origin = "auto_stall"
         self._add("waiting", TaskStatus.STAGED)
         self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 1)
+
+    def test_nothing_is_retried_before_start(self):
+        self._add("network", TaskStatus.FAILED, INCOMPLETE_READ)
+        self.mgr._started = False
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
+        self.mgr._started = True
+        self.mgr._shutting_down = True
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
+
+    def test_task_with_a_live_job_is_not_requeued(self):
+        app_config.auto_restore_stalled_cancelled = True
+        stalled = self._add("stalled", TaskStatus.CANCELLED)
+        stalled.cancel_origin = "auto_stall"
+        self._add("network", TaskStatus.FAILED, INCOMPLETE_READ)
+        with self.mgr._lock:
+            self.mgr._claim_task_worker_locked("stalled")  # its blocked worker has not returned
+            self.mgr._claim_task_worker_locked("network")
+        self.assertEqual(self.mgr._auto_requeue_if_idle(), (0, 0))
+
+        self.mgr._release_task_worker("stalled")
+        self.mgr._release_task_worker("network")
+        self.assertEqual(self.mgr._auto_requeue_if_idle(), (1, 1))
+
+    def test_manual_retry_claim_blocks_automatic_retry(self):
+        task = self._add("network", TaskStatus.FAILED, INCOMPLETE_READ)
+        with self.mgr._lock:
+            self.mgr._manual_retry_claims.add(task.task_id)
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
+
+        seen_during_cleanup = []
+
+        def cleanup(title, file_path):
+            # the watchdog runs while the manual retry is removing temp files
+            seen_during_cleanup.append(self.mgr._auto_retry_failed_if_idle())
+            return 0, 0
+
+        with self.mgr._lock:
+            self.mgr._manual_retry_claims.clear()
+        self.mgr._log_retry_temp_cleanup = cleanup
+        self.mgr.retry_task(task.task_id)
+        self.assertEqual(seen_during_cleanup, [0])
+        self.assertEqual(task.auto_retry_count, 0)
+        self.assertEqual(self.mgr._manual_retry_claims, set())
+        self.assertEqual(self.submitted, [("network",)])
+
+    def test_stalled_and_failed_tasks_are_requeued_in_the_same_pass(self):
+        app_config.auto_restore_stalled_cancelled = True
+        stalled = self._add("stalled", TaskStatus.CANCELLED)
+        stalled.cancel_origin = "auto_stall"
+        network = self._add("network", TaskStatus.FAILED, INCOMPLETE_READ)
+        self.assertEqual(self.mgr._auto_requeue_if_idle(), (1, 1))
+        self.assertEqual(stalled.auto_restore_count, 1)
+        self.assertEqual(network.auto_retry_count, 1)
+
+    def test_stall_restores_stop_at_the_limit(self):
+        app_config.auto_restore_stalled_cancelled = True
+        stalled = self._add("stalled", TaskStatus.CANCELLED)
+        stalled.cancel_origin = "auto_stall"
+        stalled.auto_restore_count = STALL_AUTO_RESTORE_LIMIT
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
+        self.assertTrue(self.mgr.restore_cancelled_task("stalled"))
+        self.assertEqual(stalled.auto_restore_count, 0)
+
+
+class _Resp:
+    def __init__(self, status_code, headers=None):
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.text = ""
+
+
+class ResumeIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="iwaratool-resume-")
+        self.mgr = DownloadManager()
+        self.mgr._watchdog_stop.set()
+        self.final = os.path.join(self._tmp, "video.mp4")
+        self.temp = f"{self.final}_temp"
+        with open(self.temp, "wb") as stream:
+            stream.write(b"x" * 1000)
+        self.task = DownloadTask("t", "", "t", status=TaskStatus.DOWNLOADING, file_id="file-a", quality="Source")
+        self.task.file_path = self.final
+        self.task.download_url = "https://example.invalid/file"
+        self.mgr._tasks["t"] = self.task
+        self.failures = []
+        self.mgr._fail_task = lambda task_id, reason: self.failures.append(reason)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_meta_helpers(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        self.assertEqual(read_resume_meta(self.temp), {"source": "file-a:Source", "total": 2000})
+        self.assertTrue(resume_source_mismatch({"source": "file-a:Source"}, "file-b:Source"))
+        self.assertFalse(resume_source_mismatch({}, "file-b:Source"))  # older partial files
+        self.assertEqual(resume_total_mismatch({"Content-Range": "bytes 1000-1999/2000"}, 1000, 2000), "")
+        self.assertIn("3000", resume_total_mismatch({"Content-Range": "bytes 1000-2999/3000"}, 1000, 2000))
+        self.assertIn("2500", resume_total_mismatch({"Content-Length": "1500"}, 1000, 2000))
+        self.assertEqual(resume_total_mismatch({"Content-Range": "bytes 1000-2999/3000"}, 1000, 0), "")
+
+    def test_partial_file_of_another_source_is_discarded_before_resuming(self):
+        write_resume_meta(self.temp, "file-a:540", 2000)
+        sent = {}
+
+        def get(url, headers=None, **_kwargs):
+            sent.update(headers or {})
+            return _Resp(200)
+
+        self.mgr.api.scraper.get = get
+        _resp, existing = self.mgr._open_download_response(self.task, "t", self.temp)
+        self.assertEqual(existing, 0)
+        self.assertNotIn("Range", sent)
+        self.assertFalse(os.path.exists(self.temp))
+        self.assertFalse(os.path.exists(resume_meta_path(self.temp)))
+
+    def test_same_source_resumes(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        sent = {}
+        self.mgr.api.scraper.get = lambda url, headers=None, **_k: sent.update(headers or {}) or _Resp(206)
+        _resp, existing = self.mgr._open_download_response(self.task, "t", self.temp)
+        self.assertEqual(existing, 1000)
+        self.assertEqual(sent.get("Range"), "bytes=1000-")
+
+    def test_206_for_a_different_total_restarts(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        resp = _Resp(206, {"Content-Range": "bytes 1000-2999/3000", "Content-Length": "2000"})
+        self.assertFalse(self.mgr._accept_download_response("t", resp, 1000, self.temp, self.final))
+        self.assertEqual(len(self.failures), 1)
+        self.assertFalse(os.path.exists(self.temp))
+
+    def test_416_without_total_is_not_trusted_unless_recorded(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        self.assertFalse(self.mgr._accept_download_response("t", _Resp(416), 1000, self.temp, self.final))
+        self.assertEqual(len(self.failures), 1)
+        self.assertFalse(os.path.exists(self.temp))
+        self.assertFalse(os.path.exists(self.final))
 
 
 if __name__ == "__main__":

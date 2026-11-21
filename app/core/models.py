@@ -79,6 +79,7 @@ class DownloadTask:
     remove_after_cancel: bool = False
     cancel_origin: str = ""
     auto_retry_count: int = 0  # automatic retries since the last manual retry
+    auto_restore_count: int = 0  # automatic restores after idle-cancel, same reset
     aria2_gid: str = ""
     # "" / "local": ``file_path`` on this machine.  "remote": aria2 on another
     # machine writes ``remote_path`` (a path on that host); ``file_path`` stays empty.

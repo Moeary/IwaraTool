@@ -281,6 +281,7 @@ class ManagerPerformanceTests(unittest.TestCase):
             app_config.max_concurrent = 2
             app_config.auto_restore_stalled_cancelled = True
             mgr = make_manager()
+            mgr._started = True
             with mgr._lock:
                 stalled = DownloadTask("stalled", "", "stalled", status=TaskStatus.CANCELLED)
                 stalled.cancel_origin = "auto_stall"
