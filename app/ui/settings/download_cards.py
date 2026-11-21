@@ -226,6 +226,92 @@ class SettingsDownloadCardsMixin:
         self._auto_restore_stalled_switch.checkedChanged.connect(self._on_auto_restore_stalled_toggle)
         auto_restore_row.addWidget(self._auto_restore_stalled_switch)
         conc_layout.addLayout(auto_restore_row)
+        self._build_auto_retry_rows(conc_card, conc_layout)
+
+    def _build_auto_retry_rows(self, conc_card: QWidget, conc_layout: QVBoxLayout):
+        """Automatic retry of failed tasks, decided by the error message."""
+
+        retry_row = QHBoxLayout()
+        retry_row.addWidget(
+            BodyLabel(
+                tr(
+                    "Auto-retry failed tasks with network errors when the queue becomes idle",
+                    "任务空闲后立即重试网络类失败项",
+                    "待機状態になったらネットワーク系の失敗タスクを再試行",
+                ),
+                conc_card,
+            )
+        )
+        retry_row.addStretch()
+        self._auto_retry_failed_switch = SwitchButton(conc_card)
+        self._auto_retry_failed_switch.setToolTip(
+            tr(
+                "Broken connections, IncompleteRead, timeouts and 5xx are retried and resume from the partial file; "
+                "private videos, missing files and permission errors are not.",
+                "连接中断、IncompleteRead、超时、5xx 等会重试并从已下载部分续传；"
+                "私有作品、文件不存在、账号无权限等不会重试。",
+                "接続切断・IncompleteRead・タイムアウト・5xx は再試行して途中から再開します。"
+                "非公開・ファイルなし・権限なしは再試行しません。",
+            )
+        )
+        self._auto_retry_failed_switch.checkedChanged.connect(self._on_auto_retry_failed_toggle)
+        retry_row.addWidget(self._auto_retry_failed_switch)
+        conc_layout.addLayout(retry_row)
+
+        self._auto_retry_widget = QWidget(conc_card)
+        detail_layout = QVBoxLayout(self._auto_retry_widget)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(8)
+
+        attempts_row = QHBoxLayout()
+        attempts_row.addWidget(
+            BodyLabel(
+                tr("Max automatic retries per task", "每个任务最多自动重试次数", "タスクごとの自動再試行の上限"),
+                self._auto_retry_widget,
+            )
+        )
+        attempts_row.addStretch()
+        self._auto_retry_attempts_spin = SpinBox(self._auto_retry_widget)
+        self._auto_retry_attempts_spin.setRange(1, 20)
+        self._auto_retry_attempts_spin.setFixedWidth(130)
+        self._auto_retry_attempts_spin.valueChanged.connect(self._on_auto_retry_attempts_changed)
+        attempts_row.addWidget(self._auto_retry_attempts_spin)
+        detail_layout.addLayout(attempts_row)
+
+        self._auto_retry_keywords_edit = self._auto_retry_keyword_row(
+            detail_layout,
+            tr("Always retry errors containing", "总是重试的报错关键词", "常に再試行するエラーのキーワード"),
+            tr("e.g. HTTP 403, aria2", "如 HTTP 403, aria2", "例: HTTP 403, aria2"),
+        )
+        self._auto_skip_keywords_edit = self._auto_retry_keyword_row(
+            detail_layout,
+            tr("Never retry errors containing", "不重试的报错关键词", "再試行しないエラーのキーワード"),
+            tr("e.g. 无法观看, 404", "如 无法观看, 404", "例: 404, 非公開"),
+        )
+        detail_layout.addWidget(
+            BodyLabel(
+                tr(
+                    "Separate keywords with commas. \"Never\" wins over \"always\"; other errors follow the built-in rules.",
+                    "关键词用逗号分隔，匹配报错原文。“不重试”优先于“总是重试”；未匹配的按内置规则判断。",
+                    "キーワードはカンマ区切りです。「再試行しない」が優先され、それ以外は内蔵ルールで判断します。",
+                ),
+                self._auto_retry_widget,
+            )
+        )
+        conc_layout.addWidget(self._auto_retry_widget)
+
+    def _auto_retry_keyword_row(self, layout: QVBoxLayout, label: str, placeholder: str) -> LineEdit:
+        row = QHBoxLayout()
+        row.addWidget(BodyLabel(label, self._auto_retry_widget))
+        row.addStretch()
+        edit = LineEdit(self._auto_retry_widget)
+        edit.setMinimumWidth(220)
+        edit.setClearButtonEnabled(True)
+        edit.setPlaceholderText(placeholder)
+        edit.editingFinished.connect(self._on_auto_retry_keywords_finished)
+        row.addWidget(edit)
+        layout.addLayout(row)
+        return edit
 
     def _build_download_policy_card(self):
         policy_card = self._settings_board.create_card("download_policy")
@@ -321,6 +407,23 @@ class SettingsDownloadCardsMixin:
         if self._loading_settings:
             return
         app_config.auto_restore_stalled_cancelled = bool(checked)
+
+    def _on_auto_retry_failed_toggle(self, checked: bool):
+        self._auto_retry_widget.setVisible(bool(checked))
+        if self._loading_settings:
+            return
+        app_config.auto_retry_failed_enabled = bool(checked)
+
+    def _on_auto_retry_attempts_changed(self, value: int):
+        if self._loading_settings:
+            return
+        app_config.auto_retry_failed_max_attempts = int(value)
+
+    def _on_auto_retry_keywords_finished(self):
+        if self._loading_settings:
+            return
+        app_config.auto_retry_failed_retry_keywords = self._auto_retry_keywords_edit.text().strip()
+        app_config.auto_retry_failed_skip_keywords = self._auto_skip_keywords_edit.text().strip()
 
     def _confirm_clear_temp_files(self):
         if not show_fluent_confirmation(

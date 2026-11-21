@@ -43,6 +43,7 @@ _INT_FIELDS = {
     "duration",
     "comments",
     "thumbnail_index",
+    "auto_retry_count",
 }
 _SIGNED_INT_FIELDS = {"priority"}
 _BOOL_FIELDS = {

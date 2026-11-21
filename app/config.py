@@ -61,6 +61,11 @@ class AppConfig:
         "max_concurrent": 3,
         "task_stall_timeout_seconds": 30,
         "auto_restore_stalled_cancelled": False,
+        # Failed tasks whose error looks transient are re-queued once the queue is idle.
+        "auto_retry_failed_enabled": False,
+        "auto_retry_failed_max_attempts": 3,
+        "auto_retry_failed_retry_keywords": "",  # always retry errors containing these
+        "auto_retry_failed_skip_keywords": "",  # never retry errors containing these
         "api_proxy_enabled": False,
         "api_proxy_url": DEFAULT_PROXY_URL,
         "download_proxy_enabled": False,
@@ -350,6 +355,20 @@ class AppConfig:
         self._set("task_stall_timeout_seconds", max(0, min(3600, int(v))))
 
     auto_restore_stalled_cancelled = _Setting()
+
+    auto_retry_failed_enabled = _Setting()
+
+    @property
+    def auto_retry_failed_max_attempts(self) -> int:
+        return max(1, min(20, self._get("auto_retry_failed_max_attempts")))
+
+    @auto_retry_failed_max_attempts.setter
+    def auto_retry_failed_max_attempts(self, v: int):
+        self._set("auto_retry_failed_max_attempts", max(1, min(20, int(v))))
+
+    auto_retry_failed_retry_keywords = _Setting()
+
+    auto_retry_failed_skip_keywords = _Setting()
 
     api_proxy_enabled = _Setting()
 

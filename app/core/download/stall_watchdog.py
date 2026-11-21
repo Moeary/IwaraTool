@@ -36,6 +36,7 @@ class StallWatchdogMixin:
         while not self._watchdog_stop.wait(_STALL_WATCHDOG_INTERVAL_SECONDS):
             self._cancel_stale_tasks()
             self._restore_auto_stalled_cancelled_if_idle()
+            self._auto_retry_failed_if_idle()
 
     def _cancel_stale_tasks(self) -> int:
         try:

@@ -32,6 +32,11 @@ class SettingsPersistenceMixin:
         self._conc_input.setText(str(app_config.max_concurrent))
         self._stall_timeout_edit.setText(str(app_config.task_stall_timeout_seconds))
         self._auto_restore_stalled_switch.setChecked(app_config.auto_restore_stalled_cancelled)
+        self._auto_retry_failed_switch.setChecked(app_config.auto_retry_failed_enabled)
+        self._auto_retry_widget.setVisible(app_config.auto_retry_failed_enabled)
+        self._auto_retry_attempts_spin.setValue(app_config.auto_retry_failed_max_attempts)
+        self._auto_retry_keywords_edit.setText(app_config.auto_retry_failed_retry_keywords)
+        self._auto_skip_keywords_edit.setText(app_config.auto_retry_failed_skip_keywords)
 
     def _load_network_settings(self):
         self._api_proxy_switch.setChecked(app_config.api_proxy_enabled)
@@ -160,6 +165,10 @@ class SettingsPersistenceMixin:
         self._on_concurrency_input_finished()
         self._on_stall_timeout_input_finished()
         app_config.auto_restore_stalled_cancelled = self._auto_restore_stalled_switch.isChecked()
+        app_config.auto_retry_failed_enabled = self._auto_retry_failed_switch.isChecked()
+        app_config.auto_retry_failed_max_attempts = self._auto_retry_attempts_spin.value()
+        app_config.auto_retry_failed_retry_keywords = self._auto_retry_keywords_edit.text().strip()
+        app_config.auto_retry_failed_skip_keywords = self._auto_skip_keywords_edit.text().strip()
         app_config.download_dir = self._dir_edit.text()
         app_config.max_concurrent = self._conc_slider.value()
         app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
