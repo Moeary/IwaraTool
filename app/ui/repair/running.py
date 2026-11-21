@@ -207,9 +207,12 @@ class RepairRunningMixin:
             )
         elif self._worker_mode == "resolve" and isinstance(result, list):
             path = str(getattr(self._worker, "path", "") or "")
+            # A row whose file a failed repair had already moved resolves
+            # under the file's current path.
+            moved_path = str(self._items_by_path.get(path, {}).get("file_path", "") or "")
             self._set_items(result)
             self._render_all_items()
-            item = self._items_by_path.get(path, {})
+            item = self._items_by_path.get(path) or self._items_by_path.get(moved_path, {})
             self._status_label.setText(
                 tr("Lookup finished", "查询完成", "検索完了")
             )
@@ -246,6 +249,9 @@ class RepairRunningMixin:
 
     def _on_worker_finished(self):
         self._scan_feedback_timer.stop()
+        if self._worker_mode == "resolve" and getattr(self._worker, "discarded", False):
+            self._restore_row(str(getattr(self._worker, "path", "") or ""))
+            self._status_label.setText(tr("Lookup stopped", "已停止查询", "検索を停止しました"))
         self._worker = None
         self._scan_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)

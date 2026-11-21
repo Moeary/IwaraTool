@@ -102,10 +102,10 @@ class RepairCandidateIndex:
                     found.append(video_id)
         return found
 
-    def select(self, path: str) -> tuple[dict[str, Any] | None, bool]:
-        """The local candidate a file's name clearly refers to: ``(candidate, ambiguous)``."""
+    def select(self, path: str, title: str | None = None) -> tuple[dict[str, Any] | None, bool]:
+        """The local candidate a file's name (or ``title``) clearly refers to: ``(candidate, ambiguous)``."""
 
-        title = normalize_match_text(filename_search_text(path))
+        title = normalize_match_text(filename_search_text(path) if title is None else title)
         if not title or not self._entries:
             return None, False
         with self._select_lock:

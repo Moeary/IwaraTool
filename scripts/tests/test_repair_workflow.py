@@ -33,12 +33,14 @@ class FakeHistory:
         self.records: dict[str, dict] = {}
 
     def list_records(self, **_kwargs):
-        return list(self.records.values())
+        # Newest first, like the real history.
+        return list(reversed(self.records.values()))
 
     def get_record(self, video_id, **_kwargs):
         return self.records.get(video_id)
 
     def upsert_downloaded(self, metadata):
+        self.records.pop(metadata["video_id"], None)
         self.records[metadata["video_id"]] = dict(metadata)
 
     def update_file_paths(self, video_id, **paths):
@@ -437,9 +439,101 @@ class RepairFilenameIdTests(RepairTestFixture):
         )
         self.assertEqual(resolved[0]["target_path"], str(self.source / "2024-05-06_Picked_ManualVid123.mp4"))
         missing = self.manager.resolve_repair_item(items, str(path), "NoSuchVid000", options=options)
-        self.assertEqual((missing[0]["status"], missing[0]["video_id"]), ("not_found", "NoSuchVid000"))
+        # The cell stays empty so the same id can be entered again.
+        self.assertEqual((missing[0]["status"], missing[0]["video_id"]), ("not_found", ""))
+        self.assertIn("NoSuchVid000", missing[0]["message"])
         with self.assertRaises(ValueError):
             self.manager.resolve_repair_item(items, str(path), "not an id", options=options)
+
+
+class RepairCodexReviewTests(RepairTestFixture):
+    """Follow-ups from the review of the issue #32 fix."""
+
+    def add_online_video(self, video_id, title, author="Alice"):
+        self.manager.videos[video_id] = {
+            "id": video_id, "title": title, "author": author,
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+
+    def use_subscription_items(self, *items):
+        self.manager.subscriptions.list_items = lambda: [dict(item) for item in items]
+
+    def scan_one(self):
+        items = self.scan()
+        self.assertEqual(len(items), 1)
+        return items[0]
+
+    def test_bracketed_id_is_verified_before_a_same_title_local_record(self):
+        self.use_subscription_items({"video_id": "Other0001", "title": "Dance", "author": "Bob"})
+        self.add_online_video("Other0001", "Dance", author="Bob")
+        self.add_online_video("7rntP6twy92J0R", "Dance")
+        (self.source / "Iwara - Dance [7rntP6twy92J0R] [Source].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "7rntP6twy92J0R", "filename-token"))
+
+    def test_title_dot_and_title_id_word_still_find_the_bracketed_id(self):
+        self.add_online_video("7rntP6twy92J0R", "Part 1.5")
+        for name in ("Iwara - Part 1.5 [7rntP6twy92J0R] [Source].mp4", "Iwara - My ID Challenge [7rntP6twy92J0R].mp4"):
+            with self.subTest(name=name):
+                path = self.source / name
+                path.write_bytes(b"a")
+                item = self.scan_one()
+                self.assertEqual((item["status"], item["video_id"]), ("ready", "7rntP6twy92J0R"))
+                path.unlink()
+
+    def test_rejected_bracket_guess_keeps_the_bracketed_title_for_local_matching(self):
+        self.use_subscription_items(
+            {"video_id": "LocalVid001", "title": "Dance [2024Edition]", "author": "Alice"},
+            {"video_id": "Other0001", "title": "Dance", "author": "Bob"},
+        )
+        self.add_online_video("LocalVid001", "Dance [2024Edition]")
+        (self.source / "Dance [2024Edition].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "LocalVid001", "local-metadata"))
+
+    def test_manual_id_on_a_moved_failed_row_uses_the_current_file(self):
+        self.add_online_video("ManualVid123", "Picked")
+        moved = self.source / "moved.mp4"
+        moved.write_bytes(b"a")
+        failed = {
+            "path": str(self.source / "original.mp4"), "file_path": str(moved), "status": "failed",
+            "video_id": "WrongVid001", "output_root": str(self.source), "move_to_output": False,
+        }
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item([failed], failed["path"], "ManualVid123", options=options)
+        self.assertEqual((resolved[0]["status"], resolved[0]["path"]), ("ready", str(moved)))
+        self.assertEqual(resolved[0]["target_path"], str(self.source / "2024-05-06_Picked_ManualVid123.mp4"))
+
+    def test_corrected_id_unlinks_the_old_history_row_for_that_file(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        self.manager.history.records["OldVid001"] = {
+            "video_id": "OldVid001", "title": "Wrong", "author": "Bob", "file_path": str(path),
+        }
+        self.add_online_video("OldVid001", "Wrong", author="Bob")
+        self.add_online_video("NewVid001", "Right")
+        options = {
+            "filename_template": TEMPLATE, "output_root": "", "move_to_output": False,
+            "rename": False, "add_to_history": True,
+        }
+        items = self.scan()
+        self.assertEqual((items[0]["video_id"], items[0]["source"]), ("OldVid001", "history-path"))
+        resolved = self.manager.resolve_repair_item(items, str(path), "NewVid001", options=options)
+        self.assertEqual(resolved[0]["replaces_video_id"], "OldVid001")
+        result = self.manager.repair_folder_files(resolved, options=options)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(self.manager.history.records["OldVid001"]["file_path"], "")
+        self.assertEqual(self.manager.history.records["NewVid001"]["file_path"], str(path))
+        rescanned = self.scan()
+        self.assertEqual((rescanned[0]["video_id"], rescanned[0]["source"]), ("NewVid001", "history-path"))
+
+    def test_newest_history_row_wins_when_two_name_the_same_file(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        for video_id in ("OldVid001", "NewVid001"):
+            self.manager.history.upsert_downloaded({"video_id": video_id, "title": video_id, "file_path": str(path)})
+            self.add_online_video(video_id, video_id)
+        self.assertEqual(self.scan_one()["video_id"], "NewVid001")
 
 
 class RepairInterfaceModeTests(RepairTestFixture):
@@ -701,6 +795,33 @@ class RepairInterfaceModeTests(RepairTestFixture):
         self.assertEqual(page._table.item(0, page._COL_TITLE).text(), "Picked")
         page._update_start_button()
         self.assertTrue(page._start_btn.isEnabled())
+
+
+    def test_stopping_a_manual_lookup_discards_its_result(self):
+        self.manager.videos["ManualVid123"] = {"id": "ManualVid123", "title": "Picked", "author": "Alice"}
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("ManualVid123")
+        worker = start_worker.call_args.args[0]
+        results = []
+        worker.result_ready.connect(results.append)
+        page._worker = worker
+        page._worker_mode = "resolve"
+        # Stop pressed while the request was in flight.
+        with patch.object(worker, "isInterruptionRequested", return_value=True):
+            worker.run()
+        self.assertEqual(results, [])
+        self.assertTrue(worker.discarded)
+        page._on_worker_finished()
+        self.assertEqual(page._items[0]["status"], "not_found")
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "")
 
 
 class RepairScanScalingTests(RepairTestFixture):

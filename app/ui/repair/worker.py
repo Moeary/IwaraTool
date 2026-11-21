@@ -43,6 +43,8 @@ class RepairWorker(ManagedThread):
         self.mode = mode
         self.path = path
         self.video_id_text = video_id_text
+        # A stopped lookup cannot cancel its request, but drops the result.
+        self.discarded = False
         self.folder = folder
         self.filename_template = filename_template
         self.output_root = output_root
@@ -91,6 +93,9 @@ class RepairWorker(ManagedThread):
                     self.video_id_text,
                     options=self.options,
                 )
+                if self.isInterruptionRequested():
+                    self.discarded = True
+                    return
             else:
                 result = download_manager.repair_folder_files(
                     self.items,

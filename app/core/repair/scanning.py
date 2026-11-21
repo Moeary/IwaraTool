@@ -119,36 +119,58 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
         if index is None:
             return result
         previous = result[index]
+        current_path = self._repair_current_file(previous, path)
         cached = previous.get("cached_meta") if isinstance(previous.get("cached_meta"), dict) else {}
-        same_video = str(cached.get("video_id", "") or "").casefold() == video_id.casefold()
+        previous_history_id = str(cached.get("video_id", "") or "").strip() if previous.get("existing_history") else ""
         # A history record found by path only describes this file while it
         # still names the same video.
-        record = cached if previous.get("existing_history") and same_video else None
+        same_video = previous_history_id.casefold() == video_id.casefold()
+        record = cached if previous_history_id and same_video else None
         move_to_output = bool(options.get("move_to_output", previous.get("move_to_output", False)))
         output_root = str(options.get("output_root", "") or previous.get("output_root", "") or "")
         if move_to_output and not output_root:
-            output_root = os.path.dirname(str(previous.get("path", "") or path))
-        item = self._repair_scan_item(str(previous.get("path", "") or path), record, output_root, move_to_output)
+            output_root = os.path.dirname(current_path)
+        item = self._repair_scan_item(current_path, record, output_root, move_to_output)
         video_info, error = self._api_call("get_video_info", video_id)
-        result[index] = self._fill_repair_item(
-            item, item["path"], video_id, "manual-id", video_info, error, record, None,
+        resolved = self._fill_repair_item(
+            item, current_path, video_id, "manual-id", video_info, error, record, None,
             filename_template=str(options.get("filename_template", "") or ""),
             output_root=output_root,
             move_to_output=move_to_output,
         )
-        if result[index].get("status") != "ready":
-            result[index]["video_id"] = video_id
+        if resolved.get("status") == "ready":
+            if previous_history_id and not same_video:
+                # The file's history row named another video; repair unlinks it
+                # once the corrected row holds the path.
+                resolved["replaces_video_id"] = previous_history_id
+        else:
+            # Keep the cell empty so the same id can be entered again (after a
+            # network fault or a new login); the detail names what was tried.
+            resolved["video_id"] = ""
+            resolved["message"] = f"Iwara ID {video_id}: {resolved.get('message', '')}"
+        result[index] = resolved
         return self.preview_repair_files(result, options=options)
+
+    @staticmethod
+    def _repair_current_file(item: dict[str, Any], fallback: str) -> str:
+        """Where a scanned file is now: a repair that moved it but then failed records ``file_path``."""
+
+        original = str(item.get("path", "") or fallback)
+        moved = str(item.get("file_path", "") or "")
+        if moved and not os.path.isfile(original) and os.path.isfile(moved):
+            return moved
+        return original
 
     def _repair_scan_context(self):
         """``(history record by path, local candidate index)`` for a scan."""
 
         history_records = self.history.list_records(include_raw=True)
-        history_by_path = {
-            self._repair_normalize_path(record.get("file_path", "")): record
-            for record in history_records
-            if str(record.get("file_path", "") or "").strip()
-        }
+        history_by_path: dict[str, dict[str, Any]] = {}
+        for record in history_records:
+            if str(record.get("file_path", "") or "").strip():
+                # Records come newest first: when two name the same file (an
+                # older one left behind), the latest repair or download wins.
+                history_by_path.setdefault(self._repair_normalize_path(record.get("file_path", "")), record)
         subscription_items = self.subscriptions.list_items()
         local_candidates = self._repair_local_candidates(history_records, subscription_items)
         return history_by_path, RepairCandidateIndex(local_candidates)

@@ -8,6 +8,9 @@ import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Any
+from urllib.parse import urlparse
+
+from .. import site as sites
 
 
 VIDEO_EXTENSIONS = frozenset(
@@ -27,17 +30,20 @@ VIDEO_EXTENSIONS = frozenset(
 )
 
 _VIDEO_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.|api\.)?iwara\.tv/video/([A-Za-z0-9][A-Za-z0-9_-]*)",
+    r"(?:https?://)?(?<![A-Za-z0-9.-])(?:www\.|api\.)?iwara\.(?:tv|ai)/video/([A-Za-z0-9][A-Za-z0-9_-]*)",
     re.IGNORECASE,
 )
 # An explicit "id" label: ``iwara-id=…``, ``Iwara ID …``, ``video_id: …``,
-# ``id_…``. A bare ``Iwara - `` prefix is *not* a label: browser downloads are
-# named ``Iwara - <title> [<id>]`` and the title's first word is no ID.
+# ``id=…``. A bare ``Iwara - `` prefix is *not* a label: browser downloads are
+# named ``Iwara - <title> [<id>]`` and the title's first word is no ID. A bare
+# ``id`` needs ``:``/``=``/``#`` so a title word such as "My ID Challenge"
+# is not read as one.
 _VIDEO_ID_LABEL_RE = re.compile(
-    r"(?:(?:iwara|video)[ _-]*id|(?<![A-Za-z0-9])id)[\s:=#_\-]+[\[\(]?"
+    r"(?:(?:iwara|video)[ _-]*id[\s:=#_\-]+|(?<![A-Za-z0-9])id\s*[:=#]\s*)[\[\(]?"
     r"([A-Za-z0-9]{8,})",
     re.IGNORECASE,
 )
+_MANUAL_URL_PATH_RE = re.compile(r"^/video/([A-Za-z0-9][A-Za-z0-9_-]*)(?:/|$)")
 # ``[id]`` / ``(id)`` / ``{id}`` / ``【id】`` as written by yt-dlp style tools.
 _BRACKETED_TOKEN_RE = re.compile(
     r"[\[\(\{【（]\s*([A-Za-z0-9]{8,24})\s*[\]\)\}】）]"
@@ -88,18 +94,37 @@ def extract_iwara_video_id(value: str) -> str:
 
 
 def parse_manual_video_id(value: str) -> str:
-    """The video ID in a user-entered Iwara URL or bare ID, or ``""``."""
+    """The video ID in a user-entered iwara.tv / iwara.ai video link or bare ID, or ``""``."""
 
     text = str(value or "").strip()
     if not text:
         return ""
-    match = _VIDEO_URL_RE.search(text)
-    if match:
-        return match.group(1).strip()
-    return text if _MANUAL_VIDEO_ID_RE.fullmatch(text) else ""
+    if _MANUAL_VIDEO_ID_RE.fullmatch(text):
+        return text
+    if not sites.site_of_url(text):
+        return ""
+    if "://" not in text:
+        text = "https://" + text.lstrip("/")
+    try:
+        match = _MANUAL_URL_PATH_RE.match(urlparse(text).path)
+    except ValueError:
+        return ""
+    return match.group(1) if match else ""
 
 
-def _looks_like_video_id(token: str) -> bool:
+def filename_stem(value: str) -> str:
+    """A file's name without a video extension; any other "extension" is title text.
+
+    Callers may pass a full path or an already extension-less stem: a title
+    such as ``Part 1.5 [id]`` keeps everything after its dot.
+    """
+
+    name = os.path.basename(str(value or ""))
+    stem, extension = os.path.splitext(name)
+    return stem if extension.lower() in VIDEO_EXTENSIONS else name
+
+
+def looks_like_video_id(token: str) -> bool:
     """Whether an unlabelled token reads like a generated ID rather than a word."""
 
     has_digit = any(char.isdigit() for char in token)
@@ -124,23 +149,28 @@ def filename_video_id_guesses(value: str) -> list[str]:
     tokens nearest the end of the name.
     """
 
-    stem = os.path.splitext(os.path.basename(str(value or "")))[0]
-    stem = _DATE_PREFIX_RE.sub("", stem)
+    stem = _DATE_PREFIX_RE.sub("", filename_stem(value))
     ranked: list[tuple[int, int, str]] = []
 
     for match in _BRACKETED_TOKEN_RE.finditer(stem):
         token = match.group(1)
-        if _looks_like_video_id(token):
+        if looks_like_video_id(token):
             ranked.append((0, -match.start(), token))
 
     trailing = _QUALITY_SUFFIX_RE.sub("", _BRACKETED_QUALITY_RE.sub("", stem).rstrip(" ._-"))
-    tokens = [token for token in re.split(r"[\s._-]+", trailing) if token]
-    if tokens and re.fullmatch(r"[A-Za-z0-9]{8,}", tokens[-1]) and _looks_like_video_id(tokens[-1]):
-        ranked.append((1, 0, tokens[-1]))
+    trailing_match = re.search(r"(?:^|([\s._-]))([A-Za-z0-9]{8,})$", trailing)
+    if trailing_match:
+        token = trailing_match.group(2)
+        if looks_like_video_id(token):
+            ranked.append((1, 0, token))
+        elif trailing_match.group(1) == "_":
+            # The app's own ``…_{id}`` names: an ID need not look random, so
+            # an ``_``-separated word is still tried, last.
+            ranked.append((3, 0, token))
 
     for match in _ID_TOKEN_RE.finditer(stem):
         token = match.group(1)
-        if _looks_like_video_id(token) and len(token) >= 10:
+        if looks_like_video_id(token) and len(token) >= 10:
             ranked.append((2, -match.start(), token))
 
     result: list[str] = []
@@ -213,20 +243,26 @@ def normalize_match_text(value: Any) -> str:
     return " ".join(re.findall(r"[\w]+", text, flags=re.UNICODE))
 
 
-def filename_search_text(path: str) -> str:
-    """Turn a downloaded filename into a title-like search string."""
+def filename_search_text(path: str, *, strip_ids: bool = True) -> str:
+    """Turn a downloaded filename into a title-like search string.
 
-    original = os.path.splitext(os.path.basename(str(path or "")))[0]
+    ``strip_ids`` also drops bracketed tokens that look like IDs. They may be
+    title text (``Dance [2024Edition]``), so local matching tries the name
+    with them as well.
+    """
+
+    original = filename_stem(path)
     stem = _DATE_PREFIX_RE.sub("", original)
     stem = _VIDEO_ID_LABEL_RE.sub(" ", stem)
     stem = _IWARA_PREFIX_RE.sub("", stem)
     stem = _BRACKETED_QUALITY_RE.sub(" ", stem)
     stem = _QUALITY_SUFFIX_RE.sub("", stem.rstrip(" ._-"))
-    guesses = {token.casefold() for token in filename_video_id_guesses(original)}
-    stem = _BRACKETED_TOKEN_RE.sub(
-        lambda match: " " if match.group(1).casefold() in guesses else match.group(0),
-        stem,
-    )
+    if strip_ids:
+        guesses = {token.casefold() for token in filename_video_id_guesses(original)}
+        stem = _BRACKETED_TOKEN_RE.sub(
+            lambda match: " " if match.group(1).casefold() in guesses else match.group(0),
+            stem,
+        )
     stem = re.sub(r"[_]+", " ", stem)
     stem = re.sub(r"\s{2,}", " ", stem)
     return stem.strip(" .-_") or original
@@ -255,14 +291,16 @@ def candidate_author_text(candidate: dict[str, Any]) -> str:
     )
 
 
-def candidate_match_score(path: str, candidate: dict[str, Any], *, author_hint: str = "") -> float:
-    """Score a local/API candidate against a filename.
+def candidate_match_score(
+    path: str, candidate: dict[str, Any], *, author_hint: str = "", title: str | None = None,
+) -> float:
+    """Score a local/API candidate against a filename (or ``title`` taken from it).
 
     Exact title matches are deliberately much stronger than fuzzy matches. An
     author directory match is a useful tie breaker for duplicate titles.
     """
 
-    filename_title = normalize_match_text(filename_search_text(path))
+    filename_title = normalize_match_text(filename_search_text(path) if title is None else title)
     candidate_title = normalize_match_text(candidate.get("title", ""))
     if not filename_title or not candidate_title:
         return 0.0

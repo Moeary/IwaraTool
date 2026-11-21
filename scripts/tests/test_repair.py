@@ -66,11 +66,33 @@ class RepairHelperTests(TestCase):
         )
         self.assertEqual(filename_search_text("Iwara - TimeStop [Source].mp4"), "TimeStop")
 
-    def test_manual_ids_accept_urls_and_bare_ids_only(self):
+    def test_manual_ids_accept_both_sites_and_bare_ids_only(self):
         self.assertEqual(parse_manual_video_id(" https://www.iwara.tv/video/7rntP6twy92J0R/stupid "), "7rntP6twy92J0R")
+        self.assertEqual(parse_manual_video_id("https://www.iwara.ai/video/7rntP6twy92J0R"), "7rntP6twy92J0R")
+        self.assertEqual(parse_manual_video_id("www.iwara.tv/video/7rntP6twy92J0R"), "7rntP6twy92J0R")
         self.assertEqual(parse_manual_video_id("jxYoGoArkoYkR2"), "jxYoGoArkoYkR2")
+        self.assertEqual(parse_manual_video_id("https://notiwara.tv/video/7rntP6twy92J0R"), "")
+        self.assertEqual(parse_manual_video_id("https://www.iwara.tv/profile/someone"), "")
         self.assertEqual(parse_manual_video_id("not an id"), "")
         self.assertEqual(parse_manual_video_id(""), "")
+
+    def test_title_dots_and_title_words_do_not_hide_the_bracketed_id(self):
+        # A scanned stem has no extension left; ".5 [...]" is title text.
+        self.assertEqual(guess_filename_video_id("Iwara - Part 1.5 [7rntP6twy92J0R] [Source]"), "7rntP6twy92J0R")
+        self.assertEqual(filename_search_text("Iwara - Part 1.5 [7rntP6twy92J0R] [Source]"), "Part 1.5")
+        self.assertEqual(extract_iwara_video_id("Iwara - My ID Challenge [7rntP6twy92J0R]"), "")
+        self.assertEqual(extract_iwara_video_id("clip id=AbC12345"), "AbC12345")
+        self.assertEqual(guess_filename_video_id("Iwara - My ID Challenge [7rntP6twy92J0R].mp4"), "7rntP6twy92J0R")
+
+    def test_bracketed_title_words_survive_when_ids_are_kept(self):
+        self.assertEqual(filename_search_text("Dance [2024Edition].mp4"), "Dance")
+        self.assertEqual(filename_search_text("Dance [2024Edition].mp4", strip_ids=False), "Dance [2024Edition]")
+
+    def test_underscored_trailing_word_is_still_a_last_resort_id(self):
+        self.assertEqual(
+            filename_video_id_guesses("2024-05-06_Demo Title_abcdefghij.mp4"), ["abcdefghij"],
+        )
+        self.assertEqual(filename_video_id_guesses("Iwara - TimeStop.mp4"), [])
 
     def test_repair_filename_keeps_source_extension_and_author_folder(self):
         path = "old-name.webm"
