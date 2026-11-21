@@ -66,4 +66,4 @@ pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
 pixi run test   # Run the test suite
 ```
 
-The Windows build embeds version information. Set `WINDOWS_SIGN_PFX` (a `.pfx` path, or `WINDOWS_SIGN_PFX_BASE64` in CI) and `WINDOWS_SIGN_PFX_PASSWORD` and `pixi run build` also applies a timestamped Authenticode signature (signtool when the Windows SDK is present, otherwise PowerShell). `python scripts/build_windows.py --sign-only <exe>` signs an existing file.
+The Windows build embeds version information. Set `WINDOWS_SIGN_PFX` (a `.pfx` path, or `WINDOWS_SIGN_PFX_BASE64` in CI) and `WINDOWS_SIGN_PFX_PASSWORD` and `pixi run build` also applies a timestamped Authenticode signature (signtool when the Windows SDK is present, otherwise PowerShell). `python scripts/tools/build_windows.py --sign-only <exe>` signs an existing file.

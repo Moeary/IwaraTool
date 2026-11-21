@@ -9,8 +9,8 @@ from unittest.mock import patch
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "tools"))
 
 import macos_bundle as bundle  # noqa: E402
 import macos_dmg as dmg  # noqa: E402
@@ -182,7 +182,7 @@ class LaunchCheckTests(unittest.TestCase):
             "dyld[4242]: <A1B2C3D4-0000-0000-0000-000000000000> /Applications/IwaraTool.app/Contents/MacOS/IwaraTool",
             f"dyld[4242]: <ABCD> {BUILD_ENV}/lib/libpython3.11.dylib",
             "dyld: loaded: /usr/lib/libSystem.B.dylib",
-            "IwaraTool 1.2.1: Qt multimedia and bundled resources OK",
+            "IwaraTool 1.2.2: Qt multimedia and bundled resources OK",
         ])
         loaded = bundle.parse_dyld_loaded_paths(stderr)
         self.assertEqual(len(loaded), 3)

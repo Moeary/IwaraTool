@@ -1,6 +1,6 @@
 # 安装与上手
 
-[English](./install_en.md) | [日本語](./install_ja.md) | [返回 README](../../readme_zh.md)
+[English](./install_en.md) | [日本語](./install_ja.md) | [返回 README](../readme/readme_zh.md)
 
 本文说明如何选择安装包、在各平台安装、处理 macOS 首次启动的安全提示、配置代理，以及最基本的使用流程。
 

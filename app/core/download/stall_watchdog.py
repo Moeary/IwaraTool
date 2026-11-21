@@ -9,10 +9,12 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
+    CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED as _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED,
     STALL_WATCHDOG_INTERVAL_SECONDS as _STALL_WATCHDOG_INTERVAL_SECONDS,
     STALL_WATCH_STATUSES as _STALL_WATCH_STATUSES,
 )
 from ..models import TaskStatus
+from .locations import STORAGE_REMOTE
 
 
 class StallWatchdogMixin:
@@ -35,7 +37,7 @@ class StallWatchdogMixin:
     def _stall_watchdog_loop(self):
         while not self._watchdog_stop.wait(_STALL_WATCHDOG_INTERVAL_SECONDS):
             self._cancel_stale_tasks()
-            self._restore_auto_stalled_cancelled_if_idle()
+            self._auto_requeue_if_idle()
 
     def _cancel_stale_tasks(self) -> int:
         try:
@@ -72,7 +74,18 @@ class StallWatchdogMixin:
                     )
                 )
                 task.cancel_requested = True
-                task.cancel_origin = _CANCEL_ORIGIN_AUTO_STALL
+                # aria2 may keep writing after a cancel this app cannot verify,
+                # so a task that is or may be handed to aria2 is never restored
+                # automatically.  Decided here, once, before anything is sent.
+                aria2_involved = (
+                    bool(task.aria2_gid)
+                    or task_id in self._aria2_jobs
+                    or task.storage == STORAGE_REMOTE
+                    or bool(app_config.aria2_rpc_enabled)
+                )
+                task.cancel_origin = (
+                    _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED if aria2_involved else _CANCEL_ORIGIN_AUTO_STALL
+                )
                 task.status = TaskStatus.CANCELLING
                 task.speed_str = ""
                 self._task_last_activity.pop(task_id, None)
@@ -90,7 +103,7 @@ class StallWatchdogMixin:
                     f"[自動中断] 「{title}」応答なし {idle_seconds} 秒",
                 )
             )
-            self._cancel_task_terminal(task_id, reason, origin=_CANCEL_ORIGIN_AUTO_STALL)
+            self._cancel_task_terminal(task_id, reason)  # keeps the origin chosen above
             if aria2_gid:
                 self._aria2_rpc_cancel(aria2_gid)
         return len(stale)

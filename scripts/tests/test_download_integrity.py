@@ -26,7 +26,10 @@ class ContentRangeTests(unittest.TestCase):
     def test_416_classification(self):
         self.assertEqual(classify_416({"Content-Range": "bytes */1000"}, 1000), "complete")
         self.assertEqual(classify_416({"Content-Range": "bytes */900"}, 1000), "corrupt")
-        self.assertEqual(classify_416({}, 1000), "complete")
+        # No total in the reply: trusted only when the recorded size vouches for it.
+        self.assertEqual(classify_416({}, 1000), "corrupt")
+        self.assertEqual(classify_416({}, 1000, expected_total=1000), "complete")
+        self.assertEqual(classify_416({}, 1000, expected_total=2000), "corrupt")
 
 
 class IncompleteTests(unittest.TestCase):

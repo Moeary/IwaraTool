@@ -8,9 +8,11 @@ from ...signal_bus import signal_bus
 from .manager_state import (
     CANCEL_ORIGIN_AUTO_STALL as _CANCEL_ORIGIN_AUTO_STALL,
     CANCEL_ORIGIN_MANUAL as _CANCEL_ORIGIN_MANUAL,
+    STALL_AUTO_RESTORE_LIMIT as _STALL_AUTO_RESTORE_LIMIT,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
 from ..models import DownloadTask, TaskStatus
+from .retry_policy import should_auto_retry
 
 
 class TaskControlMixin:
@@ -53,12 +55,21 @@ class TaskControlMixin:
         temp_title = ""
         with self._lock:
             task = self._tasks.get(task_id)
-            if task and task.status == TaskStatus.FAILED:
+            if task and task.status == TaskStatus.FAILED and task_id not in self._manual_retry_claims:
+                # Claimed until re-queued, so automatic retry cannot pick the task
+                # up while its temp files are being removed.
+                self._manual_retry_claims.add(task_id)
                 temp_file_path = task.file_path
-                temp_title = task.title or task.video_id
+                temp_title = task.title or task.video_id or task_id
         if not temp_title:
             return
+        try:
+            self._retry_claimed_task(task_id, temp_title, temp_file_path)
+        finally:
+            with self._lock:
+                self._manual_retry_claims.discard(task_id)
 
+    def _retry_claimed_task(self, task_id: str, temp_title: str, temp_file_path: str):
         _, cleanup_failed = self._log_retry_temp_cleanup(temp_title, temp_file_path)
         if cleanup_failed:
             signal_bus.task_error.emit(
@@ -85,6 +96,8 @@ class TaskControlMixin:
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                task.auto_retry_count = 0
+                task.auto_restore_count = 0
                 self._unmark_terminal_locked(task_id)
                 self._queued_meta_ids.append(task_id)
                 requeued = True
@@ -102,8 +115,27 @@ class TaskControlMixin:
             task = self._tasks.get(task_id)
             if not task or task.status != TaskStatus.CANCELLED:
                 return False
+            if self._task_worker_alive_locked(task_id):
+                stopping_title = task.title or task.video_id
+            else:
+                stopping_title = ""
+        if stopping_title:
+            # its previous job is still winding down; a second one would share the temp file
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Restore] \"{stopping_title}\" is still stopping; try again in a moment",
+                    f"[复原] 《{stopping_title}》仍在停止中，请稍后再试",
+                    f"[復元] 「{stopping_title}」はまだ停止処理中です。少し待ってから再試行してください",
+                )
+            )
+            return False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.status != TaskStatus.CANCELLED or self._task_worker_alive_locked(task_id):
+                return False
             title = task.title or task.video_id
             self._restore_cancelled_task_locked(task)
+            task.auto_restore_count = 0
             requeued = True
 
         if not requeued:
@@ -125,25 +157,115 @@ class TaskControlMixin:
         return self._restore_cancelled_tasks(origin_filter="")
 
     def _restore_auto_stalled_cancelled_if_idle(self) -> int:
-        if not app_config.auto_restore_stalled_cancelled:
-            return 0
-        return self._restore_cancelled_tasks(origin_filter=_CANCEL_ORIGIN_AUTO_STALL, only_when_idle=True)
+        return self._auto_requeue_if_idle(retry_failed=False)[0]
 
-    def _restore_cancelled_tasks(self, *, origin_filter: str = "", only_when_idle: bool = False) -> int:
+    def _auto_retry_failed_if_idle(self) -> int:
+        return self._auto_requeue_if_idle(restore_stalled=False)[1]
+
+    def _queue_idle_locked(self) -> bool:
+        """No task is queued or running.  Tasks waiting on the workbench do not count."""
+        return all(
+            task.status in _TERMINAL_STATUSES or task.status == TaskStatus.STAGED
+            for task in self._tasks.values()
+        )
+
+    def _auto_requeue_candidate_locked(self, task: DownloadTask) -> bool:
+        """The task's last job has exited and no manual retry is working on it."""
+        return (
+            not self._task_worker_alive_locked(task.task_id)
+            and task.task_id not in self._manual_retry_claims
+        )
+
+    def _auto_requeue_if_idle(self, *, restore_stalled: bool = True, retry_failed: bool = True) -> tuple[int, int]:
+        """Once nothing is queued or running, re-queue in one pass:
+
+        * tasks the idle watchdog cancelled (``auto_restore_stalled_cancelled``),
+          at most ``STALL_AUTO_RESTORE_LIMIT`` times each;
+        * failed tasks whose error looks transient (``auto_retry_failed_enabled``),
+          at most ``auto_retry_failed_max_attempts`` times each.
+
+        Both keep the partial file so the download resumes.  Counters reset when
+        the user retries or restores the task by hand.  Nothing happens before
+        :meth:`start`, while the startup sign-in is still running, or during
+        shutdown.
+        """
+        restore_stalled = restore_stalled and bool(app_config.auto_restore_stalled_cancelled)
+        retry_failed = retry_failed and bool(app_config.auto_retry_failed_enabled)
+        if not (restore_stalled or retry_failed):
+            return 0, 0
+        max_attempts = app_config.auto_retry_failed_max_attempts
+        retry_keywords = app_config.auto_retry_failed_retry_keywords
+        skip_keywords = app_config.auto_retry_failed_skip_keywords
+        restored: list[str] = []
+        retried: list[tuple[str, str, int]] = []
+        with self._lock:
+            if (
+                not self._started
+                or self._shutting_down
+                or self._login_pending
+                or not self._queue_idle_locked()
+            ):
+                return 0, 0
+            for task in list(self._tasks.values()):
+                if not self._auto_requeue_candidate_locked(task):
+                    continue
+                if (
+                    restore_stalled
+                    and task.status == TaskStatus.CANCELLED
+                    and task.cancel_origin == _CANCEL_ORIGIN_AUTO_STALL
+                    and task.auto_restore_count < _STALL_AUTO_RESTORE_LIMIT
+                ):
+                    count = task.auto_restore_count + 1
+                    self._restore_cancelled_task_locked(task)
+                    task.auto_restore_count = count
+                    restored.append(task.task_id)
+                elif (
+                    retry_failed
+                    and task.status == TaskStatus.FAILED
+                    and task.auto_retry_count < max_attempts
+                    and should_auto_retry(task.error_msg, retry_keywords=retry_keywords, skip_keywords=skip_keywords)
+                ):
+                    attempt = task.auto_retry_count + 1
+                    self._restore_cancelled_task_locked(task)
+                    task.auto_retry_count = attempt
+                    retried.append((task.task_id, task.title or task.video_id, attempt))
+
+        if restored:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Restore] re-queued {len(restored)} cancelled tasks",
+                    f"[复原] 已重新加入队列 {len(restored)} 个中断任务",
+                    f"[復元] {len(restored)} 件の中断タスクをキューへ戻しました",
+                )
+            )
+        for task_id, title, attempt in retried:
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Auto-retry] \"{title}\" re-queued ({attempt}/{max_attempts})",
+                    f"[自动重试] 《{title}》已重新加入队列（{attempt}/{max_attempts}）",
+                    f"[自動再試行] 「{title}」をキューに戻しました（{attempt}/{max_attempts}）",
+                )
+            )
+        for task_id in [*restored, *(item[0] for item in retried)]:
+            signal_bus.task_status_changed.emit(task_id, TaskStatus.QUEUED_META.value)
+        if restored or retried:
+            self._schedule_task_persist()
+            self._try_activate()
+        return len(restored), len(retried)
+
+    def _restore_cancelled_tasks(self, *, origin_filter: str = "") -> int:
         """Put cancelled tasks back into the queue, optionally filtered by origin."""
         restored_ids: list[str] = []
         with self._lock:
-            if only_when_idle and any(
-                task.status not in _TERMINAL_STATUSES
-                for task in self._tasks.values()
-            ):
-                return 0
             for task in list(self._tasks.values()):
                 if task.status != TaskStatus.CANCELLED:
                     continue
                 if origin_filter and task.cancel_origin != origin_filter:
                     continue
+                if self._task_worker_alive_locked(task.task_id):
+                    continue  # still stopping; restored on a later attempt
                 self._restore_cancelled_task_locked(task)
+                task.auto_restore_count = 0
                 restored_ids.append(task.task_id)
 
         for task_id in restored_ids:
@@ -175,8 +297,21 @@ class TaskControlMixin:
 
         with self._lock:
             failed_tasks = [
-                t for t in self._tasks.values() if t.status == TaskStatus.FAILED
+                t
+                for t in self._tasks.values()
+                if t.status == TaskStatus.FAILED and t.task_id not in self._manual_retry_claims
             ]
+            claimed = {t.task_id for t in failed_tasks}
+            self._manual_retry_claims.update(claimed)
+        try:
+            return self._retry_claimed_failed(failed_tasks, exclude_downloaded)
+        finally:
+            with self._lock:
+                self._manual_retry_claims.difference_update(claimed)
+
+    def _retry_claimed_failed(self, failed_tasks: list[DownloadTask], exclude_downloaded: bool) -> tuple[int, int]:
+        to_retry: list[tuple[str, str, str]] = []
+        to_complete: list[str] = []
 
         for task in failed_tasks:
             if exclude_downloaded and self._find_existing_local_file(task.video_id):
@@ -216,6 +351,8 @@ class TaskControlMixin:
                 task.downloaded_bytes = 0
                 task.total_bytes = 0
                 task.download_url = ""
+                task.auto_retry_count = 0
+                task.auto_restore_count = 0
                 self._unmark_terminal_locked(tid)
                 self._queued_meta_ids.append(tid)
             retried_count += 1

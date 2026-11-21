@@ -15,9 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "tools"))
 from app.version import __version__  # noqa: E402
 from macos_bundle import foreign_loaded_paths, make_self_contained, parse_dyld_loaded_paths  # noqa: E402
 from macos_dmg import build_dmg, mounted, verify_dmg_layout  # noqa: E402
@@ -34,7 +34,7 @@ def smoke_test(command: list[str], *, forbid_build_env: bool = False) -> None:
         env["DYLD_PRINT_LIBRARIES"] = "1"
     with tempfile.TemporaryDirectory(prefix="iwaratool-smoke-") as home:
         result = subprocess.run(
-            [*command, "--smoke-test", "--smoke-media", str(ROOT / "tests" / "fixtures" / "video-smoke.mp4")],
+            [*command, "--smoke-test", "--smoke-media", str(ROOT / "scripts" / "tests" / "fixtures" / "video-smoke.mp4")],
             env={**os.environ, "HOME": home, **env},
             timeout=120, text=True, capture_output=True,
         )

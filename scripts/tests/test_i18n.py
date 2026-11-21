@@ -14,7 +14,7 @@ from app.core.models import TaskStatus, status_label
 from app.i18n import pinned_language, tr
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class I18nTest(unittest.TestCase):
@@ -87,7 +87,7 @@ class I18nTest(unittest.TestCase):
         self.assertEqual(frozen, [], f"module-scope translations found: {frozen}")
 
     def test_extract_script_collects_every_translation_call(self):
-        spec = importlib.util.spec_from_file_location("i18n_extract", PROJECT_ROOT / "scripts" / "i18n_extract.py")
+        spec = importlib.util.spec_from_file_location("i18n_extract", PROJECT_ROOT / "scripts" / "tools" / "i18n_extract.py")
         extract = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {spec.name: extract}):  # dataclasses look the module up
             spec.loader.exec_module(extract)

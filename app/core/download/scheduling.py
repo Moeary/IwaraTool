@@ -37,13 +37,14 @@ class SchedulingMixin:
                     continue
                 task.status = TaskStatus.RESOLVING
                 self._active_task_ids.add(task.task_id)
+                self._claim_task_worker_locked(task.task_id)
                 self._touch_task_activity_locked(task.task_id)
                 to_resolve.append(task.task_id)
                 active += 1
 
         for tid in to_resolve:
             signal_bus.task_status_changed.emit(tid, TaskStatus.RESOLVING.value)
-            self._resolve_executor.submit(self._resolve_task, tid)
+            self._submit_task_job(self._resolve_executor, self._resolve_task, tid)
 
     def _pop_next_queued_task_locked(self) -> str:
         """Pop the oldest valid task among the highest queued priority."""
@@ -94,6 +95,7 @@ class SchedulingMixin:
             else:
                 task.status = TaskStatus.DOWNLOADING
                 self._touch_task_activity_locked(task_id)
+                self._claim_task_worker_locked(task_id)
                 should_cancel = False
         if should_cancel:
             self._cancel_task_terminal(
@@ -103,4 +105,4 @@ class SchedulingMixin:
             return
         signal_bus.task_status_changed.emit(task_id, TaskStatus.DOWNLOADING.value)
         self._schedule_task_persist()
-        self._download_executor.submit(self._download_task, task_id)
+        self._submit_task_job(self._download_executor, self._download_task, task_id)

@@ -24,6 +24,11 @@ class SessionMixin:
                 app_config.auth_token = ""
                 app_config.auth_token_saved_at = ""
 
+    def set_login_pending(self, pending: bool):
+        """Hold automatic retries while a sign-in is on its way."""
+        with self._lock:
+            self._login_pending = bool(pending)
+
     def restore_cached_login(self) -> bool:
         token = (app_config.auth_token or "").strip()
         if not (app_config.auth_enabled and token):

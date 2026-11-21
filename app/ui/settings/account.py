@@ -164,11 +164,19 @@ class SettingsAccountMixin:
         worker.result_ready.connect(lambda ok, msg: self._on_login_finished(ok, msg, silent))
         worker.finished.connect(lambda worker=worker: self._release_login_worker(worker))
         self._worker = worker
-        worker.start()
+        download_manager.set_login_pending(True)
+        try:
+            worker.start()
+        except Exception:
+            self._worker = None
+            download_manager.set_login_pending(False)
+            self._login_btn.setEnabled(True)
+            raise
 
     def _release_login_worker(self, worker: LoginWorker):
         if self._worker is worker:
             self._worker = None
+            download_manager.set_login_pending(False)
         worker.deleteLater()
 
     def _on_login_finished(self, ok: bool, msg: str, silent: bool):

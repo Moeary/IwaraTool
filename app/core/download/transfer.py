@@ -9,7 +9,18 @@ from ...config import app_config
 from ...i18n import tr
 from ...logging_setup import get_logger
 from ...signal_bus import signal_bus
-from .integrity import classify_416, incomplete_reason, resume_offset_mismatch
+from .integrity import (
+    BACKEND_NATIVE,
+    classify_416,
+    partial_file_reusable,
+    incomplete_reason,
+    read_resume_meta,
+    remove_resume_meta,
+    parse_content_range,
+    resume_offset_mismatch,
+    resume_total_mismatch,
+    write_resume_meta,
+)
 from .locations import STORAGE_REMOTE
 from .speed_format import _fmt_bytes, _fmt_speed
 
@@ -21,6 +32,8 @@ class TransferMixin:
     """Transfer a resolved task's file with the built-in downloader (or hand it to aria2)."""
 
     def _download_task(self, task_id: str):
+        with self._lock:
+            self._aria2_jobs.discard(task_id)  # a new attempt; set again if it goes to aria2
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -148,8 +161,13 @@ class TransferMixin:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        # Resume support
+        # Resume support: only from a partial file this downloader recorded for
+        # the same file and quality.
         existing_size = 0
+        if os.path.exists(temp_path) and not partial_file_reusable(
+            temp_path, self._resume_source(task), BACKEND_NATIVE
+        ):
+            self._discard_partial_or_raise(temp_path)
         if os.path.exists(temp_path):
             existing_size = os.path.getsize(temp_path)
             if existing_size > 0:
@@ -171,10 +189,34 @@ class TransferMixin:
         )
         return resp, existing_size
 
+    def _discard_partial_or_raise(self, temp_path: str) -> None:
+        """Remove a partial file that cannot be continued; raise if it stays."""
+        if not self._discard_temp_file(temp_path):
+            raise OSError(
+                tr(
+                    f"Could not remove an unusable partial file: {temp_path}",
+                    f"无法删除不可续传的缓存文件：{temp_path}",
+                    f"再開できない一時ファイルを削除できません: {temp_path}",
+                )
+            )
+        signal_bus.log_message.emit(
+            tr(
+                "  Partial file cannot be verified for this file; downloading again",
+                "  已有缓存无法确认属于该文件，重新下载",
+                "  一時ファイルがこのファイルのものか確認できないため最初から保存します",
+            )
+        )
+
+    @staticmethod
+    def _resume_source(task) -> str:
+        """Which file and quality a partial download holds."""
+        return f"{task.file_id}:{task.quality}" if task.file_id else ""
+
     def _accept_download_response(self, task_id: str, resp, existing_size: int, temp_path: str, final_path: str) -> bool:
         """True to stream the body; False once the status code has finished the task."""
 
-        if resp.status_code == 416 and classify_416(resp.headers, existing_size) == "corrupt":
+        expected_total = int(read_resume_meta(temp_path).get("total", 0) or 0) if existing_size > 0 else 0
+        if resp.status_code == 416 and classify_416(resp.headers, existing_size, expected_total) == "corrupt":
             self._discard_temp_file(temp_path)
             self._fail_task(
                 task_id,
@@ -207,7 +249,9 @@ class TransferMixin:
             return False
 
         if resp.status_code == 206:
-            mismatch = resume_offset_mismatch(resp.headers, existing_size)
+            mismatch = resume_offset_mismatch(resp.headers, existing_size) or resume_total_mismatch(
+                resp.headers, existing_size, expected_total
+            )
             if mismatch:
                 self._discard_temp_file(temp_path)
                 self._fail_task(
@@ -226,7 +270,10 @@ class TransferMixin:
 
         content_length = int(resp.headers.get("Content-Length", 0) or 0)
         if resp.status_code == 206:
-            total = existing_size + content_length
+            # The full size comes from Content-Range when given, so a reply that
+            # stops early cannot make a short file look complete.
+            _start, _end, range_total = parse_content_range(resp.headers.get("Content-Range"))
+            total = range_total or existing_size + content_length
         else:
             total = content_length
             existing_size = 0  # Server ignored Range header
@@ -254,6 +301,10 @@ class TransferMixin:
         last_bytes = downloaded
 
         with open(temp_path, mode) as fh:
+            if mode == "wb":
+                # Recorded only once the old bytes are gone, so the record never
+                # labels data from another source.
+                write_resume_meta(temp_path, self._resume_source(task), total, BACKEND_NATIVE)
             for chunk in resp.iter_content(chunk_size=65536):
                 if self._cancel_if_requested(task_id):
                     return None
@@ -326,12 +377,21 @@ class TransferMixin:
         self._complete_task(task_id)
 
     @staticmethod
-    def _discard_temp_file(temp_path: str) -> None:
+    def _discard_temp_file(temp_path: str) -> bool:
+        """Remove a partial file with its sidecars; False if the file stayed."""
         try:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except OSError:
             logger.warning("Could not remove temp file %s", temp_path, exc_info=True)
+            return False
+        for sidecar in (f"{temp_path}.aria2",):
+            try:
+                os.remove(sidecar)
+            except OSError:
+                pass
+        remove_resume_meta(temp_path)
+        return True
 
     def _finalize_temp_file(self, task_id: str, temp_path: str, final_path: str) -> bool:
         if self._is_cancel_requested(task_id):
@@ -363,6 +423,7 @@ class TransferMixin:
             return False
         try:
             os.replace(temp_path, final_path)
+            remove_resume_meta(temp_path)
             sidecar = f"{temp_path}.aria2"
             if os.path.exists(sidecar):
                 os.remove(sidecar)

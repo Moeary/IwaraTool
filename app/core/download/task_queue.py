@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable
 
 from ...config import app_config
 from ..models import DownloadTask, TaskStatus
+from .manager_state import AUTO_STALL_ORIGINS
 
 
 TASK_QUEUE_SCHEMA_VERSION = 1
@@ -43,6 +44,8 @@ _INT_FIELDS = {
     "duration",
     "comments",
     "thumbnail_index",
+    "auto_retry_count",
+    "auto_restore_count",
 }
 _SIGNED_INT_FIELDS = {"priority"}
 _BOOL_FIELDS = {
@@ -169,7 +172,12 @@ class TaskQueueStore:
                 values[name] = str(value or "")
 
         task = DownloadTask(**values)
-        if status in _REQUEUE_ON_LOAD:
+        if status in _REQUEUE_ON_LOAD and task.cancel_origin in AUTO_STALL_ORIGINS:
+            # idle-cancelled while the app quit: stays cancelled, so the
+            # auto-restore rules (and aria2's unconfirmed stop) still apply
+            task.status = TaskStatus.CANCELLED
+            task.speed_str = ""
+        elif status in _REQUEUE_ON_LOAD:
             task.status = TaskStatus.QUEUED_META
             task.download_url = ""
             task.speed_str = ""

@@ -2,7 +2,7 @@
 
 ![logo](./docs/iwaratool_logo.png)
 
-[简体中文](./readme_zh.md) | [日本語](./readme_ja.md)
+[简体中文](./docs/readme/readme_zh.md) | [日本語](./docs/readme/readme_ja.md)
 
 Say goodbye to tedious command-line tools! Iwara batches downloader with a modern Fluent-style interface, making it easy for anyone to download all videos from a creator with one click.
 
@@ -25,7 +25,7 @@ Say goodbye to tedious command-line tools! Iwara batches downloader with a moder
 
 ## Screenshots
 
-All screenshots use the English interface with made-up sample data; the covers are generated placeholder art. `scripts/record_demo.py` re-records the GIF and these screenshots offline.
+All screenshots use the English interface with made-up sample data; the covers are generated placeholder art. `scripts/tools/record_demo.py` re-records the GIF and these screenshots offline.
 
 1. Home
 

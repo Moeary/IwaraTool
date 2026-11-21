@@ -36,6 +36,7 @@ from .policy import SharedRateLimiter
 from ..history import DownloadHistory
 from ..image_cache import SearchImageCache, SubscriptionImageCache
 from .manager_state import (
+    AUTO_STALL_ORIGINS as _AUTO_STALL_ORIGINS,
     CANCEL_ORIGIN_SHUTDOWN as _CANCEL_ORIGIN_SHUTDOWN,
     LIVE_TERMINAL_KEEP_LIMIT as _LIVE_TERMINAL_KEEP_LIMIT,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
@@ -112,6 +113,17 @@ class DownloadManager(
         self._terminal_events_since_gc = 0
         self._last_gc_at = 0.0
         self._task_last_activity: dict[str, float] = {}
+        # Resolve / download jobs submitted per task and not yet returned.  A task
+        # is only re-queued automatically once its previous job has exited.
+        self._task_workers: dict[str, int] = {}
+        # Failed tasks a manual retry is cleaning up; automatic retry skips them.
+        self._manual_retry_claims: set[str] = set()
+        # A sign-in is running: automatic retry waits so it does not resolve
+        # (and use up attempts) without the account.
+        self._login_pending = False
+        # Tasks whose current download job has been handed to aria2 (set before
+        # addUri returns a GID), so the idle watchdog knows aria2 may own them.
+        self._aria2_jobs: set[str] = set()
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False
@@ -193,6 +205,8 @@ class DownloadManager(
                 if task.status in _TERMINAL_STATUSES:
                     continue
                 pending += 1
+                if task.status == TaskStatus.CANCELLING and task.cancel_origin in _AUTO_STALL_ORIGINS:
+                    continue  # stays an idle-cancel across the restart, see TaskQueueStore
                 if task.status != TaskStatus.QUEUED_META:
                     task.cancel_requested = True
                     task.cancel_origin = _CANCEL_ORIGIN_SHUTDOWN

@@ -1,6 +1,6 @@
 # 使用ガイド
 
-[English](./usage_en.md) | [简体中文](./usage.md) | [README に戻る](../../readme_ja.md)
+[English](./usage_en.md) | [简体中文](./usage.md) | [README に戻る](../readme/readme_ja.md)
 
 本ガイドは README のクイックスタート以降の詳細を補足します。
 

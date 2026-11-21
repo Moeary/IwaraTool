@@ -8,6 +8,7 @@ import uuid
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from .integrity import BACKEND_ARIA2, BACKEND_NATIVE, partial_file_reusable, write_resume_meta
 from .speed_format import _fmt_bytes, _fmt_speed
 
 
@@ -33,6 +34,31 @@ class Aria2DownloadMixin:
             )
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
+
+        source = self._resume_source(task)
+        if os.path.exists(temp_path) and partial_file_reusable(temp_path, source, BACKEND_NATIVE):
+            # an earlier attempt fell back to the built-in downloader: keep its progress
+            signal_bus.log_message.emit(
+                tr(
+                    "  Continuing the built-in downloader's partial file",
+                    "  继续内置下载器已下载的部分",
+                    "  内蔵ダウンローダーの途中ファイルから再開します",
+                )
+            )
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+            return
+        # aria2 continues only its own partial file for the same source.
+        try:
+            if os.path.exists(temp_path) and not partial_file_reusable(temp_path, source, BACKEND_ARIA2):
+                self._discard_partial_or_raise(temp_path)
+            elif not os.path.exists(temp_path) and os.path.exists(f"{temp_path}.aria2"):
+                os.remove(f"{temp_path}.aria2")
+        except OSError as exc:
+            self._fail_task(task_id, str(exc))
+            return
+        write_resume_meta(temp_path, source, 0, BACKEND_ARIA2)
+        with self._lock:
+            self._aria2_jobs.add(task_id)  # before addUri: a GID may arrive after an idle-cancel
 
         options = self._aria2_options(temp_path)
         self._apply_aria2_global_speed_limit()
@@ -118,6 +144,8 @@ class Aria2DownloadMixin:
                 return
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
+                # aria2 may still be writing this file, so the retry policy
+                # never retries this message automatically.
                 self._fail_task(
                     task_id,
                     tr(
@@ -307,10 +335,12 @@ class Aria2DownloadMixin:
     def _aria2_rpc_remove_result(self, gid: str):
         self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
 
-    def _aria2_rpc_cancel(self, gid: str):
+    def _aria2_rpc_cancel(self, gid: str) -> bool:
+        """Stop an aria2 download; True only when aria2 confirmed removing ``gid``."""
         if not gid:
-            return
+            return True
         data, err = self._aria2_rpc_call("aria2.remove", [gid])
-        if not data and err:
-            self._aria2_rpc_call("aria2.forceRemove", [gid])
+        if not (data and data.get("result") == gid):
+            data, _err = self._aria2_rpc_call("aria2.forceRemove", [gid])
         self._aria2_rpc_remove_result(gid)
+        return bool(data and data.get("result") == gid)

@@ -8,6 +8,7 @@ from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask
+from .integrity import RESUME_META_SUFFIX, resume_meta_path
 
 
 class TempFilesMixin:
@@ -20,6 +21,7 @@ class TempFilesMixin:
                 temp_path = f"{task.file_path}{suffix}"
                 candidates.append(temp_path)
                 candidates.append(f"{temp_path}.aria2")
+                candidates.append(resume_meta_path(temp_path))
         return list(dict.fromkeys(candidates))
 
     def _remove_task_temp_files(self, task: DownloadTask) -> tuple[int, int]:
@@ -57,6 +59,7 @@ class TempFilesMixin:
             temp_path = f"{file_path}{suffix}"
             candidates.append(temp_path)
             candidates.append(f"{temp_path}.aria2")
+            candidates.append(resume_meta_path(temp_path))
 
         removed = 0
         failed = 0
@@ -84,6 +87,13 @@ class TempFilesMixin:
         failed = 0
         for dirpath, _, filenames in os.walk(root):
             for name in filenames:
+                if name.endswith(f"_temp{RESUME_META_SUFFIX}") and name[: -len(RESUME_META_SUFFIX)] not in filenames:
+                    # a record whose partial file is already gone
+                    try:
+                        os.remove(os.path.join(dirpath, name))
+                    except OSError:
+                        failed += 1
+                    continue
                 if not name.endswith("_temp"):
                     continue
                 temp_file = os.path.join(dirpath, name)
@@ -93,10 +103,10 @@ class TempFilesMixin:
                 except Exception:
                     failed += 1
                     continue
-                sidecar = f"{temp_file}.aria2"
-                if os.path.exists(sidecar):
-                    try:
-                        os.remove(sidecar)
-                    except Exception:
-                        failed += 1
+                for sidecar in (f"{temp_file}.aria2", resume_meta_path(temp_file)):
+                    if os.path.exists(sidecar):
+                        try:
+                            os.remove(sidecar)
+                        except Exception:
+                            failed += 1
         return removed, failed
