@@ -10,7 +10,7 @@ from typing import Any, Callable
 from ...i18n import current_language, pin_language, pinned_language, tr
 from ..api.client import IwaraAPI
 from .candidate_index import RepairCandidateIndex
-from .matching import scan_video_files
+from .matching import parse_manual_video_id, scan_video_files
 from .file_identification import RepairFileIdentificationMixin
 from .. import site as sites
 
@@ -86,6 +86,59 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
                 "move_to_output": move_to_output,
             },
         )
+
+    @pin_language
+    def resolve_repair_item(
+        self,
+        items: list[dict[str, Any]],
+        path: str,
+        video_id_text: str,
+        *,
+        options: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Re-identify one scanned file by a user-entered Iwara ID or URL.
+
+        Returns the whole list re-planned, since a new target can conflict with
+        another item's. Raises ``ValueError`` for input that is not an ID.
+        """
+
+        video_id = parse_manual_video_id(video_id_text)
+        if not video_id:
+            raise ValueError(tr(
+                f"Not an Iwara video ID or URL: {video_id_text}",
+                f"不是有效的 Iwara 视频 ID 或链接：{video_id_text}",
+                f"Iwara 動画 ID または URL ではありません: {video_id_text}",
+            ))
+        options = dict(options or {})
+        result = [dict(item) for item in items]
+        key = self._repair_normalize_path(path)
+        index = next(
+            (i for i, item in enumerate(result) if self._repair_normalize_path(item.get("path", "")) == key),
+            None,
+        )
+        if index is None:
+            return result
+        previous = result[index]
+        cached = previous.get("cached_meta") if isinstance(previous.get("cached_meta"), dict) else {}
+        same_video = str(cached.get("video_id", "") or "").casefold() == video_id.casefold()
+        # A history record found by path only describes this file while it
+        # still names the same video.
+        record = cached if previous.get("existing_history") and same_video else None
+        move_to_output = bool(options.get("move_to_output", previous.get("move_to_output", False)))
+        output_root = str(options.get("output_root", "") or previous.get("output_root", "") or "")
+        if move_to_output and not output_root:
+            output_root = os.path.dirname(str(previous.get("path", "") or path))
+        item = self._repair_scan_item(str(previous.get("path", "") or path), record, output_root, move_to_output)
+        video_info, error = self._api_call("get_video_info", video_id)
+        result[index] = self._fill_repair_item(
+            item, item["path"], video_id, "manual-id", video_info, error, record, None,
+            filename_template=str(options.get("filename_template", "") or ""),
+            output_root=output_root,
+            move_to_output=move_to_output,
+        )
+        if result[index].get("status") != "ready":
+            result[index]["video_id"] = video_id
+        return self.preview_repair_files(result, options=options)
 
     def _repair_scan_context(self):
         """``(history record by path, local candidate index)`` for a scan."""

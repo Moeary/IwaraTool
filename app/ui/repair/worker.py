@@ -35,10 +35,14 @@ class RepairWorker(ManagedThread):
         move_to_output: bool = False,
         items: list[dict[str, Any]] | None = None,
         options: dict[str, Any] | None = None,
+        path: str = "",
+        video_id_text: str = "",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.mode = mode
+        self.path = path
+        self.video_id_text = video_id_text
         self.folder = folder
         self.filename_template = filename_template
         self.output_root = output_root
@@ -79,6 +83,13 @@ class RepairWorker(ManagedThread):
                     preview_options=self.options,
                     progress_callback=callback,
                     activity_callback=activity_callback,
+                )
+            elif self.mode == "resolve":
+                result = download_manager.resolve_repair_item(
+                    self.items,
+                    self.path,
+                    self.video_id_text,
+                    options=self.options,
                 )
             else:
                 result = download_manager.repair_folder_files(

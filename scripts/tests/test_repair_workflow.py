@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
@@ -382,6 +382,66 @@ class RepairWorkflowTests(RepairTestFixture):
         self.assertFalse(self.output.exists())
 
 
+class RepairFilenameIdTests(RepairTestFixture):
+    """Issue #32: browser downloads named ``Iwara - <title> [<id>] [Source]``."""
+
+    def add_online_video(self, video_id, title, author="Alice"):
+        self.manager.videos[video_id] = {
+            "id": video_id, "title": title, "author": author,
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+
+    def test_bracketed_id_resolves_and_title_words_are_not_ids(self):
+        self.add_online_video("7rntP6twy92J0R", "Stupid!")
+        self.add_online_video("jxYoGoArkoYkR2", "Rainbow")
+        (self.source / "Iwara-Stupid! [HMV] [7rntP6twy92J0R] [Source].mp4").write_bytes(b"a")
+        (self.source / "Iwara - Robin SEX_DANCE Rainbow-final [jxYoGoArkoYkR2] [Source].mp4").write_bytes(b"b")
+        (self.source / "Iwara - SEXDance.mp4").write_bytes(b"c")
+        looked_up = []
+        get_info = FakeAPI.get_video_info
+
+        def record(api, video_id):
+            looked_up.append(video_id)
+            return get_info(api, video_id)
+
+        with patch.object(FakeAPI, "get_video_info", record):
+            items = {Path(item["path"]).name: item for item in self.scan()}
+        stupid = items["Iwara-Stupid! [HMV] [7rntP6twy92J0R] [Source].mp4"]
+        self.assertEqual((stupid["status"], stupid["video_id"], stupid["source"]), ("ready", "7rntP6twy92J0R", "filename-token"))
+        rainbow = items["Iwara - Robin SEX_DANCE Rainbow-final [jxYoGoArkoYkR2] [Source].mp4"]
+        self.assertEqual((rainbow["status"], rainbow["video_id"]), ("ready", "jxYoGoArkoYkR2"))
+        unknown = items["Iwara - SEXDance.mp4"]
+        self.assertEqual((unknown["status"], unknown["video_id"]), ("not_found", ""))
+        self.assertNotIn("SEXDance", looked_up)
+
+    def test_rejected_guess_falls_back_to_title_search(self):
+        self.add_online_video("RealVideo99x", "Some Dance")
+        (self.source / "Some Dance [Zz9yX8wV7u6T].mp4").write_bytes(b"a")
+        with patch.object(FakeAPI, "get_videos_by_query", return_value=([self.manager.videos["RealVideo99x"]], "")):
+            items = self.scan()
+        self.assertEqual((items[0]["status"], items[0]["video_id"], items[0]["source"]), ("ready", "RealVideo99x", "iwara-search"))
+
+    def test_manual_id_resolves_a_not_found_item_and_replans_conflicts(self):
+        self.add_online_video("ManualVid123", "Picked")
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        items = self.scan()
+        self.assertEqual(items[0]["status"], "not_found")
+        resolved = self.manager.resolve_repair_item(
+            items, str(path), "https://www.iwara.tv/video/ManualVid123", options=options,
+        )
+        self.assertEqual(
+            (resolved[0]["status"], resolved[0]["video_id"], resolved[0]["source"]),
+            ("ready", "ManualVid123", "manual-id"),
+        )
+        self.assertEqual(resolved[0]["target_path"], str(self.source / "2024-05-06_Picked_ManualVid123.mp4"))
+        missing = self.manager.resolve_repair_item(items, str(path), "NoSuchVid000", options=options)
+        self.assertEqual((missing[0]["status"], missing[0]["video_id"]), ("not_found", "NoSuchVid000"))
+        with self.assertRaises(ValueError):
+            self.manager.resolve_repair_item(items, str(path), "not an id", options=options)
+
+
 class RepairInterfaceModeTests(RepairTestFixture):
     @classmethod
     def setUpClass(cls):
@@ -599,6 +659,48 @@ class RepairInterfaceModeTests(RepairTestFixture):
         self.assertIsNot(threads[0], threading.main_thread())
         self.assertEqual(Path(page._items[0]["target_path"]).name, "VideoID01_New title.mp4")
         self.assertEqual(page._table.item(0, page._COL_TARGET).text(), page._items[0]["target_path"])
+
+
+    def test_typing_an_id_into_a_not_found_row_looks_the_file_up_again(self):
+        self.manager.videos["ManualVid123"] = {
+            "id": "ManualVid123", "title": "Picked", "author": "Alice",
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        id_cell = page._table.item(0, page._COL_ID)
+        self.assertTrue(id_cell.flags() & Qt.ItemFlag.ItemIsEditable)
+        self.assertFalse(page._table.item(0, page._COL_TITLE).flags() & Qt.ItemFlag.ItemIsEditable)
+        self.assertIn("Iwara ID", page._table.item(0, page._COL_DETAIL).text())
+
+        with patch.object(page, "_show_warning") as warn, patch.object(page, "_start_worker") as start_worker:
+            id_cell.setText("not an id")
+        warn.assert_called_once()
+        start_worker.assert_not_called()
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "")
+
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("ManualVid123")
+        worker = start_worker.call_args.args[0]
+        self.assertEqual((worker.mode, worker.path, worker.video_id_text), ("resolve", str(path), "ManualVid123"))
+        results = []
+        worker.result_ready.connect(results.append)
+        worker.run()
+        page._worker = worker
+        page._worker_mode = "resolve"
+        page._on_result(results[0])
+        page._worker = None
+        self.assertEqual(page._items[0]["status"], "ready")
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "ManualVid123")
+        self.assertEqual(page._table.item(0, page._COL_TITLE).text(), "Picked")
+        page._update_start_button()
+        self.assertTrue(page._start_btn.isEnabled())
 
 
 class RepairScanScalingTests(RepairTestFixture):

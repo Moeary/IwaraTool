@@ -30,18 +30,35 @@ _VIDEO_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.|api\.)?iwara\.tv/video/([A-Za-z0-9][A-Za-z0-9_-]*)",
     re.IGNORECASE,
 )
+# An explicit "id" label: ``iwara-id=…``, ``Iwara ID …``, ``video_id: …``,
+# ``id_…``. A bare ``Iwara - `` prefix is *not* a label: browser downloads are
+# named ``Iwara - <title> [<id>]`` and the title's first word is no ID.
 _VIDEO_ID_LABEL_RE = re.compile(
-    r"(?:iwara(?:[ _-]*(?:video|id))?|video[ _-]*id)[\s:=#_\-\[\(]+"
+    r"(?:(?:iwara|video)[ _-]*id|(?<![A-Za-z0-9])id)[\s:=#_\-]+[\[\(]?"
     r"([A-Za-z0-9]{8,})",
     re.IGNORECASE,
 )
+# ``[id]`` / ``(id)`` / ``{id}`` / ``【id】`` as written by yt-dlp style tools.
+_BRACKETED_TOKEN_RE = re.compile(
+    r"[\[\(\{【（]\s*([A-Za-z0-9]{8,24})\s*[\]\)\}】）]"
+)
+_ID_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9]{8,24})(?![A-Za-z0-9])")
+# A bare ID typed or pasted by the user (Iwara IDs may contain ``_``/``-``).
+_MANUAL_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$")
+_IWARA_PREFIX_RE = re.compile(r"^\s*iwara\s*[-_:：]\s*", re.IGNORECASE)
+_BRACKETED_QUALITY_RE = re.compile(
+    r"[\[\(\{【（]\s*(?:source|原画|original|\d{3,4}p|4k)\s*[\]\)\}】）]",
+    re.IGNORECASE,
+)
+# How many unlabelled filename tokens are checked online before searching.
+MAX_FILENAME_ID_GUESSES = 3
 _DATE_PREFIX_RE = re.compile(
     r"^[\s._()\[\]-]*(?:\d{4}[-_.]\d{1,2}[-_.]\d{1,2}|\d{8})"
     r"[\s._()\[\]-]*",
     re.IGNORECASE,
 )
 _QUALITY_SUFFIX_RE = re.compile(
-    r"(?:[\s._-]+)(?:source|原画|original|1080p|720p|540p|360p)$",
+    r"(?:[\s._-]+)[\[\(]?(?:source|原画|original|1080p|720p|540p|360p)[\]\)]?$",
     re.IGNORECASE,
 )
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
@@ -70,24 +87,77 @@ def extract_iwara_video_id(value: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def guess_filename_video_id(value: str) -> str:
-    """Return a conservative trailing ID candidate from a download filename.
+def parse_manual_video_id(value: str) -> str:
+    """The video ID in a user-entered Iwara URL or bare ID, or ``""``."""
 
-    The candidate is only a lookup hint. Callers must still validate it with
-    the Iwara API before changing anything, so ordinary title words cannot
-    silently become video IDs.
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = _VIDEO_URL_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text if _MANUAL_VIDEO_ID_RE.fullmatch(text) else ""
+
+
+def _looks_like_video_id(token: str) -> bool:
+    """Whether an unlabelled token reads like a generated ID rather than a word."""
+
+    has_digit = any(char.isdigit() for char in token)
+    has_alpha = any(char.isalpha() for char in token)
+    if has_digit and has_alpha:
+        return True
+    # Generated IDs mix case at random; ``TimeStop`` or ``SEXDance`` only
+    # change case at word starts, so a lone case mix needs a longer token.
+    if has_alpha and not has_digit and len(token) >= 12:
+        rest = token[1:]
+        return any(char.isupper() for char in rest) and any(char.islower() for char in rest)
+    return False
+
+
+def filename_video_id_guesses(value: str) -> list[str]:
+    """Unlabelled ID candidates in a filename, most likely first.
+
+    These are lookup hints only: callers validate each with the Iwara API and
+    fall back to a title search, so a title word can never silently become an
+    ID. Bracketed tokens (``Title [AbC123xyz] [Source]``) rank first, then the
+    trailing token of the app's own ``…_{id}`` names, then other ID-like
+    tokens nearest the end of the name.
     """
 
     stem = os.path.splitext(os.path.basename(str(value or "")))[0]
     stem = _DATE_PREFIX_RE.sub("", stem)
-    stem = _QUALITY_SUFFIX_RE.sub("", stem)
-    tokens = [token for token in re.split(r"[\s._-]+", stem) if token]
-    if not tokens:
-        return ""
-    candidate = tokens[-1]
-    if re.fullmatch(r"[A-Za-z0-9]{8,}", candidate):
-        return candidate
-    return ""
+    ranked: list[tuple[int, int, str]] = []
+
+    for match in _BRACKETED_TOKEN_RE.finditer(stem):
+        token = match.group(1)
+        if _looks_like_video_id(token):
+            ranked.append((0, -match.start(), token))
+
+    trailing = _QUALITY_SUFFIX_RE.sub("", _BRACKETED_QUALITY_RE.sub("", stem).rstrip(" ._-"))
+    tokens = [token for token in re.split(r"[\s._-]+", trailing) if token]
+    if tokens and re.fullmatch(r"[A-Za-z0-9]{8,}", tokens[-1]) and _looks_like_video_id(tokens[-1]):
+        ranked.append((1, 0, tokens[-1]))
+
+    for match in _ID_TOKEN_RE.finditer(stem):
+        token = match.group(1)
+        if _looks_like_video_id(token) and len(token) >= 10:
+            ranked.append((2, -match.start(), token))
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for _rank, _position, token in sorted(ranked):
+        key = token.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(token)
+    return result[:MAX_FILENAME_ID_GUESSES]
+
+
+def guess_filename_video_id(value: str) -> str:
+    """The most likely unlabelled ID candidate in a filename, or ``""``."""
+
+    guesses = filename_video_id_guesses(value)
+    return guesses[0] if guesses else ""
 
 
 def scan_video_files(folder: str) -> list[str]:
@@ -146,12 +216,20 @@ def normalize_match_text(value: Any) -> str:
 def filename_search_text(path: str) -> str:
     """Turn a downloaded filename into a title-like search string."""
 
-    stem = os.path.splitext(os.path.basename(str(path or "")))[0]
-    stem = _DATE_PREFIX_RE.sub("", stem)
-    stem = _QUALITY_SUFFIX_RE.sub("", stem)
-    stem = re.sub(r"(?:^|[\s._-])(?:iwara|video)[\s._-]*id[\s._:#-]*[A-Za-z0-9]{8,}", " ", stem, flags=re.IGNORECASE)
+    original = os.path.splitext(os.path.basename(str(path or "")))[0]
+    stem = _DATE_PREFIX_RE.sub("", original)
+    stem = _VIDEO_ID_LABEL_RE.sub(" ", stem)
+    stem = _IWARA_PREFIX_RE.sub("", stem)
+    stem = _BRACKETED_QUALITY_RE.sub(" ", stem)
+    stem = _QUALITY_SUFFIX_RE.sub("", stem.rstrip(" ._-"))
+    guesses = {token.casefold() for token in filename_video_id_guesses(original)}
+    stem = _BRACKETED_TOKEN_RE.sub(
+        lambda match: " " if match.group(1).casefold() in guesses else match.group(0),
+        stem,
+    )
     stem = re.sub(r"[_]+", " ", stem)
-    return stem.strip(" .-_[]()") or os.path.splitext(os.path.basename(str(path or "")))[0]
+    stem = re.sub(r"\s{2,}", " ", stem)
+    return stem.strip(" .-_") or original
 
 
 def author_match_bonus(author_hint: str, candidate_author: str) -> float:

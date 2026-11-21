@@ -6,6 +6,8 @@ import os
 import time
 from typing import Any
 
+from PySide6.QtWidgets import QAbstractItemView
+
 from ...config import app_config
 from ...i18n import tr
 from ..common.worker_lifecycle import stop_qthreads
@@ -98,6 +100,7 @@ class RepairRunningMixin:
         self._scan_btn.setEnabled(False)
         self._start_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         for control in (self._mode_combo, self._folder_edit, self._source_browse_btn,
                         self._template_edit, self._rule_combo, self._rename_check,
                         self._thumbnail_check, self._nfo_check,
@@ -202,6 +205,21 @@ class RepairRunningMixin:
                     f"[修復] 検索完了: {ready}/{len(self._items)} 件が修復可能",
                 )
             )
+        elif self._worker_mode == "resolve" and isinstance(result, list):
+            path = str(getattr(self._worker, "path", "") or "")
+            self._set_items(result)
+            self._render_all_items()
+            item = self._items_by_path.get(path, {})
+            self._status_label.setText(
+                tr("Lookup finished", "查询完成", "検索完了")
+            )
+            self._append_log(
+                tr(
+                    f"[Repair] {path}: {item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
+                    f"[修复] {path}：{item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
+                    f"[修復] {path}: {item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
+                )
+            )
         elif self._worker_mode == "repair" and isinstance(result, dict):
             repaired_items = result.get("items", [])
             if isinstance(repaired_items, list):
@@ -217,6 +235,9 @@ class RepairRunningMixin:
         self._update_summary()
 
     def _on_worker_error(self, message: str):
+        if self._worker is not None and self._worker_mode == "resolve":
+            self._restore_row(str(getattr(self._worker, "path", "") or ""))
+            self._status_label.setText(tr("Lookup failed", "查询失败", "検索に失敗"))
         self._append_log(tr(f"[Repair] error: {message}", f"[修复] 出错：{message}", f"[修復] エラー: {message}"))
         self._show_warning(
             tr("Repair failed", "修复失败", "修復に失敗"),
@@ -228,6 +249,7 @@ class RepairRunningMixin:
         self._worker = None
         self._scan_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
+        self._table.setEditTriggers(self._ID_EDIT_TRIGGERS)
         for control in (self._mode_combo, self._folder_edit, self._source_browse_btn,
                         self._template_edit, self._rule_combo, self._rename_check,
                         self._thumbnail_check, self._nfo_check,
