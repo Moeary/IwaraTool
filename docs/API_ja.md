@@ -221,9 +221,9 @@ Web ルートも JSON API も複数形の `tags` を使います（2026-10-03 �
 
 ## 10. タグ収集スクリプトとローカル翻訳キャッシュ
 
-- スクリプト：`scripts/crawl_iwara_tags.py`。`https://apiq.iwara.tv/tags?filter={A-Z0-9}&page={n}` を巡回し、三言語拡張可能なデータを `data/iwara_tags.json` と `docs/iwara_tags.md` に出力します。
+- スクリプト：`scripts/tools/crawl_iwara_tags.py`。`https://apiq.iwara.tv/tags?filter={A-Z0-9}&page={n}` を巡回し、三言語拡張可能なデータを `data/iwara_tags.json` と `docs/iwara_tags.md` に出力します。
 - 各タグに `name_en`、`name_zh`、`name_ja` を生成します（既定は元のテキスト。`--translation-map path/to/map.json` で上書き可能）。
-- 例：`pixi run python scripts/crawl_iwara_tags.py`
+- 例：`pixi run python scripts/tools/crawl_iwara_tags.py`
 
 ローカル翻訳キャッシュ：
 - プロジェクト生成のオフライン索引：`data/iwara_tags.json`。LoveIwara MIT キャッシュ：`data/tag_translations/loveiwara_iwara_tags_localized.json`。

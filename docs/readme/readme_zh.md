@@ -1,12 +1,12 @@
 # IwaraTool
 
-![logo](./docs/iwaratool_logo.png)
+![logo](../iwaratool_logo.png)
 
-[English](./readme.md) | [日本語](./readme_ja.md)
+[English](../../readme.md) | [日本語](./readme_ja.md)
 
 告别繁琐的命令行！拥有现代化 Fluent 风格界面的 Iwara 批量下载器，小白也能一键下载作者全视频。
 
-![demo](./docs/iwaratool_demo.gif)
+![demo](../iwaratool_demo.gif)
 
 ## 能做什么
 
@@ -25,50 +25,50 @@
 
 ## 页面展示
 
-截图均为英文界面与虚构的示例数据，封面是生成的占位图；`scripts/record_demo.py` 可离线重新录制 GIF 与这些截图。
+截图均为英文界面与虚构的示例数据，封面是生成的占位图；`scripts/tools/record_demo.py` 可离线重新录制 GIF 与这些截图。
 
 1. 首页
 
-   ![首页](./docs/panel_view/iwaratool_home_panel.jpg)
+   ![首页](../panel_view/iwaratool_home_panel.jpg)
 2. 搜索页
 
-   ![搜索页](./docs/panel_view/iwaratool_search_panel.jpg)
+   ![搜索页](../panel_view/iwaratool_search_panel.jpg)
 3. 下载工作台
 
-   ![下载工作台](./docs/panel_view/iwaratool_download_panel.jpg)
+   ![下载工作台](../panel_view/iwaratool_download_panel.jpg)
 4. 订阅页
 
-   ![订阅页](./docs/panel_view/iwaratool_subscription_panel.jpg)
+   ![订阅页](../panel_view/iwaratool_subscription_panel.jpg)
 5. 工具页（上传压缩与封面预览）
 
-   ![工具页](./docs/panel_view/iwaratool_tools_panel.jpg)
+   ![工具页](../panel_view/iwaratool_tools_panel.jpg)
 6. 历史记录页
 
-   ![历史记录页](./docs/panel_view/iwaratool_history_panel.jpg)
+   ![历史记录页](../panel_view/iwaratool_history_panel.jpg)
 7. 规则页
 
-   ![规则页](./docs/panel_view/iwaratool_rule_panel.jpg)
+   ![规则页](../panel_view/iwaratool_rule_panel.jpg)
 8. 设置页
 
-   ![设置页](./docs/panel_view/iwaratool_settings_panel.jpg)
+   ![设置页](../panel_view/iwaratool_settings_panel.jpg)
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本并运行。（如何选择版本、macOS 首次启动被拦截怎么办、代理怎么填，见 [安装与上手](./docs/guide/install.md)。）
+1. 从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载最新版本并运行。（如何选择版本、macOS 首次启动被拦截怎么办、代理怎么填，见 [安装与上手](../guide/install.md)。）
 2. 需要下载私有视频或导入关注作者时，请先登录。
 3. 在 `下载工作台` 粘贴链接，按需选择下载规则后提交。
 4. 在 `订阅页` 关注作者或播放列表，并下载新增内容。
 
-更多：[安装与上手](./docs/guide/install.md) · [使用指南](./docs/guide/usage.md) · [参考文档（支持的链接、命名占位符、从源码构建）](./docs/guide/reference.md) · [本地数据与缓存](./docs/guide/data.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+更多：[安装与上手](../guide/install.md) · [使用指南](../guide/usage.md) · [参考文档（支持的链接、命名占位符、从源码构建）](../guide/reference.md) · [本地数据与缓存](../guide/data.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 参与贡献
 
 非常欢迎大家提 PR！
-请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试（构建与测试命令见 [参考文档](./docs/guide/reference.md#从源码运行--构建)）。涉及界面变化时，建议附上截图或短视频。
+请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试（构建与测试命令见 [参考文档](../guide/reference.md#从源码运行--构建)）。涉及界面变化时，建议附上截图或短视频。
 
 ## 代码签名策略（Code signing policy）
 
-Windows 版本由 GitHub Actions 从本仓库构建，发布经人工批准后才签名。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。团队角色与隐私政策见英文说明的 [Code signing policy](readme.md#code-signing-policy)。
+Windows 版本由 GitHub Actions 从本仓库构建，发布经人工批准后才签名。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。团队角色与隐私政策见英文说明的 [Code signing policy](../../readme.md#code-signing-policy)。
 
 ## 许可证
 

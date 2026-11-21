@@ -1,6 +1,6 @@
 # ローカルデータとキャッシュ
 
-[English](./data_en.md) | [简体中文](./data.md) | [README に戻る](../../readme_ja.md)
+[English](./data_en.md) | [简体中文](./data.md) | [README に戻る](../readme/readme_ja.md)
 
 実行時データは `data/` に保存され、用途ごとに分離されています。検索と購読のカバーは、ダウンロードルールによって生成されるローカルカバーとは混在しません。
 

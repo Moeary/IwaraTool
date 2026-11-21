@@ -167,7 +167,7 @@ class RegistryTests(_OverridesMixin, unittest.TestCase):
     def test_window_shortcuts_wait_while_a_mask_dialog_covers_the_window(self):
         from qfluentwidgets import MessageBoxBase
 
-        from tests.qt_helpers import wait_until
+        from qt_helpers import wait_until
 
         registry = shortcuts.ShortcutRegistry()
         window = QWidget()

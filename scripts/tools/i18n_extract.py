@@ -4,10 +4,10 @@ The app keeps its three languages inline at each call site (see app/i18n.py).
 This script reads them with ``ast`` without importing the app, so translators
 and reviewers can see all the texts in one place:
 
-    pixi run python scripts/i18n_extract.py                       # summary
-    pixi run python scripts/i18n_extract.py --conflicts           # one English text, several translations
-    pixi run python scripts/i18n_extract.py --output strings.json  # full catalogue as JSON
-    pixi run python scripts/i18n_extract.py --format csv --output strings.csv
+    pixi run python scripts/tools/i18n_extract.py                       # summary
+    pixi run python scripts/tools/i18n_extract.py --conflicts           # one English text, several translations
+    pixi run python scripts/tools/i18n_extract.py --output strings.json  # full catalogue as JSON
+    pixi run python scripts/tools/i18n_extract.py --format csv --output strings.csv
 
 Each entry keeps the English text (an f-string becomes its source, such as
 ``{days} d ago``), the Chinese and Japanese texts and every place it is used.
@@ -27,7 +27,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass

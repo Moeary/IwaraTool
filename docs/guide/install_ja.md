@@ -1,6 +1,6 @@
 # インストールと基本の使い方
 
-[简体中文](./install.md) | [English](./install_en.md) | [README に戻る](../../readme_ja.md)
+[简体中文](./install.md) | [English](./install_en.md) | [README に戻る](../readme/readme_ja.md)
 
 ダウンロードするファイルの選び方、各プラットフォームでのインストール、macOS の初回起動時のセキュリティ警告への対処、プロキシ設定、基本的な使い方を説明します。
 

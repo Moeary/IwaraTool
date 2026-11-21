@@ -252,7 +252,7 @@
 ## 9. 标签抓取脚本（为后续一键标签筛选做准备）
 
 - 脚本路径：
-  - `scripts/crawl_iwara_tags.py`
+  - `scripts/tools/crawl_iwara_tags.py`
 - 作用：
   - 直接调用 `/tags` 接口，按 `A-Z` 和 `0-9` 抓取标签
   - 导出三语可扩展的数据到 JSON + Markdown
@@ -266,7 +266,7 @@
   - 默认回退为原始 tag 文本
   - 可通过 `--translation-map path/to/map.json` 覆盖
 - 示例：
-  - `pixi run python scripts/crawl_iwara_tags.py`
+  - `pixi run python scripts/tools/crawl_iwara_tags.py`
 
 ## 10. NFO 生成与 Emby 兼容
 

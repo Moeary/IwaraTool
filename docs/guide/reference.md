@@ -1,6 +1,6 @@
 # 参考：平台说明、链接类型、内部机制与构建
 
-[English](./reference_en.md) | [日本語](./reference_ja.md) | [返回 README](../../readme_zh.md)
+[English](./reference_en.md) | [日本語](./reference_ja.md) | [返回 README](../readme/readme_zh.md)
 
 这里是大多数用户用不到的细节；README 只保留上手所需的内容。
 
@@ -66,4 +66,4 @@ pixi run crawl  # 抓取标签数据（更新 docs/iwara_tags.md）
 pixi run test   # 运行测试
 ```
 
-Windows 构建会写入版本信息；设置环境变量 `WINDOWS_SIGN_PFX`（.pfx 路径，或 CI 中用 `WINDOWS_SIGN_PFX_BASE64`）与 `WINDOWS_SIGN_PFX_PASSWORD` 后，`pixi run build` 会自动做 Authenticode 签名并加时间戳（有 Windows SDK 时用 signtool，否则用 PowerShell）。也可用 `python scripts/build_windows.py --sign-only <exe>` 只签名已有文件。
+Windows 构建会写入版本信息；设置环境变量 `WINDOWS_SIGN_PFX`（.pfx 路径，或 CI 中用 `WINDOWS_SIGN_PFX_BASE64`）与 `WINDOWS_SIGN_PFX_PASSWORD` 后，`pixi run build` 会自动做 Authenticode 签名并加时间戳（有 Windows SDK 时用 signtool，否则用 PowerShell）。也可用 `python scripts/tools/build_windows.py --sign-only <exe>` 只签名已有文件。

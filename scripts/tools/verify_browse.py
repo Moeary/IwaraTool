@@ -1,6 +1,6 @@
 """Open an isolated offline window for manual browsing acceptance checks.
 
-    pixi run python scripts/verify_browse.py --lang zh
+    pixi run python scripts/tools/verify_browse.py --lang zh
 
 Search returns 64 invented posts cycling through portrait, landscape, square,
 and unknown resolution. demo000 has a real local smoke video under old_account;
@@ -13,7 +13,7 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 import demo_fixture
@@ -60,7 +60,7 @@ def main():
     folder = root / "Downloads" / "old_account"
     folder.mkdir()
     local = folder / "Portrait Starlight Dance_demo000.mp4"
-    shutil.copyfile(ROOT / "tests" / "fixtures" / "video-smoke.mp4", local)
+    shutil.copyfile(ROOT / "scripts" / "tests" / "fixtures" / "video-smoke.mp4", local)
     for index, path in ((0, local), (1, folder / "missing_demo001.mp4")):
         post = video(index)
         download_manager.history.upsert_downloaded({

@@ -1,12 +1,12 @@
 # IwaraTool
 
-![logo](./docs/iwaratool_logo.png)
+![logo](../iwaratool_logo.png)
 
-[English](./readme.md) | [简体中文](./readme_zh.md)
+[English](../../readme.md) | [简体中文](./readme_zh.md)
 
 煩わしいコマンドラインにさよなら！モダンな Fluent スタイルのインターフェースを備えた Iwara 一括ダウンローダー。初心者でもワンクリックで作者の全動画をダウンロードできます。
 
-![demo](./docs/iwaratool_demo.gif)
+![demo](../iwaratool_demo.gif)
 
 ## できること
 
@@ -25,50 +25,50 @@
 
 ## 画面紹介
 
-スクリーンショットは英語 UI と架空のサンプルデータで、カバーは生成したプレースホルダー画像です。`scripts/record_demo.py` で GIF とスクリーンショットをオフラインで撮り直せます。
+スクリーンショットは英語 UI と架空のサンプルデータで、カバーは生成したプレースホルダー画像です。`scripts/tools/record_demo.py` で GIF とスクリーンショットをオフラインで撮り直せます。
 
 1. ホーム
 
-   ![ホーム](./docs/panel_view/iwaratool_home_panel.jpg)
+   ![ホーム](../panel_view/iwaratool_home_panel.jpg)
 2. 検索
 
-   ![検索](./docs/panel_view/iwaratool_search_panel.jpg)
+   ![検索](../panel_view/iwaratool_search_panel.jpg)
 3. ダウンロードワークベンチ
 
-   ![ダウンロードワークベンチ](./docs/panel_view/iwaratool_download_panel.jpg)
+   ![ダウンロードワークベンチ](../panel_view/iwaratool_download_panel.jpg)
 4. 購読
 
-   ![購読](./docs/panel_view/iwaratool_subscription_panel.jpg)
+   ![購読](../panel_view/iwaratool_subscription_panel.jpg)
 5. ツール（アップロード圧縮とカバープレビュー）
 
-   ![ツール](./docs/panel_view/iwaratool_tools_panel.jpg)
+   ![ツール](../panel_view/iwaratool_tools_panel.jpg)
 6. 履歴
 
-   ![履歴](./docs/panel_view/iwaratool_history_panel.jpg)
+   ![履歴](../panel_view/iwaratool_history_panel.jpg)
 7. ルール
 
-   ![ルール](./docs/panel_view/iwaratool_rule_panel.jpg)
+   ![ルール](../panel_view/iwaratool_rule_panel.jpg)
 8. 設定
 
-   ![設定](./docs/panel_view/iwaratool_settings_panel.jpg)
+   ![設定](../panel_view/iwaratool_settings_panel.jpg)
 
 ## クイックスタート
 
-1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得して起動します。（ファイルの選び方、macOS の初回起動時の警告、プロキシ設定は [インストールと基本の使い方](./docs/guide/install_ja.md) を参照。）
+1. [Releases](https://github.com/Moeary/IwaraTool/releases) から最新版を取得して起動します。（ファイルの選び方、macOS の初回起動時の警告、プロキシ設定は [インストールと基本の使い方](../guide/install_ja.md) を参照。）
 2. 非公開動画の保存やフォロー作者の取込にはログインが必要です。
 3. `ダウンロードワークベンチ` に URL を貼り付け、必要に応じてルールを選択して送信します。
 4. `購読` で作者やプレイリストをフォローし、新着動画を保存できます。
 
-詳細：[インストール](./docs/guide/install_ja.md) · [使用ガイド](./docs/guide/usage_ja.md) · [リファレンス（対応 URL、命名プレースホルダー、ソースからのビルド）](./docs/guide/reference_ja.md) · [ローカルデータとキャッシュ](./docs/guide/data_ja.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
+詳細：[インストール](../guide/install_ja.md) · [使用ガイド](../guide/usage_ja.md) · [リファレンス（対応 URL、命名プレースホルダー、ソースからのビルド）](../guide/reference_ja.md) · [ローカルデータとキャッシュ](../guide/data_ja.md) · [Wiki](https://github.com/Moeary/IwaraTool/wiki)
 
 ## 貢献
 
 PRは大歓迎です！
-変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し（ビルドとテストのコマンドは [リファレンス](./docs/guide/reference_ja.md#ソースから実行--ビルド) を参照）、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
+変更は `dev` ブランチ向けに提出し、英語、簡体字中国語、日本語の UI 文言を同期してください。提出前にテスト一式を実行し（ビルドとテストのコマンドは [リファレンス](../guide/reference_ja.md#ソースから実行--ビルド) を参照）、UI の変更には可能であればスクリーンショットまたは短い録画を添付してください。
 
 ## コード署名ポリシー（Code signing policy）
 
-Windows 版は GitHub Actions が本リポジトリからビルドし、リリースを手動で承認してから署名します。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。チームの役割とプライバシーポリシーは英語版の [Code signing policy](readme.md#code-signing-policy) を参照してください。
+Windows 版は GitHub Actions が本リポジトリからビルドし、リリースを手動で承認してから署名します。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。チームの役割とプライバシーポリシーは英語版の [Code signing policy](../../readme.md#code-signing-policy) を参照してください。
 
 ## ライセンス
 

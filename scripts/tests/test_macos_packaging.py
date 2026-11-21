@@ -9,8 +9,8 @@ from unittest.mock import patch
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "tools"))
 
 import macos_bundle as bundle  # noqa: E402
 import macos_dmg as dmg  # noqa: E402

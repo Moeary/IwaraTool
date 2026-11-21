@@ -1,6 +1,6 @@
 # 本地数据与缓存
 
-[English](./data_en.md) | [日本語](./data_ja.md) | [返回 README](../../readme_zh.md)
+[English](./data_en.md) | [日本語](./data_ja.md) | [返回 README](../readme/readme_zh.md)
 
 应用运行数据默认位于 `data/`，不同用途分开保存，搜索和订阅封面不会与下载规则生成的本地封面混用。
 

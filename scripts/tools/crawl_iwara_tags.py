@@ -1,7 +1,7 @@
 """Crawl Iwara tags from /tags endpoint and export JSON + Markdown.
 
 Usage:
-    pixi run python scripts/crawl_iwara_tags.py
+    pixi run python scripts/tools/crawl_iwara_tags.py
 """
 from __future__ import annotations
 

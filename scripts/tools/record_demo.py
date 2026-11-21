@@ -1,8 +1,8 @@
 """Record the README demo GIF and page screenshots, offline and with made-up content.
 
-    pixi run python scripts/record_demo.py              # GIF + screenshots into docs/
-    pixi run python scripts/record_demo.py --no-gif     # screenshots only
-    pixi run python scripts/record_demo.py --out /tmp/demo --lang zh
+    pixi run python scripts/tools/record_demo.py              # GIF + screenshots into docs/
+    pixi run python scripts/tools/record_demo.py --no-gif     # screenshots only
+    pixi run python scripts/tools/record_demo.py --out /tmp/demo --lang zh
 
 The app runs against ``demo_fixture``: an isolated data folder and a fake
 Iwara whose posts, authors and comments are invented and whose every image is
@@ -25,7 +25,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

@@ -1,6 +1,6 @@
 # リファレンス：プラットフォーム、URL、内部動作、ビルド
 
-[English](./reference_en.md) | [简体中文](./reference.md) | [README に戻る](../../readme_ja.md)
+[English](./reference_en.md) | [简体中文](./reference.md) | [README に戻る](../readme/readme_ja.md)
 
 多くのユーザーには不要な詳細をまとめています。README には使い始めに必要な内容だけを残しています。
 
@@ -66,4 +66,4 @@ pixi run crawl  # タグデータを取得（docs/iwara_tags.md を更新）
 pixi run test   # テストを実行
 ```
 
-Windows ビルドにはバージョン情報が埋め込まれます。環境変数 `WINDOWS_SIGN_PFX`（.pfx のパス。CI では `WINDOWS_SIGN_PFX_BASE64`）と `WINDOWS_SIGN_PFX_PASSWORD` を設定すると、`pixi run build` がタイムスタンプ付きの Authenticode 署名も行います（Windows SDK があれば signtool、なければ PowerShell）。既存ファイルのみ署名するには `python scripts/build_windows.py --sign-only <exe>` を使います。
+Windows ビルドにはバージョン情報が埋め込まれます。環境変数 `WINDOWS_SIGN_PFX`（.pfx のパス。CI では `WINDOWS_SIGN_PFX_BASE64`）と `WINDOWS_SIGN_PFX_PASSWORD` を設定すると、`pixi run build` がタイムスタンプ付きの Authenticode 署名も行います（Windows SDK があれば signtool、なければ PowerShell）。既存ファイルのみ署名するには `python scripts/tools/build_windows.py --sign-only <exe>` を使います。

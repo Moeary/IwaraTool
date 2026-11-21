@@ -63,7 +63,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
-          pixi run python scripts/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
+          pixi run python scripts/tools/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
 
       # SignPath Foundation signing for tagged releases. Skipped until the
       # repository variable SIGNPATH_ORGANIZATION_ID and the secret
@@ -125,7 +125,7 @@ jobs:
             --remove-output \
             main.py
 
-      # scripts/build_macos.py rewrites library references that still point at
+      # scripts/tools/build_macos.py rewrites library references that still point at
       # this runner's pixi environment, re-signs (ad-hoc), audits every Mach-O,
       # launches the bundle with DYLD_PRINT_LIBRARIES, builds the DMG and
       # launches again from the mounted DMG; any failure stops the release.

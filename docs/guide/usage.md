@@ -1,6 +1,6 @@
 # 使用指南
 
-[English](./usage_en.md) | [日本語](./usage_ja.md) | [返回 README](../../readme_zh.md)
+[English](./usage_en.md) | [日本語](./usage_ja.md) | [返回 README](../readme/readme_zh.md)
 
 本文补充 README 快速开始之后的细节说明。
 

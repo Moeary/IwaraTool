@@ -10,7 +10,7 @@
 
 - `app/qt_support.py` 支持在导入应用模块前设置 `IWARATOOL_NO_QT=1`。
 - `app/settings_store.py` 提供兼容 QSettings INI 的纯 Python 设置存储；`app/events.py` 提供纯 Python 事件。
-- `tests/test_core_without_qt.py` 在拒绝导入 PySide6 的新解释器中检查全部核心模块，以及配置、事件和翻译。
+- `scripts/tests/test_core_without_qt.py` 在拒绝导入 PySide6 的新解释器中检查全部核心模块，以及配置、事件和翻译。
 - API、搜索归一化、横竖屏筛选、SQLite 历史、订阅、下载规则、命名、FFmpeg 工具可以从核心层复用。
 
 上述模块规模基于本次修改后的源码统计，行数仅用于说明重写范围，不代表工期。
