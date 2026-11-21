@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import sqlite3
+import threading
 from contextlib import closing
 
 from ...logging_setup import get_logger
@@ -81,7 +82,15 @@ class SourcesBackupMixin:
             "version": 3,
             "sources": [dict(row) for row in rows],
         }
-        tmp_path = f"{self._backup_path}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, self._backup_path)
+        # Unique per writer: two stores exporting at once must not rename each other's file.
+        tmp_path = f"{self._backup_path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, self._backup_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
