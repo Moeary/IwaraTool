@@ -72,6 +72,8 @@ class RepairHelperTests(TestCase):
         self.assertEqual(parse_manual_video_id("www.iwara.tv/video/7rntP6twy92J0R"), "7rntP6twy92J0R")
         self.assertEqual(parse_manual_video_id("jxYoGoArkoYkR2"), "jxYoGoArkoYkR2")
         self.assertEqual(parse_manual_video_id("https://notiwara.tv/video/7rntP6twy92J0R"), "")
+        self.assertEqual(parse_manual_video_id("https://iwara.tv:pw@example.com/video/7rntP6twy92J0R"), "")
+        self.assertEqual(parse_manual_video_id("ftp://www.iwara.tv/video/7rntP6twy92J0R"), "")
         self.assertEqual(parse_manual_video_id("https://www.iwara.tv/profile/someone"), "")
         self.assertEqual(parse_manual_video_id("not an id"), "")
         self.assertEqual(parse_manual_video_id(""), "")

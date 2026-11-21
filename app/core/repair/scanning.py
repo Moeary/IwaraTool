@@ -10,7 +10,7 @@ from typing import Any, Callable
 from ...i18n import current_language, pin_language, pinned_language, tr
 from ..api.client import IwaraAPI
 from .candidate_index import RepairCandidateIndex
-from .matching import parse_manual_video_id, scan_video_files
+from .matching import parse_manual_video_link, scan_video_files
 from .file_identification import RepairFileIdentificationMixin
 from .. import site as sites
 
@@ -102,7 +102,7 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
         another item's. Raises ``ValueError`` for input that is not an ID.
         """
 
-        video_id = parse_manual_video_id(video_id_text)
+        video_id, link_site = parse_manual_video_link(video_id_text)
         if not video_id:
             raise ValueError(tr(
                 f"Not an Iwara video ID or URL: {video_id_text}",
@@ -121,11 +121,15 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
         previous = result[index]
         current_path = self._repair_current_file(previous, path)
         cached = previous.get("cached_meta") if isinstance(previous.get("cached_meta"), dict) else {}
-        previous_history_id = str(cached.get("video_id", "") or "").strip() if previous.get("existing_history") else ""
+        # The history row the scan found for this file, kept across repeated
+        # manual lookups (each rebuilds the item) until a repair unlinks it.
+        history_id = str(previous.get("history_video_id", "") or "").strip()
+        if not history_id and previous.get("existing_history"):
+            history_id = str(cached.get("video_id", "") or "").strip()
         # A history record found by path only describes this file while it
         # still names the same video.
-        same_video = previous_history_id.casefold() == video_id.casefold()
-        record = cached if previous_history_id and same_video else None
+        same_video = history_id.casefold() == video_id.casefold()
+        record = cached if previous.get("existing_history") and same_video else None
         move_to_output = bool(options.get("move_to_output", previous.get("move_to_output", False)))
         output_root = str(options.get("output_root", "") or previous.get("output_root", "") or "")
         if move_to_output and not output_root:
@@ -137,12 +141,15 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
             filename_template=str(options.get("filename_template", "") or ""),
             output_root=output_root,
             move_to_output=move_to_output,
+            site_hint=link_site,
         )
+        if history_id:
+            resolved["history_video_id"] = history_id
         if resolved.get("status") == "ready":
-            if previous_history_id and not same_video:
+            if history_id and not same_video:
                 # The file's history row named another video; repair unlinks it
                 # once the corrected row holds the path.
-                resolved["replaces_video_id"] = previous_history_id
+                resolved["replaces_video_id"] = history_id
         else:
             # Keep the cell empty so the same id can be entered again (after a
             # network fault or a new login); the detail names what was tried.
@@ -157,7 +164,8 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
 
         original = str(item.get("path", "") or fallback)
         moved = str(item.get("file_path", "") or "")
-        if moved and not os.path.isfile(original) and os.path.isfile(moved):
+        # The recorded move wins even if something new appeared at the old path.
+        if moved and os.path.isfile(moved):
             return moved
         return original
 

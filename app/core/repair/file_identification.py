@@ -11,6 +11,7 @@ from .matching import (
     candidate_match_score,
     extract_iwara_video_id,
     MAX_FILENAME_ID_GUESSES,
+    STRIPPED_READING_PENALTY,
     filename_search_text,
     filename_stem,
     filename_video_id_guesses,
@@ -131,17 +132,18 @@ class RepairFileIdentificationMixin:
         return "", "", None, [], ""
 
     @staticmethod
-    def _select_local_repair_candidate(path: str, candidate_index: RepairCandidateIndex):
-        """Title match against local records: the name as written, then without ID-like brackets."""
+    def _repair_title_readings(path: str) -> list[str]:
+        """The filename's title as written and without ID-like brackets (``Dance [2024Edition]``)."""
 
-        full_title = filename_search_text(path, strip_ids=False)
-        candidate, ambiguous = candidate_index.select(path, full_title)
-        if candidate or ambiguous:
-            return candidate, ambiguous
-        stripped_title = filename_search_text(path)
-        if stripped_title == full_title:
-            return None, False
-        return candidate_index.select(path, stripped_title)
+        return list(dict.fromkeys((
+            filename_search_text(path, strip_ids=False),
+            filename_search_text(path),
+        )))
+
+    def _select_local_repair_candidate(self, path: str, candidate_index: RepairCandidateIndex):
+        """Title match against local records, each scored by its best title reading."""
+
+        return candidate_index.select_titles(path, self._repair_title_readings(path))
 
     def _lookup_repair_video(
         self, path: str, video_id: str, source: str, local_candidate, api_call,
@@ -201,20 +203,13 @@ class RepairFileIdentificationMixin:
         return video_id, source, local_candidate, video_info, error, ""
 
     def _select_search_candidate(self, path: str, candidates: list[dict[str, Any]]):
-        """Search results scored against the cleaned title, then the name as written."""
+        """Search results, each scored by its best title reading (two exact hits are ambiguous)."""
 
-        stripped_title = filename_search_text(path)
-        candidate, ambiguous = self._select_repair_candidate(path, candidates, title=stripped_title)
-        if candidate or ambiguous:
-            return candidate, ambiguous
-        full_title = filename_search_text(path, strip_ids=False)
-        if full_title == stripped_title:
-            return None, False
-        return self._select_repair_candidate(path, candidates, title=full_title)
+        return self._select_repair_candidate(path, candidates, titles=self._repair_title_readings(path))
 
     def _fill_repair_item(
         self, item, path, video_id, source, video_info, error, record, local_candidate,
-        *, filename_template: str, output_root: str, move_to_output: bool,
+        *, filename_template: str, output_root: str, move_to_output: bool, site_hint: str = "",
     ) -> dict[str, Any]:
         """Complete ``item`` with metadata and the target path, or explain why it cannot be."""
 
@@ -240,9 +235,11 @@ class RepairFileIdentificationMixin:
         metadata_source = video_info or cached
         meta = self._history_meta_from_item(metadata_source, record)
         meta["video_id"] = video_id
+        # The API's siteId (or a pasted link's site) names the video's site;
+        # the site being browsed is only the fallback.
         meta["source_url"] = str(
             metadata_source.get("source_url", "")
-            or sites.video_url(video_id)
+            or sites.video_url(video_id, sites.site_of_item(metadata_source, default=site_hint or None))
         )
         user = _dict_or_empty(metadata_source.get("user"))
         author = str(meta.get("author", "") or user.get("username", "") or "").strip()
@@ -283,7 +280,7 @@ class RepairFileIdentificationMixin:
     def _select_repair_candidate(
         path: str,
         candidates: list[dict[str, Any]],
-        title: str | None = None,
+        titles: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, bool]:
         author_hint = os.path.basename(os.path.dirname(path))
         ranked: list[tuple[float, dict[str, Any]]] = []
@@ -293,7 +290,12 @@ class RepairFileIdentificationMixin:
             if not video_id or video_id.casefold() in seen:
                 continue
             seen.add(video_id.casefold())
-            score = candidate_match_score(path, candidate, author_hint=author_hint, title=title)
+            # Readings after the first (the name as written) count a little less.
+            score = max(
+                candidate_match_score(path, candidate, author_hint=author_hint, title=title)
+                - (STRIPPED_READING_PENALTY if reading else 0.0)
+                for reading, title in enumerate(titles or [None])
+            )
             if score > 0:
                 ranked.append((score, candidate))
         return pick_repair_candidate(ranked)

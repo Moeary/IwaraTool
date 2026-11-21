@@ -93,23 +93,37 @@ def extract_iwara_video_id(value: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def parse_manual_video_id(value: str) -> str:
-    """The video ID in a user-entered iwara.tv / iwara.ai video link or bare ID, or ``""``."""
+def parse_manual_video_link(value: str) -> tuple[str, str]:
+    """``(video id, site)`` of a user-entered iwara.tv / iwara.ai video link or bare ID.
+
+    The site is ``""`` for a bare ID; both are ``""`` for anything else.
+    """
 
     text = str(value or "").strip()
     if not text:
-        return ""
+        return "", ""
     if _MANUAL_VIDEO_ID_RE.fullmatch(text):
-        return text
-    if not sites.site_of_url(text):
-        return ""
+        return text, ""
     if "://" not in text:
         text = "https://" + text.lstrip("/")
     try:
-        match = _MANUAL_URL_PATH_RE.match(urlparse(text).path)
+        parsed = urlparse(text)
+        # ``hostname`` drops user info and the port, so a link such as
+        # ``https://iwara.tv:x@example.com/…`` is not taken for Iwara.
+        host = parsed.hostname or ""
     except ValueError:
-        return ""
-    return match.group(1) if match else ""
+        return "", ""
+    site = sites.site_of_host(host)
+    if parsed.scheme.lower() not in {"http", "https"} or not site:
+        return "", ""
+    match = _MANUAL_URL_PATH_RE.match(parsed.path)
+    return (match.group(1), site) if match else ("", "")
+
+
+def parse_manual_video_id(value: str) -> str:
+    """The video ID in a user-entered iwara.tv / iwara.ai video link or bare ID, or ``""``."""
+
+    return parse_manual_video_link(value)[0]
 
 
 def filename_stem(value: str) -> str:
@@ -309,6 +323,12 @@ def candidate_match_score(
     if filename_title == candidate_title:
         score += 1.0
     return score + author_match_bonus(normalize_match_text(author_hint), candidate_author_text(candidate))
+
+
+# A match on the filename's title with ID-like brackets removed counts a
+# little less than one on the name as written, so ``Dance [2024Edition]`` wins
+# over ``Dance`` while a lone stripped exact match (1.85) is still accepted.
+STRIPPED_READING_PENALTY = 0.15
 
 
 # Candidates scoring below this never change ``pick_repair_candidate``'s

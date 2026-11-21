@@ -527,6 +527,68 @@ class RepairCodexReviewTests(RepairTestFixture):
         rescanned = self.scan()
         self.assertEqual((rescanned[0]["video_id"], rescanned[0]["source"]), ("NewVid001", "history-path"))
 
+    def test_full_name_exact_hit_beats_a_bracket_stripped_hit_in_search(self):
+        self.add_online_video("Other0001", "Dance", author="Bob")
+        self.add_online_video("RealVid001", "Dance [2024Edition]")
+        (self.source / "Dance [2024Edition].mp4").write_bytes(b"a")
+        results = [self.manager.videos["Other0001"], self.manager.videos["RealVid001"]]
+        with patch.object(FakeAPI, "get_videos_by_query", return_value=(results, "")):
+            item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"]), ("ready", "RealVid001"))
+
+    def test_lone_bracket_stripped_local_match_is_not_blocked_by_the_full_name(self):
+        self.use_subscription_items({"video_id": "LocalVid001", "title": "Some Long Dance Title", "author": "Alice"})
+        self.add_online_video("LocalVid001", "Some Long Dance Title")
+        (self.source / "Some Long Dance Title [Zz9yX8wV7u6T].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "LocalVid001", "local-metadata"))
+
+    def test_repeated_manual_lookups_still_unlink_the_original_history_row(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        self.manager.history.records["OldVid001"] = {
+            "video_id": "OldVid001", "title": "Wrong", "author": "Bob", "file_path": str(path),
+        }
+        self.add_online_video("OldVid001", "Wrong", author="Bob")
+        self.add_online_video("MidVid001", "Also wrong")
+        self.add_online_video("NewVid001", "Right")
+        options = {
+            "filename_template": TEMPLATE, "output_root": "", "move_to_output": False,
+            "rename": False, "add_to_history": True,
+        }
+        items = self.scan()
+        for video_id in ("NoSuchVid000", "MidVid001", "NewVid001"):
+            items = self.manager.resolve_repair_item(items, str(path), video_id, options=options)
+            self.assertEqual(items[0]["history_video_id"], "OldVid001")
+        self.assertEqual(items[0]["replaces_video_id"], "OldVid001")
+        self.manager.repair_folder_files(items, options=options)
+        self.assertEqual(self.manager.history.records["OldVid001"]["file_path"], "")
+        self.assertNotIn("MidVid001", self.manager.history.records)
+
+    def test_pasted_link_site_is_kept_in_the_source_url(self):
+        self.add_online_video("AiVideo0001", "On ai")
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item(
+            self.scan(), str(path), "https://www.iwara.ai/video/AiVideo0001", options=options,
+        )
+        self.assertEqual(resolved[0]["cached_meta"]["source_url"], "https://www.iwara.ai/video/AiVideo0001")
+
+    def test_recorded_move_wins_over_a_new_file_at_the_old_path(self):
+        self.add_online_video("ManualVid123", "Picked")
+        original = self.source / "original.mp4"
+        original.write_bytes(b"someone else's new file")
+        moved = self.source / "moved.mp4"
+        moved.write_bytes(b"a")
+        failed = {
+            "path": str(original), "file_path": str(moved), "status": "failed",
+            "output_root": str(self.source), "move_to_output": False,
+        }
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item([failed], str(original), "ManualVid123", options=options)
+        self.assertEqual(resolved[0]["path"], str(moved))
+
     def test_newest_history_row_wins_when_two_name_the_same_file(self):
         path = self.source / "clip.mp4"
         path.write_bytes(b"a")
@@ -796,6 +858,27 @@ class RepairInterfaceModeTests(RepairTestFixture):
         page._update_start_button()
         self.assertTrue(page._start_btn.isEnabled())
 
+
+    def test_pasting_a_link_for_the_same_video_shows_its_id(self):
+        self.make_video("Alice", "VideoID01")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "VideoID01")
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("https://www.iwara.tv/video/VideoID01")
+        worker = start_worker.call_args.args[0]
+        results = []
+        worker.result_ready.connect(results.append)
+        worker.run()
+        page._worker = worker
+        page._worker_mode = "resolve"
+        page._on_result(results[0])
+        page._worker = None
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "VideoID01")
 
     def test_stopping_a_manual_lookup_discards_its_result(self):
         self.manager.videos["ManualVid123"] = {"id": "ManualVid123", "title": "Picked", "author": "Alice"}

@@ -210,6 +210,11 @@ class RepairRunningMixin:
             # A row whose file a failed repair had already moved resolves
             # under the file's current path.
             moved_path = str(self._items_by_path.get(path, {}).get("file_path", "") or "")
+            # The cell holds the typed text (perhaps a link); an unchanged
+            # result must still overwrite it.
+            edited_row = self._path_to_row.get(path)
+            if edited_row is not None:
+                self._row_signatures.pop(edited_row, None)
             self._set_items(result)
             self._render_all_items()
             item = self._items_by_path.get(path) or self._items_by_path.get(moved_path, {})
