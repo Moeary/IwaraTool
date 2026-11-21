@@ -21,6 +21,7 @@ from typing import Any
 
 from .matching import (
     CANDIDATE_SCORE_FLOOR,
+    STRIPPED_READING_PENALTY,
     author_match_bonus,
     candidate_author_text,
     filename_search_text,
@@ -102,16 +103,45 @@ class RepairCandidateIndex:
                     found.append(video_id)
         return found
 
-    def select(self, path: str) -> tuple[dict[str, Any] | None, bool]:
-        """The local candidate a file's name clearly refers to: ``(candidate, ambiguous)``."""
+    def select(self, path: str, title: str | None = None) -> tuple[dict[str, Any] | None, bool]:
+        """The local candidate a file's name (or ``title``) clearly refers to: ``(candidate, ambiguous)``."""
 
-        title = normalize_match_text(filename_search_text(path))
+        title = normalize_match_text(filename_search_text(path) if title is None else title)
         if not title or not self._entries:
             return None, False
         with self._select_lock:
             return self._select_title(path, title)
 
+    def select_titles(self, path: str, titles: list[str]) -> tuple[dict[str, Any] | None, bool]:
+        """Like ``select``, scoring each candidate by its best match among ``titles``.
+
+        ``titles`` is the name as written first, then fallback readings, which
+        score ``STRIPPED_READING_PENALTY`` less.
+
+        A filename read two ways (with and without ID-like brackets) may match
+        two records exactly; that is reported as ambiguous instead of picking
+        whichever reading was tried first.
+        """
+
+        normalized = list(dict.fromkeys(normalize_match_text(title) for title in titles if title))
+        normalized = [title for title in normalized if title]
+        if not normalized or not self._entries:
+            return None, False
+        best: dict[int, tuple[float, dict[str, Any]]] = {}
+        with self._select_lock:
+            for reading, title in enumerate(normalized):
+                penalty = STRIPPED_READING_PENALTY if reading else 0.0
+                for score, candidate in self._rank_title(path, title):
+                    score -= penalty
+                    key = id(candidate)
+                    if key not in best or score > best[key][0]:
+                        best[key] = (score, candidate)
+        return pick_repair_candidate(list(best.values()))
+
     def _select_title(self, path: str, title: str) -> tuple[dict[str, Any] | None, bool]:
+        return pick_repair_candidate(self._rank_title(path, title))
+
+    def _rank_title(self, path: str, title: str) -> list[tuple[float, dict[str, Any]]]:
         bonuses = self._author_bonuses(normalize_match_text(os.path.basename(os.path.dirname(path))))
         indices = set(self._by_title.get(title, ()))
         indices.update(bonuses)
@@ -130,7 +160,7 @@ class RepairCandidateIndex:
             score = ratio + bonus + (1.0 if title == candidate_title else 0.0)
             if score > 0:
                 ranked.append((score, candidate))
-        return pick_repair_candidate(ranked)
+        return ranked
 
     def _bounded_ratio(
         self, matcher: SequenceMatcher, title_counts: Counter[str], index: int, needed: float,

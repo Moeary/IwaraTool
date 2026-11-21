@@ -10,8 +10,12 @@ from .candidate_index import RepairCandidateIndex
 from .matching import (
     candidate_match_score,
     extract_iwara_video_id,
+    MAX_FILENAME_ID_GUESSES,
+    STRIPPED_READING_PENALTY,
     filename_search_text,
-    guess_filename_video_id,
+    filename_stem,
+    filename_video_id_guesses,
+    looks_like_video_id,
     pick_repair_candidate,
     repair_target_path,
 )
@@ -35,15 +39,16 @@ class RepairFileIdentificationMixin:
     ) -> dict[str, Any]:
         api_call = api_call or self._api_call
         item = self._repair_scan_item(path, record, output_root, move_to_output)
-        stem = os.path.splitext(os.path.basename(path))[0]
-        video_id, source, local_candidate, ambiguous = self._identify_repair_video(
+        stem = filename_stem(path)
+        video_id, source, local_candidate, guesses, ambiguous = self._identify_repair_video(
             path, stem, record, candidate_index
         )
-        if ambiguous:
+        if ambiguous and not guesses:
             item.update(status="ambiguous", message=ambiguous)
             return item
         video_id, source, local_candidate, video_info, error, ambiguous = self._lookup_repair_video(
-            path, video_id, source, local_candidate, api_call
+            path, video_id, source, local_candidate, api_call,
+            guesses=guesses, local_ambiguity=ambiguous,
         )
         if ambiguous:
             item.update(status="ambiguous", message=ambiguous)
@@ -76,73 +81,112 @@ class RepairFileIdentificationMixin:
         }
 
     def _identify_repair_video(self, path: str, stem: str, record, candidate_index: RepairCandidateIndex):
-        """Video id from the filename or local records: ``(id, source, candidate, ambiguity message)``."""
+        """Video id from the filename or local records.
 
-        video_id = extract_iwara_video_id(stem)
-        source = "filename-id" if video_id else ""
+        Returns ``(id, source, local candidate, unverified id guesses,
+        ambiguity message)``. With guesses, the id is empty: the guesses are
+        checked online first, and the local title match (or its ambiguity)
+        only applies when none of them is confirmed.
+        """
 
-        if not video_id and record:
+        labelled = extract_iwara_video_id(stem)
+        if labelled and looks_like_video_id(labelled):
+            return labelled, "filename-id", None, [], ""
+
+        if record:
             video_id = str(record.get("video_id", "") or "").strip()
-            source = "history-path" if video_id else ""
+            if video_id:
+                return video_id, "history-path", None, [], ""
 
-        if not video_id:
-            matching_ids = candidate_index.ids_in_name(stem)
-            if len(matching_ids) == 1:
-                video_id = matching_ids[0]
-                source = "known-id"
-            elif len(matching_ids) > 1:
-                return "", "", None, tr(
-                    "Several known Iwara IDs appear in this filename",
-                    "文件名中出现了多个已知 Iwara ID",
-                    "ファイル名に複数の既知 Iwara ID が含まれています",
-                )
+        matching_ids = candidate_index.ids_in_name(stem)
+        if len(matching_ids) == 1:
+            return matching_ids[0], "known-id", None, [], ""
+        if len(matching_ids) > 1:
+            return "", "", None, [], tr(
+                "Several known Iwara IDs appear in this filename",
+                "文件名中出现了多个已知 Iwara ID",
+                "ファイル名に複数の既知 Iwara ID が含まれています",
+            )
 
-        local_candidate: dict[str, Any] | None = None
-        if not video_id:
-            local_candidate, ambiguous = candidate_index.select(path)
-            if ambiguous:
-                return "", "", None, tr(
-                    "The filename matches multiple local subscription/history records",
-                    "文件名匹配到多个本地订阅/历史记录",
-                    "ファイル名が複数のローカル購読/履歴に一致します",
-                )
-            if local_candidate:
-                video_id = str(local_candidate.get("video_id", "") or "").strip()
-                source = "local-metadata"
+        # A labelled token that reads like a word ("Iwara ID Challenge") is
+        # only a guess, so it cannot block the real bracketed id or a search.
+        guesses: list[str] = []
+        for guess in ([labelled] if labelled else []) + filename_video_id_guesses(stem):
+            if guess.casefold() not in {known.casefold() for known in guesses}:
+                guesses.append(guess)
+        guesses = guesses[:MAX_FILENAME_ID_GUESSES]
 
-        if not video_id:
-            filename_id = guess_filename_video_id(stem)
-            if filename_id:
-                video_id = filename_id
-                source = "filename-token"
-        return video_id, source, local_candidate, ""
+        local_candidate, ambiguous = self._select_local_repair_candidate(path, candidate_index)
+        message = tr(
+            "The filename matches multiple local subscription/history records",
+            "文件名匹配到多个本地订阅/历史记录",
+            "ファイル名が複数のローカル購読/履歴に一致します",
+        ) if ambiguous else ""
+        if guesses:
+            return "", "", local_candidate, guesses, message
+        if message:
+            return "", "", None, [], message
+        video_id = str((local_candidate or {}).get("video_id", "") or "").strip()
+        if video_id:
+            return video_id, "local-metadata", local_candidate, [], ""
+        return "", "", None, [], ""
 
-    def _lookup_repair_video(self, path: str, video_id: str, source: str, local_candidate, api_call):
-        """Fetch the video online, searching by title when no id is known.
+    @staticmethod
+    def _repair_title_readings(path: str) -> list[str]:
+        """The filename's title as written and without ID-like brackets (``Dance [2024Edition]``)."""
+
+        return list(dict.fromkeys((
+            filename_search_text(path, strip_ids=False),
+            filename_search_text(path),
+        )))
+
+    def _select_local_repair_candidate(self, path: str, candidate_index: RepairCandidateIndex):
+        """Title match against local records, each scored by its best title reading."""
+
+        return candidate_index.select_titles(path, self._repair_title_readings(path))
+
+    def _lookup_repair_video(
+        self, path: str, video_id: str, source: str, local_candidate, api_call,
+        *, guesses=(), local_ambiguity: str = "",
+    ):
+        """Fetch the video online: by id; else each filename guess, the local
+        title match, and finally a title search.
 
         Returns ``(id, source, candidate, video info, error, ambiguity message)``.
         """
 
         video_info: dict[str, Any] | None = None
         error = ""
+        if not video_id and guesses:
+            for guess in guesses:
+                # A title word can look like an id. Only a guess the API
+                # confirms is used; otherwise the next one, the local title
+                # match or a search follows.
+                guess_info, guess_error = api_call("get_video_info", guess)
+                if guess_info:
+                    return guess, "filename-token", None, guess_info, "", ""
+                error = guess_error or error
+            if local_ambiguity:
+                return "", "", None, None, error, local_ambiguity
+            video_id = str((local_candidate or {}).get("video_id", "") or "").strip()
+            source = "local-metadata" if video_id else ""
+            if not video_id:
+                local_candidate = None
         if video_id:
             video_info, error = api_call("get_video_info", video_id)
-            if not video_info and source == "filename-token":
-                # A title can end in an eight-character word. Treat the token
-                # as a hint only and fall back to a title search when the API
-                # rejects it.
-                video_id = ""
-                source = ""
         if not video_id:
             query = filename_search_text(path).strip()
             if query:
-                search_items, error = api_call(
+                search_items, search_error = api_call(
                     "get_videos_by_query",
                     {"q": query, "sort": "date", "limit": "30"},
                     max_pages=1,
                     max_results=30,
                 )
-                local_candidate, ambiguous = self._select_repair_candidate(path, search_items or [])
+                # A rejected guess says nothing about the file; report the
+                # search outcome (a network fault fails the search too).
+                error = search_error
+                local_candidate, ambiguous = self._select_search_candidate(path, search_items or [])
                 if ambiguous:
                     message = tr(
                         "Iwara search returned several equally likely videos",
@@ -155,12 +199,17 @@ class RepairFileIdentificationMixin:
                     source = "iwara-search"
                     if video_id:
                         video_info, detail_error = api_call("get_video_info", video_id)
-                        error = detail_error or error
+                        error = detail_error or ""
         return video_id, source, local_candidate, video_info, error, ""
+
+    def _select_search_candidate(self, path: str, candidates: list[dict[str, Any]]):
+        """Search results, each scored by its best title reading (two exact hits are ambiguous)."""
+
+        return self._select_repair_candidate(path, candidates, titles=self._repair_title_readings(path))
 
     def _fill_repair_item(
         self, item, path, video_id, source, video_info, error, record, local_candidate,
-        *, filename_template: str, output_root: str, move_to_output: bool,
+        *, filename_template: str, output_root: str, move_to_output: bool, site_hint: str = "",
     ) -> dict[str, Any]:
         """Complete ``item`` with metadata and the target path, or explain why it cannot be."""
 
@@ -186,9 +235,11 @@ class RepairFileIdentificationMixin:
         metadata_source = video_info or cached
         meta = self._history_meta_from_item(metadata_source, record)
         meta["video_id"] = video_id
+        # The API's siteId (or a pasted link's site) names the video's site;
+        # the site being browsed is only the fallback.
         meta["source_url"] = str(
             metadata_source.get("source_url", "")
-            or sites.video_url(video_id)
+            or sites.video_url(video_id, sites.site_of_item(metadata_source, default=site_hint or None))
         )
         user = _dict_or_empty(metadata_source.get("user"))
         author = str(meta.get("author", "") or user.get("username", "") or "").strip()
@@ -229,6 +280,7 @@ class RepairFileIdentificationMixin:
     def _select_repair_candidate(
         path: str,
         candidates: list[dict[str, Any]],
+        titles: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, bool]:
         author_hint = os.path.basename(os.path.dirname(path))
         ranked: list[tuple[float, dict[str, Any]]] = []
@@ -238,7 +290,12 @@ class RepairFileIdentificationMixin:
             if not video_id or video_id.casefold() in seen:
                 continue
             seen.add(video_id.casefold())
-            score = candidate_match_score(path, candidate, author_hint=author_hint)
+            # Readings after the first (the name as written) count a little less.
+            score = max(
+                candidate_match_score(path, candidate, author_hint=author_hint, title=title)
+                - (STRIPPED_READING_PENALTY if reading else 0.0)
+                for reading, title in enumerate(titles or [None])
+            )
             if score > 0:
                 ranked.append((score, candidate))
         return pick_repair_candidate(ranked)

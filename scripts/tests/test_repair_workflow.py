@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
@@ -33,12 +33,14 @@ class FakeHistory:
         self.records: dict[str, dict] = {}
 
     def list_records(self, **_kwargs):
-        return list(self.records.values())
+        # Newest first, like the real history.
+        return list(reversed(self.records.values()))
 
     def get_record(self, video_id, **_kwargs):
         return self.records.get(video_id)
 
     def upsert_downloaded(self, metadata):
+        self.records.pop(metadata["video_id"], None)
         self.records[metadata["video_id"]] = dict(metadata)
 
     def update_file_paths(self, video_id, **paths):
@@ -382,6 +384,220 @@ class RepairWorkflowTests(RepairTestFixture):
         self.assertFalse(self.output.exists())
 
 
+class RepairFilenameIdTests(RepairTestFixture):
+    """Issue #32: browser downloads named ``Iwara - <title> [<id>] [Source]``."""
+
+    def add_online_video(self, video_id, title, author="Alice"):
+        self.manager.videos[video_id] = {
+            "id": video_id, "title": title, "author": author,
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+
+    def test_bracketed_id_resolves_and_title_words_are_not_ids(self):
+        self.add_online_video("7rntP6twy92J0R", "Stupid!")
+        self.add_online_video("jxYoGoArkoYkR2", "Rainbow")
+        (self.source / "Iwara-Stupid! [HMV] [7rntP6twy92J0R] [Source].mp4").write_bytes(b"a")
+        (self.source / "Iwara - Robin SEX_DANCE Rainbow-final [jxYoGoArkoYkR2] [Source].mp4").write_bytes(b"b")
+        (self.source / "Iwara - SEXDance.mp4").write_bytes(b"c")
+        looked_up = []
+        get_info = FakeAPI.get_video_info
+
+        def record(api, video_id):
+            looked_up.append(video_id)
+            return get_info(api, video_id)
+
+        with patch.object(FakeAPI, "get_video_info", record):
+            items = {Path(item["path"]).name: item for item in self.scan()}
+        stupid = items["Iwara-Stupid! [HMV] [7rntP6twy92J0R] [Source].mp4"]
+        self.assertEqual((stupid["status"], stupid["video_id"], stupid["source"]), ("ready", "7rntP6twy92J0R", "filename-token"))
+        rainbow = items["Iwara - Robin SEX_DANCE Rainbow-final [jxYoGoArkoYkR2] [Source].mp4"]
+        self.assertEqual((rainbow["status"], rainbow["video_id"]), ("ready", "jxYoGoArkoYkR2"))
+        unknown = items["Iwara - SEXDance.mp4"]
+        self.assertEqual((unknown["status"], unknown["video_id"]), ("not_found", ""))
+        self.assertNotIn("SEXDance", looked_up)
+
+    def test_rejected_guess_falls_back_to_title_search(self):
+        self.add_online_video("RealVideo99x", "Some Dance")
+        (self.source / "Some Dance [Zz9yX8wV7u6T].mp4").write_bytes(b"a")
+        with patch.object(FakeAPI, "get_videos_by_query", return_value=([self.manager.videos["RealVideo99x"]], "")):
+            items = self.scan()
+        self.assertEqual((items[0]["status"], items[0]["video_id"], items[0]["source"]), ("ready", "RealVideo99x", "iwara-search"))
+
+    def test_manual_id_resolves_a_not_found_item_and_replans_conflicts(self):
+        self.add_online_video("ManualVid123", "Picked")
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        items = self.scan()
+        self.assertEqual(items[0]["status"], "not_found")
+        resolved = self.manager.resolve_repair_item(
+            items, str(path), "https://www.iwara.tv/video/ManualVid123", options=options,
+        )
+        self.assertEqual(
+            (resolved[0]["status"], resolved[0]["video_id"], resolved[0]["source"]),
+            ("ready", "ManualVid123", "manual-id"),
+        )
+        self.assertEqual(resolved[0]["target_path"], str(self.source / "2024-05-06_Picked_ManualVid123.mp4"))
+        missing = self.manager.resolve_repair_item(items, str(path), "NoSuchVid000", options=options)
+        # The cell stays empty so the same id can be entered again.
+        self.assertEqual((missing[0]["status"], missing[0]["video_id"]), ("not_found", ""))
+        self.assertIn("NoSuchVid000", missing[0]["message"])
+        with self.assertRaises(ValueError):
+            self.manager.resolve_repair_item(items, str(path), "not an id", options=options)
+
+
+class RepairCodexReviewTests(RepairTestFixture):
+    """Follow-ups from the review of the issue #32 fix."""
+
+    def add_online_video(self, video_id, title, author="Alice"):
+        self.manager.videos[video_id] = {
+            "id": video_id, "title": title, "author": author,
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+
+    def use_subscription_items(self, *items):
+        self.manager.subscriptions.list_items = lambda: [dict(item) for item in items]
+
+    def scan_one(self):
+        items = self.scan()
+        self.assertEqual(len(items), 1)
+        return items[0]
+
+    def test_bracketed_id_is_verified_before_a_same_title_local_record(self):
+        self.use_subscription_items({"video_id": "Other0001", "title": "Dance", "author": "Bob"})
+        self.add_online_video("Other0001", "Dance", author="Bob")
+        self.add_online_video("7rntP6twy92J0R", "Dance")
+        (self.source / "Iwara - Dance [7rntP6twy92J0R] [Source].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "7rntP6twy92J0R", "filename-token"))
+
+    def test_title_dot_and_title_id_word_still_find_the_bracketed_id(self):
+        self.add_online_video("7rntP6twy92J0R", "Part 1.5")
+        for name in ("Iwara - Part 1.5 [7rntP6twy92J0R] [Source].mp4", "Iwara - My ID Challenge [7rntP6twy92J0R].mp4"):
+            with self.subTest(name=name):
+                path = self.source / name
+                path.write_bytes(b"a")
+                item = self.scan_one()
+                self.assertEqual((item["status"], item["video_id"]), ("ready", "7rntP6twy92J0R"))
+                path.unlink()
+
+    def test_rejected_bracket_guess_keeps_the_bracketed_title_for_local_matching(self):
+        self.use_subscription_items(
+            {"video_id": "LocalVid001", "title": "Dance [2024Edition]", "author": "Alice"},
+            {"video_id": "Other0001", "title": "Dance", "author": "Bob"},
+        )
+        self.add_online_video("LocalVid001", "Dance [2024Edition]")
+        (self.source / "Dance [2024Edition].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "LocalVid001", "local-metadata"))
+
+    def test_manual_id_on_a_moved_failed_row_uses_the_current_file(self):
+        self.add_online_video("ManualVid123", "Picked")
+        moved = self.source / "moved.mp4"
+        moved.write_bytes(b"a")
+        failed = {
+            "path": str(self.source / "original.mp4"), "file_path": str(moved), "status": "failed",
+            "video_id": "WrongVid001", "output_root": str(self.source), "move_to_output": False,
+        }
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item([failed], failed["path"], "ManualVid123", options=options)
+        self.assertEqual((resolved[0]["status"], resolved[0]["path"]), ("ready", str(moved)))
+        self.assertEqual(resolved[0]["target_path"], str(self.source / "2024-05-06_Picked_ManualVid123.mp4"))
+
+    def test_corrected_id_unlinks_the_old_history_row_for_that_file(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        self.manager.history.records["OldVid001"] = {
+            "video_id": "OldVid001", "title": "Wrong", "author": "Bob", "file_path": str(path),
+        }
+        self.add_online_video("OldVid001", "Wrong", author="Bob")
+        self.add_online_video("NewVid001", "Right")
+        options = {
+            "filename_template": TEMPLATE, "output_root": "", "move_to_output": False,
+            "rename": False, "add_to_history": True,
+        }
+        items = self.scan()
+        self.assertEqual((items[0]["video_id"], items[0]["source"]), ("OldVid001", "history-path"))
+        resolved = self.manager.resolve_repair_item(items, str(path), "NewVid001", options=options)
+        self.assertEqual(resolved[0]["replaces_video_id"], "OldVid001")
+        result = self.manager.repair_folder_files(resolved, options=options)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(self.manager.history.records["OldVid001"]["file_path"], "")
+        self.assertEqual(self.manager.history.records["NewVid001"]["file_path"], str(path))
+        rescanned = self.scan()
+        self.assertEqual((rescanned[0]["video_id"], rescanned[0]["source"]), ("NewVid001", "history-path"))
+
+    def test_full_name_exact_hit_beats_a_bracket_stripped_hit_in_search(self):
+        self.add_online_video("Other0001", "Dance", author="Bob")
+        self.add_online_video("RealVid001", "Dance [2024Edition]")
+        (self.source / "Dance [2024Edition].mp4").write_bytes(b"a")
+        results = [self.manager.videos["Other0001"], self.manager.videos["RealVid001"]]
+        with patch.object(FakeAPI, "get_videos_by_query", return_value=(results, "")):
+            item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"]), ("ready", "RealVid001"))
+
+    def test_lone_bracket_stripped_local_match_is_not_blocked_by_the_full_name(self):
+        self.use_subscription_items({"video_id": "LocalVid001", "title": "Some Long Dance Title", "author": "Alice"})
+        self.add_online_video("LocalVid001", "Some Long Dance Title")
+        (self.source / "Some Long Dance Title [Zz9yX8wV7u6T].mp4").write_bytes(b"a")
+        item = self.scan_one()
+        self.assertEqual((item["status"], item["video_id"], item["source"]), ("ready", "LocalVid001", "local-metadata"))
+
+    def test_repeated_manual_lookups_still_unlink_the_original_history_row(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        self.manager.history.records["OldVid001"] = {
+            "video_id": "OldVid001", "title": "Wrong", "author": "Bob", "file_path": str(path),
+        }
+        self.add_online_video("OldVid001", "Wrong", author="Bob")
+        self.add_online_video("MidVid001", "Also wrong")
+        self.add_online_video("NewVid001", "Right")
+        options = {
+            "filename_template": TEMPLATE, "output_root": "", "move_to_output": False,
+            "rename": False, "add_to_history": True,
+        }
+        items = self.scan()
+        for video_id in ("NoSuchVid000", "MidVid001", "NewVid001"):
+            items = self.manager.resolve_repair_item(items, str(path), video_id, options=options)
+            self.assertEqual(items[0]["history_video_id"], "OldVid001")
+        self.assertEqual(items[0]["replaces_video_id"], "OldVid001")
+        self.manager.repair_folder_files(items, options=options)
+        self.assertEqual(self.manager.history.records["OldVid001"]["file_path"], "")
+        self.assertNotIn("MidVid001", self.manager.history.records)
+
+    def test_pasted_link_site_is_kept_in_the_source_url(self):
+        self.add_online_video("AiVideo0001", "On ai")
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item(
+            self.scan(), str(path), "https://www.iwara.ai/video/AiVideo0001", options=options,
+        )
+        self.assertEqual(resolved[0]["cached_meta"]["source_url"], "https://www.iwara.ai/video/AiVideo0001")
+
+    def test_recorded_move_wins_over_a_new_file_at_the_old_path(self):
+        self.add_online_video("ManualVid123", "Picked")
+        original = self.source / "original.mp4"
+        original.write_bytes(b"someone else's new file")
+        moved = self.source / "moved.mp4"
+        moved.write_bytes(b"a")
+        failed = {
+            "path": str(original), "file_path": str(moved), "status": "failed",
+            "output_root": str(self.source), "move_to_output": False,
+        }
+        options = {"filename_template": TEMPLATE, "output_root": "", "move_to_output": False}
+        resolved = self.manager.resolve_repair_item([failed], str(original), "ManualVid123", options=options)
+        self.assertEqual(resolved[0]["path"], str(moved))
+
+    def test_newest_history_row_wins_when_two_name_the_same_file(self):
+        path = self.source / "clip.mp4"
+        path.write_bytes(b"a")
+        for video_id in ("OldVid001", "NewVid001"):
+            self.manager.history.upsert_downloaded({"video_id": video_id, "title": video_id, "file_path": str(path)})
+            self.add_online_video(video_id, video_id)
+        self.assertEqual(self.scan_one()["video_id"], "NewVid001")
+
+
 class RepairInterfaceModeTests(RepairTestFixture):
     @classmethod
     def setUpClass(cls):
@@ -599,6 +815,96 @@ class RepairInterfaceModeTests(RepairTestFixture):
         self.assertIsNot(threads[0], threading.main_thread())
         self.assertEqual(Path(page._items[0]["target_path"]).name, "VideoID01_New title.mp4")
         self.assertEqual(page._table.item(0, page._COL_TARGET).text(), page._items[0]["target_path"])
+
+
+    def test_typing_an_id_into_a_not_found_row_looks_the_file_up_again(self):
+        self.manager.videos["ManualVid123"] = {
+            "id": "ManualVid123", "title": "Picked", "author": "Alice",
+            "createdAt": "2024-05-06T12:00:00Z",
+        }
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        id_cell = page._table.item(0, page._COL_ID)
+        self.assertTrue(id_cell.flags() & Qt.ItemFlag.ItemIsEditable)
+        self.assertFalse(page._table.item(0, page._COL_TITLE).flags() & Qt.ItemFlag.ItemIsEditable)
+        self.assertIn("Iwara ID", page._table.item(0, page._COL_DETAIL).text())
+
+        with patch.object(page, "_show_warning") as warn, patch.object(page, "_start_worker") as start_worker:
+            id_cell.setText("not an id")
+        warn.assert_called_once()
+        start_worker.assert_not_called()
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "")
+
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("ManualVid123")
+        worker = start_worker.call_args.args[0]
+        self.assertEqual((worker.mode, worker.path, worker.video_id_text), ("resolve", str(path), "ManualVid123"))
+        results = []
+        worker.result_ready.connect(results.append)
+        worker.run()
+        page._worker = worker
+        page._worker_mode = "resolve"
+        page._on_result(results[0])
+        page._worker = None
+        self.assertEqual(page._items[0]["status"], "ready")
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "ManualVid123")
+        self.assertEqual(page._table.item(0, page._COL_TITLE).text(), "Picked")
+        page._update_start_button()
+        self.assertTrue(page._start_btn.isEnabled())
+
+
+    def test_pasting_a_link_for_the_same_video_shows_its_id(self):
+        self.make_video("Alice", "VideoID01")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "VideoID01")
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("https://www.iwara.tv/video/VideoID01")
+        worker = start_worker.call_args.args[0]
+        results = []
+        worker.result_ready.connect(results.append)
+        worker.run()
+        page._worker = worker
+        page._worker_mode = "resolve"
+        page._on_result(results[0])
+        page._worker = None
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "VideoID01")
+
+    def test_stopping_a_manual_lookup_discards_its_result(self):
+        self.manager.videos["ManualVid123"] = {"id": "ManualVid123", "title": "Picked", "author": "Alice"}
+        path = self.source / "unknown clip.mp4"
+        path.write_bytes(b"a")
+        page = self.make_page()
+        page._folder_edit.setText(str(self.source))
+        page._template_edit.setText(TEMPLATE)
+        page._worker_mode = "scan"
+        page._on_result(self.scan())
+        self.wait_for_preview(page)
+        with patch.object(page, "_start_worker") as start_worker:
+            page._table.item(0, page._COL_ID).setText("ManualVid123")
+        worker = start_worker.call_args.args[0]
+        results = []
+        worker.result_ready.connect(results.append)
+        page._worker = worker
+        page._worker_mode = "resolve"
+        # Stop pressed while the request was in flight.
+        with patch.object(worker, "isInterruptionRequested", return_value=True):
+            worker.run()
+        self.assertEqual(results, [])
+        self.assertTrue(worker.discarded)
+        page._on_worker_finished()
+        self.assertEqual(page._items[0]["status"], "not_found")
+        self.assertEqual(page._table.item(0, page._COL_ID).text(), "")
 
 
 class RepairScanScalingTests(RepairTestFixture):

@@ -228,6 +228,29 @@ class RepairingMixin:
                 file_path=task.file_path,
                 thumbnail_path=task.thumbnail_path or str(existing.get("thumbnail_path", "") or ""),
             )
+        else:
+            return
+        self._unlink_replaced_history(result, video_id, task.file_path)
+
+    def _unlink_replaced_history(self, result: dict[str, Any], video_id: str, file_path: str):
+        """Clear the paths of the history row a manual id correction replaced.
+
+        Left in place, it would still name this file and could win the next
+        scan's path lookup.
+        """
+
+        replaced = str(result.get("replaces_video_id", "") or "").strip()
+        if not replaced or replaced.casefold() == video_id.casefold():
+            return
+        record = self.history.get_record(replaced)
+        if not record:
+            return
+        linked = self._repair_normalize_path(record.get("file_path", ""))
+        if linked and linked in {
+            self._repair_normalize_path(result.get("path", "")),
+            self._repair_normalize_path(file_path),
+        }:
+            self.history.update_file_paths(replaced, file_path="", thumbnail_path="")
 
     def _repair_task(
         self,

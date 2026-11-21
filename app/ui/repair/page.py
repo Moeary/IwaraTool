@@ -64,6 +64,10 @@ class RepairInterface(
     _COL_TARGET = 5
     _COL_DETAIL = 6
     _MAX_LOG_BLOCKS = 2000
+    _ID_EDIT_TRIGGERS = (
+        QAbstractItemView.EditTrigger.DoubleClicked
+        | QAbstractItemView.EditTrigger.EditKeyPressed
+    )
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -389,7 +393,10 @@ class RepairInterface(
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Only the Iwara ID cell of unfinished rows is editable (see
+        # ``_render_item``): typing an ID looks that file up again.
+        self._table.setEditTriggers(self._ID_EDIT_TRIGGERS)
+        self._table.itemChanged.connect(self._on_table_item_changed)
         self._table.setAlternatingRowColors(True)
         self._table.setBorderVisible(True)
         self._table.setBorderRadius(8)

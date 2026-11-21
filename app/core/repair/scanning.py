@@ -10,7 +10,7 @@ from typing import Any, Callable
 from ...i18n import current_language, pin_language, pinned_language, tr
 from ..api.client import IwaraAPI
 from .candidate_index import RepairCandidateIndex
-from .matching import scan_video_files
+from .matching import parse_manual_video_link, scan_video_files
 from .file_identification import RepairFileIdentificationMixin
 from .. import site as sites
 
@@ -87,15 +87,98 @@ class RepairScanningMixin(RepairFileIdentificationMixin):
             },
         )
 
+    @pin_language
+    def resolve_repair_item(
+        self,
+        items: list[dict[str, Any]],
+        path: str,
+        video_id_text: str,
+        *,
+        options: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Re-identify one scanned file by a user-entered Iwara ID or URL.
+
+        Returns the whole list re-planned, since a new target can conflict with
+        another item's. Raises ``ValueError`` for input that is not an ID.
+        """
+
+        video_id, link_site = parse_manual_video_link(video_id_text)
+        if not video_id:
+            raise ValueError(tr(
+                f"Not an Iwara video ID or URL: {video_id_text}",
+                f"不是有效的 Iwara 视频 ID 或链接：{video_id_text}",
+                f"Iwara 動画 ID または URL ではありません: {video_id_text}",
+            ))
+        options = dict(options or {})
+        result = [dict(item) for item in items]
+        key = self._repair_normalize_path(path)
+        index = next(
+            (i for i, item in enumerate(result) if self._repair_normalize_path(item.get("path", "")) == key),
+            None,
+        )
+        if index is None:
+            return result
+        previous = result[index]
+        current_path = self._repair_current_file(previous, path)
+        cached = previous.get("cached_meta") if isinstance(previous.get("cached_meta"), dict) else {}
+        # The history row the scan found for this file, kept across repeated
+        # manual lookups (each rebuilds the item) until a repair unlinks it.
+        history_id = str(previous.get("history_video_id", "") or "").strip()
+        if not history_id and previous.get("existing_history"):
+            history_id = str(cached.get("video_id", "") or "").strip()
+        # A history record found by path only describes this file while it
+        # still names the same video.
+        same_video = history_id.casefold() == video_id.casefold()
+        record = cached if previous.get("existing_history") and same_video else None
+        move_to_output = bool(options.get("move_to_output", previous.get("move_to_output", False)))
+        output_root = str(options.get("output_root", "") or previous.get("output_root", "") or "")
+        if move_to_output and not output_root:
+            output_root = os.path.dirname(current_path)
+        item = self._repair_scan_item(current_path, record, output_root, move_to_output)
+        video_info, error = self._api_call("get_video_info", video_id)
+        resolved = self._fill_repair_item(
+            item, current_path, video_id, "manual-id", video_info, error, record, None,
+            filename_template=str(options.get("filename_template", "") or ""),
+            output_root=output_root,
+            move_to_output=move_to_output,
+            site_hint=link_site,
+        )
+        if history_id:
+            resolved["history_video_id"] = history_id
+        if resolved.get("status") == "ready":
+            if history_id and not same_video:
+                # The file's history row named another video; repair unlinks it
+                # once the corrected row holds the path.
+                resolved["replaces_video_id"] = history_id
+        else:
+            # Keep the cell empty so the same id can be entered again (after a
+            # network fault or a new login); the detail names what was tried.
+            resolved["video_id"] = ""
+            resolved["message"] = f"Iwara ID {video_id}: {resolved.get('message', '')}"
+        result[index] = resolved
+        return self.preview_repair_files(result, options=options)
+
+    @staticmethod
+    def _repair_current_file(item: dict[str, Any], fallback: str) -> str:
+        """Where a scanned file is now: a repair that moved it but then failed records ``file_path``."""
+
+        original = str(item.get("path", "") or fallback)
+        moved = str(item.get("file_path", "") or "")
+        # The recorded move wins even if something new appeared at the old path.
+        if moved and os.path.isfile(moved):
+            return moved
+        return original
+
     def _repair_scan_context(self):
         """``(history record by path, local candidate index)`` for a scan."""
 
         history_records = self.history.list_records(include_raw=True)
-        history_by_path = {
-            self._repair_normalize_path(record.get("file_path", "")): record
-            for record in history_records
-            if str(record.get("file_path", "") or "").strip()
-        }
+        history_by_path: dict[str, dict[str, Any]] = {}
+        for record in history_records:
+            if str(record.get("file_path", "") or "").strip():
+                # Records come newest first: when two name the same file (an
+                # older one left behind), the latest repair or download wins.
+                history_by_path.setdefault(self._repair_normalize_path(record.get("file_path", "")), record)
         subscription_items = self.subscriptions.list_items()
         local_candidates = self._repair_local_candidates(history_records, subscription_items)
         return history_by_path, RepairCandidateIndex(local_candidates)
