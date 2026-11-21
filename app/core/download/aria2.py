@@ -57,6 +57,8 @@ class Aria2DownloadMixin:
             self._fail_task(task_id, str(exc))
             return
         write_resume_meta(temp_path, source, 0, BACKEND_ARIA2)
+        with self._lock:
+            self._aria2_jobs.add(task_id)  # before addUri: a GID may arrive after an idle-cancel
 
         options = self._aria2_options(temp_path)
         self._apply_aria2_global_speed_limit()

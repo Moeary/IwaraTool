@@ -121,6 +121,9 @@ class DownloadManager(
         # A sign-in is running: automatic retry waits so it does not resolve
         # (and use up attempts) without the account.
         self._login_pending = False
+        # Tasks whose current download job has been handed to aria2 (set before
+        # addUri returns a GID), so the idle watchdog knows aria2 may own them.
+        self._aria2_jobs: set[str] = set()
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False

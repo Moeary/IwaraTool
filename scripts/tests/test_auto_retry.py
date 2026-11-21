@@ -469,6 +469,25 @@ class ResumeIdentityTests(unittest.TestCase):
             stream.write(b"control")
         self.assertTrue(partial_file_reusable(self.temp, "file-a:Source", BACKEND_ARIA2))
 
+    def test_aria2_job_is_recorded_before_submitting(self):
+        seen = []
+
+        def add_uri(uri, options):
+            with self.mgr._lock:
+                seen.append("t" in self.mgr._aria2_jobs)
+            return None, "refused"
+
+        self.mgr._aria2_rpc_add_uri = add_uri
+        self.mgr._download_task_native = lambda task_id, final_path, temp_path: None
+        self.mgr._apply_aria2_global_speed_limit = lambda: None
+        saved = app_config.aria2_rpc_url
+        try:
+            app_config.aria2_rpc_url = "http://127.0.0.1:6800/jsonrpc"
+            self.mgr._download_task_aria2("t", self.final, self.temp)
+        finally:
+            app_config.aria2_rpc_url = saved
+        self.assertEqual(seen, [True])
+
     def test_aria2_entry_continues_a_built_in_partial_file(self):
         write_resume_meta(self.temp, "file-a:Source", 2000)
         calls = []
@@ -548,6 +567,13 @@ class LostAria2JobTests(unittest.TestCase):
         self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
         self.mgr._aria2_cancel_if_requested("t", "late-gid")  # a late GID changes nothing
         self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+
+    def test_aria2_switched_off_while_submitting_still_counts(self):
+        with self.mgr._lock:
+            self.mgr._aria2_jobs.add("t")  # addUri sent, no GID yet
+        self._stall(aria2_enabled=False)
+        self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
 
     def test_idle_cancel_of_a_built_in_download_is_restored(self):
         self._stall(aria2_enabled=False)

@@ -79,6 +79,7 @@ class StallWatchdogMixin:
                 # automatically.  Decided here, once, before anything is sent.
                 aria2_involved = (
                     bool(task.aria2_gid)
+                    or task_id in self._aria2_jobs
                     or task.storage == STORAGE_REMOTE
                     or bool(app_config.aria2_rpc_enabled)
                 )

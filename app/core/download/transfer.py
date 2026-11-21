@@ -32,6 +32,8 @@ class TransferMixin:
     """Transfer a resolved task's file with the built-in downloader (or hand it to aria2)."""
 
     def _download_task(self, task_id: str):
+        with self._lock:
+            self._aria2_jobs.discard(task_id)  # a new attempt; set again if it goes to aria2
         task = self._tasks.get(task_id)
         if not task:
             return
