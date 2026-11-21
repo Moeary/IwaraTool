@@ -8,6 +8,7 @@ import uuid
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from .integrity import BACKEND_ARIA2, partial_file_reusable, write_resume_meta
 from .speed_format import _fmt_bytes, _fmt_speed
 
 
@@ -33,6 +34,18 @@ class Aria2DownloadMixin:
             )
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
+
+        # aria2 continues only its own partial file for the same source.
+        source = self._resume_source(task)
+        try:
+            if os.path.exists(temp_path) and not partial_file_reusable(temp_path, source, BACKEND_ARIA2):
+                self._discard_partial_or_raise(temp_path)
+            elif not os.path.exists(temp_path) and os.path.exists(f"{temp_path}.aria2"):
+                os.remove(f"{temp_path}.aria2")
+        except OSError as exc:
+            self._fail_task(task_id, str(exc))
+            return
+        write_resume_meta(temp_path, source, 0, BACKEND_ARIA2)
 
         options = self._aria2_options(temp_path)
         self._apply_aria2_global_speed_limit()

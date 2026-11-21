@@ -117,6 +117,9 @@ class DownloadManager(
         self._task_workers: dict[str, int] = {}
         # Failed tasks a manual retry is cleaning up; automatic retry skips them.
         self._manual_retry_claims: set[str] = set()
+        # A sign-in is running: automatic retry waits so it does not resolve
+        # (and use up attempts) without the account.
+        self._login_pending = False
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False

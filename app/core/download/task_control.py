@@ -60,7 +60,7 @@ class TaskControlMixin:
                 # up while its temp files are being removed.
                 self._manual_retry_claims.add(task_id)
                 temp_file_path = task.file_path
-                temp_title = task.title or task.video_id
+                temp_title = task.title or task.video_id or task_id
         if not temp_title:
             return
         try:
@@ -115,6 +115,24 @@ class TaskControlMixin:
             task = self._tasks.get(task_id)
             if not task or task.status != TaskStatus.CANCELLED:
                 return False
+            if self._task_worker_alive_locked(task_id):
+                stopping_title = task.title or task.video_id
+            else:
+                stopping_title = ""
+        if stopping_title:
+            # its previous job is still winding down; a second one would share the temp file
+            signal_bus.log_message.emit(
+                tr(
+                    f"[Restore] \"{stopping_title}\" is still stopping; try again in a moment",
+                    f"[复原] 《{stopping_title}》仍在停止中，请稍后再试",
+                    f"[復元] 「{stopping_title}」はまだ停止処理中です。少し待ってから再試行してください",
+                )
+            )
+            return False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.status != TaskStatus.CANCELLED or self._task_worker_alive_locked(task_id):
+                return False
             title = task.title or task.video_id
             self._restore_cancelled_task_locked(task)
             task.auto_restore_count = 0
@@ -168,7 +186,8 @@ class TaskControlMixin:
 
         Both keep the partial file so the download resumes.  Counters reset when
         the user retries or restores the task by hand.  Nothing happens before
-        :meth:`start` (proxy and login are not ready) or during shutdown.
+        :meth:`start`, while the startup sign-in is still running, or during
+        shutdown.
         """
         restore_stalled = restore_stalled and bool(app_config.auto_restore_stalled_cancelled)
         retry_failed = retry_failed and bool(app_config.auto_retry_failed_enabled)
@@ -180,7 +199,12 @@ class TaskControlMixin:
         restored: list[str] = []
         retried: list[tuple[str, str, int]] = []
         with self._lock:
-            if not self._started or self._shutting_down or not self._queue_idle_locked():
+            if (
+                not self._started
+                or self._shutting_down
+                or self._login_pending
+                or not self._queue_idle_locked()
+            ):
                 return 0, 0
             for task in list(self._tasks.values()):
                 if not self._auto_requeue_candidate_locked(task):
@@ -238,6 +262,8 @@ class TaskControlMixin:
                     continue
                 if origin_filter and task.cancel_origin != origin_filter:
                     continue
+                if self._task_worker_alive_locked(task.task_id):
+                    continue  # still stopping; restored on a later attempt
                 self._restore_cancelled_task_locked(task)
                 task.auto_restore_count = 0
                 restored_ids.append(task.task_id)

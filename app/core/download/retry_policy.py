@@ -18,8 +18,7 @@ SKIP = "skip"
 _PERMANENT_MARKERS = (
     # permission / visibility
     "private", "privatevideo", "no permission", "not have permission", "without permission",
-    "forbidden", "http 403", "403 client error", "http 401", "401 client error", "unauthorized",
-    "not found", "http 404", "404 client error", "not visible", "cannot view",
+    "forbidden", "unauthorized", "not found", "not visible", "cannot view",
     "私有", "权限", "不可见", "无法观看", "无权", "不存在",
     "非公開", "権限", "表示できません", "存在しない",
     # not downloadable at all
@@ -40,7 +39,7 @@ _TRANSIENT_MARKERS = (
     "read timed out", "timed out", "timeout", "max retries exceeded",
     "eof occurred", "sslerror", "ssl:", "temporarily unavailable", "temporary failure",
     "name resolution", "getaddrinfo", "proxyerror", "unable to connect to proxy",
-    "too many requests", "bad gateway", "service unavailable", "gateway timeout", "http 429",
+    "too many requests", "bad gateway", "service unavailable", "gateway timeout",
     "incomplete download", "下载不完整", "ダウンロードが不完全",
     # the partial file was removed after a failed check; the retry starts over
     "retry to download again", "请重试以重新下载", "一時ファイルを削除しました", "一致しないため削除しました",
@@ -49,8 +48,23 @@ _TRANSIENT_MARKERS = (
 )
 
 
-# Any 5xx reply: "HTTP 520: ...", "503 Server Error: ...", "status=502".
-_SERVER_ERROR_RE = re.compile(r"\bhttp\s*5\d\d\b|\b5\d\d\s+server error|\bstatus(?:_code)?\s*[=:]?\s*5\d\d\b")
+# An explicit HTTP status in the message: "HTTP 520: ...", "HTTP/1.1 503",
+# "503 Server Error: ...", "status=502".  It decides before any keyword, so a
+# 503 whose body mentions "private" is still retried and a 401 is not.
+_HTTP_STATUS_RE = re.compile(
+    r"\bhttp(?:/\d(?:\.\d)?)?\s*(\d{3})(?!\d)"
+    r"|(?<![\w/])(\d{3})\s+(?:server|client) error\b"
+    r"|(?:^|[\s(,;])status(?:_code)?\s*[=:]\s*(\d{3})(?!\d)"
+)
+_RETRY_STATUSES = frozenset({408, 425, 429})
+_SKIP_STATUSES = frozenset({401, 403, 404, 410, 451})
+
+
+def _http_status(text: str) -> int:
+    match = _HTTP_STATUS_RE.search(text)
+    if not match:
+        return 0
+    return int(next(group for group in match.groups() if group))
 
 
 def split_keywords(text: str) -> list[str]:
@@ -66,9 +80,14 @@ def classify_failure(reason: str) -> str:
     text = str(reason or "").casefold()
     if not text:
         return ""
+    status = _http_status(text)
+    if status >= 500 or status in _RETRY_STATUSES:
+        return RETRY
+    if status in _SKIP_STATUSES:
+        return SKIP
     if any(marker in text for marker in _PERMANENT_MARKERS):
         return SKIP
-    if any(marker in text for marker in _TRANSIENT_MARKERS) or _SERVER_ERROR_RE.search(text):
+    if any(marker in text for marker in _TRANSIENT_MARKERS):
         return RETRY
     return ""
 

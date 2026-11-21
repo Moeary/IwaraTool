@@ -49,6 +49,21 @@ class TerminalStatesMixin:
     def _task_worker_alive_locked(self, task_id: str) -> bool:
         return self._task_workers.get(task_id, 0) > 0
 
+    def _submit_task_job(self, executor, fn, task_id: str):
+        """Submit a job claimed with :meth:`_claim_task_worker_locked`.
+
+        The claim is released when the future finishes, including a job that
+        was cancelled before it ran; a rejected submit releases it at once.
+        """
+        try:
+            future = executor.submit(fn, task_id)
+        except Exception:
+            self._release_task_worker(task_id)
+            raise
+        if future is not None:  # test executors may return None
+            future.add_done_callback(lambda _future: self._release_task_worker(task_id))
+        return future
+
     def _unmark_terminal_locked(self, task_id: str):
         """Mark a previously-terminal task as live again. Must hold self._lock."""
         self._terminal_task_id_set.discard(task_id)

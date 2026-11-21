@@ -3,12 +3,16 @@
 import os
 import shutil
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from app.config import app_config
 from app.core.download.integrity import (
+    BACKEND_ARIA2,
+    classify_416,
     read_resume_meta,
     resume_meta_path,
     resume_source_mismatch,
@@ -47,6 +51,10 @@ class RetryPolicyTests(unittest.TestCase):
             "HTTP 520: ",
             "503 Server Error: Service Unavailable for url: https://example",
             "HTTP 503: Permission service temporarily unavailable",
+            "HTTP 503: 权限服务暂不可用",
+            "503 Server Error: Service Unavailable for url: https://x/private/a",
+            "HTTP/1.1 520 Origin Error",
+            "HTTP 429: Too Many Requests",
             "Local partial file does not match the server file; it was removed. Retry to download again.",
             "断点续传失败（server resumed at byte 0, expected 5），已清除缓存；请重试以重新下载。",
             "下载不完整（缺少 12 MB），重试可继续。",
@@ -67,6 +75,8 @@ class RetryPolicyTests(unittest.TestCase):
             "HTTP 403: Forbidden",
             "HTTP 401: 网络登录已失效",
             "HTTP 401: Unauthorized",
+            "status=401 网络",
+            "Failed to get file source list: HTTP 403",
         ):
             with self.subTest(reason=reason):
                 self.assertEqual(classify_failure(reason), SKIP)
@@ -75,6 +85,8 @@ class RetryPolicyTests(unittest.TestCase):
     def test_unknown_errors_are_not_retried_by_default(self):
         self.assertEqual(classify_failure("something odd happened"), "")
         self.assertEqual(classify_failure("received 500 of 1000 bytes"), "")
+        self.assertEqual(classify_failure("/tmp/status=502/output failed"), "")
+        self.assertEqual(classify_failure("HTTP 4010 weird"), "")
         self.assertFalse(should_auto_retry("something odd happened"))
         self.assertFalse(should_auto_retry(""))
 
@@ -256,6 +268,55 @@ class AutoRetryManagerTests(unittest.TestCase):
         self.assertTrue(self.mgr.restore_cancelled_task("stalled"))
         self.assertEqual(stalled.auto_restore_count, 0)
 
+    def test_manual_restore_waits_for_the_previous_job(self):
+        cancelled = self._add("stopping", TaskStatus.CANCELLED)
+        with self.mgr._lock:
+            self.mgr._claim_task_worker_locked("stopping")
+        self.assertFalse(self.mgr.restore_cancelled_task("stopping"))
+        self.assertEqual(self.mgr.restore_all_cancelled(), 0)
+        self.assertEqual(cancelled.status, TaskStatus.CANCELLED)
+        self.mgr._release_task_worker("stopping")
+        self.assertTrue(self.mgr.restore_cancelled_task("stopping"))
+
+    def test_sign_in_in_progress_holds_automatic_retry(self):
+        self._add("network", TaskStatus.FAILED, INCOMPLETE_READ)
+        self.mgr.set_login_pending(True)
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
+        self.mgr.set_login_pending(False)
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 1)
+
+    def test_manual_retry_of_a_task_without_title_releases_its_claim(self):
+        task = DownloadTask("blank", "", "", status=TaskStatus.FAILED, error_msg="x")
+        with self.mgr._lock:
+            self.mgr._tasks["blank"] = task
+            self.mgr._mark_terminal_locked(task)
+        self.mgr.retry_task("blank")
+        self.assertEqual(self.mgr._manual_retry_claims, set())
+
+    def test_worker_claims_are_released_by_the_future(self):
+        executor = ThreadPoolExecutor(max_workers=1)
+        gate = threading.Event()
+        try:
+            with self.mgr._lock:
+                self.mgr._claim_task_worker_locked("a")
+                self.mgr._claim_task_worker_locked("b")
+            self.mgr._submit_task_job(executor, lambda _tid: gate.wait(5), "a")
+            queued = self.mgr._submit_task_job(executor, lambda _tid: None, "b")
+            self.assertTrue(queued.cancel())  # cancelled before it ran
+            with self.mgr._lock:
+                self.assertFalse(self.mgr._task_worker_alive_locked("b"))
+                self.assertTrue(self.mgr._task_worker_alive_locked("a"))
+            gate.set()
+        finally:
+            executor.shutdown(wait=True)
+        with self.mgr._lock:
+            self.assertFalse(self.mgr._task_worker_alive_locked("a"))
+            self.mgr._claim_task_worker_locked("c")
+        with self.assertRaises(RuntimeError):  # rejected after shutdown
+            self.mgr._submit_task_job(executor, lambda _tid: None, "c")
+        with self.mgr._lock:
+            self.assertFalse(self.mgr._task_worker_alive_locked("c"))
+
 
 class _Resp:
     def __init__(self, status_code, headers=None):
@@ -285,7 +346,13 @@ class ResumeIdentityTests(unittest.TestCase):
 
     def test_meta_helpers(self):
         write_resume_meta(self.temp, "file-a:Source", 2000)
-        self.assertEqual(read_resume_meta(self.temp), {"source": "file-a:Source", "total": 2000})
+        self.assertEqual(read_resume_meta(self.temp), {"source": "file-a:Source", "total": 2000, "backend": "native"})
+        with open(resume_meta_path(self.temp), "w", encoding="utf-8") as stream:
+            stream.write('{"source": "file-b:Source", "total": "broken"}')
+        self.assertEqual(read_resume_meta(self.temp), {})  # unusable record: start over
+        # 416: the partial file must also match the recorded size
+        self.assertEqual(classify_416({"Content-Range": "bytes */3"}, 3, expected_total=8), "corrupt")
+        self.assertEqual(classify_416({"Content-Range": "bytes */8"}, 8, expected_total=8), "complete")
         self.assertTrue(resume_source_mismatch({"source": "file-a:Source"}, "file-b:Source"))
         self.assertFalse(resume_source_mismatch({}, "file-b:Source"))  # older partial files
         self.assertEqual(resume_total_mismatch({"Content-Range": "bytes 1000-1999/2000"}, 1000, 2000), "")
@@ -329,6 +396,50 @@ class ResumeIdentityTests(unittest.TestCase):
         self.assertEqual(len(self.failures), 1)
         self.assertFalse(os.path.exists(self.temp))
         self.assertFalse(os.path.exists(self.final))
+
+    def _open(self):
+        sent = {}
+        self.mgr.api.scraper.get = lambda url, headers=None, **_k: sent.update(headers or {}) or _Resp(200)
+        _resp, existing = self.mgr._open_download_response(self.task, "t", self.temp)
+        return existing, sent
+
+    def test_partial_file_without_a_record_is_not_resumed(self):
+        existing, sent = self._open()
+        self.assertEqual(existing, 0)
+        self.assertNotIn("Range", sent)
+        self.assertFalse(os.path.exists(self.temp))
+
+    def test_aria2_partial_file_is_not_continued_by_the_built_in_downloader(self):
+        write_resume_meta(self.temp, "file-a:Source", 0, BACKEND_ARIA2)
+        self.assertEqual(self._open()[0], 0)
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        with open(self.temp, "wb") as stream:
+            stream.write(b"x" * 1000)
+        with open(f"{self.temp}.aria2", "wb") as stream:
+            stream.write(b"control")
+        self.assertEqual(self._open()[0], 0)
+        self.assertFalse(os.path.exists(f"{self.temp}.aria2"))
+
+    def test_unremovable_partial_file_stops_the_attempt(self):
+        self.mgr._discard_temp_file = lambda _path: False
+        with self.assertRaises(OSError):
+            self._open()
+
+    def test_206_total_comes_from_content_range(self):
+        resp = _Resp(206, {"Content-Range": "bytes 3-4/8", "Content-Length": "2"})
+        total, existing = self.mgr._start_progress(self.task, "t", resp, 3)
+        self.assertEqual((total, existing), (8, 3))
+
+    def test_clear_temp_files_removes_orphan_records(self):
+        saved = app_config.download_dir
+        try:
+            app_config.download_dir = self._tmp
+            os.remove(self.temp)
+            write_resume_meta(self.temp, "file-a:Source", 2000)
+            self.mgr.clear_temp_files()
+            self.assertFalse(os.path.exists(resume_meta_path(self.temp)))
+        finally:
+            app_config.download_dir = saved
 
 
 if __name__ == "__main__":

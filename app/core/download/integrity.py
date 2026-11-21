@@ -38,13 +38,16 @@ def classify_416(headers: Mapping[str, str], existing_size: int, expected_total:
     """Judge an HTTP 416 reply to a resume request.
 
     ``"complete"``  the temp file already has every byte,
-    ``"corrupt"``   the server's total differs from what we hold, or the reply
-                    gives no total and ``expected_total`` (the size recorded
-                    when the transfer started) does not vouch for the file.
+    ``"corrupt"``   the server's total differs from what we hold or from
+                    ``expected_total`` (the size recorded when the transfer
+                    started), or the reply gives no total and nothing recorded
+                    vouches for the file.
     """
     _start, _end, total = parse_content_range(headers.get("Content-Range"))
+    if expected_total > 0 and existing_size != expected_total:
+        return "corrupt"
     if total is None:
-        return "complete" if expected_total > 0 and expected_total == existing_size else "corrupt"
+        return "complete" if expected_total > 0 else "corrupt"
     return "complete" if total == existing_size else "corrupt"
 
 
@@ -69,9 +72,12 @@ def incomplete_reason(
 
 
 # A partial ``*_temp`` file is resumed only while it still belongs to the same
-# source: ``<temp>.resume.json`` records which file / quality it holds and the
-# full size the server announced when the transfer started.
+# source: ``<temp>.resume.json`` records which file / quality it holds, which
+# downloader wrote it (``native`` / ``aria2``: their partial files differ) and
+# the full size the server announced when the transfer started.
 RESUME_META_SUFFIX = ".resume.json"
+BACKEND_NATIVE = "native"
+BACKEND_ARIA2 = "aria2"
 
 
 def resume_meta_path(temp_path: str) -> str:
@@ -79,20 +85,38 @@ def resume_meta_path(temp_path: str) -> str:
 
 
 def read_resume_meta(temp_path: str) -> dict[str, Any]:
+    """The record next to a partial file; ``{}`` when missing or unreadable."""
     try:
         with open(resume_meta_path(temp_path), "r", encoding="utf-8") as stream:
             data = json.load(stream)
     except (OSError, ValueError):
         return {}
-    return data if isinstance(data, dict) else {}
-
-
-def write_resume_meta(temp_path: str, source: str, total: int) -> None:
+    if not isinstance(data, dict):
+        return {}
     try:
-        with open(resume_meta_path(temp_path), "w", encoding="utf-8") as stream:
-            json.dump({"source": source, "total": int(total)}, stream)
+        total = int(data.get("total", 0) or 0)
+    except (TypeError, ValueError):
+        return {}
+    return {
+        "source": str(data.get("source", "") or ""),
+        "total": max(0, total),
+        "backend": str(data.get("backend", "") or ""),
+    }
+
+
+def write_resume_meta(temp_path: str, source: str, total: int, backend: str = BACKEND_NATIVE) -> None:
+    """Atomically record what the partial file holds."""
+    target = resume_meta_path(temp_path)
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as stream:
+            json.dump({"source": source, "total": int(total), "backend": backend}, stream)
+        os.replace(tmp, target)
     except OSError:
-        pass
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def remove_resume_meta(temp_path: str) -> None:
@@ -106,6 +130,20 @@ def resume_source_mismatch(meta: Mapping[str, Any], source: str) -> bool:
     """True when the partial file was started from another file or quality."""
     recorded = str(meta.get("source", "") or "")
     return bool(recorded and source and recorded != source)
+
+
+def partial_file_reusable(temp_path: str, source: str, backend: str) -> bool:
+    """Whether an existing partial file may be continued by ``backend``.
+
+    Requires a record written by the same downloader for the same source.
+    Partial files without one (older versions) are not trusted.
+    """
+    meta = read_resume_meta(temp_path)
+    if not meta or meta.get("backend") != backend or resume_source_mismatch(meta, source):
+        return False
+    if backend == BACKEND_NATIVE and os.path.exists(f"{temp_path}.aria2"):
+        return False  # aria2 writes segments with holes; only aria2 can continue it
+    return True
 
 
 def resume_total_mismatch(headers: Mapping[str, str], existing_size: int, expected_total: int) -> str:
