@@ -281,7 +281,7 @@ class SettingsDownloadCardsMixin:
         self._auto_retry_keywords_edit = self._auto_retry_keyword_row(
             detail_layout,
             tr("Always retry errors containing", "总是重试的报错关键词", "常に再試行するエラーのキーワード"),
-            tr("e.g. HTTP 403, aria2", "如 HTTP 403, aria2", "例: HTTP 403, aria2"),
+            tr("e.g. HTTP 403, SSL", "如 HTTP 403, SSL", "例: HTTP 403, SSL"),
         )
         self._auto_skip_keywords_edit = self._auto_retry_keyword_row(
             detail_layout,

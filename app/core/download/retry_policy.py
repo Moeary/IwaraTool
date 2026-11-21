@@ -102,12 +102,15 @@ def classify_failure(reason: str) -> str:
 def should_auto_retry(reason: str, *, retry_keywords: str = "", skip_keywords: str = "") -> bool:
     """True when the failure should be retried automatically.
 
-    The user's "never retry" keywords win, then their "always retry"
-    keywords, then the built-in classification.  Unknown failures are not
+    A lost aria2 job is never retried.  Otherwise the user's "never retry"
+    keywords win, then their "always retry" keywords, then the built-in
+    classification.  Unknown failures are not
     retried, so an unexpected error cannot loop on its own.
     """
 
     text = str(reason or "").casefold()
+    if any(marker in text for marker in _NEVER_AUTO_MARKERS):
+        return False  # not even the user's keywords: aria2 may still be writing
     if any(keyword in text for keyword in split_keywords(skip_keywords)):
         return False
     if any(keyword in text for keyword in split_keywords(retry_keywords)):

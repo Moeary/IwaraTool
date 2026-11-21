@@ -122,7 +122,7 @@ class Aria2DownloadMixin:
 
         if not self._is_cancel_requested(task_id):
             return False
-        self._aria2_rpc_cancel(gid)
+        self._note_aria2_stop(task_id, self._aria2_rpc_cancel(gid))
         self._cancel_task_terminal(
             task_id,
             tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),
@@ -334,11 +334,11 @@ class Aria2DownloadMixin:
         self._aria2_rpc_call("aria2.removeDownloadResult", [gid])
 
     def _aria2_rpc_cancel(self, gid: str) -> bool:
-        """Stop an aria2 download; True when aria2 accepted the removal."""
+        """Stop an aria2 download; True only when aria2 confirmed removing ``gid``."""
         if not gid:
             return True
         data, err = self._aria2_rpc_call("aria2.remove", [gid])
-        if not data and err:
+        if not (data and data.get("result") == gid):
             data, _err = self._aria2_rpc_call("aria2.forceRemove", [gid])
         self._aria2_rpc_remove_result(gid)
-        return bool(data)
+        return bool(data and data.get("result") == gid)

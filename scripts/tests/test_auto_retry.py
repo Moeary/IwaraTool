@@ -101,6 +101,8 @@ class RetryPolicyTests(unittest.TestCase):
         self.assertFalse(should_auto_retry(INCOMPLETE_READ, skip_keywords="IncompleteRead"))
         # "never" wins over "always"
         self.assertFalse(should_auto_retry(INCOMPLETE_READ, retry_keywords="broken", skip_keywords="broken"))
+        # a lost aria2 job is not retried even when the user's keywords match
+        self.assertFalse(should_auto_retry("aria2 RPC query failed: HTTP 503", retry_keywords="aria2, 503"))
 
     def test_split_keywords_accepts_common_separators(self):
         self.assertEqual(split_keywords(" A, b，c;d；\ne ,, "), ["a", "b", "c", "d", "e"])
@@ -524,6 +526,47 @@ class LostAria2JobTests(unittest.TestCase):
         self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
         self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
         self.assertTrue(self.mgr.restore_cancelled_task("t"))
+
+    def _stall(self, cancel_results):
+        app_config.auto_restore_stalled_cancelled = True
+        app_config.task_stall_timeout_seconds = 1
+        seen = []
+
+        def cancel(gid):
+            seen.append(self.task.cancel_origin)  # what a quit during the RPC would save
+            return cancel_results.pop(0)
+
+        self.mgr._aria2_rpc_cancel = cancel
+        with self.mgr._lock:
+            self.mgr._task_last_activity["t"] = 0.0
+        self.assertEqual(self.mgr._cancel_stale_tasks(), 1)
+        return seen
+
+    def test_confirmed_aria2_stop_is_restored_automatically(self):
+        self.task.aria2_gid = "gid1"
+        seen = self._stall([True, False])
+        self.assertEqual(seen, ["auto_stall_unconfirmed"])
+        self.assertEqual(self.task.cancel_origin, "auto_stall")
+        # the poll loop's own removal now fails (already gone): still confirmed
+        self.mgr._aria2_cancel_if_requested("t", "gid1")
+        self.assertEqual(self.task.cancel_origin, "auto_stall")
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 1)
+
+    def test_gid_arriving_after_the_idle_cancel_must_confirm_too(self):
+        seen = self._stall([False])  # no GID yet: nothing to remove
+        self.assertEqual(seen, [])
+        self.assertEqual(self.task.cancel_origin, "auto_stall")
+        self.mgr._aria2_cancel_if_requested("t", "late-gid")  # addUri returned afterwards
+        self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
+
+    def test_aria2_removal_counts_only_with_the_gid_echoed(self):
+        replies = []
+        self.mgr._aria2_rpc_call = lambda method, params: replies.pop(0)
+        replies[:] = [({"status": "ok"}, ""), ({"status": "ok"}, ""), ({}, "")]
+        self.assertFalse(type(self.mgr)._aria2_rpc_cancel(self.mgr, "gid1"))
+        replies[:] = [({"result": "gid1"}, ""), ({}, "")]
+        self.assertTrue(type(self.mgr)._aria2_rpc_cancel(self.mgr, "gid1"))
 
 
 if __name__ == "__main__":

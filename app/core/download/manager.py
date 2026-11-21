@@ -120,6 +120,8 @@ class DownloadManager(
         # A sign-in is running: automatic retry waits so it does not resolve
         # (and use up attempts) without the account.
         self._login_pending = False
+        # Idle-cancelled tasks whose aria2 job aria2 confirmed removing.
+        self._aria2_confirmed_stops: set[str] = set()
         self._task_store = task_store
         self._task_persistence: TaskPersistenceCoordinator | None = None
         self._shutting_down = False
