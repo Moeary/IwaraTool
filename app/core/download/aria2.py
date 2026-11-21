@@ -8,7 +8,7 @@ import uuid
 from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from .integrity import BACKEND_ARIA2, partial_file_reusable, write_resume_meta
+from .integrity import BACKEND_ARIA2, BACKEND_NATIVE, partial_file_reusable, write_resume_meta
 from .speed_format import _fmt_bytes, _fmt_speed
 
 
@@ -35,8 +35,19 @@ class Aria2DownloadMixin:
             self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
             return
 
-        # aria2 continues only its own partial file for the same source.
         source = self._resume_source(task)
+        if os.path.exists(temp_path) and partial_file_reusable(temp_path, source, BACKEND_NATIVE):
+            # an earlier attempt fell back to the built-in downloader: keep its progress
+            signal_bus.log_message.emit(
+                tr(
+                    "  Continuing the built-in downloader's partial file",
+                    "  继续内置下载器已下载的部分",
+                    "  内蔵ダウンローダーの途中ファイルから再開します",
+                )
+            )
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
+            return
+        # aria2 continues only its own partial file for the same source.
         try:
             if os.path.exists(temp_path) and not partial_file_reusable(temp_path, source, BACKEND_ARIA2):
                 self._discard_partial_or_raise(temp_path)
@@ -131,6 +142,11 @@ class Aria2DownloadMixin:
                 return
             status_info, err = self._aria2_rpc_tell_status(gid)
             if not status_info:
+                if not self._aria2_settle_gid(gid):
+                    # aria2 may still be writing this file; no automatic retry
+                    # until it is known to have stopped.
+                    with self._lock:
+                        self._orphan_aria2_gids[task_id] = gid
                 self._fail_task(
                     task_id,
                     tr(
@@ -316,6 +332,32 @@ class Aria2DownloadMixin:
                 f"aria2 tellStatus の戻り値が不正です: {result!r}",
             )
         return result, ""
+
+    def _aria2_settle_gid(self, gid: str) -> bool:
+        """True once aria2 no longer runs ``gid`` (finished, removed or unknown to it)."""
+        info, err = self._aria2_rpc_tell_status(gid)
+        if info is None:
+            lower = err.lower()
+            # aria2 answered (an unknown GID is an RPC error); otherwise unreachable
+            return "not found" in lower or "400" in lower
+        if str(info.get("status", "")) in ("active", "waiting", "paused"):
+            self._aria2_rpc_call("aria2.forceRemove", [gid])
+            return False
+        self._aria2_rpc_remove_result(gid)
+        return True
+
+    def _settle_orphan_aria2_gids(self, now: float) -> None:
+        """Re-check aria2 jobs left behind by a lost RPC connection (every 30 s)."""
+        with self._lock:
+            if not self._orphan_aria2_gids or now - self._orphan_gid_checked_at < 30:
+                return
+            self._orphan_gid_checked_at = now
+            pending = dict(self._orphan_aria2_gids)
+        settled = [task_id for task_id, gid in pending.items() if self._aria2_settle_gid(gid)]
+        with self._lock:
+            for task_id in settled:
+                if self._orphan_aria2_gids.get(task_id) == pending[task_id]:
+                    self._orphan_aria2_gids.pop(task_id, None)
 
     def _aria2_rpc_remove_result(self, gid: str):
         self._aria2_rpc_call("aria2.removeDownloadResult", [gid])

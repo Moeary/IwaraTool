@@ -52,7 +52,7 @@ _TRANSIENT_MARKERS = (
 # "503 Server Error: ...", "status=502".  It decides before any keyword, so a
 # 503 whose body mentions "private" is still retried and a 401 is not.
 _HTTP_STATUS_RE = re.compile(
-    r"\bhttp(?:/\d(?:\.\d)?)?\s*(\d{3})(?!\d)"
+    r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})(?!\d)"
     r"|(?<![\w/])(\d{3})\s+(?:server|client) error\b"
     r"|(?:^|[\s(,;])status(?:_code)?\s*[=:]\s*(\d{3})(?!\d)"
 )

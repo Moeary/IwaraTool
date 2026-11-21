@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from typing import Any, Mapping
 
 _RANGE_RE = re.compile(r"^\s*bytes\s+(?:(\d+)-(\d+)|\*)/(\d+|\*)\s*$", re.IGNORECASE)
@@ -95,7 +96,7 @@ def read_resume_meta(temp_path: str) -> dict[str, Any]:
         return {}
     try:
         total = int(data.get("total", 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return {}
     return {
         "source": str(data.get("source", "") or ""),
@@ -107,16 +108,20 @@ def read_resume_meta(temp_path: str) -> dict[str, Any]:
 def write_resume_meta(temp_path: str, source: str, total: int, backend: str = BACKEND_NATIVE) -> None:
     """Atomically record what the partial file holds."""
     target = resume_meta_path(temp_path)
-    tmp = f"{target}.{os.getpid()}.tmp"
+    tmp = ""
     try:
-        with open(tmp, "w", encoding="utf-8") as stream:
+        # A short name beside the target: the partial file's own name may
+        # already be close to the file-name length limit.
+        fd, tmp = tempfile.mkstemp(prefix=".resume-", suffix=".tmp", dir=os.path.dirname(target) or None)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump({"source": source, "total": int(total), "backend": backend}, stream)
         os.replace(tmp, target)
     except OSError:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def remove_resume_meta(temp_path: str) -> None:
@@ -135,15 +140,16 @@ def resume_source_mismatch(meta: Mapping[str, Any], source: str) -> bool:
 def partial_file_reusable(temp_path: str, source: str, backend: str) -> bool:
     """Whether an existing partial file may be continued by ``backend``.
 
-    Requires a record written by the same downloader for the same source.
-    Partial files without one (older versions) are not trusted.
+    Requires a record written by the same downloader for the same, known
+    source.  Partial files without one (older versions) are not trusted.
     """
     meta = read_resume_meta(temp_path)
-    if not meta or meta.get("backend") != backend or resume_source_mismatch(meta, source):
+    if not meta or not source or meta.get("backend") != backend or meta.get("source") != source:
         return False
-    if backend == BACKEND_NATIVE and os.path.exists(f"{temp_path}.aria2"):
-        return False  # aria2 writes segments with holes; only aria2 can continue it
-    return True
+    has_control_file = os.path.exists(f"{temp_path}.aria2")
+    if backend == BACKEND_NATIVE:
+        return not has_control_file  # aria2 writes segments with holes; only aria2 can continue it
+    return has_control_file  # without aria2's control file the segment map is lost
 
 
 def resume_total_mismatch(headers: Mapping[str, str], existing_size: int, expected_total: int) -> str:

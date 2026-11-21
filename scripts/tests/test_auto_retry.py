@@ -12,7 +12,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from app.config import app_config
 from app.core.download.integrity import (
     BACKEND_ARIA2,
+    BACKEND_NATIVE,
     classify_416,
+    partial_file_reusable,
     read_resume_meta,
     resume_meta_path,
     resume_source_mismatch,
@@ -55,6 +57,7 @@ class RetryPolicyTests(unittest.TestCase):
             "503 Server Error: Service Unavailable for url: https://x/private/a",
             "HTTP/1.1 520 Origin Error",
             "HTTP 429: Too Many Requests",
+            "HTTPSConnectionPool(host='http403.example', port=443): Read timed out.",
             "Local partial file does not match the server file; it was removed. Retry to download again.",
             "断点续传失败（server resumed at byte 0, expected 5），已清除缓存；请重试以重新下载。",
             "下载不完整（缺少 12 MB），重试可继续。",
@@ -350,6 +353,9 @@ class ResumeIdentityTests(unittest.TestCase):
         with open(resume_meta_path(self.temp), "w", encoding="utf-8") as stream:
             stream.write('{"source": "file-b:Source", "total": "broken"}')
         self.assertEqual(read_resume_meta(self.temp), {})  # unusable record: start over
+        with open(resume_meta_path(self.temp), "w", encoding="utf-8") as stream:
+            stream.write('{"source": "file-a:Source", "total": 1e1000}')
+        self.assertEqual(read_resume_meta(self.temp), {})
         # 416: the partial file must also match the recorded size
         self.assertEqual(classify_416({"Content-Range": "bytes */3"}, 3, expected_total=8), "corrupt")
         self.assertEqual(classify_416({"Content-Range": "bytes */8"}, 8, expected_total=8), "complete")
@@ -440,6 +446,74 @@ class ResumeIdentityTests(unittest.TestCase):
             self.assertFalse(os.path.exists(resume_meta_path(self.temp)))
         finally:
             app_config.download_dir = saved
+
+    def test_record_is_written_next_to_a_long_file_name(self):
+        long_temp = os.path.join(self._tmp, "a" * 233 + ".mp4_temp")  # 242 characters
+        with open(long_temp, "wb") as stream:
+            stream.write(b"x")
+        write_resume_meta(long_temp, "file-a:Source", 10)
+        self.assertEqual(read_resume_meta(long_temp)["total"], 10)
+        self.assertEqual([n for n in os.listdir(self._tmp) if n.endswith(".tmp")], [])
+
+    def test_partial_file_needs_a_known_source_and_aria2_its_control_file(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        self.assertTrue(partial_file_reusable(self.temp, "file-a:Source", BACKEND_NATIVE))
+        self.assertFalse(partial_file_reusable(self.temp, "", BACKEND_NATIVE))
+        write_resume_meta(self.temp, "file-a:Source", 0, BACKEND_ARIA2)
+        self.assertFalse(partial_file_reusable(self.temp, "file-a:Source", BACKEND_ARIA2))
+        with open(f"{self.temp}.aria2", "wb") as stream:
+            stream.write(b"control")
+        self.assertTrue(partial_file_reusable(self.temp, "file-a:Source", BACKEND_ARIA2))
+
+    def test_aria2_entry_continues_a_built_in_partial_file(self):
+        write_resume_meta(self.temp, "file-a:Source", 2000)
+        calls = []
+        self.mgr._download_task_native = lambda task_id, final_path, temp_path: calls.append(task_id)
+        self.mgr._aria2_rpc_add_uri = lambda *_a: self.fail("must not hand the file to aria2")
+        saved = app_config.aria2_rpc_url
+        try:
+            app_config.aria2_rpc_url = "http://127.0.0.1:6800/jsonrpc"
+            self.mgr._download_task_aria2("t", self.final, self.temp)
+        finally:
+            app_config.aria2_rpc_url = saved
+        self.assertEqual(calls, ["t"])
+        self.assertTrue(os.path.exists(self.temp))
+
+
+class OrphanAria2Tests(unittest.TestCase):
+    def setUp(self):
+        self._saved = {key: getattr(app_config, key) for key in _KEYS}
+        app_config.auto_retry_failed_enabled = True
+        app_config.auto_retry_failed_max_attempts = 3
+        app_config.auto_retry_failed_retry_keywords = ""
+        app_config.auto_retry_failed_skip_keywords = ""
+        self.mgr = DownloadManager()
+        self.mgr._watchdog_stop.set()
+        self.mgr._started = True
+        self.mgr._resolve_executor = type("Exec", (), {"submit": lambda _s, fn, *a, **k: None})()
+        self.task = DownloadTask("t", "", "t", status=TaskStatus.DOWNLOADING, title="T")
+        with self.mgr._lock:
+            self.mgr._tasks["t"] = self.task
+            self.mgr._task_id_by_video_id["t"] = "t"
+            self.mgr._active_task_ids.add("t")
+
+    def tearDown(self):
+        for key, value in self._saved.items():
+            setattr(app_config, key, value)
+
+    def test_lost_aria2_job_blocks_automatic_retry_until_it_stops(self):
+        replies = {"err": "('Connection aborted.', ConnectionRefusedError(61, 'Connection refused'))"}
+        self.mgr._aria2_rpc_tell_status = lambda gid: (None, replies["err"])
+        self.mgr._follow_aria2_download(self.task, "t", "gid1", "", "")
+
+        self.assertEqual(self.task.status, TaskStatus.FAILED)
+        self.assertEqual(self.mgr._orphan_aria2_gids, {"t": "gid1"})
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 0)
+
+        replies["err"] = "400 Client Error: Bad Request"  # aria2 answers: GID unknown
+        self.mgr._orphan_gid_checked_at = 0.0
+        self.assertEqual(self.mgr._auto_retry_failed_if_idle(), 1)
+        self.assertEqual(self.mgr._orphan_aria2_gids, {})
 
 
 if __name__ == "__main__":
