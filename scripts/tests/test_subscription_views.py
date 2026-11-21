@@ -133,7 +133,7 @@ class SubscriptionPageViewTests(_QtCase):
     def setUp(self):
         from app.ui.subscription.page import SubscriptionInterface
 
-        self.directory = tempfile.TemporaryDirectory()
+        self.directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # background cover writes may still land
         self.addCleanup(self.directory.cleanup)
         settings = QSettings(os.path.join(self.directory.name, "config.ini"), QSettings.Format.IniFormat)
         patcher = patch.object(app_config, "_qs", settings)
@@ -422,7 +422,7 @@ class SubscriptionPageViewTests(_QtCase):
 
 class CardSizeTests(_QtCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
+        self.directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.directory.cleanup)
         settings = QSettings(os.path.join(self.directory.name, "config.ini"), QSettings.Format.IniFormat)
         patcher = patch.object(app_config, "_qs", settings)
@@ -502,7 +502,7 @@ class StartupPageTests(_QtCase):
 
         names = ("home", "subscription", "search", "download", "repair", "history", "tools", "rules", "settings")
         fake = SimpleNamespace(**{f"_{name}_page": object() for name in names})
-        directory = tempfile.TemporaryDirectory()
+        directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(directory.cleanup)
         settings = QSettings(os.path.join(directory.name, "config.ini"), QSettings.Format.IniFormat)
         with patch.object(app_config, "_qs", settings):
