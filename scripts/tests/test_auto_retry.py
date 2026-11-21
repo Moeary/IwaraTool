@@ -488,6 +488,7 @@ class LostAria2JobTests(unittest.TestCase):
     def setUp(self):
         self._saved = {key: getattr(app_config, key) for key in _KEYS}
         self._stall_timeout = app_config.task_stall_timeout_seconds
+        self._aria2_enabled = app_config.aria2_rpc_enabled
         app_config.auto_retry_failed_enabled = True
         app_config.auto_retry_failed_max_attempts = 3
         app_config.auto_retry_failed_retry_keywords = ""
@@ -495,7 +496,9 @@ class LostAria2JobTests(unittest.TestCase):
         self.mgr = DownloadManager()
         self.mgr._watchdog_stop.set()
         self.mgr._started = True
-        self.mgr._resolve_executor = type("Exec", (), {"submit": lambda _s, fn, *a, **k: None})()
+        self.mgr._resolve_executor = type(
+            "Exec", (), {"submit": lambda _s, fn, *a, **k: None, "shutdown": lambda _s, **k: None}
+        )()
         self.task = DownloadTask("t", "", "t", status=TaskStatus.DOWNLOADING, title="T")
         with self.mgr._lock:
             self.mgr._tasks["t"] = self.task
@@ -506,6 +509,7 @@ class LostAria2JobTests(unittest.TestCase):
         for key, value in self._saved.items():
             setattr(app_config, key, value)
         app_config.task_stall_timeout_seconds = self._stall_timeout
+        app_config.aria2_rpc_enabled = self._aria2_enabled
 
     def test_lost_aria2_job_is_never_retried_automatically(self):
         self.mgr._aria2_rpc_tell_status = lambda gid: (None, "HTTP 503: Service Unavailable")
@@ -527,38 +531,40 @@ class LostAria2JobTests(unittest.TestCase):
         self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
         self.assertTrue(self.mgr.restore_cancelled_task("t"))
 
-    def _stall(self, cancel_results):
+    def _stall(self, aria2_enabled: bool, cancel_ok: bool = True):
         app_config.auto_restore_stalled_cancelled = True
         app_config.task_stall_timeout_seconds = 1
-        seen = []
-
-        def cancel(gid):
-            seen.append(self.task.cancel_origin)  # what a quit during the RPC would save
-            return cancel_results.pop(0)
-
-        self.mgr._aria2_rpc_cancel = cancel
+        app_config.aria2_rpc_enabled = aria2_enabled
+        self.mgr._aria2_rpc_cancel = lambda gid: cancel_ok
         with self.mgr._lock:
             self.mgr._task_last_activity["t"] = 0.0
         self.assertEqual(self.mgr._cancel_stale_tasks(), 1)
-        return seen
+        self.assertEqual(self.task.status, TaskStatus.CANCELLED)
 
-    def test_confirmed_aria2_stop_is_restored_automatically(self):
-        self.task.aria2_gid = "gid1"
-        seen = self._stall([True, False])
-        self.assertEqual(seen, ["auto_stall_unconfirmed"])
-        self.assertEqual(self.task.cancel_origin, "auto_stall")
-        # the poll loop's own removal now fails (already gone): still confirmed
-        self.mgr._aria2_cancel_if_requested("t", "gid1")
+    def test_idle_cancel_under_aria2_is_never_restored_automatically(self):
+        # even when aria2 confirms the removal, and even before a GID exists
+        self._stall(aria2_enabled=True, cancel_ok=True)
+        self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
+        self.mgr._aria2_cancel_if_requested("t", "late-gid")  # a late GID changes nothing
+        self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
+
+    def test_idle_cancel_of_a_built_in_download_is_restored(self):
+        self._stall(aria2_enabled=False)
         self.assertEqual(self.task.cancel_origin, "auto_stall")
         self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 1)
 
-    def test_gid_arriving_after_the_idle_cancel_must_confirm_too(self):
-        seen = self._stall([False])  # no GID yet: nothing to remove
-        self.assertEqual(seen, [])
-        self.assertEqual(self.task.cancel_origin, "auto_stall")
-        self.mgr._aria2_cancel_if_requested("t", "late-gid")  # addUri returned afterwards
+    def test_idle_cancel_survives_quitting_before_it_finished(self):
+        self.task.status = TaskStatus.CANCELLING
+        self.task.cancel_requested = True
+        self.task.cancel_origin = "auto_stall_unconfirmed"
+        self.mgr._task_persistence = None
+        self.mgr.shutdown()
         self.assertEqual(self.task.cancel_origin, "auto_stall_unconfirmed")
-        self.assertEqual(self.mgr._restore_auto_stalled_cancelled_if_idle(), 0)
+        payload = TaskQueueStore.create_snapshot([self.task])["tasks"][0]
+        loaded = TaskQueueStore._task_from_payload(payload)
+        self.assertEqual(loaded.status, TaskStatus.CANCELLED)
+        self.assertEqual(loaded.cancel_origin, "auto_stall_unconfirmed")
 
     def test_aria2_removal_counts_only_with_the_gid_echoed(self):
         replies = []

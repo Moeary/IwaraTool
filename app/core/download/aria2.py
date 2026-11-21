@@ -122,7 +122,7 @@ class Aria2DownloadMixin:
 
         if not self._is_cancel_requested(task_id):
             return False
-        self._note_aria2_stop(task_id, self._aria2_rpc_cancel(gid))
+        self._aria2_rpc_cancel(gid)
         self._cancel_task_terminal(
             task_id,
             tr("Cancelled by user", "用户已中断", "ユーザーが中断しました"),

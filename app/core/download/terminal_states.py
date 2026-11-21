@@ -32,7 +32,6 @@ class TerminalStatesMixin:
         self._active_task_ids.discard(task_id)
         self._terminal_task_id_set.discard(task_id)
         self._task_last_activity.pop(task_id, None)
-        self._aria2_confirmed_stops.discard(task_id)
         return task
 
     def _claim_task_worker_locked(self, task_id: str):
@@ -140,7 +139,6 @@ class TerminalStatesMixin:
         task.downloaded_bytes = 0
         task.total_bytes = 0
         task.download_url = ""
-        self._aria2_confirmed_stops.discard(task.task_id)
         self._unmark_terminal_locked(task.task_id)
         self._queued_meta_ids.append(task.task_id)
 

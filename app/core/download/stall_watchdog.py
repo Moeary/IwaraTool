@@ -14,6 +14,7 @@ from .manager_state import (
     STALL_WATCH_STATUSES as _STALL_WATCH_STATUSES,
 )
 from ..models import TaskStatus
+from .locations import STORAGE_REMOTE
 
 
 class StallWatchdogMixin:
@@ -73,9 +74,16 @@ class StallWatchdogMixin:
                     )
                 )
                 task.cancel_requested = True
-                # An aria2 job counts as stopped only once aria2 confirms it.
+                # aria2 may keep writing after a cancel this app cannot verify,
+                # so a task that is or may be handed to aria2 is never restored
+                # automatically.  Decided here, once, before anything is sent.
+                aria2_involved = (
+                    bool(task.aria2_gid)
+                    or task.storage == STORAGE_REMOTE
+                    or bool(app_config.aria2_rpc_enabled)
+                )
                 task.cancel_origin = (
-                    _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED if task.aria2_gid else _CANCEL_ORIGIN_AUTO_STALL
+                    _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED if aria2_involved else _CANCEL_ORIGIN_AUTO_STALL
                 )
                 task.status = TaskStatus.CANCELLING
                 task.speed_str = ""
@@ -94,30 +102,7 @@ class StallWatchdogMixin:
                     f"[自動中断] 「{title}」応答なし {idle_seconds} 秒",
                 )
             )
-            if not aria2_gid:
-                self._cancel_task_terminal(task_id, reason, origin=_CANCEL_ORIGIN_AUTO_STALL)
-                continue
-            # Saved as unconfirmed first, so quitting during the RPC cannot
-            # persist a state that is restored automatically.
-            self._cancel_task_terminal(task_id, reason, origin=_CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED)
-            self._note_aria2_stop(task_id, self._aria2_rpc_cancel(aria2_gid))
+            self._cancel_task_terminal(task_id, reason)  # keeps the origin chosen above
+            if aria2_gid:
+                self._aria2_rpc_cancel(aria2_gid)
         return len(stale)
-
-    def _note_aria2_stop(self, task_id: str, confirmed: bool):
-        """Record whether aria2 confirmed stopping an idle-cancelled task's job.
-
-        The watchdog and the aria2 poll loop both remove the job, so one of
-        them may fail only because the other already succeeded: once confirmed,
-        a later failure does not undo it.  Unconfirmed tasks wait for the user.
-        """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task is None:
-                return
-            if confirmed:
-                self._aria2_confirmed_stops.add(task_id)
-                if task.cancel_origin == _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED:
-                    task.cancel_origin = _CANCEL_ORIGIN_AUTO_STALL
-            elif task_id not in self._aria2_confirmed_stops and task.cancel_origin == _CANCEL_ORIGIN_AUTO_STALL:
-                task.cancel_origin = _CANCEL_ORIGIN_AUTO_STALL_UNCONFIRMED
-        self._schedule_task_persist()
