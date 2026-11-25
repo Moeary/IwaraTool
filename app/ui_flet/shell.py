@@ -20,9 +20,12 @@ from ..presentation import preferences
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
+from .services.downloads import DownloadService
 from .services.events import EventBridge
+from .services.images import ImageService
 from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
+from .stores.tasks import TaskStore
 from .theme import DESKTOP_PLATFORMS, apply_theme
 
 logger = get_logger(__name__)
@@ -69,6 +72,10 @@ class Shell:
         self.bridge = EventBridge(self.loop)
         self.events = self.bridge.group()
         self.shortcuts = ShortcutMap()
+        self.downloads = DownloadService(self)
+        self.tasks = TaskStore(download_manager)
+        self.images = ImageService(download_manager)
+        self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
 
@@ -189,10 +196,12 @@ class Shell:
         self.events.on("shortcuts_changed", self.shortcuts.refresh)
         for name in ("task_added", "tasks_added", "task_status_changed", "task_removed", "tasks_removed", "staging_changed"):
             self.events.on(name, self._schedule_badges, coalesce=lambda *_args: "badges")
+        self.tasks.attach(self)
 
     def close(self) -> None:
         self.events.close()
         self.bridge.close()
+        self.images.close()
 
     def _on_language(self, _code: str) -> None:
         self.state.language = current_language()

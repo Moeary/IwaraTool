@@ -19,6 +19,7 @@ This module imports neither Flet nor Qt; tests drive it with a plain loop.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import threading
 from collections.abc import Callable, Hashable
@@ -75,6 +76,10 @@ class EventBridge:
             from ...signal_bus import signal_bus as bus
         self._loop = loop
         self._bus = bus
+        # Handlers change observable stores, and a store can only schedule a
+        # re-render inside the Flet page context: capture it here (the bridge
+        # is made in the page's callback) and deliver every event within it.
+        self._context = contextvars.copy_context()
         self._flush_interval = flush_interval
         self._lock = threading.Lock()
         self._pending: dict[tuple[int, Hashable], tuple[Handler, tuple]] = {}  # coalesced, latest per key
@@ -127,12 +132,12 @@ class EventBridge:
         if self._closed:
             return
         try:
-            self._loop.call_soon_threadsafe(callback, *args)
+            self._loop.call_soon_threadsafe(callback, *args, context=self._context.copy())
         except RuntimeError:  # the loop is closed (the app is exiting)
             pass
 
     def _schedule_flush(self) -> None:
-        self._loop.call_later(self._flush_interval, self._flush)
+        self._loop.call_later(self._flush_interval, self._flush, context=self._context.copy())
 
     def _flush(self) -> None:
         with self._lock:

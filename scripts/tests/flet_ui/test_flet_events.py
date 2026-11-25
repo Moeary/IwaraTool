@@ -37,6 +37,27 @@ class EventBridgeTests(unittest.TestCase):
         self.assertEqual([status for _t, status, _th in seen], ["0", "1", "2", "3", "4"])
         self.assertTrue(all(thread is loop_thread for _t, _s, thread in seen))
 
+    def test_handlers_run_in_the_context_the_bridge_was_made_in(self):
+        """Stores re-render only inside the Flet page context; worker threads have none."""
+        import contextvars
+
+        marker = contextvars.ContextVar("marker", default="")
+        bus = _Bus()
+
+        async def body():
+            marker.set("page")
+            bridge = EventBridge(asyncio.get_running_loop(), bus=bus, flush_interval=0.01)
+            seen = []
+            bridge.subscribe("task_status_changed", lambda *_a: seen.append(marker.get()))
+            bridge.subscribe("task_progress_updated", lambda *_a: seen.append(marker.get()), coalesce=lambda tid, *_r: tid)
+            worker = threading.Thread(target=lambda: (bus.task_status_changed.emit("t", "x"), bus.task_progress_updated.emit("t", 1, 2, "")))
+            worker.start()
+            worker.join()
+            await asyncio.sleep(0.1)
+            return seen
+
+        self.assertEqual(self.run_loop(body), ["page", "page"])
+
     def test_progress_keeps_the_latest_value_per_task(self):
         bus = _Bus()
 

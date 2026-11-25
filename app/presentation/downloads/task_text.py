@@ -112,3 +112,35 @@ class TaskTextMixin:
 
     def _size_text(self, task: DownloadTask) -> str:
         return size_text(task)
+
+
+def task_url(task) -> str:
+    """The task's own link, else one on the current site."""
+    return _task_url(task)
+
+
+def task_meta_text(task: DownloadTask) -> str:
+    """Second line of a task row: author · size · speed (whatever is known)."""
+    parts = [task.author or task.username, size_text(task)]
+    if task.status == TaskStatus.DOWNLOADING and task.speed_str:
+        parts.append(task.speed_str)
+    if task.status in (TaskStatus.FAILED, TaskStatus.SKIPPED) and task.error_msg:
+        parts.append(task.error_msg)
+    return " · ".join(part for part in parts if part)
+
+
+def task_cover_url(task: DownloadTask) -> str:
+    """The task's cover: its own thumbnail URL, else the small rendition once resolving found the file."""
+
+    from urllib.parse import quote, urlparse
+
+    from ...core.search.normalize import small_cover_url
+
+    if task.thumbnail_url:
+        return small_cover_url(task.thumbnail_url)
+    if not task.file_id:
+        return ""
+    # Images live on i.<site>, not on the file host the download URL names.
+    host = "i.iwara.ai" if urlparse(str(task.file_url or "")).netloc.endswith("iwara.ai") else "i.iwara.tv"
+    index = max(0, int(task.thumbnail_index or 0))
+    return f"https://{host}/image/thumbnail/{quote(task.file_id)}/thumbnail-{index:02d}.jpg"

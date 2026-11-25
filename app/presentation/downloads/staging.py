@@ -109,3 +109,40 @@ def staging_notice(result: dict[str, Any]) -> StagingNotice:
         ),
         review=True,
     )
+
+
+def confirmed_text(result: dict[str, int]) -> tuple[str, str]:
+    """``(title, content)`` after confirming waiting videos."""
+
+    queued, marked, dropped = (int(result.get(key, 0) or 0) for key in ("queued", "marked", "dropped"))
+    return tr("Confirmed", "已确认", "確認しました"), tr(
+        f"Queued {queued}, marked {marked}; {dropped} skipped rows cleared",
+        f"已加入队列 {queued} 个，标记 {marked} 个；清除跳过/不能下的 {dropped} 行",
+        f"キュー {queued} 件、記録 {marked} 件。スキップ等 {dropped} 行を削除",
+    )
+
+
+def batch_counts_text(batch: dict[str, Any]) -> str:
+    ready, skip, unavailable = (int(batch.get(key, 0) or 0) for key in ("ready", "skip", "unavailable"))
+    text = tr(f"{ready} to download · {skip} skipped", f"{ready} 个将下载 · {skip} 个跳过", f"{ready} 件を保存 · {skip} 件スキップ")
+    if unavailable:
+        text += tr(f" · {unavailable} unavailable", f" · {unavailable} 个无法下载", f" · {unavailable} 件は保存不可")
+    return text
+
+
+def example_path(example: dict[str, str]) -> str:
+    """Where the example video of a batch would be saved (``""`` when none would download)."""
+
+    import os
+
+    from ...config import app_config
+
+    relative = str(example.get("relative_path") or "")
+    return os.path.join(app_config.download_dir, relative) if relative else ""
+
+
+def example_text(example: dict[str, str]) -> str:
+    if not example:
+        return tr("Nothing here would download yet.", "这里还没有将要下载的作品。", "保存予定の動画はまだありません。")
+    title, full = example.get("title", ""), example_path(example)
+    return tr(f"e.g. {title} → {full}", f"示例：{title} → {full}", f"例: {title} → {full}")

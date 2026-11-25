@@ -17,4 +17,13 @@ def register(destination: str, component: Callable) -> None:
 
 
 def page_for(destination: str) -> Callable:
+    if not _PAGES:
+        _register_ported()
     return _PAGES.get(destination, PlaceholderPage)
+
+
+def _register_ported() -> None:
+    from .. import routes
+    from .downloads.page import DownloadsPage
+
+    register(routes.DOWNLOADS, DownloadsPage)

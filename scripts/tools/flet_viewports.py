@@ -29,6 +29,8 @@ def main() -> int:
     parser.add_argument("--theme", choices=("auto", "light", "dark"), default="light")
     parser.add_argument("--lang", choices=("zh", "en", "ja"), default="zh")
     parser.add_argument("--account", action="store_true", help="open the account panel")
+    parser.add_argument("--demo", action="store_true", help="offline made-up data (demo_fixture)")
+    parser.add_argument("--wait", type=float, default=1.5, help="seconds before each screenshot")
     parser.add_argument("--only", default="", help="comma-separated sizes (default: all of 9.2)")
     parser.add_argument("--prefix", default="", help="file name prefix")
     args = parser.parse_args()
@@ -45,6 +47,9 @@ def main() -> int:
                 command += ["--route", args.route]
             if args.account:
                 command.append("--account")
+            if args.demo:
+                command.append("--demo")
+            command += ["--wait", str(args.wait)]
             result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=180)
             ok = result.returncode == 0 and shot.exists()
             failures += not ok

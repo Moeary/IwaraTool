@@ -23,6 +23,7 @@ class BadgeKind(str, Enum):
     MOVED = "moved"
     REMOTE = "remote"
     FAILED = "failed"
+    NEUTRAL = "neutral"  # skipped, cancelled: always given an explicit text
 
 
 def badge_label(kind: BadgeKind) -> str:
@@ -34,12 +35,15 @@ def badge_label(kind: BadgeKind) -> str:
         BadgeKind.MOVED: tr("Moved", "已移走", "移動済み"),
         BadgeKind.REMOTE: tr("Remote", "远端", "リモート"),
         BadgeKind.FAILED: tr("Failed", "失败", "失敗"),
+        BadgeKind.NEUTRAL: "",
     }[kind]
 
 
 def badge_colors(kind: BadgeKind, palette: Palette) -> Semantic:
     if kind == BadgeKind.DOWNLOADING:
         return Semantic(fg=palette.on_primary_container, bg=palette.primary_container)
+    if kind == BadgeKind.NEUTRAL:
+        return Semantic(fg=palette.on_surface_variant, bg=palette.field)
     return {
         BadgeKind.NEW: palette.info,
         BadgeKind.QUEUED: palette.warning,

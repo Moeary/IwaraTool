@@ -9,15 +9,10 @@ from PySide6.QtCore import QThread, QTimer
 from ...config import app_config
 from ...core.search.models import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
+from ...core.search.limits import configured_cover_concurrency, configured_resolution_concurrency, resolution_mode
 from ...i18n import tr
 from ...presentation.search.request import PROBLEM_WARNING, merge_page, request_problem
 from ...presentation.search.request import page_size as search_page_size
-from .worker_limits import (
-    DEFAULT_COVER_DOWNLOAD_CONCURRENCY as _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-    DEFAULT_SEARCH_RESOLUTION_CONCURRENCY as _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-    MAX_COVER_DOWNLOAD_CONCURRENCY as _MAX_COVER_DOWNLOAD_CONCURRENCY,
-    MAX_SEARCH_RESOLUTION_CONCURRENCY as _MAX_SEARCH_RESOLUTION_CONCURRENCY,
-)
 from .search_worker import SearchWorker
 from ..common.worker_lifecycle import on_finished, stop_qthreads
 
@@ -27,39 +22,15 @@ class SearchExecutionMixin:
 
     @staticmethod
     def _search_resolution_mode() -> str:
-        mode = str(
-            app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
-            or "eager"
-        ).strip().lower()
-        return mode if mode in {"eager", "on_demand"} else "eager"
+        return resolution_mode()
 
     @staticmethod
     def _search_resolution_concurrency() -> int:
-        try:
-            value = int(
-                app_config.get_ui_value(
-                    "search_iwara_resolution_workers_v1",
-                    _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-                )
-                or _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY
-            )
-        except (TypeError, ValueError):
-            value = _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY
-        return max(1, min(_MAX_SEARCH_RESOLUTION_CONCURRENCY, value))
+        return configured_resolution_concurrency()
 
     @staticmethod
     def _cover_download_concurrency() -> int:
-        try:
-            value = int(
-                app_config.get_ui_value(
-                    "cover_download_workers_v1",
-                    _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-                )
-                or _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
-            )
-        except (TypeError, ValueError):
-            value = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
-        return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
+        return configured_cover_concurrency()
 
     def _on_login_state_changed(self, *_args):
         self._account_epoch += 1
