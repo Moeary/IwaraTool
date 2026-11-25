@@ -64,6 +64,9 @@
 - 详情与作者路由（`/detail/...`、`/author/...`）叠在来源目的地之上，`app.CurrentPage` 按路径根选择页面；详情状态在 `shell.details`（最近 12 个），播放中标记 `state.playing` 离开页面时复位。
 - 远程播放一律经 `components/player.py` → `core/playback/preview_stream.open_stream`（回环代理负责授权头与续签），卸载时释放代理条目。
 - 提示条用 `services/notify.py` 的 `notice()`；`EventBridge` 在页面上下文里分发事件，事件处理里可以直接改 observable。
+- `TextField` 不能放进 `ft.Row(wrap=True)`（Flutter `Wrap` 给的宽度无界，整块渲染成灰色错误块）；需要换行时改用 Column 分行。网格放在比页面窄的栏里时给 `VideoGrid(width=...)`。
+- 确认与输入对话框用 `services/dialogs.py` 的 `await confirm(...)` / `await prompt_text(...)`；作者的订阅 / 关注状态用 `components/author_status.py` 的 `AuthorStatus`。
+- 演示数据：`--demo` 下订阅、资料库、作者路由会调用 `demo_fixture.seed` 写入虚构的下载记录与 6 个作者订阅。
 - `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
 
 ## 提交与 CI

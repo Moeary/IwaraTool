@@ -436,6 +436,9 @@ def fake_session(*_args, **_kwargs) -> requests.Session:
 # ── environment ─────────────────────────────────────────────────────────────
 
 
+ROOT: Path | None = None  # the throw-away folder of the running demo
+
+
 def install(language: str = "en", theme: str = "light") -> Path:
     """Isolate the app's folders and network; returns the throw-away data folder."""
 
@@ -443,6 +446,8 @@ def install(language: str = "en", theme: str = "light") -> Path:
 
     # A short folder, since its path shows in the log, the history page and settings.
     root = Path(tempfile.mkdtemp(prefix="IwaraTool-", dir=None if os.name == "nt" else "/tmp"))
+    global ROOT
+    ROOT = root
     data, downloads = root / "data", root / "Downloads"
     data.mkdir()
     downloads.mkdir()
@@ -474,3 +479,32 @@ def install(language: str = "en", theme: str = "light") -> Path:
     }.items():
         setattr(app_config, key, value)
     return root
+
+
+def seed(root: Path, *, refresh: bool = True):
+    """History records with files on disk, and subscriptions filled by a (fake) refresh."""
+
+    from app.core.download.manager import download_manager
+
+    downloads = root / "Downloads"
+    for index in range(30, 52):
+        post = video(index)
+        author = post["user"]["username"]
+        folder = downloads / author
+        folder.mkdir(parents=True, exist_ok=True)
+        file_path = folder / f"{post['createdAt'][:10]}_{post['title']}_{post['id']}.mp4"
+        file_path.write_bytes(b"\0" * 1024)
+        thumb = folder / f"{file_path.stem}.jpg"
+        thumb.write_bytes(artwork(f"/image/original/file-{post['id']}/thumbnail.jpg"))
+        download_manager.history.upsert_downloaded({
+            "video_id": post["id"], "title": post["title"], "author": author,
+            "published_at": post["createdAt"], "likes": post["numLikes"], "views": post["numViews"],
+            "duration": post["file"]["duration"], "comments": post["numComments"], "rating": "general",
+            "tags_json": json.dumps([tag["id"] for tag in post["tags"]]), "raw_json": json.dumps(post),
+            "source_url": f"https://www.iwara.tv/video/{post['id']}", "file_path": str(file_path),
+            "thumbnail_path": str(thumb), "quality": "Source",
+        })
+    for username, name in AUTHORS[:6]:
+        download_manager.add_author_subscription(username, title=name, remote_id=f"user-{username}")
+    if refresh:
+        download_manager.refresh_all_subscriptions()

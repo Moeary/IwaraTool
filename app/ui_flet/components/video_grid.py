@@ -31,10 +31,13 @@ def VideoGrid(
     on_end_reached: Callable[[], None] | None = None,
     max_width: float = layout.MAX_WIDTH_GRID,
     menu=None,
+    width: float | None = None,
 ):
     shell = use_shell()
     state = shell.state.layout
-    metrics = layout.grid_metrics(state.body_width(max_width), state.width_class, text_height=text_height())
+    # ``width``: the grid sits in a pane narrower than the page body (list-detail).
+    body = state.body_width(max_width) if width is None else min(width, state.body_width(max_width))
+    metrics = layout.grid_metrics(body, state.width_class, text_height=text_height())
     asked_at, set_asked_at = ft.use_state(-1)
     badges = badges or {}
 

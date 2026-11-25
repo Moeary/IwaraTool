@@ -41,6 +41,8 @@ class CardView:
 
 
 def stats_text(views: int, likes: int, date: str = "") -> str:
+    if not views and not likes:
+        return date[:10]  # records without counts (stored subscription items): "0 views" would mislead
     stats = tr(
         f"{_format_count(views)} views · {_format_count(likes)} likes",
         f"{_format_count(views)} 播放 · {_format_count(likes)} 点赞",

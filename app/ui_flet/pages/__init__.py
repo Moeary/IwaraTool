@@ -24,12 +24,16 @@ def page_for(destination: str) -> Callable:
 
 def _register_ported() -> None:
     from .. import routes
+    from .author.page import AuthorPage
     from .detail.page import DetailPage
     from .downloads.page import DownloadsPage
     from .home.page import HomePage
     from .search.page import SearchPage
+    from .subscriptions.page import SubscriptionsPage
 
+    register(routes.AUTHOR, AuthorPage)
     register(routes.DETAIL, DetailPage)
     register(routes.DOWNLOADS, DownloadsPage)
     register(routes.HOME, HomePage)
     register(routes.SEARCH, SearchPage)
+    register(routes.SUBSCRIPTIONS, SubscriptionsPage)

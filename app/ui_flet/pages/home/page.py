@@ -6,21 +6,18 @@ row in Search, or for the account feed a full grid at ``/home/<row>/<tab>``.
 """
 from __future__ import annotations
 
-import asyncio
-
 import flet as ft
 
-from ....core.home.feed import BROWSE_PAGE_LIMIT, MODE_AUTHOR
-from ....core.home.loading import load_feed_page
+from ....core.home.feed import MODE_AUTHOR
 from ....i18n import tr
 from ....presentation.home import section_feed as rules
-from ....presentation.media.cards import CardView, video_card
+from ....presentation.media.cards import CardView
 from ... import layout, routes
 from ...components.download_sheet import open_download_sheet
+from ...components.feed_grid import FeedGrid
 from ...components.page_frame import PageFrame
 from ...components.video_actions import VideoMenu
 from ...components.video_card import VideoCard, text_height
-from ...components.video_grid import VideoGrid
 from ...icons import AppIcon, StateIcon
 from ...stores.app_state import subscribe, use_shell
 from ...stores.home import HomeRow
@@ -230,45 +227,9 @@ def HomeBrowse(section_id: str, tab_id: str):
 
     shell = use_shell()
     row = shell.home.row(section_id)
-    cards, set_cards = ft.use_state(list)
-    videos, set_videos = ft.use_state(dict)
-    page_state, set_page_state = ft.use_state(lambda: {"page": -1, "more": True, "loading": False, "error": ""})
-
-    async def load(page: int) -> None:
-        if row is None or page_state["loading"]:
-            return
-        set_page_state({**page_state, "loading": True})
-        tab = row.section.tab(tab_id)
-        result = await asyncio.to_thread(
-            load_feed_page, shell.home.manager, tab.kind, tab.request_params(row.feed.rating), page, BROWSE_PAGE_LIMIT,
-            mode=tab.mode, value=tab.value, rating=row.feed.rating,
-        )
-        merged, found = list(cards if page else []), dict(videos if page else {})
-        for item in result.items:
-            card = video_card(item)
-            if card.key not in found:
-                found[card.key] = item
-                merged.append(card)
-        set_cards(merged)
-        set_videos(found)
-        set_page_state({"page": page, "more": result.has_more, "loading": False, "error": result.error})
-
-    ft.use_effect(lambda: shell.page.run_task(load, 0), [section_id, tab_id])
-    title = row.section.title if row else routes.label(routes.HOME)
-    if not cards:
-        body: ft.Control = ft.Container(
-            expand=True, alignment=ft.Alignment.CENTER,
-            content=ft.ProgressRing() if page_state["loading"] or page_state["page"] < 0
-            else ft.Text(page_state["error"] or rules.empty_text(), style=text_style(TYPE.body)),
-        )
-    else:
-        body = VideoGrid(
-            cards,
-            on_open=lambda c: open_card(shell, c, videos),
-            menu=VideoMenu(shell, scope=SCOPE, item_for=lambda c: videos.get(c.key)),
-            on_end_reached=(lambda: shell.page.run_task(load, page_state["page"] + 1)) if page_state["more"] else None,
-        )
-    return PageFrame(title=title, body=body)
+    if row is None:
+        return PageFrame(title=routes.label(routes.HOME), body=ft.Container())
+    return PageFrame(title=row.section.title, body=FeedGrid(row.section, tab_id, row.feed.rating, SCOPE))
 
 
 @ft.component

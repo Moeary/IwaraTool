@@ -841,13 +841,18 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 搜索框下拉的历史与标签候选 | 历史改为页头“搜索记录”菜单；标签候选（P4 补齐）在“标签搜索”范围下以搜索框下方的一行标签显示，点选后补全（共用 `presentation/search/tag_completion.py`） |
 | 搜索结果右键菜单（统一动作列表） | P4 完成 `VideoActions`（`presentation/media/video_actions.py`，旧界面菜单共用文字与位置判断）：桌面右键弹出菜单，手机长按打开动作面板（含“选择”，选择模式下长按仍为勾选）。首页、搜索、首页完整网格、详情页相关作品共用 |
 | 旧版独立播放窗口与“弹出播放” | 改为详情页内嵌播放器 + flet-video 自带全屏；菜单“播放”打开详情并直接播放；系统 / 自定义播放器设置对本地副本仍生效 |
-| 详情页作者卡的程序内订阅与 Iwara 关注状态 | P5 与作者页一起迁出 `AuthorStatusBar` 的逻辑；P4 作者卡只有“作者主页” |
+| 详情页作者卡的程序内订阅与 Iwara 关注状态 | P5 完成：`AuthorStatusBar` 的文字与资料解析迁入 `presentation/author/status.py`，Flet 用 `components/author_status.py`（作者页、订阅详情栏、详情页作者卡共用），订阅增删后自动同步 |
 | 图片作品点开全屏查看器、左右滑动 | 暂沿用旧行为：点按在浏览器打开原图；查看器放到 P8 移动端 |
 | 首页“自定义栏目”、封面大小滑块 | 更多菜单入口指向设置的首页分区，P6 设置页实现；封面大小随 6.6 档位自动 |
 | 首页栏目“下载当前展示” | 移入栏目更多菜单，经 `DownloadSheet` 选择规则 |
 | 搜索页按作者浏览（作者卡片 → 该作者视频）、作者订阅 | 作者卡片打开 `/author/<用户名>`（P5 作者页） |
 | 下载页任务表格的列、排序、多选批量 | 改为任务行 + 状态标签 + 关键词筛选；批量动作在页头“更多”（重试失败、全部取消、恢复已取消、清除已完成）；按行多选暂缺 |
 | 下载规则的每页常驻选择 | `DownloadSheet` 里选择并可“记住为本页规则” |
+| 订阅页源列表的列设置、排序方向按钮 | 源列表改为头像 + 名称 + 未下载数 + 新增角标的行；排序为单选菜单（每种排序自带方向：数量、时间类倒序，名称正序） |
+| 订阅源右键“在搜索页查看作品” | 作者订阅改为“作者主页”（`/author/<用户名>`，视频 / 图片标签页），Flet 版不再有按作者搜索的入口 |
+| 订阅作品区“历史操作”“下载操作”两个下拉按钮 | 主按钮“下载当前 / 下载选中”（经 `DownloadSheet` 选规则），其余（下载新增、全选、标为已看、标为已移走、还原已移走）收进“…”菜单 |
+| 订阅页手机端的“源列表 / 作品”切换按钮 | 手机为总览卡片（每个源一行最近作品货架），点卡片进入 `/subscriptions/<id>`；宽屏（`two_pane`）为左右双栏 |
+| 后台自动刷新订阅的系统通知 | 暂以应用内提示显示，并重新读取订阅列表 |
 
 ---
 
@@ -855,6 +860,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P5 订阅与作者：订阅页（`stores/subscriptions.py` + `pages/subscriptions/`，手机总览卡片与最近作品货架、`/subscriptions/<id>` 作品网格、宽屏双栏、源搜索与排序、添加（链接 / 用户名）、导入关注作者、全部刷新与单源刷新的进度条、停用 / 启用、删除确认、作品筛选 / 排序 / 标题搜索、状态徽章、选择、下载当前 / 选中 / 新增、标为已看、标为已移走与还原）；作者页 `/author/<用户名>`（资料卡、视频 / 图片标签、分页网格、批量下载）；`AuthorStatus`（程序内订阅与 Iwara 关注）；`components/feed_grid.py`（首页完整网格与作者页共用）、`services/dialogs.py`（确认与输入对话框）；`VideoGrid` 可指定所在栏宽。新迁入共用层：`presentation/subscription/text.py`、`source_actions.py`、`presentation/author/status.py`、`page.py`（旧订阅页、作者页、`AuthorStatusBar` 改为调用）。演示夹具的 `seed` 移入 `demo_fixture`，`--demo` 的订阅 / 资料库 / 作者路由会写入虚构记录。注意：`TextField` 不能放进 `wrap=True` 的 Row（宽度无界，整块渲染失败）。截图见 `docs/verification/flet/P5/`。 |
 | 2026-11-26 | P4 首页、详情、播放：首页（`stores/home.py` + `pages/home/`，手机货架 / 宽屏 2 行网格、栏目标签、缓存优先与过期重查、有新内容时不打断勾选、折叠记忆、未登录提示、“更多 ›”进搜索或完整网格页 `/home/<栏目>/<标签>`）；详情页 `/detail/video|image/<id>`（`stores/detail.py` 保留最近 12 个作品供返回、相关作品侧栏 / 网格、评论分页与回复、点赞、标签跳搜索、复制链接、浏览器打开、作者主页）；内嵌播放器（flet-video 1.1.3，本地副本直接播放，远程经流代理并续签）；`VideoActions` 右键菜单与手机动作面板；搜索标签候选。新迁入共用层：`presentation/home/section_feed.py`（旧 `SectionBlock` 改为调用）、`presentation/media/detail_info.py`、`video_actions.py`、`presentation/search/tag_completion.py`、`detail_text.link_segments`、`formatting.format_age`。修正演示夹具把 API 的 `/image/<id>` 当成图片文件的问题。截图见 `docs/verification/flet/P4/`。 |
 | 2026-11-26 | P3 搜索与下载闭环：搜索页（来源、范围、排序、筛选面板、搜索记录、网格、选择与加入下载、手机滚动加载 / 宽屏页码、Oreno3D 预解析与下载状态徽章）；下载页（链接栏、待确认卡片、状态标签、任务行与进度、取消/重试/恢复、优先级、打开文件夹、在资料库中查看、日志页）；`VideoCard` / `VideoGrid` / `DownloadSheet` / `FilterSheet`；`stores/tasks.py`、`stores/search.py`、`services/downloads.py`、`services/images.py`。新迁入共用层：`presentation/media/cards.py`、`presentation/search/options.py`、`post_filter_text.py`、搜索记录、`core/search/resolution.apply_oreno_link`、待确认文字。`main_flet.py --demo`（离线虚构数据）；截图见 `docs/verification/flet/P3/`。事件桥改为在页面上下文里分发（否则后台线程的事件无法触发重绘）。 |
 | 2026-11-25 | P2 外壳完成：`layout.py`（档位、导航形态、网格计算）、`routes.py`、`navigation.py`（每个目的地一个返回栈）、`shell.py` + `stores/app_state.py`（声明式，`page.render`）、自适应导航与“账号与偏好”面板、全局快捷键（共用 `presentation.shortcuts`）、事件桥接入（语言、主题、分级、站点、登录、下载徽章）、`core/account.py`；`main_flet.py --viewport/--route/--theme/--lang/--account/--shot` 与 `scripts/tools/flet_viewports.py`；截图见 `docs/verification/flet/P2/`。 |

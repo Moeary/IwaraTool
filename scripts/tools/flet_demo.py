@@ -2,7 +2,7 @@
 
 Runs after the window is mounted, on top of ``demo_fixture`` (offline made-up
 Iwara): the search route searches, the downloads route queues a few videos and
-cancels one.  Nothing here is imported outside demo runs.
+cancels one, the subscription, library and author routes get seeded records.  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -42,6 +42,11 @@ async def play(shell, route: str) -> None:
             menu = VideoMenu(shell, scope="search", item_for=lambda c: store.items.get(c.key), on_select=store.toggle)
             actions = await menu.actions(card, touch=True)
             open_action_sheet(shell.page, card.title, actions, lambda action: None)
+    elif destination in (routes.SUBSCRIPTIONS, routes.LIBRARY, routes.AUTHOR) and demo_fixture.ROOT:
+        # Library records and six author subscriptions filled by a (fake) refresh.
+        await asyncio.to_thread(demo_fixture.seed, demo_fixture.ROOT)
+        await shell.subscriptions.load()
+        await shell.subscriptions.reload_items()
     elif destination == routes.DOWNLOADS:
         from app.core.download.manager import download_manager
 

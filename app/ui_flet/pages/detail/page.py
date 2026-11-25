@@ -20,6 +20,7 @@ from ....presentation.media.detail_metrics import CONTENT_MAX_WIDTH, SIDE_MIN_PA
 from ....presentation.media.detail_text import link_segments
 from ....presentation.media.cards import CardView
 from ... import layout, routes
+from ...components.author_status import AuthorStatus
 from ...components.cover import Cover
 from ...components.page_frame import PageFrame
 from ...components.player import InlinePlayer
@@ -174,7 +175,7 @@ def _author(shell, model: DetailModel) -> ft.Control | None:
         padding=Space.MD,
         border_radius=Radius.CARD,
         bgcolor=palette.card,
-        content=ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+        content=ft.Column(spacing=Space.SM, controls=[ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             Cover("avatar", author.user_id or author.username, author.avatar_url, AVATAR, aspect=1, round=True,
                   icon=AppIcon.AUTHOR),
             ft.Column(spacing=0, expand=True, controls=[
@@ -184,7 +185,7 @@ def _author(shell, model: DetailModel) -> ft.Control | None:
             ]),
             ft.TextButton(content=tr("Author page", "作者主页", "作者ページ"), icon=AppIcon.AUTHOR,
                           on_click=lambda _e: shell.open(routes.route(routes.AUTHOR, author.username))),
-        ]),
+        ]), AuthorStatus(author.username, author.name, author.user_id, author.avatar_url, key=f"status:{author.username}")]),
     )
 
 
