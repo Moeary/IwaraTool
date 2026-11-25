@@ -15,7 +15,7 @@ def _cancel_label() -> str:
 
 
 async def confirm(page: ft.Page, title: str, message: str, *, confirm_label: str, informative: str = "",
-                  danger: bool = False) -> bool:
+                  danger: bool = False, cancel_label: str = "") -> bool:
     """``True`` when the user confirms; closing the dialog any other way is ``False``."""
 
     loop = asyncio.get_running_loop()
@@ -35,7 +35,7 @@ async def confirm(page: ft.Page, title: str, message: str, *, confirm_label: str
         title=ft.Text(title, style=text_style(TYPE.section_title_compact)),
         content=ft.Container(width=Size.DIALOG_MAX_WIDTH, content=ft.Column(tight=True, spacing=Space.SM, controls=body)),
         actions=[
-            ft.TextButton(content=_cancel_label(), on_click=lambda _e: done(False)),
+            ft.TextButton(content=cancel_label or _cancel_label(), on_click=lambda _e: done(False)),
             ft.FilledButton(
                 content=confirm_label,
                 style=ft.ButtonStyle(bgcolor=palette.danger.fg, color=palette.on_primary) if danger else None,

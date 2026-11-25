@@ -308,6 +308,45 @@ def set_incremental_refresh(enabled: bool) -> None:
 # ── appearance, tools, system ────────────────────────────────────────────────
 
 
+def startup_pages() -> list[tuple[str, str]]:
+    """``startup_page`` values and their names."""
+    return [
+        ("home", stext("home")),
+        ("subscriptions", stext("subscriptions")),
+        ("search", stext("search")),
+        ("download", stext("download_hub")),
+        ("repair", stext("repair")),
+        ("history", stext("history")),
+        ("rules", stext("rules")),
+        ("tools", stext("tools")),
+        ("settings", stext("settings")),
+    ]
+
+
+def player_modes() -> list[tuple[str, str]]:
+    from ...core.playback import video_player
+
+    return [
+        (video_player.MODE_SYSTEM, stext("system_default_player")),
+        (video_player.MODE_BUILTIN, stext("built_in_player")),
+        (video_player.MODE_CUSTOM, stext("custom_command")),
+    ]
+
+
+def quality_choices(*, streaming: bool = False) -> list[tuple[str, str]]:
+    first = stext("source_largest") if streaming else stext("source")
+    return [("Source", first), ("540", "540p"), ("360", "360p")]
+
+
+def player_command_for(path: str) -> str:
+    """A chosen player program as a command line that opens ``{file}``."""
+    return f'"{path}" "{{file}}"' if " " in path else f'{path} "{{file}}"'
+
+
+def home_cache_cleared_text(removed: int) -> str:
+    return tr(f"{removed} cached row(s) removed", f"已移除 {removed} 条缓存", f"{removed} 件を削除しました")
+
+
 def set_font_family(family: str) -> bool:
     from ..fonts import AUTO_FONT
 

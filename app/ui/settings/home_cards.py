@@ -23,7 +23,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core.home.cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
 from ...core.home.feed import default_specs, load_specs, save_specs
-from ...i18n import tr
+from ...presentation.settings import values as setting_values
 from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 from ..home.layout_dialog import HomeLayoutDialog
@@ -144,7 +144,7 @@ class HomeSettingsCards:
         signal_bus.home_layout_changed.emit()  # rows reload from the site
         InfoBar.success(
             title=stext("home_cache_cleared"),
-            content=tr(f"{removed} cached row(s) removed", f"已移除 {removed} 条缓存", f"{removed} 件を削除しました"),
+            content=setting_values.home_cache_cleared_text(removed),
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500,
             parent=self._owner.window(),
         )

@@ -377,3 +377,66 @@ def reset_key(action_id: str) -> ShortcutAction | None:
 
 def reset_all() -> None:
     _save_overrides({})
+
+
+# ── editing (the settings pages of both interfaces) ─────────────────────────
+
+SCOPE_ORDER = (
+    SCOPE_GLOBAL, SCOPE_HOME, SCOPE_DOWNLOAD, SCOPE_SEARCH, SCOPE_SUBSCRIPTIONS,
+    SCOPE_HISTORY, SCOPE_REPAIR, SCOPE_RULES, SCOPE_SETTINGS, SCOPE_PLAYER,
+)
+
+_MAC_SYMBOLS = {"Meta": "⌃", "Alt": "⌥", "Shift": "⇧", "Ctrl": "⌘"}
+_MAC_ORDER = ("Meta", "Alt", "Shift", "Ctrl")
+
+
+def native_text(sequence: str, *, mac: bool = IS_MAC) -> str:
+    """Portable key text as the platform writes it ("⌘K" on macOS) without Qt."""
+    chords = []
+    for chord in [c.strip() for c in str(sequence or "").split(", ") if c.strip()]:
+        if chord.endswith("+"):  # the plus key itself
+            key, mods = "+", [m for m in chord[:-1].split("+") if m]
+        else:
+            *mods, key = chord.split("+")
+        if mac:
+            chords.append("".join(_MAC_SYMBOLS[m] for m in _MAC_ORDER if m in mods) + key)
+        else:
+            chords.append(chord)
+    return ", ".join(chords)
+
+
+def _announce() -> None:
+    from ..signal_bus import signal_bus
+
+    signal_bus.shortcuts_changed.emit()
+
+
+def choose_key(action_id: str, sequence: str) -> ShortcutAction | None:
+    """Bind ``sequence`` ("" unassigns); the conflicting action, or None after saving and announcing."""
+    conflict = set_key(action_id, sequence)
+    if conflict is None:
+        _announce()
+    return conflict
+
+
+def restore_key(action_id: str) -> ShortcutAction | None:
+    conflict = reset_key(action_id)
+    if conflict is None:
+        _announce()
+    return conflict
+
+
+def restore_all() -> None:
+    reset_all()
+    _announce()
+
+
+def conflict_text(other: ShortcutAction) -> tuple[str, str]:
+    from .settings.texts import stext
+
+    where = scope_titles().get(other.scope, other.scope)
+    return stext("shortcut_already_in_use"), tr(
+        f"“{other.label}” ({where}) uses it. Unassign or change that one first.",
+        f"“{other.label}”（{where}）正在使用。请先清除或修改它。",
+        f"「{other.label}」（{where}）が使用しています。先にそちらを解除・変更してください。",
+    )

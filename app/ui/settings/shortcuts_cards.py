@@ -16,26 +16,14 @@ from qfluentwidgets import (
 )
 
 from ..shortcuts import catalog as shortcut_defs
-from ...i18n import tr
+from ...presentation import shortcuts as presentation_shortcuts
 from ...presentation.settings.texts import stext
-from ...signal_bus import signal_bus
 from ..shortcuts.registry import sequence_from_event
 
 CARD_PREFIX = "shortcuts_"
 GENERAL_CARD = "shortcuts_general"
 # Display order of the per-area cards.
-SCOPE_ORDER = (
-    shortcut_defs.SCOPE_GLOBAL,
-    shortcut_defs.SCOPE_HOME,
-    shortcut_defs.SCOPE_DOWNLOAD,
-    shortcut_defs.SCOPE_SEARCH,
-    shortcut_defs.SCOPE_SUBSCRIPTIONS,
-    shortcut_defs.SCOPE_HISTORY,
-    shortcut_defs.SCOPE_REPAIR,
-    shortcut_defs.SCOPE_RULES,
-    shortcut_defs.SCOPE_SETTINGS,
-    shortcut_defs.SCOPE_PLAYER,
-)
+SCOPE_ORDER = presentation_shortcuts.SCOPE_ORDER
 
 
 def shortcut_card_keys() -> tuple[str, ...]:
@@ -173,10 +161,9 @@ class ShortcutSettingsCards:
 
     def _changed(self) -> None:
         self.load()
-        signal_bus.shortcuts_changed.emit()
 
     def _on_chosen(self, action_id: str, sequence: str) -> None:
-        conflict = shortcut_defs.set_key(action_id, sequence)
+        conflict = presentation_shortcuts.choose_key(action_id, sequence)
         if conflict is not None:
             self._warn_conflict(conflict)
             self.load()
@@ -184,25 +171,21 @@ class ShortcutSettingsCards:
         self._changed()
 
     def _on_reset(self, action_id: str) -> None:
-        conflict = shortcut_defs.reset_key(action_id)
+        conflict = presentation_shortcuts.restore_key(action_id)
         if conflict is not None:
             self._warn_conflict(conflict)
             return
         self._changed()
 
     def _reset_all(self) -> None:
-        shortcut_defs.reset_all()
+        presentation_shortcuts.restore_all()
         self._changed()
 
     def _warn_conflict(self, other: shortcut_defs.ShortcutAction) -> None:
-        titles = shortcut_defs.scope_titles()
+        title, content = presentation_shortcuts.conflict_text(other)
         InfoBar.warning(
-            title=stext("shortcut_already_in_use"),
-            content=tr(
-                f"“{other.label}” ({titles.get(other.scope, other.scope)}) uses it. Unassign or change that one first.",
-                f"“{other.label}”（{titles.get(other.scope, other.scope)}）正在使用。请先清除或修改它。",
-                f"「{other.label}」（{titles.get(other.scope, other.scope)}）が使用しています。先にそちらを解除・変更してください。",
-            ),
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

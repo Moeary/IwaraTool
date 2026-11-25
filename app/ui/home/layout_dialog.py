@@ -25,50 +25,18 @@ from qfluentwidgets import (
 )
 
 from ...core.home.feed import (
-    BROWSE_SORTS,
-    KEYWORD_SORTS,
     MAX_SECTIONS,
-    MODE_AUTHOR,
     MODE_BROWSE,
-    MODE_KEYWORD,
-    MODE_SUBSCRIPTIONS,
-    MODE_TAGS,
     HomeSectionSpec,
     default_specs,
     load_specs,
-    new_section_id,
-    sanitize_spec,
     save_specs,
-    sort_label,
 )
-from ...i18n import tr
+from ...presentation.home import layout as home_layout
+from ...presentation.home.layout import mode_label, spec_summary  # noqa: F401 - re-exported
 from ...signal_bus import signal_bus
 from ..style.theme import set_secondary_text
 from ..common.fluent_dialogs import show_fluent_confirmation
-
-
-def mode_label(mode: str) -> str:
-    return {
-        MODE_BROWSE: tr("Hot / newest list", "热门 / 最新列表", "人気・新着リスト"),
-        MODE_TAGS: tr("Tag search", "标签搜索", "タグ検索"),
-        MODE_KEYWORD: tr("Keyword search", "关键词搜索", "キーワード検索"),
-        MODE_AUTHOR: tr("Author's works", "作者作品", "作者の作品"),
-        MODE_SUBSCRIPTIONS: tr("My subscription feed", "账号订阅流", "購読フィード"),
-    }.get(mode, mode)
-
-
-def spec_summary(spec: HomeSectionSpec) -> str:
-    """One line describing a row: what it searches and how it is ordered."""
-
-    kind = tr("Images", "图片", "画像") if spec.content == "image" else tr("Videos", "视频", "動画")
-    parts = [mode_label(spec.mode)]
-    if spec.mode != MODE_SUBSCRIPTIONS:
-        parts.append(kind)
-    if spec.value:
-        parts.append(spec.value)
-    if spec.mode != MODE_SUBSCRIPTIONS:
-        parts.append(sort_label(spec.sort) if spec.sort else tr("with sort tabs", "带排序标签", "並び替えタブ付き"))
-    return " · ".join(parts)
 
 
 class SectionEditorDialog(MessageBoxBase):
@@ -79,7 +47,7 @@ class SectionEditorDialog(MessageBoxBase):
         self._original = spec
         self.result_spec: HomeSectionSpec | None = None
         self.viewLayout.addWidget(SubtitleLabel(
-            tr("Edit row", "编辑栏目", "欄を編集") if spec else tr("Add a row", "添加栏目", "欄を追加"), self,
+            home_layout.editor_title(spec is not None), self,
         ))
 
         def field(label: str, widget: QWidget) -> QHBoxLayout:
@@ -93,36 +61,38 @@ class SectionEditorDialog(MessageBoxBase):
             return row
 
         self._title = LineEdit(self)
-        self._title.setPlaceholderText(tr("Leave empty to name it automatically", "留空则自动命名", "空欄なら自動で命名"))
+        labels = home_layout.field_labels()
+        self._title.setPlaceholderText(labels["title_hint"])
         self._title.setClearButtonEnabled(True)
-        field(tr("Title", "标题", "タイトル"), self._title)
+        field(labels["title"], self._title)
 
         self._mode = ComboBox(self)
-        for mode in (MODE_BROWSE, MODE_TAGS, MODE_KEYWORD, MODE_AUTHOR, MODE_SUBSCRIPTIONS):
+        for mode in home_layout.MODES:
             self._mode.addItem(mode_label(mode))
             self._mode.setItemData(self._mode.count() - 1, mode)
-        field(tr("Source", "来源", "ソース"), self._mode)
+        field(labels["mode"], self._mode)
 
         self._content = ComboBox(self)
-        for key, label in (("video", tr("Videos", "视频", "動画")), ("image", tr("Images", "图片", "画像"))):
+        for key, label in home_layout.content_choices():
             self._content.addItem(label)
             self._content.setItemData(self._content.count() - 1, key)
-        self._content_row = field(tr("Type", "类型", "種類"), self._content)
+        self._content_row = field(labels["content"], self._content)
 
         self._value = LineEdit(self)
         self._value.setClearButtonEnabled(True)
         self._value_caption = self._add_value_row()
 
         self._sort = ComboBox(self)
-        self._sort_row = field(tr("Order", "排序", "並び順"), self._sort)
+        self._sort_row = field(labels["sort"], self._sort)
 
         self._hint = CaptionLabel("", self)
         self._hint.setWordWrap(True)
         set_secondary_text(self._hint)
         self.viewLayout.addWidget(self._hint)
 
-        self.cancelButton.setText(tr("Cancel", "取消", "キャンセル"))
-        self.yesButton.setText(tr("Save", "保存", "保存"))
+        texts = home_layout.list_texts()
+        self.cancelButton.setText(texts["cancel"])
+        self.yesButton.setText(texts["save"])
         self.widget.setMinimumWidth(560)
 
         self._mode.currentIndexChanged.connect(self._sync_fields)
@@ -153,74 +123,36 @@ class SectionEditorDialog(MessageBoxBase):
     def _sync_fields(self, *_args, initial_sort: str | None = None):
         mode = str(self._mode.currentData() or MODE_BROWSE)
         previous = initial_sort if initial_sort is not None else str(self._sort.currentData() or "")
-        needs_value = mode in {MODE_TAGS, MODE_KEYWORD, MODE_AUTHOR}
-        self._set_row_visible(self._value_row, needs_value)
-        self._set_row_visible(self._sort_row, mode != MODE_SUBSCRIPTIONS)
-        self._set_row_visible(self._content_row, mode not in {MODE_SUBSCRIPTIONS, MODE_TAGS})
-        captions = {
-            MODE_TAGS: (tr("Tags", "标签", "タグ"), tr("e.g. hmv  (comma-separate several)", "例如 hmv（多个标签用逗号分隔）", "例: hmv（複数はカンマ区切り）")),
-            MODE_KEYWORD: (tr("Keyword", "关键词", "キーワード"), tr("Text to search for", "要搜索的文字", "検索する文字")),
-            MODE_AUTHOR: (tr("Author", "作者", "作者"), tr("Username, e.g. alice", "作者用户名，例如 alice", "ユーザー名 例: alice")),
-        }
-        caption, placeholder = captions.get(mode, ("", ""))
+        self._set_row_visible(self._value_row, home_layout.needs_value(mode))
+        self._set_row_visible(self._sort_row, home_layout.shows_sort(mode))
+        self._set_row_visible(self._content_row, home_layout.shows_content(mode))
+        caption, placeholder = home_layout.value_caption(mode)
         self._value_caption.setText(caption)
         self._value.setPlaceholderText(placeholder)
-        hints = {
-            MODE_BROWSE: tr(
-                "Without a fixed order the row shows Trending / Popular / Newest tabs.",
-                "不指定排序时，该栏目会带有 趋势 / 热度 / 最新 三个标签页。",
-                "並び順を指定しない場合は トレンド/人気/新着 のタブが付きます。",
-            ),
-            MODE_TAGS: tr(
-                "Uses Iwara tags; localized tag names are matched through the tag dictionary.",
-                "使用 Iwara 标签；本地化的标签名会通过标签词典匹配。",
-                "Iwaraのタグを使います。翻訳名はタグ辞書で照合されます。",
-            ),
-            MODE_KEYWORD: tr("Searches Iwara's text index.", "搜索 Iwara 的文本索引。", "Iwaraの全文検索を使います。"),
-            MODE_AUTHOR: tr("Shows the newest works of one author.", "显示某位作者的最新作品。", "指定した作者の最新作を表示します。"),
-            MODE_SUBSCRIPTIONS: tr("Needs a signed-in Iwara account.", "需要先登录 Iwara 账号。", "Iwaraアカウントへのログインが必要です。"),
-        }
-        self._hint.setText(hints.get(mode, ""))
+        self._hint.setText(home_layout.mode_hint(mode))
         self._sort.blockSignals(True)
         self._sort.clear()
-        if mode == MODE_BROWSE:
-            self._sort.addItem(tr("Trending / Popular / Newest tabs", "趋势 / 热度 / 最新 标签页", "トレンド/人気/新着タブ"))
-            self._sort.setItemData(0, "")
-        sorts = KEYWORD_SORTS if mode == MODE_KEYWORD else BROWSE_SORTS
-        for sort in sorts:
-            self._sort.addItem(sort_label(sort))
+        for sort, label in home_layout.sort_choices(mode):
+            self._sort.addItem(label)
             self._sort.setItemData(self._sort.count() - 1, sort)
-        index = self._sort.findData(previous)
+        index = self._sort.findData(home_layout.pick_sort(mode, previous))
         self._sort.setCurrentIndex(index if index >= 0 else 0)
         self._sort.blockSignals(False)
 
     def collect(self) -> HomeSectionSpec | None:
-        mode = str(self._mode.currentData() or MODE_BROWSE)
-        original = self._original
-        spec = sanitize_spec({
-            "id": original.id if original else new_section_id(),
-            "mode": mode,
-            "content": str(self._content.currentData() or "video"),
-            "title": self._title.text(),
-            "value": self._value.text(),
-            "sort": str(self._sort.currentData() or ""),
-            "enabled": original.enabled if original else True,
-        })
-        if (
-            spec is not None
-            and original is not None
-            and original.is_builtin
-            and (spec.mode, spec.content, spec.sort) != (original.mode, original.content, original.sort)
-        ):
-            # A built-in row turned into something else must stop borrowing the
-            # built-in name and its remembered tab.
-            spec = replace(spec, id=new_section_id())
-        return spec
+        return home_layout.build_spec(
+            self._original,
+            mode=str(self._mode.currentData() or MODE_BROWSE),
+            content=str(self._content.currentData() or "video"),
+            title=self._title.text(),
+            value=self._value.text(),
+            sort=str(self._sort.currentData() or ""),
+        )
 
     def validate(self) -> bool:
         spec = self.collect()
         if spec is None:
-            self._hint.setText(tr("Enter what to search for.", "请填写要搜索的内容。", "検索する内容を入力してください。"))
+            self._hint.setText(home_layout.missing_value_text())
             return False
         self.result_spec = spec
         return True
@@ -238,16 +170,8 @@ class HomeLayoutDialog(MessageBoxBase):
 
     def __init__(self, parent=None, specs: list[HomeSectionSpec] | None = None):
         super().__init__(parent)
-        self.viewLayout.addWidget(SubtitleLabel(tr("Customize Home", "自定义首页", "ホームをカスタマイズ"), self))
-        hint = BodyLabel(
-            tr(
-                "Tick the rows to show and move them into the order you like. "
-                "Any search you can run on the Search page can become a row.",
-                "勾选要显示的栏目并调整顺序。搜索页里能搜到的内容，都可以做成首页栏目。",
-                "表示する欄を選び、順序を調整します。検索ページで検索できる内容は欄にできます。",
-            ),
-            self,
-        )
+        self.viewLayout.addWidget(SubtitleLabel(home_layout.customize_title(), self))
+        hint = BodyLabel(home_layout.customize_hint(), self)
         hint.setWordWrap(True)
         set_secondary_text(hint)
         self.viewLayout.addWidget(hint)
@@ -264,19 +188,20 @@ class HomeLayoutDialog(MessageBoxBase):
 
         tools = QVBoxLayout()
         tools.setSpacing(6)
-        self._add_btn = PrimaryPushButton(tr("Add row", "添加栏目", "欄を追加"), self, FluentIcon.ADD)
+        texts = home_layout.list_texts()
+        self._add_btn = PrimaryPushButton(texts["add"], self, FluentIcon.ADD)
         self._add_btn.clicked.connect(self._add)
-        self._edit_btn = PushButton(tr("Edit", "编辑", "編集"), self, FluentIcon.EDIT)
+        self._edit_btn = PushButton(texts["edit"], self, FluentIcon.EDIT)
         self._edit_btn.clicked.connect(self._edit_current)
-        self._remove_btn = PushButton(tr("Remove", "移除", "削除"), self, FluentIcon.DELETE)
+        self._remove_btn = PushButton(texts["remove"], self, FluentIcon.DELETE)
         self._remove_btn.clicked.connect(self._remove_current)
         self._up_btn = ToolButton(FluentIcon.UP, self)
-        self._up_btn.setToolTip(tr("Move up", "上移", "上へ"))
+        self._up_btn.setToolTip(texts["up"])
         self._up_btn.clicked.connect(lambda: self._move(-1))
         self._down_btn = ToolButton(FluentIcon.DOWN, self)
-        self._down_btn.setToolTip(tr("Move down", "下移", "下へ"))
+        self._down_btn.setToolTip(texts["down"])
         self._down_btn.clicked.connect(lambda: self._move(1))
-        self._reset_btn = PushButton(tr("Reset to default", "恢复默认", "初期設定に戻す"), self)
+        self._reset_btn = PushButton(texts["reset"], self)
         self._reset_btn.clicked.connect(self._reset)
         for widget in (self._add_btn, self._edit_btn, self._remove_btn):
             tools.addWidget(widget)
@@ -294,8 +219,8 @@ class HomeLayoutDialog(MessageBoxBase):
         set_secondary_text(self._note)
         self.viewLayout.addWidget(self._note)
 
-        self.cancelButton.setText(tr("Cancel", "取消", "キャンセル"))
-        self.yesButton.setText(tr("Save", "保存", "保存"))
+        self.cancelButton.setText(texts["cancel"])
+        self.yesButton.setText(texts["save"])
         self.widget.setMinimumSize(700, 520)
 
         self._populate(specs if specs is not None else load_specs())
@@ -342,11 +267,7 @@ class HomeLayoutDialog(MessageBoxBase):
         self._up_btn.setEnabled(has and row > 0)
         self._down_btn.setEnabled(has and row < self._list.count() - 1)
         self._add_btn.setEnabled(self._list.count() < MAX_SECTIONS)
-        self._note.setText(
-            tr("Nothing selected will show an empty Home page.", "全部取消勾选将显示空白首页。", "すべて外すとホームは空になります。")
-            if self._list.count() and not any(spec.enabled for spec in self.specs())
-            else ""
-        )
+        self._note.setText(home_layout.empty_note(self.specs()))
 
     def _add(self):
         spec = SectionEditorDialog.edit(self, None)
@@ -389,11 +310,7 @@ class HomeLayoutDialog(MessageBoxBase):
         self._sync_buttons()
 
     def _reset(self):
-        if show_fluent_confirmation(
-            self,
-            tr("Reset Home", "恢复默认首页", "ホームを初期化"),
-            tr("Replace the list with the default rows?", "用默认栏目替换当前列表？", "一覧を初期の欄に置き換えますか？"),
-        ):
+        if show_fluent_confirmation(self, *home_layout.reset_question()):
             self._populate(default_specs())
 
     def validate(self) -> bool:

@@ -774,7 +774,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | P3 搜索与下载闭环 | 搜索页、`VideoGrid`、`DownloadSheet`、下载页、任务事件 | 搜索翻页、横竖屏筛选、单项与批量下载、进度、取消、失败重试、跳转资料库定位；运行时未加载 PySide6 |
 | P4 首页、详情、播放 | 首页货架与网格、详情页、播放器、流代理 | 本地与远程播放、跳转、全屏、过期地址续播；32 / 100 张封面滚动流畅 |
 | P5 订阅与作者 | 订阅总览与双栏、作者页 | 刷新、筛选、批量下载、封面优先级 |
-| P6 资料库、规则、设置 | | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
+| P6 资料库、规则、设置 | 资料库、规则页、设置页（含自定义首页与快捷键） | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
 | P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致 |
 | P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放 |
 | P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距 |
@@ -862,6 +862,13 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 规则页顶部常驻的 5 个“各页面使用的规则”下拉框 | 收进可折叠的“各页面使用的规则”卡片；选择经 `rule_editing.choose_page_rule`（与 `DownloadSheet` 的“记住为本页规则”同一入口） |
 | 规则标签输入框的中英文标签候选弹窗 | 改为输入框下方的一行候选标签（150 ms 去抖、后台查词典），点选后补全并开始下一个；补全规则 `rule_editing.tag_fragment / apply_tag` 两边共用 |
 | 切换规则时丢弃未保存的修改 | 有未保存修改时先询问“放弃修改” |
+| 设置页底部“保存全部设置”，部分项又立即生效 | 全部即时保存；文本 / 数字在失焦或回车时保存并回显夹取后的值；代理需点“应用”（两个开关与地址一起生效）。文案、分类、夹取与副作用迁到 `presentation/settings/`（`texts`、`catalog`、`values`），旧设置页改为调用 |
+| 设置分类为左侧列表 + 右侧堆叠页 | 宽屏同为列表-详情；手机为分类列表 → `/settings/<分类>` 子页；旧链接 `/settings/account` 等按别名进入所属分类 |
+| 字体选择对话框（枚举系统字体） | Flet 无法枚举系统字体：改为输入字体名 + “恢复自动”，并显示实际生效的字体顺序 |
+| 首页“自定义栏目”两个对话框 | 改为 `/settings/home/rows` 一页：列表（勾选、上下移、编辑、删除）+ 同页编辑表单，保存后首页重载一次；规则迁到 `presentation/home/layout.py` |
+| 快捷键录制按钮（QKeySequence） | 点击后由外壳接管下一次按键（`Shell.key_capture`），Esc 取消、Backspace 清除；显示用 `presentation.shortcuts.native_text`（macOS 为 ⌘⌥⌃⇧）；绑定 / 恢复 / 冲突提示两边共用 |
+| 开机自启、关闭到托盘 | Flet 版暂不提供（`core/autostart` 只认 Nuitka 打包的旧版 exe，托盘不可用）；关闭窗口时若仍有下载，询问“最小化 / 退出”【自启待打包后补】 |
+| 新版本提示（主窗口确认框） | 外壳监听 `release_update_available`，确认后打开 Release 页；判断与文案在 `presentation/updates.py`，两边共用 |
 
 ---
 
@@ -869,6 +876,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P6 资料库、规则、设置：资料库（`stores/library.py` + `pages/library/`，表格 / 列表 / 网格、范围与作者筛选、按宽度隐藏列、记录面板、可撤销删除、清理已移走、重命名、导出 CSV）；规则页（列表-详情、各页面规则卡片、模板预览 / 预设 / 插入字段 / 检验、标签候选、未保存询问）；设置页（`pages/settings/`，9 个分类全部卡片即时保存、账号登录、代理应用、aria2 测试、ffmpeg 检测、备份恢复、快捷键录制、自定义首页 `/settings/home/rows`）；外壳新增新版本提示与“仍有下载时关闭询问”。新迁入共用层：`presentation/history/library.py`、`record_state.py`、`presentation/rule_editing.py`、`presentation/settings/{texts,catalog,values}.py`、`presentation/home/layout.py`、`presentation/updates.py`、`presentation.shortcuts` 的编辑与显示函数（旧资料库、规则页、设置页、首页栏目对话框、更新提示改为调用）。截图见 `docs/verification/flet/P6/`。 |
 | 2026-11-26 | P5 订阅与作者：订阅页（`stores/subscriptions.py` + `pages/subscriptions/`，手机总览卡片与最近作品货架、`/subscriptions/<id>` 作品网格、宽屏双栏、源搜索与排序、添加（链接 / 用户名）、导入关注作者、全部刷新与单源刷新的进度条、停用 / 启用、删除确认、作品筛选 / 排序 / 标题搜索、状态徽章、选择、下载当前 / 选中 / 新增、标为已看、标为已移走与还原）；作者页 `/author/<用户名>`（资料卡、视频 / 图片标签、分页网格、批量下载）；`AuthorStatus`（程序内订阅与 Iwara 关注）；`components/feed_grid.py`（首页完整网格与作者页共用）、`services/dialogs.py`（确认与输入对话框）；`VideoGrid` 可指定所在栏宽。新迁入共用层：`presentation/subscription/text.py`、`source_actions.py`、`presentation/author/status.py`、`page.py`（旧订阅页、作者页、`AuthorStatusBar` 改为调用）。演示夹具的 `seed` 移入 `demo_fixture`，`--demo` 的订阅 / 资料库 / 作者路由会写入虚构记录。注意：`TextField` 不能放进 `wrap=True` 的 Row（宽度无界，整块渲染失败）。截图见 `docs/verification/flet/P5/`。 |
 | 2026-11-26 | P4 首页、详情、播放：首页（`stores/home.py` + `pages/home/`，手机货架 / 宽屏 2 行网格、栏目标签、缓存优先与过期重查、有新内容时不打断勾选、折叠记忆、未登录提示、“更多 ›”进搜索或完整网格页 `/home/<栏目>/<标签>`）；详情页 `/detail/video|image/<id>`（`stores/detail.py` 保留最近 12 个作品供返回、相关作品侧栏 / 网格、评论分页与回复、点赞、标签跳搜索、复制链接、浏览器打开、作者主页）；内嵌播放器（flet-video 1.1.3，本地副本直接播放，远程经流代理并续签）；`VideoActions` 右键菜单与手机动作面板；搜索标签候选。新迁入共用层：`presentation/home/section_feed.py`（旧 `SectionBlock` 改为调用）、`presentation/media/detail_info.py`、`video_actions.py`、`presentation/search/tag_completion.py`、`detail_text.link_segments`、`formatting.format_age`。修正演示夹具把 API 的 `/image/<id>` 当成图片文件的问题。截图见 `docs/verification/flet/P4/`。 |
 | 2026-11-26 | P3 搜索与下载闭环：搜索页（来源、范围、排序、筛选面板、搜索记录、网格、选择与加入下载、手机滚动加载 / 宽屏页码、Oreno3D 预解析与下载状态徽章）；下载页（链接栏、待确认卡片、状态标签、任务行与进度、取消/重试/恢复、优先级、打开文件夹、在资料库中查看、日志页）；`VideoCard` / `VideoGrid` / `DownloadSheet` / `FilterSheet`；`stores/tasks.py`、`stores/search.py`、`services/downloads.py`、`services/images.py`。新迁入共用层：`presentation/media/cards.py`、`presentation/search/options.py`、`post_filter_text.py`、搜索记录、`core/search/resolution.apply_oreno_link`、待确认文字。`main_flet.py --demo`（离线虚构数据）；截图见 `docs/verification/flet/P3/`。事件桥改为在页面上下文里分发（否则后台线程的事件无法触发重绘）。 |

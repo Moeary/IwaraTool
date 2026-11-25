@@ -7,6 +7,8 @@ download queries) runs with ``asyncio.to_thread``.
 """
 from __future__ import annotations
 
+from collections.abc import Callable  # noqa: F401 - annotations
+
 import asyncio
 
 import flet as ft
@@ -17,9 +19,11 @@ from ..core.download.manager import download_manager
 from ..i18n import current_language
 from ..logging_setup import get_logger
 from ..presentation import preferences
+from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
+from .services.dialogs import confirm
 from .services.downloads import DownloadService
 from .services.events import EventBridge
 from .services.images import ImageService
@@ -79,6 +83,9 @@ class Shell:
         self.bridge = EventBridge(self.loop)
         self.events = self.bridge.group()
         self.shortcuts = ShortcutMap()
+        self.manager = download_manager
+        # Settings records a new shortcut: the next key press goes here instead of running an action.
+        self.key_capture: Callable[[str, str], None] | None = None
         self.downloads = DownloadService(self)
         self.tasks = TaskStore(download_manager)
         self.images = ImageService(download_manager)
@@ -215,6 +222,7 @@ class Shell:
         self.events.on("history_changed", self._on_history_changed, coalesce=lambda *_a: "history")
         self.events.on("login_state_changed", self._on_login_changed)
         self.events.on("shortcuts_changed", self.shortcuts.refresh)
+        self.events.on("release_update_available", self._on_release)
         for name in ("subscription_sources_changed", "subscription_source_added"):
             self.events.on(name, self._reload_subscriptions, coalesce=lambda *_args: "subscriptions")
         # System notifications are in-app notices for now (docs/flet_ui_plan.md 10); the background
@@ -236,6 +244,18 @@ class Shell:
         self.search.close()
         self.details.close()
         self.library.flush()
+
+    def _on_release(self, release: dict) -> None:
+        offer = release_offer(release if isinstance(release, dict) else {})
+        if offer is None:
+            return
+
+        async def ask() -> None:
+            title, message, informative, open_label, _later = offer.question
+            if await confirm(self.page, title, message, confirm_label=open_label, informative=informative):
+                await ft.UrlLauncher().launch_url(offer.url)
+
+        self.page.run_task(ask)
 
     def _on_rating_changed(self, _rating: str) -> None:
         self.state.rating = preferences.current_rating()
@@ -297,6 +317,9 @@ class Shell:
         if not self.state.layout.is_desktop:
             return
         chord = event_chord(event.key, shift=event.shift, ctrl=event.ctrl, alt=event.alt, meta=event.meta)
+        if self.key_capture is not None:
+            self.key_capture(chord, str(event.key or ""))
+            return
         action = self.shortcuts.action_for(chord)
         if chord == "Alt+Left":
             action = action or "nav_back"

@@ -111,17 +111,7 @@ class SystemSettingsCards:
 
     @staticmethod
     def _startup_pages() -> list[tuple[str, str]]:
-        return [
-            ("home", stext("home")),
-            ("subscriptions", stext("subscriptions")),
-            ("search", stext("search")),
-            ("download", stext("download_hub")),
-            ("repair", stext("repair")),
-            ("history", stext("history")),
-            ("rules", stext("rules")),
-            ("tools", stext("tools")),
-            ("settings", stext("settings")),
-        ]
+        return setting_values.startup_pages()
 
     _PLAYER_MODES = (video_player.MODE_SYSTEM, video_player.MODE_BUILTIN, video_player.MODE_CUSTOM)
     _PREVIEW_QUALITIES = ("Source", "540", "360")
@@ -213,7 +203,7 @@ class SystemSettingsCards:
             self._owner, stext("choose_a_player"), "", ""
         )
         if path:
-            quoted = f'"{path}" "{{file}}"' if " " in path else f'{path} "{{file}}"'
+            quoted = setting_values.player_command_for(path)
             self._player_command_edit.setText(quoted)
             self._set("preview_player_command", quoted)
 
