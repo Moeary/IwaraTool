@@ -13,7 +13,7 @@ from pathlib import Path
 import flet as ft
 
 from ....config import app_config
-from ....core import account, backup
+from ....core import account, backup, login_items
 from ....core import site as sites
 from ....core.home.cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
 from ....core.home.feed import default_specs, load_specs, save_specs
@@ -30,6 +30,7 @@ from ....presentation.settings.texts import stext
 from ... import layout, routes
 from ...icons import AppIcon
 from ...services.dialogs import confirm
+from ...platform import tray
 from ...services.notify import notice
 from ...stores.app_state import use_shell
 from ...theme import palette_for, text_style
@@ -765,21 +766,51 @@ def FfmpegCard():
 def WindowCard():
     shell = use_shell()
     page = shell.page
-    _tick, refresh = use_refresh()
+    tick, refresh = use_refresh()
+    login_on, set_login_on = ft.use_state(False)
+
+    async def read_login() -> None:
+        set_login_on(await asyncio.to_thread(login_items.is_enabled))
+
+    def refresh_login() -> None:
+        if shell.caps.window and login_items.is_supported():
+            page.run_task(read_login)  # reading the registry / LaunchAgents folder stays off the loop
+
+    ft.use_effect(refresh_login, [tick])
 
     def put(value: str) -> None:
         app_config.startup_page = value or "home"
         refresh()
 
+    def keep_running(value: bool) -> None:
+        app_config.minimize_to_tray = bool(value)
+        tray.sync(page)
+        refresh()
+
+    async def set_login(value: bool) -> None:
+        try:
+            await asyncio.to_thread(login_items.set_enabled, bool(value))
+        except OSError as exc:
+            notice(page, "error", stext("failed"), str(exc), duration_ms=6000)
+        refresh()
+
     startup = str(app_config.startup_page or "home")
-    return card(page, stext("window_startup") if shell.caps.window else tr("Start-up", "启动", "起動"), [
+    rows: list[ft.Control | None] = [
         row(page, stext("page_shown_at_launch"), dropdown(startup, sv.startup_pages(), put, width=200), compact=_compact(shell)),
-        None if not shell.caps.window else hint(page, tr(
-            "The tray and launch at login belong to the classic window for now; closing this window asks first while downloads run.",
-            "托盘与开机自启暂由旧版窗口提供；本窗口关闭时若仍有下载会先询问。",
-            "トレイとログイン時の起動は当面クラシック版のみです。ダウンロード中にこのウィンドウを閉じると確認します。",
-        )),
-    ])
+    ]
+    if shell.caps.window:
+        rows += [
+            switch_row(page, tray.keep_running_label(), bool(app_config.minimize_to_tray), keep_running)
+            if tray.available() else None,
+            switch_row(page, tr("Launch at login", "开机自动启动", "ログイン時に起動"), login_on,
+                       lambda v: page.run_task(set_login, v)) if login_items.is_supported() else None,
+            hint(page, tr(
+                "With \"keep running\" off, closing the window asks first while downloads run.",
+                "关闭“继续运行”时，若仍有下载，关闭窗口前会先询问。",
+                "「動作を続ける」がオフのとき、ダウンロード中にウィンドウを閉じると確認します。",
+            )),
+        ]
+    return card(page, stext("window_startup") if shell.caps.window else tr("Start-up", "启动", "起動"), rows)
 
 
 @ft.component

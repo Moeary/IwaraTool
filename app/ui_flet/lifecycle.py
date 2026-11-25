@@ -14,6 +14,8 @@ import flet as ft
 from .. import bootstrap
 from ..i18n import tr
 from ..logging_setup import get_logger
+from ..config import app_config
+from .platform import tray
 from .platform.storage import prepare_phone_storage
 from .theme import DESKTOP_PLATFORMS
 
@@ -28,6 +30,8 @@ async def start_app(page: ft.Page, *, services: bool = True) -> None:
     if services:
         await asyncio.to_thread(bootstrap.start_services)
     install_close_handler(page)
+    if page.platform in DESKTOP_PLATFORMS:
+        tray.sync(page)
 
 
 SAVE_ON = frozenset({ft.AppLifecycleState.PAUSE, ft.AppLifecycleState.HIDE, ft.AppLifecycleState.DETACH})
@@ -81,6 +85,7 @@ def install_back_handler(page: ft.Page, back) -> None:
 async def shutdown(page: ft.Page) -> None:
     """Stop services and write settings, then close the window (desktop)."""
 
+    tray.service(page).stop()
     try:
         await asyncio.to_thread(bootstrap.stop, wait=True)
     except Exception:  # never keep the window open because saving failed
@@ -115,13 +120,27 @@ async def _keep_running(page: ft.Page) -> bool:
     return not quit_now
 
 
+_FOCUSED: dict[int, bool] = {}
+
+
+def window_focused(page: ft.Page) -> bool:
+    """Whether the desktop window has the focus (from its focus / blur events; True until one arrives)."""
+    return _FOCUSED.get(id(page), True)
+
+
 def install_close_handler(page: ft.Page) -> None:
     if page.platform not in DESKTOP_PLATFORMS:
         return
     page.window.prevent_close = True
 
     async def on_window_event(event: ft.WindowEvent) -> None:
+        if event.type in (ft.WindowEventType.FOCUS, ft.WindowEventType.BLUR):
+            _FOCUSED[id(page)] = event.type == ft.WindowEventType.FOCUS
+            return
         if event.type == ft.WindowEventType.CLOSE:
+            if app_config.minimize_to_tray and tray.available():
+                await tray.service(page).hide_window()  # the tray icon or the Dock brings it back
+                return
             if await _keep_running(page):
                 page.window.minimized = True
                 return

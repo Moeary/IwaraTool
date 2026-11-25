@@ -23,6 +23,7 @@ from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
+from .services.system_notices import SystemNotices
 from .platform.capabilities import MOBILE_PLATFORMS, capabilities, platform_override
 from .services.dialogs import confirm
 from .services.downloads import DownloadService
@@ -103,6 +104,7 @@ class Shell:
         self.rules = RulesStore(self, download_manager)
         self.repair = RepairStore(self, download_manager)
         self.tools = ToolsStore(self)
+        self.notices = SystemNotices(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._awake = False
@@ -245,9 +247,11 @@ class Shell:
         self.events.on("release_update_available", self._on_release)
         for name in ("subscription_sources_changed", "subscription_source_added"):
             self.events.on(name, self._reload_subscriptions, coalesce=lambda *_args: "subscriptions")
-        # System notifications are in-app notices for now (docs/flet_ui_plan.md 10); the background
-        # subscription refresh announces itself this way, so the list is read again too.
+        # Background notices (subscription refresh): in the window, or a system notification when it is
+        # in the background (services/system_notices.py); the subscription list is read again too.
         self.events.on("desktop_notification_requested", self._on_desktop_notification)
+        # Finished / failed downloads: every transition (no coalescing), batched by SystemNotices.
+        self.events.on("task_status_changed", self.notices.on_task_status)
         for name in ("rules_changed", "active_rule_changed", "page_rule_changed"):
             self.events.on(name, self.rules.refresh, coalesce=lambda *_args: "rules")
         # A finished download is a new library record (the old page re-read on completion too).
@@ -264,6 +268,7 @@ class Shell:
         self.search.close()
         self.details.close()
         self.repair.close()
+        self.notices.close()
         self.tools.close()
         self.library.flush()
 
@@ -307,9 +312,7 @@ class Shell:
             self.page.run_task(self.subscriptions.load)
 
     def _on_desktop_notification(self, title: str = "", message: str = "", *_args) -> None:
-        from .services.notify import notice
-
-        notice(self.page, "info", str(title or ""), str(message or ""))
+        self.page.run_task(self.notices.show, str(title or ""), str(message or ""))
         self._reload_subscriptions()
 
     def _on_language(self, _code: str) -> None:

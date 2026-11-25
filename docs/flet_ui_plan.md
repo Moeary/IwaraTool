@@ -847,8 +847,8 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 订阅页“经典表格” | 移除，由宽屏双栏代替 |
 | 每页常驻的规则下拉框 | 移入 `DownloadSheet`，页面规则设置保留 |
 | 设置页“保存全部设置” | 移除，改为即时保存 |
-| 托盘、关闭到托盘 | 暂不可用，改为关闭确认 |
-| 系统通知 | 暂用应用内提示 |
+| 托盘、关闭到托盘 | Windows：`platform/tray_windows.py`（ctypes `Shell_NotifyIconW`，独立线程的隐藏窗口与消息循环，单击显示、右键“显示 / 退出”）；macOS：关闭时最小化到程序坞。均由“关闭窗口时继续运行”（`minimize_to_tray`）控制，关闭时为关闭确认 |
+| 系统通知 | `core/system_notify.py`（macOS `osascript`、Windows PowerShell 吐司、Linux `notify-send`）；窗口在前台时为应用内提示，在后台时为系统通知（受“桌面通知”开关控制，失败时退回应用内提示）。完成 / 失败下载合并为一条，文字与旧版共用 `presentation/notifications.notification_message` |
 | 双指右滑返回（macOS） | 依 Flet 能力，【需核实】 |
 | 头像下拉菜单 | 改为“账号与偏好”面板（分段按钮），见 6.3 |
 | 鼠标侧键返回、多段快捷键（如 Ctrl+K, Ctrl+S） | Flet 键盘事件暂未接入鼠标侧键；多段快捷键暂不匹配。Esc、Alt+← 返回可用 |
@@ -882,7 +882,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 字体选择对话框（枚举系统字体） | Flet 无法枚举系统字体：改为输入字体名 + “恢复自动”，并显示实际生效的字体顺序 |
 | 首页“自定义栏目”两个对话框 | 改为 `/settings/home/rows` 一页：列表（勾选、上下移、编辑、删除）+ 同页编辑表单，保存后首页重载一次；规则迁到 `presentation/home/layout.py` |
 | 快捷键录制按钮（QKeySequence） | 点击后由外壳接管下一次按键（`Shell.key_capture`），Esc 取消、Backspace 清除；显示用 `presentation.shortcuts.native_text`（macOS 为 ⌘⌥⌃⇧）；绑定 / 恢复 / 冲突提示两边共用 |
-| 开机自启、关闭到托盘 | Flet 版暂不提供（`core/autostart` 只认 Nuitka 打包的旧版 exe，托盘不可用）；关闭窗口时若仍有下载，询问“最小化 / 退出”【自启待打包后补】 |
+| 开机自启、关闭到托盘 | `core/login_items.py`（与旧版 `core/autostart.py` 分开、条目名不同，互不覆盖）：Windows 注册表 Run 值 `IwaraTool-Flet`、macOS LaunchAgent、Linux XDG autostart；打包后启动应用本身，源码运行启动解释器。托盘见上 |
 | 新版本提示（主窗口确认框） | 外壳监听 `release_update_available`，确认后打开 Release 页；判断与文案在 `presentation/updates.py`，两边共用 |
 | 修复中心的单页表单 + 七列表格（双击 ID 格修改） | 改为五步流程（文件夹 → 规则与选项 → 扫描与预览 → 执行 → 结果）；列表行为状态徽章 + 原路径 → 目标路径，✎ 打开输入框按 Iwara ID 或链接重新查询；日志可折叠；结果页给出数字摘要 |
 | 修复与工具的拖放文件夹 / 文件 | Flet 不能接收系统拖放：只保留“浏览”与输入路径 |

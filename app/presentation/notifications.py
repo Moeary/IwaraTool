@@ -97,3 +97,24 @@ def prepare_task_notifications(
         error = str(getattr(task, "error_msg", "") or "").strip()
         failed.append(f"{title}: {error}" if error else title)
     return PreparedTaskNotifications(tuple(completed), tuple(failed))
+
+
+def notification_message(prepared: PreparedTaskNotifications) -> tuple[str, str] | None:
+    """The (title, message) one notification shows for a batch, or None when there is nothing to say."""
+    from ..i18n import tr
+
+    completed, failed = prepared.completed_titles, prepared.failed_messages
+    if not completed and not failed:
+        return None
+    if len(completed) == 1 and not failed:
+        return tr("Download completed", "下载完成", "ダウンロード完了"), completed[0]
+    if len(failed) == 1 and not completed:
+        return tr("Download failed", "下载失败", "ダウンロード失敗"), failed[0]
+    parts: list[str] = []
+    if completed:
+        parts.append(tr(f"{len(completed)} downloads completed", f"{len(completed)} 个下载已完成",
+                        f"{len(completed)} 件のダウンロードが完了"))
+    if failed:
+        parts.append(tr(f"{len(failed)} downloads failed", f"{len(failed)} 个下载失败",
+                        f"{len(failed)} 件のダウンロードに失敗"))
+    return tr("Download updates", "下载任务更新", "ダウンロード更新"), "；".join(parts)
