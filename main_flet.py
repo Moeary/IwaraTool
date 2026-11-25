@@ -4,26 +4,45 @@
 
 For now this opens the empty shell: theme, navigation and placeholder pages.
 """
+import json
 import os
 import sys
 from pathlib import Path
 
-# Before anything from ``app`` is imported: the core must never pick the Qt
-# event backend in this interface.
-os.environ["IWARATOOL_NO_QT"] = "1"
-if not getattr(sys, "frozen", False) and not os.environ.get("IWARATOOL_DATA_DIR"):
-    # A source checkout keeps its own settings, queue and history, apart from
-    # the PySide6 interface's data folder.
-    os.environ["IWARATOOL_DATA_DIR"] = str(Path(__file__).resolve().parent / "data-flet")
+from app.ui_flet.runner import loaded_qt_modules, prepare_environment, run
+
+# Before the rest of ``app`` is imported (the core reads these at import time).
+prepare_environment(Path(__file__).resolve().parent)
 
 import flet as ft  # noqa: E402
 
 from app.config import app_config  # noqa: E402
 from app.i18n import current_language, tr  # noqa: E402
+from app.paths import app_data_dir  # noqa: E402
 from app.ui_flet.icons import NavIcon  # noqa: E402
-from app.ui_flet.runner import run  # noqa: E402
 from app.ui_flet.theme import apply_theme  # noqa: E402
 from app.ui_flet.tokens import Size, Space  # noqa: E402
+from app.version import __version__  # noqa: E402
+
+# Smoke test: ``--smoke-test`` or IWARATOOL_SMOKE_TEST=1 (packaged apps may not
+# pass arguments). With IWARATOOL_SMOKE_REPORT set, a JSON report is written there.
+SMOKE_TEST = "--smoke-test" in sys.argv or os.environ.get("IWARATOOL_SMOKE_TEST") == "1"
+
+
+def write_smoke_report(page: ft.Page) -> None:
+    target = os.environ.get("IWARATOOL_SMOKE_REPORT")
+    if not target:
+        return
+    report = {
+        "version": __version__,
+        "python": sys.version.split()[0],
+        "platform": str(page.platform.value if page.platform else ""),
+        "packaged": bool(os.environ.get("FLET_PLATFORM")),
+        "data_dir": str(app_data_dir()),
+        "flet_storage": os.environ.get("FLET_APP_STORAGE_DATA", ""),
+        "qt_modules": loaded_qt_modules(),
+    }
+    Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
 def destinations() -> list[tuple[NavIcon, str]]:
@@ -95,7 +114,8 @@ async def main(page: ft.Page) -> None:
             ],
         )
     )
-    if "--smoke-test" in sys.argv:
+    if SMOKE_TEST:
+        write_smoke_report(page)
         await page.window.destroy()
 
 

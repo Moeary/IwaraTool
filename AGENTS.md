@@ -12,7 +12,7 @@
 ## 硬性约束（摘自方案第 0 节）
 
 1. 旧界面 `app/ui/` 与 `main.py` 在替换前保持可运行、可测试、可发版，不为新界面改变其行为。
-2. 新界面只放在 `app/ui_flet/`，入口 `main_flet.py`。`app/ui_flet` 禁止导入 `app.ui`、`PySide6`、`shiboken6`、`qfluentwidgets`、`qframelesswindow`（`scripts/tests/test_flet_theme.py` 强制检查）。
+2. 新界面只放在 `app/ui_flet/`，入口 `main_flet.py`。`app/ui_flet` 禁止导入 `app.ui`、`PySide6`、`shiboken6`、`qfluentwidgets`、`qframelesswindow`（`scripts/tests/flet_ui/test_flet_theme.py` 强制检查）。
 3. 业务逻辑只在 `app/core/`；界面无关的展示逻辑放 `app/presentation/`（不导入 Qt 或 Flet）。旧界面里需要复用的逻辑先迁出再两边调用，**不得复制**到 `app/ui_flet`。
 4. Flet 事件处理函数不得在事件循环上做阻塞调用（HTTP、SQLite 批量、文件扫描、FFmpeg），用 `asyncio.to_thread` 或 `page.run_thread`。
 5. 用户可见文字一律 `app.i18n.tr(en, zh, ja)`。
@@ -24,7 +24,7 @@
 - 图标只从 `app/ui_flet/icons.py` 取（`NavIcon` / `StateIcon` / `AppIcon`），不得直接写 `ft.Icons.X`（测试检查）。规则：静止为线框 `_OUTLINED`，导航选中与开关激活为实心 `_ROUNDED`。新图标先加进注册表。
 - 状态徽章统一用 `components/status_badge.py`。
 - 改主题后用样张检查两种模式：`pixi run -e flet theme-gallery [--mode dark] [--lang ja]`，截图 `--shot tmp/flet_theme/x.png`。
-- 新增颜色须通过 `test_flet_theme.py` 的 WCAG 对比度检查（正文 4.5:1，图标 3:1）。
+- 新增颜色须通过 `flet_ui/test_flet_theme.py` 的 WCAG 对比度检查（正文 4.5:1，图标 3:1）。
 
 ## 环境与命令
 
@@ -32,11 +32,13 @@
 | --- | --- |
 | 旧界面运行 / 测试 | `pixi run start` / `pixi run test` |
 | Flet 运行（独立数据目录 `data-flet/`） | `pixi run -e flet start-flet` |
-| Flet 测试（`test_flet_*.py`） | `pixi run -e flet test-flet` |
+| Flet 测试（core + flet_ui） | `pixi run -e flet test-flet` |
 | 主题样张 | `pixi run -e flet theme-gallery` |
+| Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet` |
 
-- `flet` 环境是独立 pixi 环境（`no-default-feature`，Python 3.12，Flet 1.1.3），不含 PySide6。旧界面环境仍是 Python 3.11；两者统一到 3.12 是方案 2.3 的单独任务。
-- 新的 `test_flet_*.py` 也会被旧环境的 `pixi run test` 发现：依赖 Flet 的用例用 `skipUnless(HAS_FLET)`，令牌与源码检查两边都跑。
+- pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
+- 测试目录：`scripts/tests/core`（不依赖 Qt，两个环境都跑）、`qt`（需要 PySide6 或 `app/ui`）、`flet_ui`（Flet 界面；依赖 Flet 的用例 `skipUnless(HAS_FLET)`）。新测试放进对应目录；不能用 `flet` 作目录名。
+- 源码运行的数据目录是 `data-flet/`，打包后是 Flet 提供的 `FLET_APP_STORAGE_DATA`，都不与旧界面共用。入口先调用 `runner.prepare_environment()` 再导入 `app.config`。
 - Flet 入口一律用 `app/ui_flet/runner.py` 的 `run(main)` 启动，不直接 `ft.run`：`flet_desktop` 会优先启动 `<当前目录>/build/macos/*.app`、`build/windows/*.exe`，而这里放的是 Nuitka 构建的旧版应用；`run` 会切到中立工作目录（相对的 `IWARATOOL_DATA_DIR` 等先转为绝对路径）。
 - Flet 首次启动会从 GitHub 下载桌面客户端（`~/.flet/client`）。本机 Python 内下载可能卡住时，先用 curl 下载 `https://github.com/flet-dev/flet/releases/download/v1.1.3/flet-macos.tar.gz`（Windows 为 `flet-windows.zip`），再设 `FLET_CLIENT_URL=file:///<路径>` 运行一次。
 

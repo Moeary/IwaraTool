@@ -2,6 +2,12 @@ name: Build Desktop Binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Which interface to build (Flet builds never enter a release)
+        type: choice
+        options: [legacy, flet, all]
+        default: legacy
   push:
     tags:
       - 'v*'
@@ -11,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.target != 'flet'
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +153,44 @@ jobs:
           name: IwaraTool-${{ runner.os }}-${{ runner.arch }}
           path: |
             dist/*
+          if-no-files-found: error
+
+  # Flet interface (v1.3.0 trial), on demand only. Its artifacts are named
+  # flet-* so the release job's IwaraTool-* pattern never picks them up.
+  build-flet:
+    if: github.event_name == 'workflow_dispatch' && inputs.target != 'legacy'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          locked: true
+          environments: flet
+
+      - name: Run Flet tests
+        run: pixi run -e flet test-flet
+
+      # Stages a clean copy, runs flet build, audits for Qt/app/ui, launches the
+      # result in smoke-test mode and zips it into dist/.
+      - name: Build, audit and smoke-test
+        shell: bash
+        run: pixi run -e flet build-flet --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flet-${{ runner.os }}-${{ runner.arch }}
+          path: dist/IwaraTool-Flet-*.zip
           if-no-files-found: error
 
   release:

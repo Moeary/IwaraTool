@@ -160,7 +160,8 @@ flet    = { features = ["flet"], solve-group = "main" }
 
 - 现有 `[tasks]` 与各平台的 `target.*.tasks`（macOS 测试固定 `QT_QPA_PLATFORM=cocoa`）全部移进 `feature.qt`，不改变旧界面的运行方式。
 - `start-flet` 默认使用独立数据目录 `data-flet`（相对路径时按 `app/paths.py` 的规则解析，需确认），避免两套界面争用同一份 INI、SQLite 与下载队列。`data-flet/` 加入 `.gitignore`。
-- 测试的选择方式二选一：按目录拆成 `scripts/tests/{core,qt,flet}`（推荐，清楚），或在 `qt_helpers` 中按 `IWARATOOL_TEST_SCOPE` 跳过。拆目录时注意测试里的相对路径与 `PROJECT_ROOT = parents[2]` 需要随之调整。
+- **已实施**：测试按目录拆成 `scripts/tests/core`（两个环境都跑）、`scripts/tests/qt`（只在 default 环境）、`scripts/tests/flet_ui`（不叫 `flet`：发现测试的顶层是 `scripts/tests`，同名包会遮蔽真正的 flet 库）。`pixi run test` 递归跑全部；`pixi run -e flet test-flet` 跑 core 与 flet_ui。判断依据是在不含 PySide6 的环境中逐个运行，而不是搜索导入语句。
+- 原方案：测试的选择方式二选一：按目录拆成 `scripts/tests/{core,qt,flet}`（推荐，清楚），或在 `qt_helpers` 中按 `IWARATOOL_TEST_SCOPE` 跳过。拆目录时注意测试里的相对路径与 `PROJECT_ROOT = parents[2]` 需要随之调整。
 
 ### 2.3 Python 3.12
 
@@ -169,6 +170,10 @@ Flet 打包不支持 3.11，因此整个项目升到 3.12：
 1. `python = "3.12.*"`，重新解 lock。
 2. 旧界面完整跑一遍 `pixi run test` 与 macOS `pixi run build`（含 DMG 冒烟）。PySide6 6.6.2 与 Nuitka 2.8 预期支持 3.12，但必须以实际结果为准；不支持时先升级 PySide6 小版本并单独提交。
 3. `packaging/flet/pyproject.toml` 写 `requires-python = ">=3.12,<3.13"`，使打包固定使用 3.12。
+
+> **核查结果（2026-11-25）**：旧界面在 Python 3.12 下 `pixi run test` 全部通过，但 `pixi run build` 产出的 macOS 包冒烟时段错误：Nuitka 2.8.10 编译后导入 shiboken6 6.6.2，崩在 `Shiboken::init → PyType_Ready`（源码运行正常；锁文件中只有 Python 版本变化；清空 `build/macos` 后重建结果相同，同一流程在 3.11 下签名、DMG 与挂载启动全部通过）。按约束 1 不为新界面改动旧界面的 Qt 版本，因此：
+> - `default`（旧界面）留在 Python 3.11，`flet` 环境使用 3.12，两者暂不共用 solve-group；核心依赖写在默认 feature 中，两边使用同一份版本范围。
+> - 升级 PySide6（6.7 及以上）并让旧界面也升到 3.12 列为独立任务，需要三平台构建与 DMG 冒烟重新验证；完成后再恢复共用 solve-group。
 
 ### 2.4 packaging/flet/pyproject.toml
 
@@ -818,6 +823,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-25 | P0 工程：pixi 拆为 `qt` / `flet` 两个 feature（旧界面 3.11，见 2.3 的核查结果）；测试分层；`scripts/tools/build_flet.py` 与 `packaging/flet/`；`main_flet.py` 冒烟报告（是否加载 Qt、数据目录）；打包后的数据目录取 `FLET_APP_STORAGE_DATA`。 |
 | 2026-11-25 | 分支 `feat/flet-ui`。pixi 新增独立 `flet` 环境（Python 3.12、Flet 1.1.3，不含 PySide6）；设计令牌、主题、图标注册表、`StatusBadge`；主题样张 `scripts/tools/flet_theme_gallery.py`；`main_flet.py` 空壳；CI 新增 Flet 测试任务（Windows / macOS / Linux）。旧界面截图基线在 `tmp/pyside6_baseline/`（不入库）。 |
 
 开发运行注意：`flet_desktop` 会优先启动 `<当前目录>/build/macos/*.app` 或 `build/windows/*.exe` 作为“上次 flet build 的客户端”，而本仓库这两个目录存放的是 Nuitka 构建的旧版应用。Flet 入口一律通过 `app/ui_flet/runner.py` 的 `run()` 启动，它在检测到这些目录时切换到中立的工作目录。

@@ -1,4 +1,11 @@
-"""Start a Flet app from a source checkout without picking up the wrong client.
+"""Prepare the environment and start the Flet app.
+
+``prepare_environment`` runs before anything else from ``app`` is imported:
+the core must not pick its Qt event backend, and the Flet interface keeps its
+data apart from the PySide6 interface (``data-flet/`` in a source checkout,
+the app storage folder Flet provides in a packaged build).
+
+The second concern is the desktop client in development.
 
 In development ``flet run``/``ft.run`` launch the desktop client, and
 ``flet_desktop`` first looks for "a client from a previous ``flet build``" in
@@ -16,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +32,34 @@ from typing import Any
 _log = logging.getLogger(__name__)
 
 PATH_VARIABLES = ("IWARATOOL_DATA_DIR", "IWARATOOL_DOWNLOAD_DIR")
+QT_MODULES = ("PySide6", "shiboken6", "qfluentwidgets", "qframelesswindow")
+
+
+def is_packaged(environ=os.environ) -> bool:
+    """True inside an app made by ``flet build`` (its runtime sets ``FLET_PLATFORM``)."""
+
+    return bool(environ.get("FLET_PLATFORM"))
+
+
+def prepare_environment(project_root: Path, environ=os.environ) -> None:
+    """Set the variables the core reads at import time; call before importing ``app.config``."""
+
+    environ["IWARATOOL_NO_QT"] = "1"
+    if environ.get("IWARATOOL_DATA_DIR"):
+        return
+    if is_packaged(environ):
+        # Kept across app updates; never the PySide6 interface's folder.
+        storage = environ.get("FLET_APP_STORAGE_DATA", "").strip()
+        if storage:
+            environ["IWARATOOL_DATA_DIR"] = str(Path(storage) / "IwaraTool")
+    else:
+        environ["IWARATOOL_DATA_DIR"] = str(project_root / "data-flet")
+
+
+def loaded_qt_modules() -> list[str]:
+    return sorted(name for name in sys.modules if name.split(".")[0] in QT_MODULES)
+
+
 _CLIENT_FOLDERS = (Path("build") / "macos", Path("build") / "windows", Path("build") / "linux")
 
 
