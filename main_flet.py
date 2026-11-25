@@ -14,12 +14,18 @@ from app.ui_flet.runner import loaded_qt_modules, prepare_environment, run
 # Before the rest of ``app`` is imported (the core reads these at import time).
 prepare_environment(Path(__file__).resolve().parent)
 
+from app import bootstrap  # noqa: E402
+
+# A restore staged in Settings must land before app.config opens any file.
+bootstrap.restore_pending_backup()
+
 import flet as ft  # noqa: E402
 
 from app.config import app_config  # noqa: E402
 from app.i18n import current_language, tr  # noqa: E402
 from app.paths import app_data_dir  # noqa: E402
 from app.ui_flet.icons import NavIcon  # noqa: E402
+from app.ui_flet.lifecycle import shutdown, start_app  # noqa: E402
 from app.ui_flet.theme import apply_theme  # noqa: E402
 from app.ui_flet.tokens import Size, Space  # noqa: E402
 from app.version import __version__  # noqa: E402
@@ -41,6 +47,7 @@ def write_smoke_report(page: ft.Page) -> None:
         "data_dir": str(app_data_dir()),
         "flet_storage": os.environ.get("FLET_APP_STORAGE_DATA", ""),
         "qt_modules": loaded_qt_modules(),
+        "bootstrap": "prepared",
     }
     Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -114,9 +121,11 @@ async def main(page: ft.Page) -> None:
             ],
         )
     )
+    # The smoke test only prepares (no task resume, no timed network checks).
+    await start_app(page, services=not SMOKE_TEST)
     if SMOKE_TEST:
         write_smoke_report(page)
-        await page.window.destroy()
+        await shutdown(page)
 
 
 if __name__ == "__main__":

@@ -84,6 +84,10 @@ def _install_crash_hooks(logger: logging.Logger) -> None:
     sys.excepthook = _excepthook
     threading.excepthook = _thread_hook
 
+    from .qt_support import qt_available
+
+    if not qt_available():  # IWARATOOL_NO_QT, or PySide6 missing: no Qt messages to route
+        return
     try:
         from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
