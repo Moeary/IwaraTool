@@ -26,6 +26,12 @@ path = "."
 module = "main_flet"
 
 # Android (docs/flet_ui_plan.md 8): built in CI (`build_flet.py --platform apk`).
+# Pure-Python packages ship inside a zip on Android; cloudscraper opens its
+# user_agent/browsers.json by file path, so it must be unpacked (found by the
+# android-emulator CI job: NotADirectoryError at start-up).
+[tool.flet.android]
+extract_packages = ["cloudscraper"]
+
 # Remote videos play through the loopback stream proxy at http://127.0.0.1,
 # which Android refuses unless cleartext traffic is allowed.
 [tool.flet.android.manifest_application]
