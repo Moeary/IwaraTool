@@ -180,6 +180,19 @@ jobs:
       - name: Run Flet tests
         run: pixi run -e flet test-flet
 
+      # Flet's Flutter plugins (connectivity_plus 7.3+) use macOS 26 SDK APIs
+      # such as NWPath.isUltraConstrained; the runner's default Xcode 16 lacks them.
+      - name: Select the newest Xcode
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ls -d /Applications/Xcode_*.app
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -E '/Xcode_[0-9]+(\.[0-9]+)*\.app$' | sort -V | tail -1)
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          major=$(xcodebuild -version | head -1 | sed -E 's/Xcode ([0-9]+).*/\1/')
+          if [ "$major" -lt 26 ]; then echo "::error::Flet's macOS build needs Xcode 26 or newer, the runner has $major"; exit 1; fi
+
       # Stages a clean copy, runs flet build, audits for Qt/app/ui, launches the
       # result in smoke-test mode and zips it into dist/.
       - name: Build, audit and smoke-test
