@@ -2,8 +2,17 @@
 
     pixi run -e flet start-flet
 
-For now this opens the empty shell: theme, navigation and placeholder pages.
+Development options (docs/flet_ui_plan.md 9.2):
+
+    --viewport WxH     start with this window size (simulates phones and tablets)
+    --route PATH       open this route first (``/settings/account``)
+    --theme MODE       auto / light / dark for this run only
+    --lang LANG        zh / en / ja (saved: point IWARATOOL_DATA_DIR elsewhere for checks)
+    --shot FILE.png    save a screenshot after start-up and quit
+    --account          open the account panel (for screenshots)
 """
+import argparse
+import asyncio
 import json
 import os
 import sys
@@ -21,13 +30,9 @@ bootstrap.restore_pending_backup()
 
 import flet as ft  # noqa: E402
 
-from app.config import app_config  # noqa: E402
-from app.i18n import current_language, tr  # noqa: E402
 from app.paths import app_data_dir  # noqa: E402
-from app.ui_flet.icons import NavIcon  # noqa: E402
+from app.ui_flet.app import mount  # noqa: E402
 from app.ui_flet.lifecycle import shutdown, start_app  # noqa: E402
-from app.ui_flet.theme import apply_theme  # noqa: E402
-from app.ui_flet.tokens import Size, Space  # noqa: E402
 from app.version import __version__  # noqa: E402
 
 # Smoke test: ``--smoke-test`` or IWARATOOL_SMOKE_TEST=1 (packaged apps may not
@@ -52,80 +57,71 @@ def write_smoke_report(page: ft.Page) -> None:
     Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def destinations() -> list[tuple[NavIcon, str]]:
-    return [
-        (NavIcon.HOME, tr("Home", "首页", "ホーム")),
-        (NavIcon.SUBSCRIPTIONS, tr("Subscriptions", "订阅", "購読")),
-        (NavIcon.SEARCH, tr("Search", "搜索", "検索")),
-        (NavIcon.DOWNLOADS, tr("Downloads", "下载", "ダウンロード")),
-        (NavIcon.LIBRARY, tr("Library", "资料库", "ライブラリ")),
-        (NavIcon.RULES, tr("Rules", "规则", "ルール")),
-        (NavIcon.REPAIR, tr("Repair", "修复", "修復")),
-        (NavIcon.TOOLS, tr("Tools", "工具", "ツール")),
-        (NavIcon.SETTINGS, tr("Settings", "设置", "設定")),
-    ]
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--viewport", default="")
+    parser.add_argument("--route", default="")
+    parser.add_argument("--theme", choices=("auto", "light", "dark"), default="")
+    parser.add_argument("--lang", choices=("zh", "en", "ja"), default="")
+    parser.add_argument("--shot", type=Path)
+    parser.add_argument("--account", action="store_true")
+    args, _unknown = parser.parse_known_args(argv)  # packaged runs may add their own
+    if args.shot:
+        args.shot = args.shot.resolve()  # the runner changes the working directory
+    return args
 
 
-def placeholder(title: str) -> ft.Control:
-    return ft.Container(
-        expand=True,
-        padding=ft.Padding.symmetric(horizontal=Space.XXL, vertical=Space.XL),
-        content=ft.Column(
-            spacing=Space.SM,
-            controls=[
-                ft.Text(title, theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM),
-                ft.Text(
-                    tr("This page has not been ported yet.", "此页面尚在移植中。", "このページは移植中です。"),
-                    theme_style=ft.TextThemeStyle.BODY_MEDIUM,
-                ),
-            ],
-        ),
-    )
+ARGS = parse_args(sys.argv[1:])
+
+
+def viewport(text: str) -> tuple[int, int] | None:
+    try:
+        width, height = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        return None
+    return width, height
+
+
+async def take_shot(page: ft.Page, target: Path) -> None:
+    await asyncio.sleep(1.5)  # let fonts, layout and the first resize settle
+    data = await page.take_screenshot(pixel_ratio=1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    print(f"saved {target}", flush=True)
+    await shutdown(page)
 
 
 async def main(page: ft.Page) -> None:
     page.title = "IwaraTool"
     page.padding = 0
-    page.window.min_width, page.window.min_height = 360, 560
-    page.window.width, page.window.height = 1280, 800
-    apply_theme(
-        page,
-        theme_mode=app_config.theme_mode,
-        language=current_language(),
-        user_font=str(app_config.ui_font_family or ""),
-    )
-    items = destinations()
-    content = ft.Container(expand=True, content=placeholder(items[0][1]))
+    page.window.min_width, page.window.min_height = 320, 560
+    size = viewport(ARGS.viewport) or (1280, 800)
+    page.window.min_width = min(page.window.min_width, size[0])
+    page.window.min_height = min(page.window.min_height, size[1])
+    page.window.width, page.window.height = size
+    page.enable_screenshots = bool(ARGS.shot)
+    if ARGS.lang:
+        from app.presentation.preferences import set_language
 
-    def navigate(e: ft.Event[ft.NavigationRail]) -> None:
-        content.content = placeholder(items[e.control.selected_index][1])
-        page.update()
-
-    page.add(
-        ft.Row(
-            expand=True,
-            spacing=0,
-            controls=[
-                ft.NavigationRail(
-                    selected_index=0,
-                    label_type=ft.NavigationRailLabelType.ALL,
-                    min_width=Size.NAV_RAIL,
-                    on_change=navigate,
-                    destinations=[
-                        ft.NavigationRailDestination(icon=pair.rest, selected_icon=pair.active, label=label)
-                        for pair, label in items
-                    ],
-                ),
-                ft.VerticalDivider(width=1),
-                content,
-            ],
-        )
-    )
+        set_language(ARGS.lang)
+    shell = mount(page, theme_override=ARGS.theme)
+    if ARGS.route:
+        shell.open(ARGS.route)
+    if ARGS.account:
+        shell.open_account()
     # The smoke test only prepares (no task resume, no timed network checks).
-    await start_app(page, services=not SMOKE_TEST)
+    services = not (SMOKE_TEST or ARGS.shot)
+    await start_app(page, services=services)
     if SMOKE_TEST:
         write_smoke_report(page)
         await shutdown(page)
+        return
+    await shell.refresh_badges()
+    if services:
+        page.run_task(shell.restore_login)
+    if ARGS.shot:
+        await take_shot(page, ARGS.shot)
 
 
 if __name__ == "__main__":

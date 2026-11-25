@@ -45,6 +45,14 @@ class SizeClassTests(unittest.TestCase):
         self.assertTrue(LayoutState(1280, 800).two_pane)
         self.assertFalse(LayoutState(960, 411, "android").two_pane)
 
+    def test_secondary_destinations_need_room_in_the_rail(self):
+        self.assertFalse(LayoutState(841, 673, "android").rail_fits(9))
+        self.assertTrue(LayoutState(841, 673, "android").rail_fits(5))
+        self.assertTrue(LayoutState(800, 1280, "android").rail_fits(9))
+        self.assertTrue(LayoutState(1280, 800).rail_fits(9))
+        self.assertTrue(LayoutState(1440, 900).rail_fits(9))
+        self.assertFalse(LayoutState(400, 800, "android").rail_fits(5))  # bottom bar
+
     def test_aspect(self):
         self.assertAlmostEqual(LayoutState(411, 960).aspect, 960 / 411)
 

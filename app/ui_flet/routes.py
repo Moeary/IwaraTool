@@ -62,6 +62,14 @@ def label(destination: str) -> str:
     }.get(destination, destination)
 
 
+def short_label(destination: str) -> str:
+    """Bottom-bar label: about 8 Latin characters fit one fifth of a 320 dp phone."""
+    return {
+        SUBSCRIPTIONS: tr("Subs", "订阅", "購読"),
+        DOWNLOADS: tr("Queue", "下载", "保存"),
+    }.get(destination) or label(destination)
+
+
 def available(destinations: tuple[str, ...], *, desktop: bool) -> tuple[str, ...]:
     return tuple(d for d in destinations if desktop or d not in DESKTOP_ONLY)
 

@@ -38,6 +38,12 @@ MAX_WIDTH_FORM = Size.FORM_MAX_WIDTH
 MAX_WIDTH_LIST_DETAIL = 1440
 LIST_DETAIL_MIN_WIDTH = 840  # two panes from here on
 
+# Rail rows (measured on the Flet 1.1 client): a destination with its label
+# under the icon, one with the label beside it, and what the rail needs besides
+# (leading control, group gap, account button at the bottom).
+RAIL_ROW = {NAV_RAIL: 66, NAV_RAIL_EXTENDED: 48, NAV_RAIL_COLLAPSED: 56}
+RAIL_CHROME = {NAV_RAIL: 136, NAV_RAIL_EXTENDED: 176, NAV_RAIL_COLLAPSED: 136}
+
 DESKTOP = frozenset({"windows", "macos", "linux"})
 MOBILE = frozenset({"android", "ios"})
 
@@ -131,6 +137,14 @@ class LayoutState:
         if mode == NAV_RAIL_EXTENDED:
             return Size.NAV_RAIL_EXTENDED
         return Size.NAV_RAIL
+
+    def rail_fits(self, count: int) -> bool:
+        """Whether ``count`` destinations fit the rail's height without scrolling."""
+        mode = self.nav_mode
+        if mode == NAV_BAR:
+            return False
+        usable = self.height - self.safe_insets.top - self.safe_insets.bottom
+        return count * RAIL_ROW[mode] + RAIL_CHROME[mode] <= usable
 
     @property
     def content_width(self) -> float:

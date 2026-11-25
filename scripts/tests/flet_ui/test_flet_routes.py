@@ -29,6 +29,14 @@ class RouteTests(unittest.TestCase):
         for destination in (*routes.DESTINATIONS, routes.DETAIL, routes.AUTHOR):
             self.assertNotEqual(routes.label(destination), destination)
 
+    def test_bar_labels_are_short(self):
+        from app.i18n import pinned_language
+
+        for language in ("en", "zh", "ja"):
+            with pinned_language(language):
+                for destination in routes.PRIMARY:
+                    self.assertLessEqual(len(routes.short_label(destination)), 8 if language == "en" else 5, destination)
+
 
 if __name__ == "__main__":
     unittest.main()

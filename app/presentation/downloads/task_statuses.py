@@ -37,3 +37,15 @@ _TERMINAL_STATUSES = frozenset(
         TaskStatus.CANCELLED,
     }
 )
+
+
+def badge_counts(manager) -> tuple[int, int]:
+    """(tasks in progress, videos waiting for confirmation) for the Downloads navigation badge."""
+
+    active = sum(1 for task in manager.get_tasks() if task.status in _ACTIVE_STATUSES)
+    staged = int(manager.staged_counts().get("total", 0))
+    return active, staged
+
+
+def badge_text(count: int) -> str:
+    return "99+" if count > 99 else str(count) if count > 0 else ""
