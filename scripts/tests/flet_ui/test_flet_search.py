@@ -128,6 +128,34 @@ class SearchStoreTests(unittest.TestCase):
         store.set_keyword("x")
         self.assertEqual([k for _l, k in store.sort_choices()], ["date", "relevance"])
 
+    def test_tag_suggestions_complete_the_keyword(self):
+        from app.core.tag_dictionary import TagSuggestion
+
+        async def body():
+            store, page = self.make()
+            calls = []
+
+            def suggest(query, limit=12):
+                calls.append(query)
+                return [TagSuggestion("dance", "Dance", "舞蹈", "ダンス")]
+
+            store.manager.get_search_tag_suggestions = suggest
+            store.set_keyword("dan")  # not the tags scope: nothing
+            await asyncio.gather(*page.tasks, return_exceptions=True)
+            self.assertEqual(calls, [])
+            store.set_scope("tags")
+            store.set_keyword("loop, dan")
+            await asyncio.gather(*page.tasks, return_exceptions=True)
+            self.assertEqual([key for key, _label, _tip in store.state.suggestions], ["dance"])
+            store.apply_suggestion("dance")
+            self.assertEqual(store.state.suggestions, [])
+            return store, calls
+
+        store, calls = self.run_async(body)
+        self.assertEqual(calls, ["dan"])
+        self.assertIn("dance", store.state.keyword)
+        self.assertTrue(store.state.keyword.startswith("loop"))
+
 
 if __name__ == "__main__":
     unittest.main()

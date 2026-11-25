@@ -113,7 +113,19 @@ def QueryBar():
         else ft.FilledButton(content=tr("Search", "搜索", "検索"), icon=AppIcon.SEARCH, on_click=submit,
                              disabled=state.loading)
     )
-    return ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[source, field, button])
+    bar = ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[source, field, button])
+    if not state.suggestions:
+        return bar
+    suggestions = ft.Row(
+        scroll=ft.ScrollMode.AUTO,
+        spacing=Space.SM,
+        controls=[
+            ft.Chip(label=label, tooltip=tip, leading=ft.Icon(AppIcon.TAG, size=Size.ICON_SM),
+                    on_click=lambda _e, key=key: store.apply_suggestion(key))
+            for key, label, tip in state.suggestions
+        ],
+    )
+    return ft.Column(spacing=Space.SM, controls=[bar, suggestions])
 
 
 @ft.component

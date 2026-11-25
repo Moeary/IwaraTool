@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem, QWidget
 
 from qfluentwidgets import LineEdit, ListWidget
 
+from ...presentation.search.tag_completion import suggestion_tooltip
 from ...core.tag_dictionary import TagSuggestion
 from ...i18n import tr
 from ..style.theme import popup_list_qss
@@ -42,12 +43,7 @@ class TagSuggestionPopup(ListWidget):
         for suggestion in suggestions:
             item = QListWidgetItem(suggestion.display_text)
             item.setData(Qt.ItemDataRole.UserRole, suggestion.key)
-            item.setToolTip(
-                f"{suggestion.key}\n"
-                f"EN: {suggestion.en}\n"
-                f"中文: {suggestion.zh}\n"
-                f"日本語: {suggestion.ja}"
-            )
+            item.setToolTip(suggestion_tooltip(suggestion))
             self.addItem(item)
         if self.count():
             self.setCurrentRow(0)

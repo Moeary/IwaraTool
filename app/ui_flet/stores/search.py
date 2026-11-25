@@ -24,7 +24,7 @@ from ...core.search.service import run_search
 from ...logging_setup import get_logger
 from ...presentation import preferences
 from ...presentation.media.cards import CardView, card_for
-from ...presentation.search import options
+from ...presentation.search import options, tag_completion
 from ...presentation.search.download_status import SearchDownloadStatus, query_download_statuses
 from ...presentation.search.history_entries import read_search_history, record_search
 from ...presentation.search.request import PROBLEM_WARNING, ResultSet, page_size, request_problem
@@ -50,6 +50,7 @@ class SearchState:
     has_next: bool = False
     history: list[dict[str, str]] = field(default_factory=list)
     post_filter: PostFilter = field(default_factory=PostFilter)
+    suggestions: list[tuple[str, str, str]] = field(default_factory=list)  # (tag key, label, tooltip)
 
 
 class SearchStore:
@@ -70,12 +71,46 @@ class SearchStore:
         self._source_pinned = False
         self._auto_routed = False
         self._bump_pending = False
+        self._suggest_serial = 0
 
     # ── query controls ───────────────────────────────────────────────────────
 
     def set_keyword(self, text: str) -> None:
         self.state.keyword = str(text or "")
         self._fix_sort()
+        self._schedule_suggestions()
+
+    # ── tag suggestions (the "tags" scope) ───────────────────────────────────
+
+    def _schedule_suggestions(self) -> None:
+        self._suggest_serial += 1
+        if self.state.scope != "tags" or not self.state.keyword.strip():
+            if self.state.suggestions:
+                self.state.suggestions = []
+            return
+        page = getattr(self.shell, "page", None)
+        if page is not None:
+            page.run_task(self._suggest, self._suggest_serial)
+
+    async def _suggest(self, serial: int) -> None:
+        await asyncio.sleep(0.15)  # typing: wait for a pause
+        if serial != self._suggest_serial:
+            return
+        state = self.state
+        try:
+            found = await asyncio.to_thread(
+                tag_completion.suggestions_for, self.manager, state.keyword, scope=state.scope, source=state.source
+            )
+        except Exception:
+            logger.exception("Tag suggestions failed")
+            found = []
+        if serial == self._suggest_serial:
+            state.suggestions = [(s.key, s.display_text, tag_completion.suggestion_tooltip(s)) for s in found]
+
+    def apply_suggestion(self, key: str) -> None:
+        self.state.keyword = tag_completion.complete(self.state.keyword, key, self.state.source)
+        self._suggest_serial += 1
+        self.state.suggestions = []
 
     def set_source(self, source: str) -> None:
         if source == options.SOURCE_ORENO3D and not options.oreno3d_available():
@@ -90,6 +125,7 @@ class SearchStore:
     def set_scope(self, scope: str) -> None:
         self.state.scope = scope if scope in options.supported_scopes(self.state.source) else "videos"
         self._fix_sort()
+        self._schedule_suggestions()
 
     def set_sort(self, sort: str) -> None:
         self.state.sort = sort
@@ -141,6 +177,8 @@ class SearchStore:
         if record:
             state.history = await asyncio.to_thread(record_search, state.keyword, state.source, state.scope, state.sort)
         self._request = (filters, state.scope, state.source)
+        self._suggest_serial += 1
+        state.suggestions = []
         self._restart()
         self.results.clear()
         self.items.clear()
