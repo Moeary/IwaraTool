@@ -9,7 +9,7 @@ import flet as ft
 
 from ....core.models import TaskStatus
 from ....i18n import tr
-from ....presentation.media.cards import KIND_AUTHOR, KIND_PLAYLIST, CardView
+from ....presentation.media.cards import KIND_AUTHOR, KIND_IMAGE, KIND_PLAYLIST, CardView
 from ....presentation.search import options
 from ....presentation.search import post_filter_text
 from ....presentation.search.download_status import SearchDownloadStatus
@@ -302,7 +302,9 @@ def Results():
             store.set_keyword(getattr(item, "source_url", "") or card.cover_key)
             shell.page.run_task(store.search)
         elif card.history_id:
-            shell.open(routes.route(routes.DETAIL, "video", card.history_id))
+            shell.details.remember(item, card.history_id)
+            kind = "image" if card.kind == KIND_IMAGE else "video"
+            shell.open(routes.route(routes.DETAIL, kind, card.history_id))
         else:
             notice(shell.page, "info", tr("Still finding this video on Iwara…", "正在 Iwara 上查找这个视频…",
                                           "Iwara で動画を探しています…"))

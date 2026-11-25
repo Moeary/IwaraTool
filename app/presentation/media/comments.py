@@ -19,6 +19,7 @@ class CommentView:
     avatar_key: str
     avatar_url: str
     reply_count: int
+    body: str = ""  # plain text, for link_segments
 
     def replies_label(self) -> str:
         count = self.reply_count
@@ -36,6 +37,7 @@ def comment_view(row: dict[str, Any]) -> CommentView:
         avatar_key=str(user.get("id") or comment_id),
         avatar_url=avatar_url(user),
         reply_count=int(row.get("numReplies") or 0),
+        body=str(row.get("body") or ""),
     )
 
 

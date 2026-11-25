@@ -7,6 +7,7 @@ cancels one.  Nothing here is imported outside demo runs.
 from __future__ import annotations
 
 import asyncio
+import os
 
 import demo_fixture
 
@@ -14,7 +15,21 @@ import demo_fixture
 async def play(shell, route: str) -> None:
     from app.ui_flet import routes
 
-    destination = routes.parse(route or "/").destination
+    parsed = routes.parse(route or "/")
+    destination = parsed.destination
+    if destination == routes.DETAIL and os.environ.get("IWARATOOL_DEMO_PLAY"):
+        # Play a local clip as the "downloaded copy" (the demo CDN serves no video).
+        from app.core.playback import video_player
+
+        clip = os.path.abspath(os.environ["IWARATOOL_DEMO_PLAY"])
+        video_player.playable_video_target = lambda *_args, **_kwargs: clip
+        model = shell.details.model(*parsed.parts[:2])
+        for _ in range(50):
+            if model.can_play:
+                break
+            await asyncio.sleep(0.1)
+        model.state.playing = True
+        return
     if destination == routes.SEARCH:
         store = shell.search
         store.set_source("iwara")

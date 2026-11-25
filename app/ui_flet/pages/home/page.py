@@ -30,7 +30,8 @@ SCOPE = "home"
 SHELF_CARD = 168  # dp, phones (7.1)
 
 
-def open_card(shell, card: CardView) -> None:
+def open_card(shell, card: CardView, videos: dict | None = None) -> None:
+    shell.details.remember((videos or {}).get(card.key))
     kind = "image" if card.kind == "image" else "video"
     shell.open(routes.route(routes.DETAIL, kind, card.cover_key))
 
@@ -160,7 +161,7 @@ def HomeRowView(row: HomeRow):
 
     def card(item: CardView, width: float) -> ft.Control:
         return VideoCard(item, width, shell.page, selected=item.key in state.selected, selecting=bool(state.selected),
-                         touch=view.is_touch, on_open=lambda c: open_card(shell, c), on_toggle=row.toggle, key=item.key)
+                         touch=view.is_touch, on_open=lambda c: open_card(shell, c, row.videos), on_toggle=row.toggle, key=item.key)
 
     if compact:
         height = SHELF_CARD * 9 / 16 + text_height()
@@ -259,7 +260,7 @@ def HomeBrowse(section_id: str, tab_id: str):
     else:
         body = VideoGrid(
             cards,
-            on_open=lambda c: open_card(shell, c),
+            on_open=lambda c: open_card(shell, c, videos),
             on_end_reached=(lambda: shell.page.run_task(load, page_state["page"] + 1)) if page_state["more"] else None,
         )
     return PageFrame(title=title, body=body)

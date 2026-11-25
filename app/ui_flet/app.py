@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import flet as ft
 
-from . import layout
+from . import layout, routes
 from .components.account_panel import AccountPanelHost
 from .components.navigation import build_bar, build_rail
 from .pages import page_for
@@ -21,6 +21,11 @@ from .stores.app_state import ShellContext, subscribe
 def CurrentPage(shell: Shell):
     state = shell.state
     subscribe(state)
+    route = routes.parse(state.path, fallback=state.destination)
+    if route.destination in (routes.DETAIL, routes.AUTHOR):
+        # A post or an author opened over the destination it came from.
+        page = page_for(route.destination)
+        return ft.Container(expand=True, key=route.path, content=page(state.destination, state.path))
     page = page_for(state.destination)
     # Keyed by destination: each destination keeps its own component state.
     return ft.Container(expand=True, key=state.destination, content=page(state.destination, state.path))

@@ -25,6 +25,7 @@ from .services.events import EventBridge
 from .services.images import ImageService
 from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
+from .stores.detail import DetailStore
 from .stores.home import HomeStore
 from .stores.search import SearchStore
 from .stores.tasks import TaskStore
@@ -80,6 +81,7 @@ class Shell:
         self.images = ImageService(download_manager)
         self.search = SearchStore(self, download_manager)
         self.home = HomeStore(self, download_manager)
+        self.details = DetailStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -217,6 +219,7 @@ class Shell:
         self.bridge.close()
         self.images.close()
         self.search.close()
+        self.details.close()
 
     def _on_rating_changed(self, _rating: str) -> None:
         self.state.rating = preferences.current_rating()
