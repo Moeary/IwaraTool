@@ -10,13 +10,13 @@ from PySide6.QtCore import QTimer
 from qfluentwidgets import LineEdit
 
 from ...core.search.models import SearchVideo
-from ...core.search.normalize import normalize_video
+from ...core.search.resolution import apply_oreno_link
 from ...i18n import tr
+from ...presentation.search import options as search_options
 from ...presentation.search.result_authors import _author_subscription_target
 from .oreno_workers import SearchOrenoLinkWorker
 from ..common.worker_lifecycle import on_finished
 from .page_dependencies import signal_bus
-from ...core import site as sites
 
 
 class SearchOrenoLinksMixin:
@@ -61,84 +61,10 @@ class SearchOrenoLinksMixin:
     def _on_oreno_link_progress(self, current: int, total: int):
         if total <= 0:
             return
-        self._status_label.setText(
-            tr(
-                f"Loading Iwara IDs {current}/{total}…",
-                f"正在加载 Iwara ID {current}/{total}…",
-                f"Iwara IDを読み込み中 {current}/{total}…",
-            )
-        )
+        self._status_label.setText(search_options.resolving_ids_text(current, total))
 
     def _apply_oreno_link(self, video: SearchVideo, link: dict[str, Any]) -> bool:
-        for key in ("oreno_author_id", "oreno_author_name", "oreno_author_url"):
-            value = str(link.get(key) or "").strip()
-            if value:
-                video.raw[key.replace("oreno_", "oreno3d_")] = value
-        if isinstance(link.get("iwara_author"), dict) and link["iwara_author"]:
-            video.raw["oreno_iwara_author"] = dict(link["iwara_author"])
-            video.raw.pop("oreno3d_author_error", None)
-        elif link.get("author_error") and not video.raw.get("oreno_iwara_author"):
-            video.raw["oreno3d_author_error"] = str(link["author_error"])
-        video_id = str(link.get("id") or "").strip()
-        if not video_id:
-            # The source author remains useful even when the video link is
-            # absent. A late failed request must not erase an earlier success.
-            if not video.download_video_id:
-                video.raw["oreno3d_resolution_error"] = str(link.get("error") or "")
-            return True
-        video.raw.pop("oreno3d_resolution_error", None)
-        iwara_url = str(link.get("url") or "").strip()
-        # Oreno3D's cover is already loaded asynchronously when the search
-        # card appears.  Keep that bridge cover after Iwara metadata arrives;
-        # otherwise the metadata's thumbnail URL invalidates the cache key and
-        # the same card visibly downloads a second image from Iwara.
-        is_oreno_bridge = video.source_kind == "oreno3d" or bool(video.raw.get("oreno3d_url"))
-        bridge_thumbnail_url = str(
-            video.raw.get("oreno3d_thumbnail_url") or video.thumbnail_url or ""
-        )
-        if is_oreno_bridge and "oreno3d_thumbnail_url" not in video.raw:
-            video.raw["oreno3d_thumbnail_url"] = bridge_thumbnail_url
-        bridge_url = str(video.raw.get("oreno3d_url") or video.source_url or "")
-        metadata = link.get("metadata")
-        normalized = normalize_video(metadata) if isinstance(metadata, dict) else None
-        if normalized is not None:
-            for field_name in (
-                "title",
-                "author_username",
-                "author_name",
-                "published_at",
-                "likes",
-                "views",
-                "duration",
-                "width",
-                "height",
-                "comments",
-                "rating",
-                "tags",
-                "origins",
-                "characters",
-                "thumbnail_url",
-                "slug",
-            ):
-                setattr(video, field_name, getattr(normalized, field_name))
-        if is_oreno_bridge:
-            video.thumbnail_url = bridge_thumbnail_url
-        if normalized is not None:
-            video.raw.update(metadata)
-            video.raw["_iwara_metadata_loaded"] = True
-            video.raw.pop("iwara_metadata_error", None)
-        elif not video.raw.get("_iwara_metadata_loaded") and link.get("metadata_error"):
-            video.raw["iwara_metadata_error"] = str(link["metadata_error"])
-        video.raw["oreno3d_url"] = bridge_url
-        video.raw["oreno3d_id"] = video.video_id.removeprefix("oreno3d:")
-        video.download_video_id = video_id
-        video.iwara_url = iwara_url or sites.video_url(video_id, sites.SITE_TV)
-        video.downloadable = True
-        video.source_kind = "iwara"
-        video.source_url = video.iwara_url
-        video.raw["iwara_id"] = video_id
-        video.raw["iwara_url"] = video.iwara_url
-        return True
+        return apply_oreno_link(video, link)
 
     def _on_oreno_link_item(self, result: object):
         if not isinstance(result, dict) or int(result.get("generation", -1)) != self._generation:

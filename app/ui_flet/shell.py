@@ -25,8 +25,10 @@ from .services.events import EventBridge
 from .services.images import ImageService
 from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
+from .stores.search import SearchStore
 from .stores.tasks import TaskStore
 from .theme import DESKTOP_PLATFORMS, apply_theme
+from .tokens import Size
 
 logger = get_logger(__name__)
 
@@ -75,6 +77,7 @@ class Shell:
         self.downloads = DownloadService(self)
         self.tasks = TaskStore(download_manager)
         self.images = ImageService(download_manager)
+        self.search = SearchStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -99,6 +102,13 @@ class Shell:
         current = self.state.layout
         if (current.width, current.height) != (width, height):
             self.state.layout = self._layout(width, height)
+            self._sync_notice_frame()
+
+    def _sync_notice_frame(self) -> None:
+        from .services.notify import set_frame
+
+        state = self.state.layout
+        set_frame(self.page, width=state.width, bottom_inset=Size.NAV_BAR if state.nav_mode == layout.NAV_BAR else 0)
 
     def toggle_rail(self) -> None:
         extended = not self.state.layout.rail_extended_preference
@@ -190,8 +200,10 @@ class Shell:
     def connect(self) -> None:
         self.events.on("language_changed", self._on_language)
         self.events.on("font_changed", lambda: self.apply_theme())
-        self.events.on("content_rating_changed", lambda rating: setattr(self.state, "rating", preferences.current_rating()))
-        self.events.on("site_changed", lambda _key: setattr(self.state, "site", preferences.current_site()))
+        self.events.on("content_rating_changed", self._on_rating_changed)
+        self.events.on("site_changed", self._on_site_changed)
+        self.events.on("history_changed", lambda: self.page.run_task(self.search.refresh_statuses),
+                       coalesce=lambda *_a: "history")
         self.events.on("login_state_changed", lambda logged_in: setattr(self.state, "logged_in", bool(logged_in)))
         self.events.on("shortcuts_changed", self.shortcuts.refresh)
         for name in ("task_added", "tasks_added", "task_status_changed", "task_removed", "tasks_removed", "staging_changed"):
@@ -202,6 +214,15 @@ class Shell:
         self.events.close()
         self.bridge.close()
         self.images.close()
+        self.search.close()
+
+    def _on_rating_changed(self, _rating: str) -> None:
+        self.state.rating = preferences.current_rating()
+        self.page.run_task(self.search.rerun)
+
+    def _on_site_changed(self, _key: str) -> None:
+        self.state.site = preferences.current_site()
+        self.page.run_task(self.search.rerun)
 
     def _on_language(self, _code: str) -> None:
         self.state.language = current_language()

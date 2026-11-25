@@ -160,6 +160,10 @@ class LayoutState:
     def page_padding(self) -> float:
         return 16 if self.width_class == WIDTH_COMPACT else 24 if self.width_class == WIDTH_MEDIUM else 32
 
+    def body_width(self, max_width: float = MAX_WIDTH_GRID) -> float:
+        """Width inside a ``PageFrame``: the content, capped at ``max_width``, less the page padding."""
+        return max(1.0, min(self.content_width, max_width) - 2 * self.page_padding)
+
     def shell_key(self) -> tuple:
         """What the shell's structure depends on; rebuild only when this changes."""
         return (self.nav_mode, self.width_class, self.height_class, self.is_mobile)

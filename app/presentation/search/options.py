@@ -182,3 +182,7 @@ def routed_text() -> tuple[str, str]:
         "中文关键词使用 Oreno3D 搜索（可在 设置 › 搜索 中关闭）。",
         "中国語キーワードは Oreno3D で検索します（設定 › 検索）。",
     )
+
+
+def resolving_ids_text(current: int, total: int) -> str:
+    return tr(f"Loading Iwara IDs {current}/{total}…", f"正在加载 Iwara ID {current}/{total}…", f"Iwara IDを読み込み中 {current}/{total}…")

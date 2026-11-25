@@ -14,11 +14,11 @@ from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES
 from ...presentation.downloads.task_text import priority_text, progress_ratio, task_cover_url, task_meta_text, task_url
 from .. import layout
 from ..icons import AppIcon
-from ..services.images import use_cached_image
 from ..stores.app_state import use_shell
 from ..stores.tasks import TaskItem
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
+from .cover import Cover
 from .status_badge import BadgeKind, status_badge
 
 _QUEUED = frozenset({TaskStatus.QUEUED_META, TaskStatus.QUEUED_DOWNLOAD, TaskStatus.RESOLVING, TaskStatus.STAGED})
@@ -35,30 +35,6 @@ def task_badge(task: DownloadTask, palette) -> ft.Control:
     if status in _QUEUED or status == TaskStatus.CANCELLING:
         return status_badge(BadgeKind.QUEUED, palette, text=status_label(status))
     return status_badge(BadgeKind.NEUTRAL, palette, text=status_label(status))
-
-
-@ft.component
-def Cover(kind: str, key: str, url: str, width: float, local: str = ""):
-    """A 16:9 cover from the image cache; an icon until it arrives or when there is none."""
-
-    shell = use_shell()
-    path = use_cached_image(shell.images, kind, key, url, local)
-    height = width * 9 / 16
-    content = (
-        ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, gapless_playback=True,
-                 error_content=ft.Icon(AppIcon.VIDEO))
-        if path
-        else ft.Icon(AppIcon.VIDEO)
-    )
-    return ft.Container(
-        width=width,
-        height=height,
-        border_radius=Radius.CHIP,
-        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-        alignment=ft.Alignment.CENTER,
-        bgcolor=palette_for(shell.page).field,
-        content=content,
-    )
 
 
 def _menu(shell, task: DownloadTask) -> ft.Control:

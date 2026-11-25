@@ -65,6 +65,7 @@ class Palette:
     inverse_primary: str
     cover_placeholder: str
     cover_scrim: str  # behind text drawn on a cover (duration, badges)
+    on_cover_scrim: str  # text and icons on cover_scrim
     success: Semantic
     warning: Semantic
     danger: Semantic
@@ -93,6 +94,7 @@ LIGHT = Palette(
     inverse_primary="#4CC2C9",
     cover_placeholder="#E8EBEF",
     cover_scrim="#B3000000",
+    on_cover_scrim="#FFFFFF",
     success=Semantic(fg="#0F7B0F", bg="#DFF3E2"),
     warning=Semantic(fg="#9D5D00", bg="#FFF1D6"),
     danger=Semantic(fg="#C42B1C", bg="#FDE7E4"),
@@ -121,6 +123,7 @@ DARK = Palette(
     inverse_primary="#006B73",
     cover_placeholder="#25292D",
     cover_scrim="#B3000000",
+    on_cover_scrim="#FFFFFF",
     success=Semantic(fg="#6CCB5F", bg="#1E3A22"),
     warning=Semantic(fg="#F0B44C", bg="#3D2E12"),
     danger=Semantic(fg="#FF99A4", bg="#47201F"),
@@ -268,3 +271,16 @@ def relative_luminance(color: str) -> float:
 def contrast_ratio(a: str, b: str) -> float:
     hi, lo = sorted((relative_luminance(a), relative_luminance(b)), reverse=True)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def blend(over: str, under: str) -> str:
+    """``#AARRGGBB`` ``over`` composited on opaque ``under``, as ``#RRGGBB``."""
+
+    text = over.lstrip("#")
+    alpha = int(text[:2], 16) / 255 if len(text) == 8 else 1.0
+    top = text[2:] if len(text) == 8 else text
+    base = under.lstrip("#")[-6:]
+    channels = (
+        round(int(top[i:i + 2], 16) * alpha + int(base[i:i + 2], 16) * (1 - alpha)) for i in (0, 2, 4)
+    )
+    return "#" + "".join(f"{value:02X}" for value in channels)

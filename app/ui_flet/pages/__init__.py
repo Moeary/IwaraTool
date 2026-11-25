@@ -25,5 +25,7 @@ def page_for(destination: str) -> Callable:
 def _register_ported() -> None:
     from .. import routes
     from .downloads.page import DownloadsPage
+    from .search.page import SearchPage
 
     register(routes.DOWNLOADS, DownloadsPage)
+    register(routes.SEARCH, SearchPage)

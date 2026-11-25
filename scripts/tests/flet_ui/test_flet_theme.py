@@ -57,6 +57,13 @@ class TokenContrastTests(unittest.TestCase):
             self.assertContrast(p.on_inverse_surface, p.inverse_surface, AA_TEXT, f"{mode} on_inverse_surface")
             self.assertContrast(p.inverse_primary, p.inverse_surface, AA_TEXT, f"{mode} inverse_primary")
 
+    def test_text_on_covers(self):
+        for mode in ("light", "dark"):
+            p = tk.palette(mode)
+            # the scrim is translucent black: check it over a white cover, the worst case
+            scrim = tk.blend(p.cover_scrim, "#FFFFFF")
+            self.assertContrast(p.on_cover_scrim, scrim, AA_TEXT, f"{mode} on_cover_scrim")
+
     def test_semantic_colors(self):
         for mode in ("light", "dark"):
             p = tk.palette(mode)

@@ -87,3 +87,47 @@ def _decode_search_history(value: object) -> list[dict[str, str]]:
         seen.add(key)
         decoded.append(item)
     return decoded
+
+
+SEARCH_HISTORY_KEY = "search_history_v1"
+
+
+def read_search_history() -> list[dict[str, str]]:
+    from ...config import app_config
+
+    history = _decode_search_history(app_config.get_ui_value(SEARCH_HISTORY_KEY, "[]"))
+    return history[: app_config.search_history_limit]
+
+
+def record_search(keyword: str, source: str, scope: str, sort: str) -> list[dict[str, str]]:
+    """Put this query on top of the saved recent searches; returns the new list."""
+
+    import json
+
+    from ...config import app_config
+
+    history = _upsert_search_history(
+        _decode_search_history(app_config.get_ui_value(SEARCH_HISTORY_KEY, "[]")),
+        {"keyword": str(keyword or "").strip(), "source": source, "scope": scope, "sort": sort},
+        app_config.search_history_limit,
+    )
+    app_config.set_ui_value(SEARCH_HISTORY_KEY, json.dumps(history, ensure_ascii=False, separators=(",", ":")))
+    return history
+
+
+def search_history_label(entry: dict[str, str]) -> str:
+    from ...i18n import tr
+    from .options import scope_items, source_label
+
+    keyword = entry.get("keyword", "") or tr("Latest videos", "最新视频", "最新動画")
+    scopes = dict((key, label) for label, key in scope_items())
+    scope = scopes.get(entry.get("scope", "videos"), entry.get("scope", "videos"))
+    source_key = entry.get("source", "oreno3d")
+    source = source_label(source_key, short=True) if source_key in ("iwara", "oreno3d") else source_key
+    return f"{keyword} · {scope} · {source}"
+
+
+def clear_search_history() -> None:
+    from ...config import app_config
+
+    app_config.set_ui_value(SEARCH_HISTORY_KEY, "[]")
