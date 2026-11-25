@@ -468,7 +468,7 @@ class RealFfmpegTests(unittest.TestCase):
         self.assertGreater(target.stat().st_size, 0)
 
     def test_short_clip_extracts_and_saves_the_sixteenth_cover(self):
-        fixture = Path(__file__).parent / "fixtures" / "video-smoke.mp4"
+        fixture = Path(__file__).resolve().parents[1] / "fixtures" / "video-smoke.mp4"
         source = ffmpeg.probe(self.info, fixture)
         candidates = covers.cover_candidates(source.duration, source.fps)
         got = {}

@@ -15,7 +15,7 @@ from pathlib import Path
 from app.presentation.fonts import build_font_stack, cjk_fallback
 from app.ui_flet import tokens as tk
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 UI_FLET = ROOT / "app" / "ui_flet"
 PRESENTATION = ROOT / "app" / "presentation"
 HAS_FLET = importlib.util.find_spec("flet") is not None

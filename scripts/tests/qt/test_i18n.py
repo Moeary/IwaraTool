@@ -14,7 +14,7 @@ from app.core.models import TaskStatus, status_label
 from app.i18n import pinned_language, tr
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class I18nTest(unittest.TestCase):
