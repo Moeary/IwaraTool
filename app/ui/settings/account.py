@@ -19,6 +19,7 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
+from ...core import account
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..common.worker_lifecycle import ManagedThread
@@ -183,20 +184,8 @@ class SettingsAccountMixin:
         self._login_btn.setEnabled(True)
         if ok:
             self._set_logged_in_ui(True)
-            # Persist credentials
-            app_config.username = self._user_edit.text().strip()
-            app_config.password = self._pass_edit.text()
-            app_config.auth_enabled = True
             self._auth_switch.setChecked(True)
-            download_manager.set_login(True, download_manager.api.token)
-            signal_bus.login_state_changed.emit(True)
-            signal_bus.log_message.emit(
-                tr(
-                    "[Login] Success. Token cached",
-                    "[登录] 成功！已获取并缓存 Token",
-                    "[ログイン] 成功。Token を保存しました",
-                )
-            )
+            account.complete_login(download_manager, self._user_edit.text(), self._pass_edit.text())
             if not silent:
                 InfoBar.success(
                     title=tr("Login successful", "登录成功", "ログイン成功"),
@@ -228,11 +217,8 @@ class SettingsAccountMixin:
                 )
 
     def _do_logout(self):
-        download_manager.api.logout()
-        download_manager.set_login(False)
         self._set_logged_in_ui(False, "")
-        signal_bus.login_state_changed.emit(False)
-        signal_bus.log_message.emit(tr("[Logout] Token cleared", "[退出登录] Token 已清除", "[ログアウト] Token を削除しました"))
+        account.logout(download_manager)
         InfoBar.info(
             title=tr("Logged out", "已退出登录", "ログアウトしました"),
             content="",
