@@ -26,6 +26,7 @@ from .services.images import ImageService
 from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
 from .stores.detail import DetailStore
+from .stores.library import LibraryStore
 from .stores.subscriptions import SubscriptionStore
 from .stores.home import HomeStore
 from .stores.search import SearchStore
@@ -84,6 +85,7 @@ class Shell:
         self.home = HomeStore(self, download_manager)
         self.details = DetailStore(self, download_manager)
         self.subscriptions = SubscriptionStore(self, download_manager)
+        self.library = LibraryStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -208,8 +210,7 @@ class Shell:
         self.events.on("font_changed", lambda: self.apply_theme())
         self.events.on("content_rating_changed", self._on_rating_changed)
         self.events.on("site_changed", self._on_site_changed)
-        self.events.on("history_changed", lambda: self.page.run_task(self.search.refresh_statuses),
-                       coalesce=lambda *_a: "history")
+        self.events.on("history_changed", self._on_history_changed, coalesce=lambda *_a: "history")
         self.events.on("login_state_changed", self._on_login_changed)
         self.events.on("shortcuts_changed", self.shortcuts.refresh)
         for name in ("subscription_sources_changed", "subscription_source_added"):
@@ -217,6 +218,9 @@ class Shell:
         # System notifications are in-app notices for now (docs/flet_ui_plan.md 10); the background
         # subscription refresh announces itself this way, so the list is read again too.
         self.events.on("desktop_notification_requested", self._on_desktop_notification)
+        # A finished download is a new library record (the old page re-read on completion too).
+        self.events.on("task_status_changed", self._on_task_finished,
+                       coalesce=lambda _task_id="", status="", *_a: ("library", status))  # one per status: "completed" survives
         for name in ("task_added", "tasks_added", "task_status_changed", "task_removed", "tasks_removed", "staging_changed"):
             self.events.on(name, self._schedule_badges, coalesce=lambda *_args: "badges")
         self.tasks.attach(self)
@@ -227,6 +231,7 @@ class Shell:
         self.images.close()
         self.search.close()
         self.details.close()
+        self.library.flush()
 
     def _on_rating_changed(self, _rating: str) -> None:
         self.state.rating = preferences.current_rating()
@@ -241,6 +246,15 @@ class Shell:
         self.state.site = preferences.current_site()
         self.page.run_task(self.search.rerun)
         self._reload_subscriptions()
+
+    def _on_history_changed(self, *_args) -> None:
+        self.page.run_task(self.search.refresh_statuses)
+        if self.library.state.loaded:
+            self.page.run_task(self.library.load)
+
+    def _on_task_finished(self, _task_id: str = "", status: str = "", *_args) -> None:
+        if status == "completed" and self.library.state.loaded:
+            self.page.run_task(self.library.load)
 
     def _reload_subscriptions(self, *_args) -> None:
         if self.subscriptions.state.loaded:

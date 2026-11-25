@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
-from collections import Counter
-from datetime import datetime, timedelta, timezone
 from functools import cmp_to_key
 from typing import Any
 
@@ -19,45 +15,25 @@ from ...i18n import current_language, tr
 from ...signal_bus import signal_bus
 from ..common.flow_layout import ResponsiveFlowLayout
 from ..media.card_size import CardSizeControl
+from ...presentation.history import library
+from ...presentation.history.library import (  # noqa: F401  (re-exported)
+    AUTHOR_SORT_COUNT,
+    AUTHOR_SORT_NAME,
+    RECENT_DAYS,
+    SCOPE_ALL,
+    SCOPE_AUTHOR,
+    SCOPE_RECENT,
+    SCOPE_UNWATCHED,
+    chinese_name_key,
+)
 from .cover_grid import MODE_COVER, MODE_GRID, HistoryCoverGrid
 
 
 VIEW_LIST = "list"
-SCOPE_ALL = "all"
-SCOPE_RECENT = "recent"
-SCOPE_UNWATCHED = "unwatched"
-SCOPE_AUTHOR = "author"
-RECENT_DAYS = 30
-AUTHOR_SORT_COUNT = "count"  # most videos first
-AUTHOR_SORT_NAME = "name"  # A → Z in the UI language's order (pinyin for Chinese)
-
 _VIEW_KEY = "history_view_mode_v1"
 _SCOPE_KEY = "history_scope_v1"
 _AUTHOR_SORT_KEY = "history_author_sort_v1"
 _COLLATOR_LOCALES = {"ja": "ja_JP", "en": "en_US"}
-_NAME_PART = re.compile(r"\d+|.", re.S)
-
-
-def chinese_name_key(name: str) -> list[tuple]:
-    """Digits by value, then Latin A → Z, then Chinese by pinyin.
-
-    Qt's Windows collator orders Chinese by code point, so this does not rely
-    on it: GB2312's 3,755 common characters are encoded in pinyin order, and
-    GBK keeps that order (rarer characters follow, by radical and stroke).
-    """
-
-    key: list[tuple] = []
-    for part in _NAME_PART.findall(unicodedata.normalize("NFKC", name).casefold()):
-        if part.isascii() and part.isdigit():
-            key.append((0, int(part), part))
-        elif ord(part) < 0x2E80:  # Latin, Greek, Cyrillic, punctuation…
-            key.append((1, part))
-        else:
-            try:
-                key.append((2, part.encode("gbk")))
-            except UnicodeEncodeError:
-                key.append((3, part))
-    return key
 
 
 def author_name_collator() -> QCollator:
@@ -67,22 +43,18 @@ def author_name_collator() -> QCollator:
     return collator
 
 
+def _collated(names: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    collator = author_name_collator()
+
+    def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
+        return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
+
+    return sorted(names, key=cmp_to_key(by_name))
+
+
 def sort_authors(counts: dict[str, int], order: str) -> list[tuple[str, int]]:
-    """Named authors with their record counts, by count or by name."""
-
-    names = [(name, n) for name, n in counts.items() if name]
-    if current_language() == "zh":
-        named = sorted(names, key=lambda pair: (chinese_name_key(pair[0]), pair[0]))
-    else:
-        collator = author_name_collator()
-
-        def by_name(a: tuple[str, int], b: tuple[str, int]) -> int:
-            return collator.compare(a[0], b[0]) or (a[0] > b[0]) - (a[0] < b[0])
-
-        named = sorted(names, key=cmp_to_key(by_name))
-    if order == AUTHOR_SORT_NAME:
-        return named
-    return sorted(named, key=lambda pair: -pair[1])  # stable: equal counts stay in name order
+    """Named authors with their record counts, by count or by name (Qt's collator outside Chinese)."""
+    return library.sort_authors(counts, order, language=current_language(), name_sort=_collated)
 
 
 class HistoryBrowseMixin:
@@ -102,18 +74,7 @@ class HistoryBrowseMixin:
         row = ResponsiveFlowLayout()
         row.setSpacing(8)
         self._scope_bar = SegmentedWidget(self)
-        for key, text, tip in (
-            (SCOPE_ALL, tr("All", "全部", "すべて"), ""),
-            (SCOPE_RECENT, tr("Recently downloaded", "最近下载", "最近の保存"), tr(
-                f"Downloaded in the last {RECENT_DAYS} days", f"最近 {RECENT_DAYS} 天内下载的作品", f"直近 {RECENT_DAYS} 日に保存",
-            )),
-            (SCOPE_UNWATCHED, tr("Unwatched", "未观看", "未視聴"), tr(
-                "Files on disk that were never played from IwaraTool",
-                "文件仍在、但从未在 IwaraTool 中播放过的作品",
-                "IwaraTool で再生したことのない保存済み動画",
-            )),
-            (SCOPE_AUTHOR, tr("By author", "按作者", "作者別"), ""),
-        ):
+        for key, text, tip in library.scope_choices():
             # itemClicked passes a bool: keep it away from ``key``.
             self._scope_bar.addItem(key, text, lambda _checked=False, key=key: self._set_scope(key))
             if tip:
@@ -146,14 +107,7 @@ class HistoryBrowseMixin:
         return row
 
     def _grid_sort_choices(self) -> list[tuple[str, int]]:
-        return [
-            (tr("Downloaded at", "下载时间", "保存日時"), self._COL_DOWNLOADED),
-            (tr("Published", "发布日期", "公開日"), self._COL_PUBLISHED),
-            (tr("Title", "标题", "タイトル"), self._COL_TITLE),
-            (tr("Author", "作者", "作者"), self._COL_AUTHOR),
-            (tr("Likes", "点赞", "いいね"), self._COL_LIKES),
-            (tr("Views", "播放", "再生"), self._COL_VIEWS),
-        ]
+        return [(text, self._column_of(key)) for key, text in library.sort_choices()]
 
     def _build_author_panel(self, parent: QWidget) -> QWidget:
         self._author_panel = QWidget(parent)
@@ -240,9 +194,7 @@ class HistoryBrowseMixin:
         if column is None or column == self._sort_column:
             return
         self._sort_column = int(column)
-        self._sort_reverse = self._sort_column in (
-            self._COL_PUBLISHED, self._COL_LIKES, self._COL_VIEWS, self._COL_DOWNLOADED,
-        )
+        self._sort_reverse = self._column_key(self._sort_column) in library.DESCENDING_FIRST
         self._restore_sort_indicator()
         self._sync_browse_controls()
         self._apply_filters()
@@ -262,26 +214,19 @@ class HistoryBrowseMixin:
     # ── filtering ────────────────────────────────────────────────────────────
 
     def _scope_accepts(self, record: dict[str, Any], state_key: str, recent_cutoff: str) -> bool:
-        if self._scope == SCOPE_RECENT:
-            return str(record.get("downloaded_at", "") or "") >= recent_cutoff
-        if self._scope == SCOPE_UNWATCHED:
-            return state_key in ("ok", "remote") and not str(record.get("watched_at", "") or "")
-        if self._scope == SCOPE_AUTHOR and self._author_filter:
-            return str(record.get("author", "") or "") == self._author_filter
-        return True
+        return library.scope_accepts(record, self._scope, state_key, recent_cutoff, self._author_filter)
 
     @staticmethod
     def _recent_cutoff() -> str:
-        # downloaded_at is SQLite's CURRENT_TIMESTAMP (UTC, "YYYY-MM-DD HH:MM:SS").
-        return (datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+        return library.recent_cutoff()
 
     def _rebuild_author_list(self):
-        counts = Counter(str(r.get("author", "") or "") for r in self._all_records)
+        counts = library.author_counts(self._all_records)
         authors = sort_authors(counts, self._author_sort)
         self._author_list.blockSignals(True)
         try:
             self._author_list.clear()
-            everyone = QListWidgetItem(tr(f"All authors ({len(self._all_records)})", f"全部作者（{len(self._all_records)}）", f"すべての作者（{len(self._all_records)}）"))
+            everyone = QListWidgetItem(library.all_authors_text(len(self._all_records)))
             everyone.setData(Qt.ItemDataRole.UserRole, "")
             self._author_list.addItem(everyone)
             current = everyone

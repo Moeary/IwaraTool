@@ -51,11 +51,13 @@ class VideoMenu:
         scope: str,
         item_for: Callable[[CardView], Any],
         on_select: Callable[[CardView], None] | None = None,
+        download: bool = True,
     ):
         self.shell = shell
         self.scope = scope
         self.item_for = item_for
         self.on_select = on_select
+        self.download = download  # False on the library: its records are downloaded already
 
     @property
     def manager(self):
@@ -79,7 +81,7 @@ class VideoMenu:
             url=url,
             detail=bool(history_id),
             can_stream=bool(history_id) and not image and video.downloadable,
-            download=card.selectable and not image,
+            download=self.download and card.selectable and not image,
             author=video.author_username,
             select=touch and self.on_select is not None and card.selectable,
         )

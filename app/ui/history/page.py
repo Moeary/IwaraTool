@@ -42,6 +42,7 @@ from ..common.ui_state import (
     restore_table_columns,
     restore_table_widths,
 )
+from ...presentation.history import library
 from .browse import HistoryBrowseMixin
 from .csv_export import HistoryCsvExportMixin
 from .record_actions import HistoryRecordActionsMixin
@@ -180,31 +181,13 @@ class HistoryInterface(
         filter_row.addWidget(self._search_edit)
 
         self._field_combo = ComboBox(self)
-        self._field_combo.addItems(
-            [
-                tr("All Columns", "全部字段", "全列"),
-                tr("State", "状态", "状態"),
-                tr("Title", "标题", "タイトル"),
-                tr("Author", "作者", "作者"),
-                tr("Quality", "画质", "画質"),
-                tr("Published", "发布日期", "公開日"),
-                "ID",
-                tr("Source URL", "来源URL", "元URL"),
-                tr("Path", "路径", "パス"),
-            ]
-        )
+        self._field_combo.addItems([label for _key, label in library.search_field_choices()])
         self._field_combo.setFixedWidth(150)
         self._field_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self._field_combo)
 
         self._state_combo = ComboBox(self)
-        self._state_combo.addItems(
-            [
-                tr("All States", "全部状态", "全状態"),
-                tr("OK", "正常", "正常"),
-                tr("Moved", "已移走", "移動済み"),
-            ]
-        )
+        self._state_combo.addItems([label for _key, label in library.state_choices()])
         self._state_combo.setFixedWidth(130)
         self._state_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self._state_combo)
@@ -212,18 +195,8 @@ class HistoryInterface(
         return filter_row
 
     def _add_record_buttons(self, filter_row: ResponsiveFlowLayout):
-        clean_btn = PushButton(
-            tr("Clean Moved", "清理已移走记录", "移動済みを削除"),
-            self,
-            FluentIcon.BROOM,
-        )
-        clean_btn.setToolTip(
-            tr(
-                "Delete DB records whose files are missing or outside the download folder",
-                "删除数据库中已移走/不在下载文件夹的记录；不会删除本地文件",
-                "ファイル不明または保存先外のDB履歴を削除します",
-            )
-        )
+        clean_btn = PushButton(library.clean_moved_text(), self, FluentIcon.BROOM)
+        clean_btn.setToolTip(library.clean_moved_tooltip())
         clean_btn.clicked.connect(self._sync_with_download_folder)
         filter_row.addWidget(clean_btn)
 
@@ -414,7 +387,7 @@ class HistoryInterface(
 
     def _show_error(self, msg: str):
         InfoBar.error(
-            title=tr("Operation Failed", "操作失败", "操作失敗"),
+            title=library.operation_failed_title(),
             content=msg,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,

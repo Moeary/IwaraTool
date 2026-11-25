@@ -13,6 +13,7 @@ from ...i18n import tr
 from ..style.theme import link_color, qcolor, summary_text
 from ..common.ui_state import fit_table_last_column
 from ..common.table_column_dialog import open_table_column_dialog
+from ...presentation.history import library
 from ...presentation.history.record_state import _date_only, _video_url
 
 
@@ -37,46 +38,19 @@ class HistoryTableMixin:
         field_idx = self._field_combo.currentIndex() if hasattr(self, "_field_combo") else 0
         state_idx = self._state_combo.currentIndex() if hasattr(self, "_state_combo") else 0
 
-        visible_records: list[dict[str, Any]] = []
-        ok_count = moved_count = remote_count = unwatched_count = 0
-        recent_cutoff = self._recent_cutoff()
-        for record in self._all_records:
-            _, state_key, _ = self._record_state(record)
-            if state_key in ("ok", "remote"):
-                if state_key == "ok":
-                    ok_count += 1
-                else:
-                    remote_count += 1  # on the aria2 host: neither here nor "moved"
-                if not str(record.get("watched_at", "") or ""):
-                    unwatched_count += 1
-            else:
-                moved_count += 1
-
-            if not self._scope_accepts(record, state_key, recent_cutoff):
-                continue
-            if state_idx == 1 and state_key not in ("ok", "remote"):
-                continue
-            if state_idx == 2 and state_key != "moved":
-                continue
-            if query and query not in self._record_search_text(record, field_idx):
-                continue
-            visible_records.append(record)
-
+        visible_records, counts = library.filter_records(
+            self._all_records,
+            state_of=self._record_state,
+            query=query,
+            field=field_idx,
+            state_filter=state_idx,
+            scope=self._scope,
+            author=self._author_filter,
+        )
         visible_records = self._sort_records(visible_records)
         self._visible_records = visible_records
         self._render_current_view(visible_records)
-        self._summary_label.setText(
-            summary_text(
-                [
-                    (tr("Records", "记录数", "履歴"), len(self._all_records)),
-                    (tr("Visible", "当前显示", "表示"), len(visible_records)),
-                    (tr("OK", "正常", "正常"), ok_count),
-                    (tr("Moved", "已移走", "移動済み"), moved_count),
-                    *([(tr("On NAS", "远端", "リモート"), remote_count)] if remote_count else []),
-                    (tr("Unwatched", "未观看", "未視聴"), unwatched_count),
-                ]
-            )
-        )
+        self._summary_label.setText(summary_text(library.summary_parts(counts)))
 
     def _render_table(self, records: list[dict[str, Any]]):
         self._render_timer.stop()

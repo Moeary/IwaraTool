@@ -28,6 +28,7 @@ def _register_ported() -> None:
     from .detail.page import DetailPage
     from .downloads.page import DownloadsPage
     from .home.page import HomePage
+    from .library.page import LibraryPage
     from .search.page import SearchPage
     from .subscriptions.page import SubscriptionsPage
 
@@ -35,5 +36,6 @@ def _register_ported() -> None:
     register(routes.DETAIL, DetailPage)
     register(routes.DOWNLOADS, DownloadsPage)
     register(routes.HOME, HomePage)
+    register(routes.LIBRARY, LibraryPage)
     register(routes.SEARCH, SearchPage)
     register(routes.SUBSCRIPTIONS, SubscriptionsPage)
