@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIntValidator
@@ -22,7 +21,8 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...i18n import tr
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 from .tag_dictionary_worker import TagDictionaryUpdateWorker
 
@@ -36,18 +36,18 @@ class SettingsSearchCardsMixin:
         engine_layout.setContentsMargins(20, 16, 20, 16)
         engine_layout.setSpacing(10)
         engine_layout.addWidget(
-            SubtitleLabel(tr("Search Engine", "搜索引擎", "検索エンジン"), engine_card)
+            SubtitleLabel(stext("search_engine"), engine_card)
         )
         engine_row = QHBoxLayout()
         engine_row.addWidget(
-            BodyLabel(tr("Main search engine", "主搜索引擎", "メイン検索エンジン"), engine_card)
+            BodyLabel(stext("main_search_engine"), engine_card)
         )
         engine_row.addStretch()
         self._search_source_combo = ComboBox(engine_card)
-        self._search_source_combo.addItem(tr("Iwara live API", "Iwara 实时 API", "IwaraライブAPI"))
+        self._search_source_combo.addItem(stext("iwara_live_api"))
         self._search_source_combo.setItemData(0, "iwara")
         self._search_source_combo.addItem(
-            tr("Oreno3D online search", "Oreno3D 在线搜索", "Oreno3Dオンライン検索")
+            stext("oreno3d_online_search")
         )
         self._search_source_combo.setItemData(1, "oreno3d")
         self._search_source_combo.setFixedWidth(260)
@@ -58,11 +58,7 @@ class SettingsSearchCardsMixin:
         chinese_row = QHBoxLayout()
         chinese_row.addWidget(
             BodyLabel(
-                tr(
-                    "Search Chinese keywords with Oreno3D",
-                    "中文关键词使用 Oreno3D 搜索",
-                    "中国語キーワードは Oreno3D で検索",
-                ),
+                stext("search_chinese_keywords_with_oreno3d"),
                 engine_card,
             )
         )
@@ -72,15 +68,7 @@ class SettingsSearchCardsMixin:
         chinese_row.addWidget(self._search_chinese_oreno_switch)
         engine_layout.addLayout(chinese_row)
         chinese_hint = BodyLabel(
-            tr(
-                "Iwara's own search rarely matches Chinese titles. Video searches whose keyword contains "
-                "Chinese characters switch to Oreno3D automatically; the next search without them returns "
-                "to the main engine.",
-                "Iwara 自带搜索很难匹配中文标题。关键词含中文字符的视频搜索会自动改用 Oreno3D，"
-                "之后不含中文的搜索会切回主搜索引擎。",
-                "Iwara 自体の検索は中国語タイトルにほとんど一致しません。キーワードに中国語の文字を含む"
-                "動画検索は自動的に Oreno3D を使い、含まない次の検索でメインのエンジンに戻ります。",
-            ),
+            stext("iwara_s_own_search_rarely_matches"),
             engine_card,
         )
         chinese_hint.setWordWrap(True)
@@ -94,7 +82,7 @@ class SettingsSearchCardsMixin:
         search_layout.setSpacing(10)
 
         search_header = QHBoxLayout()
-        search_header.addWidget(SubtitleLabel(tr("Search Download Limit", "搜索下载上限", "検索ダウンロード上限"), search_card))
+        search_header.addWidget(SubtitleLabel(stext("search_download_limit"), search_card))
         search_header.addStretch()
         self._search_limit_switch = SwitchButton(search_card)
         self._search_limit_switch.checkedChanged.connect(self._on_search_limit_toggle)
@@ -102,7 +90,7 @@ class SettingsSearchCardsMixin:
         search_layout.addLayout(search_header)
 
         search_row = QHBoxLayout()
-        search_row.addWidget(BodyLabel(tr("Max videos", "最大视频数", "最大動画数"), search_card))
+        search_row.addWidget(BodyLabel(stext("max_videos"), search_card))
         self._search_limit_edit = LineEdit(search_card)
         self._search_limit_edit.setFixedWidth(100)
         self._search_limit_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -120,21 +108,17 @@ class SettingsSearchCardsMixin:
         history_layout.setContentsMargins(20, 16, 20, 16)
         history_layout.setSpacing(10)
         history_layout.addWidget(
-            SubtitleLabel(tr("Search History", "搜索历史", "検索履歴"), history_card)
+            SubtitleLabel(stext("search_history"), history_card)
         )
         history_layout.addWidget(
             BodyLabel(
-                tr(
-                    "Keep recent search conditions available from the search page. Older entries are removed automatically.",
-                    "在搜索页保留最近使用的搜索条件，超出数量后会自动移除较早记录。",
-                    "検索ページで最近の検索条件を保持します。上限を超えた古い履歴は自動的に削除されます。",
-                ),
+                stext("keep_recent_search_conditions_available_from"),
                 history_card,
             )
         )
         history_row = QHBoxLayout()
         history_row.addWidget(
-            BodyLabel(tr("Remembered searches", "保留搜索数", "保存する検索数"), history_card)
+            BodyLabel(stext("remembered_searches"), history_card)
         )
         self._search_history_limit_spin = SpinBox(history_card)
         self._search_history_limit_spin.setRange(1, 100)
@@ -142,7 +126,7 @@ class SettingsSearchCardsMixin:
         self._search_history_limit_spin.valueChanged.connect(self._on_search_history_limit_changed)
         history_row.addWidget(self._search_history_limit_spin)
         history_row.addWidget(
-            BodyLabel(tr("items 1-100", "条数 1-100", "件数 1～100"), history_card)
+            BodyLabel(stext("items_1_100"), history_card)
         )
         history_row.addStretch()
         history_layout.addLayout(history_row)
@@ -150,11 +134,7 @@ class SettingsSearchCardsMixin:
         auto_search_row = QHBoxLayout()
         auto_search_row.addWidget(
             BodyLabel(
-                tr(
-                    "Search when source, scope, or sort changes",
-                    "切换数据源、搜索类型或排序时自动搜索",
-                    "ソース・検索対象・並び順の変更時に自動検索",
-                ),
+                stext("search_when_source_scope_or_sort"),
                 history_card,
             )
         )
@@ -174,22 +154,14 @@ class SettingsSearchCardsMixin:
         search_resolve_layout.setSpacing(10)
         search_resolve_layout.addWidget(
             SubtitleLabel(
-                tr(
-                    "Oreno3D / Iwara Search Loading",
-                    "Oreno3D / Iwara 搜索加载",
-                    "Oreno3D / Iwara 検索読み込み",
-                ),
+                stext("oreno3d_iwara_search_loading"),
                 search_resolve_card,
             )
         )
         tag_dictionary_row = QHBoxLayout()
         tag_dictionary_row.addWidget(
             BodyLabel(
-                tr(
-                    "Refresh localized search tags",
-                    "刷新多语言搜索标签",
-                    "多言語検索タグを更新",
-                ),
+                stext("refresh_localized_search_tags"),
                 search_resolve_card,
             )
         )
@@ -197,7 +169,7 @@ class SettingsSearchCardsMixin:
         self._tag_dictionary_status = BodyLabel("", search_resolve_card)
         tag_dictionary_row.addWidget(self._tag_dictionary_status)
         self._update_tags_btn = PushButton(
-            tr("Update tags", "更新标签", "タグを更新"),
+            stext("update_tags"),
             search_resolve_card,
             FluentIcon.SYNC,
         )
@@ -208,17 +180,17 @@ class SettingsSearchCardsMixin:
         resolve_mode_row = QHBoxLayout()
         resolve_mode_row.addWidget(
             BodyLabel(
-                tr("Resolve timing", "解析时机", "解決タイミング"),
+                stext("resolve_timing"),
                 search_resolve_card,
             )
         )
         self._search_resolution_mode_combo = ComboBox(search_resolve_card)
         self._search_resolution_mode_combo.addItem(
-            tr("Background pre-resolve", "后台预解析", "バックグラウンドで事前解決")
+            stext("background_pre_resolve")
         )
         self._search_resolution_mode_combo.setItemData(0, "eager")
         self._search_resolution_mode_combo.addItem(
-            tr("On click or download", "点击或下载时解析", "クリックまたはダウンロード時に解決")
+            stext("on_click_or_download")
         )
         self._search_resolution_mode_combo.setItemData(1, "on_demand")
         self._search_resolution_mode_combo.setFixedWidth(260)
@@ -232,7 +204,7 @@ class SettingsSearchCardsMixin:
         resolve_workers_row = QHBoxLayout()
         resolve_workers_row.addWidget(
             BodyLabel(
-                tr("Oreno3D ID concurrency", "Oreno3D ID 并发数", "Oreno3D ID 同時実行数"),
+                stext("oreno3d_id_concurrency"),
                 search_resolve_card,
             )
         )
@@ -250,11 +222,7 @@ class SettingsSearchCardsMixin:
     def _on_search_source_changed(self, index: int):
         if self._loading_settings:
             return
-        source = str(self._search_source_combo.itemData(index) or "iwara")
-        if source == app_config.search_default_source:
-            return
-        app_config.search_default_source = source
-        signal_bus.search_source_changed.emit(app_config.search_default_source)
+        setting_values.set_search_source(str(self._search_source_combo.itemData(index) or "iwara"))
 
     def _on_search_chinese_oreno_toggle(self, checked: bool):
         if self._loading_settings:
@@ -266,36 +234,13 @@ class SettingsSearchCardsMixin:
         self._search_limit_edit.setEnabled(checked)
 
     def _on_search_limit_input_finished(self):
-        text = self._search_limit_edit.text().strip()
-        if not text:
-            self._search_limit_edit.setText(str(max(1, app_config.search_limit_count)))
-            return
-        try:
-            value = int(text)
-        except ValueError:
-            self._search_limit_edit.setText(str(max(1, app_config.search_limit_count)))
-            return
-        value = max(1, min(5000, value))
+        value = setting_values.set_search_limit_count(self._search_limit_edit.text())
         self._search_limit_edit.setText(str(value))
-        app_config.search_limit_count = value
 
     def _on_search_history_limit_changed(self, value: int):
         if self._loading_settings:
             return
-        limit = max(1, min(100, int(value)))
-        app_config.search_history_limit = limit
-        # Apply a lower limit immediately so a later increase does not bring
-        # back entries the user already asked us to discard.
-        raw = app_config.get_ui_value("search_history_v1", "[]")
-        try:
-            history = json.loads(str(raw or "[]"))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            history = []
-        if isinstance(history, list) and len(history) > limit:
-            app_config.set_ui_value(
-                "search_history_v1",
-                json.dumps(history[:limit], ensure_ascii=False, separators=(",", ":")),
-            )
+        setting_values.set_search_history_limit(value)
 
     def _on_search_auto_search_toggle(self, checked: bool):
         if self._loading_settings:
@@ -309,11 +254,7 @@ class SettingsSearchCardsMixin:
         self._tag_dictionary_worker = worker
         self._update_tags_btn.setEnabled(False)
         self._tag_dictionary_status.setText(
-            tr(
-                "Updating…",
-                "更新中…",
-                "更新中…",
-            )
+            stext("updating")
         )
         worker.result_ready.connect(self._on_tag_dictionary_result)
         worker.finished.connect(
@@ -322,53 +263,18 @@ class SettingsSearchCardsMixin:
         worker.start()
 
     def _on_tag_dictionary_result(self, result: object):
-        count, error = (
-            result if isinstance(result, tuple) and len(result) == 2 else (0, "")
-        )
-        if error:
-            message = tr(
-                f"Tag dictionary update failed: {error}",
-                f"标签词典更新失败：{error}",
-                f"タグ辞書の更新に失敗：{error}",
-            )
-            self._tag_dictionary_status.setText(
-                tr("Update failed", "更新失败", "更新失敗")
-            )
-            InfoBar.warning(
-                title=tr("Tag update failed", "标签更新失败", "タグ更新失敗"),
-                content=message,
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-                parent=self,
-            )
-            signal_bus.log_message.emit(f"[Tags] {message}")
-            return
-
-        self._tag_dictionary_status.setText(
-            tr(
-                f"Loaded {count} tags",
-                f"已加载 {count} 个标签",
-                f"{count} 件のタグを読み込みました",
-            )
-        )
-        InfoBar.success(
-            title=tr("Tags updated", "标签已更新", "タグを更新しました"),
-            content=self._tag_dictionary_status.text(),
+        ok, status, title, log = setting_values.tag_dictionary_result(result)
+        self._tag_dictionary_status.setText(status if ok else stext("update_failed"))
+        (InfoBar.success if ok else InfoBar.warning)(
+            title=title,
+            content=status if ok else log.removeprefix("[Tags] "),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
-            duration=2500,
+            duration=2500 if ok else 5000,
             parent=self,
         )
-        signal_bus.log_message.emit(
-            tr(
-                f"[Tags] Loaded {count} localized tags",
-                f"[标签] 已加载 {count} 个多语言标签",
-                f"[タグ] 多言語タグを{count}件読み込みました",
-            )
-        )
+        signal_bus.log_message.emit(log)
 
     def _cleanup_tag_dictionary_worker(self, worker: TagDictionaryUpdateWorker):
         if self._tag_dictionary_worker is worker:
@@ -379,19 +285,14 @@ class SettingsSearchCardsMixin:
     def _on_search_resolution_mode_changed(self, _index: int):
         if self._loading_settings:
             return
-        mode = str(self._search_resolution_mode_combo.currentData() or "eager")
-        if mode not in {"eager", "on_demand"}:
-            mode = "eager"
-        app_config.set_ui_value("search_iwara_resolution_mode_v1", mode)
+        setting_values.set_resolution_mode(str(self._search_resolution_mode_combo.currentData() or "eager"))
 
     def _on_search_resolution_workers_changed(self, value: int):
         if self._loading_settings:
             return
-        value = max(1, min(8, int(value)))
-        app_config.set_ui_value("search_iwara_resolution_workers_v1", value)
+        setting_values.set_resolution_workers(value)
 
     def _on_cover_download_workers_changed(self, value: int):
         if self._loading_settings:
             return
-        value = max(1, min(16, int(value)))
-        app_config.set_ui_value("cover_download_workers_v1", value)
+        setting_values.set_cover_workers(value)

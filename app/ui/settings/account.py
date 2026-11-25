@@ -21,6 +21,8 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core import account
 from ...i18n import tr
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
@@ -51,7 +53,7 @@ class SettingsAccountMixin:
         login_layout.setSpacing(10)
 
         login_header = QHBoxLayout()
-        login_header.addWidget(SubtitleLabel(tr("Account Login", "账号登录", "アカウントログイン"), login_card))
+        login_header.addWidget(SubtitleLabel(stext("account_login"), login_card))
         login_header.addStretch()
         self._auth_switch = SwitchButton(login_card)
         self._auth_switch.checkedChanged.connect(self._on_auth_toggle)
@@ -60,11 +62,7 @@ class SettingsAccountMixin:
 
         login_layout.addWidget(
             BodyLabel(
-                tr(
-                    "Private videos require login.",
-                    "私有视频需要登录账号。",
-                    "非公開動画にはログインが必要です。",
-                ),
+                stext("private_videos_require_login"),
                 login_card,
             )
         )
@@ -75,18 +73,18 @@ class SettingsAccountMixin:
         cred_layout.setSpacing(8)
 
         self._user_edit = LineEdit(self._cred_widget)
-        self._user_edit.setPlaceholderText(tr("Username", "用户名", "ユーザー名"))
+        self._user_edit.setPlaceholderText(stext("username"))
         self._user_edit.setClearButtonEnabled(True)
 
         self._pass_edit = PasswordLineEdit(self._cred_widget)
-        self._pass_edit.setPlaceholderText(tr("Password", "密码", "パスワード"))
+        self._pass_edit.setPlaceholderText(stext("password"))
 
         btn_row = QHBoxLayout()
-        self._login_btn = PrimaryPushButton(tr("Login", "登录", "ログイン"), self._cred_widget, FluentIcon.PEOPLE)
+        self._login_btn = PrimaryPushButton(stext("login"), self._cred_widget, FluentIcon.PEOPLE)
         self._login_btn.setFixedWidth(100)
         self._login_btn.clicked.connect(lambda: self._do_login(silent=False))
 
-        self._logout_btn = PushButton(tr("Logout", "退出登录", "ログアウト"), self._cred_widget, FluentIcon.CANCEL)
+        self._logout_btn = PushButton(stext("logout"), self._cred_widget, FluentIcon.CANCEL)
         self._logout_btn.clicked.connect(self._do_logout)
         self._logout_btn.hide()
 
@@ -109,7 +107,7 @@ class SettingsAccountMixin:
         if not self._built:
             return  # applied when the page is built
         if logged_in:
-            self._login_status_lbl.setText(status_text or tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
+            self._login_status_lbl.setText(status_text or stext("signed_in"))
             self._logout_btn.show()
             self._login_btn.hide()
             return
@@ -123,8 +121,8 @@ class SettingsAccountMixin:
         if not credential or not password:
             if not silent:
                 InfoBar.warning(
-                    title=tr("Notice", "提示", "お知らせ"),
-                    content=tr("Please enter username/email and password", "请填写用户名/邮箱和密码", "ユーザー名/メールとパスワードを入力してください"),
+                    title=stext("notice"),
+                    content=stext("please_enter_username_email_and_password"),
                     orient=Qt.Orientation.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
@@ -135,12 +133,8 @@ class SettingsAccountMixin:
 
         if not silent and not app_config.api_proxy_enabled:
             InfoBar.warning(
-                title=tr("API proxy is off", "API 代理未开启", "API プロキシ無効"),
-                content=tr(
-                    "If TUN/system proxy is not enabled, login and URL parsing may fail.",
-                    "如果没有开启 TUN/系统代理，登录和链接解析可能会失败。",
-                    "TUN/システムプロキシが無効な場合、ログインや URL 解析に失敗する可能性があります。",
-                ),
+                title=stext("api_proxy_is_off"),
+                content=stext("if_tun_system_proxy_is_not"),
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -151,13 +145,9 @@ class SettingsAccountMixin:
         if self._worker is not None and self._worker.isRunning():
             return  # a sign-in is already on its way
         self._login_btn.setEnabled(False)
-        self._login_status_lbl.setText(tr("Signing in...", "登录中…", "ログイン中..."))
+        self._login_status_lbl.setText(stext("signing_in"))
         signal_bus.log_message.emit(
-            tr(
-                "[Login] Signing in ...",
-                "[登录] 正在登录…",
-                "[ログイン] サインイン中...",
-            )
+            stext("login_signing_in")
         )
 
         download_manager.apply_config()
@@ -188,8 +178,8 @@ class SettingsAccountMixin:
             account.complete_login(download_manager, self._user_edit.text(), self._pass_edit.text())
             if not silent:
                 InfoBar.success(
-                    title=tr("Login successful", "登录成功", "ログイン成功"),
-                    content=tr("Signed in", "已登录", "ログイン済み"),
+                    title=stext("login_successful"),
+                    content=stext("signed_in_2"),
                     orient=Qt.Orientation.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
@@ -197,7 +187,7 @@ class SettingsAccountMixin:
                     parent=self,
                 )
         else:
-            self._set_logged_in_ui(False, tr(f"✗ Login failed: {msg}", f"✗ 登录失败: {msg}", f"✗ ログイン失敗: {msg}"))
+            self._set_logged_in_ui(False, setting_values.login_failed_text(msg))
             signal_bus.log_message.emit(
                 tr(
                     f"[Login failed] {msg}",
@@ -207,8 +197,8 @@ class SettingsAccountMixin:
             )
             if not silent:
                 InfoBar.error(
-                    title=tr("Login failed", "登录失败", "ログイン失敗"),
-                    content=msg or tr("Please check username and password", "请检查账号和密码", "ユーザー名とパスワードを確認してください"),
+                    title=stext("login_failed"),
+                    content=msg or stext("please_check_username_and_password"),
                     orient=Qt.Orientation.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
@@ -220,7 +210,7 @@ class SettingsAccountMixin:
         self._set_logged_in_ui(False, "")
         account.logout(download_manager)
         InfoBar.info(
-            title=tr("Logged out", "已退出登录", "ログアウトしました"),
+            title=stext("logged_out"),
             content="",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
@@ -230,9 +220,7 @@ class SettingsAccountMixin:
         )
 
     def _on_auth_toggle(self, checked: bool):
-        app_config.auth_enabled = checked
         self._cred_widget.setVisible(checked)
+        setting_values.set_auth_enabled(checked, download_manager)
         if not checked:
-            download_manager.set_login(False)
             self._set_logged_in_ui(False, "")
-            signal_bus.login_state_changed.emit(False)

@@ -162,12 +162,14 @@ class FontSettingsTests(unittest.TestCase):
             host.deleteLater()
 
     def test_changing_the_font_saves_it_and_asks_for_a_rebuild(self):
+        from app.presentation.settings import values
         from app.ui.settings import font_cards
 
         app_config.ui_font_family = ""
         card = font_cards.SettingsFontCardsMixin()
         # Live windows elsewhere in the run listen to the real bus and would rebuild.
-        with mock.patch.object(font_cards, "signal_bus") as bus:
+        bus = mock.Mock()
+        with mock.patch.object(values, "_bus", return_value=bus):
             card._set_ui_font("Comic Sans MS")
             self.assertEqual(app_config.ui_font_family, "Comic Sans MS")
             card._set_ui_font("Comic Sans MS")  # unchanged: no second rebuild

@@ -8,7 +8,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...config import DEFAULT_PROXY_URL, app_config
 from ...core.download.policy import normalize_hhmm
-from ...i18n import tr
+from ...presentation.settings.texts import stext
 from .page_dependencies import download_manager
 
 
@@ -200,7 +200,7 @@ class SettingsPersistenceMixin:
         self._save_background_settings()
         download_manager.apply_config()
         InfoBar.success(
-            title=tr("Settings Saved", "设置已保存", "設定を保存しました"),
+            title=stext("settings_saved"),
             content="",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,

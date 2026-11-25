@@ -18,10 +18,9 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...core.download.policy import normalize_hhmm
 from ...core.rules import BUILTIN_DEFAULT_RULE_ID, rule_store
-from ...i18n import tr
-from ...signal_bus import signal_bus
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from .page_dependencies import download_manager
 
 
@@ -35,17 +34,13 @@ class SettingsSubscriptionCardsMixin:
         cover_layout.setSpacing(10)
         cover_layout.addWidget(
             SubtitleLabel(
-                tr(
-                    "Refresh and Cover Performance",
-                    "刷新与封面性能",
-                    "更新とカバーのパフォーマンス",
-                ),
+                stext("refresh_and_cover_performance"),
                 cover_card,
             )
         )
         cover_workers_row = QHBoxLayout()
         cover_workers_row.addWidget(
-            BodyLabel(tr("Cover download concurrency", "封面获取并发数", "カバー取得の同時数"), cover_card)
+            BodyLabel(stext("cover_download_concurrency"), cover_card)
         )
         self._cover_download_workers_spin = SpinBox(cover_card)
         self._cover_download_workers_spin.setRange(1, 16)
@@ -57,7 +52,7 @@ class SettingsSubscriptionCardsMixin:
 
         refresh_workers_row = QHBoxLayout()
         refresh_workers_row.addWidget(
-            BodyLabel(tr("Subscription refresh concurrency", "订阅刷新并发数", "購読更新の同時数"), cover_card)
+            BodyLabel(stext("subscription_refresh_concurrency"), cover_card)
         )
         self._subscription_refresh_workers_spin = SpinBox(cover_card)
         self._subscription_refresh_workers_spin.setRange(1, 8)
@@ -70,11 +65,7 @@ class SettingsSubscriptionCardsMixin:
         incremental_row = QHBoxLayout()
         incremental_row.addWidget(
             BodyLabel(
-                tr(
-                    "Incremental account subscription refresh",
-                    "账户订阅增量刷新",
-                    "アカウント購読を増分更新",
-                ),
+                stext("incremental_account_subscription_refresh"),
                 cover_card,
             )
         )
@@ -93,15 +84,11 @@ class SettingsSubscriptionCardsMixin:
         sub_prompt_layout.setContentsMargins(20, 16, 20, 16)
         sub_prompt_layout.setSpacing(10)
         sub_prompt_layout.addWidget(
-            SubtitleLabel(tr("Download Subscription Prompt", "下载订阅提示", "ダウンロード時の購読確認"), sub_prompt_card)
+            SubtitleLabel(stext("download_subscription_prompt"), sub_prompt_card)
         )
         sub_prompt_layout.addWidget(
             BodyLabel(
-                tr(
-                    "When a download input is an author or playlist URL, decide whether it should also be added to local subscriptions.",
-                    "当下载输入为作者或播放列表链接时，决定是否同时加入本地订阅列表。",
-                    "入力が作者またはプレイリストURLの場合、ローカル購読へ追加するかを決めます。",
-                ),
+                stext("when_a_download_input_is_an"),
                 sub_prompt_card,
             )
         )
@@ -109,9 +96,9 @@ class SettingsSubscriptionCardsMixin:
         self._subscription_prompt_combo = ComboBox(sub_prompt_card)
         self._subscription_prompt_combo.addItems(
             [
-                tr("Ask Every Time", "每次询问", "毎回確認"),
-                tr("Always Add", "自动加入", "常に追加"),
-                tr("Never Ask", "不再提醒", "確認しない"),
+                stext("ask_every_time"),
+                stext("always_add"),
+                stext("never_ask"),
             ]
         )
         self._subscription_prompt_combo.setFixedWidth(180)
@@ -129,7 +116,7 @@ class SettingsSubscriptionCardsMixin:
         refresh_header = QHBoxLayout()
         refresh_header.addWidget(
             SubtitleLabel(
-                tr("Subscription Automation", "订阅自动化", "購読自動化"),
+                stext("subscription_automation"),
                 automation_card,
             )
         )
@@ -140,12 +127,12 @@ class SettingsSubscriptionCardsMixin:
 
         refresh_interval_row = QHBoxLayout()
         refresh_interval_row.addWidget(
-            BodyLabel(tr("Refresh interval", "刷新间隔", "更新間隔"), automation_card)
+            BodyLabel(stext("refresh_interval"), automation_card)
         )
         self._auto_refresh_interval_spin = SpinBox(automation_card)
         self._auto_refresh_interval_spin.setRange(1, 1440)
         self._auto_refresh_interval_spin.setSuffix(
-            tr(" min", " 分钟", " 分")
+            stext("min")
         )
         self._auto_refresh_interval_spin.setFixedWidth(140)
         refresh_interval_row.addWidget(self._auto_refresh_interval_spin)
@@ -154,7 +141,7 @@ class SettingsSubscriptionCardsMixin:
 
         notification_row = QHBoxLayout()
         notification_row.addWidget(
-            BodyLabel(tr("Desktop notifications", "桌面通知", "デスクトップ通知"), automation_card)
+            BodyLabel(stext("desktop_notifications"), automation_card)
         )
         notification_row.addStretch()
         self._desktop_notification_switch = SwitchButton(automation_card)
@@ -163,7 +150,7 @@ class SettingsSubscriptionCardsMixin:
 
         enqueue_row = QHBoxLayout()
         enqueue_row.addWidget(
-            BodyLabel(tr("Auto queue rule matches", "命中规则后自动入队", "ルール一致を自動追加"), automation_card)
+            BodyLabel(stext("auto_queue_rule_matches"), automation_card)
         )
         enqueue_row.addStretch()
         self._auto_enqueue_switch = SwitchButton(automation_card)
@@ -173,7 +160,7 @@ class SettingsSubscriptionCardsMixin:
         confirm_row = QHBoxLayout()
         confirm_row.addWidget(
             BodyLabel(
-                tr("Auto queued videos also wait for confirmation", "自动入队也需在下载工作台确认", "自動追加も確認待ちにする"),
+                stext("auto_queued_videos_also_wait_for"),
                 automation_card,
             )
         )
@@ -183,7 +170,7 @@ class SettingsSubscriptionCardsMixin:
         automation_layout.addLayout(confirm_row)
 
         rule_row = QHBoxLayout()
-        rule_row.addWidget(BodyLabel(tr("Matching rule", "匹配规则", "照合ルール"), automation_card))
+        rule_row.addWidget(BodyLabel(stext("matching_rule"), automation_card))
         self._auto_enqueue_rule_combo = ComboBox(automation_card)
         self._auto_enqueue_rule_combo.setFixedWidth(220)
         rule_row.addWidget(self._auto_enqueue_rule_combo)
@@ -191,7 +178,7 @@ class SettingsSubscriptionCardsMixin:
         automation_layout.addLayout(rule_row)
 
         refresh_now_btn = PushButton(
-            tr("Refresh Now", "立即刷新", "今すぐ更新"),
+            stext("refresh_now"),
             automation_card,
             FluentIcon.SYNC,
         )
@@ -206,14 +193,14 @@ class SettingsSubscriptionCardsMixin:
         update_layout.setSpacing(10)
         update_header = QHBoxLayout()
         update_header.addWidget(
-            SubtitleLabel(tr("GitHub Release Updates", "GitHub Release 更新", "GitHub Release 更新"), update_card)
+            SubtitleLabel(stext("github_release_updates"), update_card)
         )
         update_header.addStretch()
         self._update_check_switch = SwitchButton(update_card)
         update_header.addWidget(self._update_check_switch)
         update_layout.addLayout(update_header)
         check_update_btn = PushButton(
-            tr("Check Now", "立即检查", "今すぐ確認"),
+            stext("check_now"),
             update_card,
             FluentIcon.UPDATE,
         )
@@ -224,13 +211,12 @@ class SettingsSubscriptionCardsMixin:
     def _on_subscription_refresh_workers_changed(self, value: int):
         if self._loading_settings:
             return
-        value = max(1, min(8, int(value)))
-        app_config.set_ui_value("subscription_refresh_workers_v1", value)
+        setting_values.set_refresh_workers(value)
 
     def _on_subscription_incremental_toggle(self, checked: bool):
         if self._loading_settings:
             return
-        app_config.set_ui_value("subscription_incremental_refresh_v1", bool(checked))
+        setting_values.set_incremental_refresh(checked)
 
     def _reload_auto_enqueue_rules(self, selected_rule_id: str = ""):
         if not hasattr(self, "_auto_enqueue_rule_combo"):
@@ -258,7 +244,7 @@ class SettingsSubscriptionCardsMixin:
 
         background_service.refresh_subscriptions_now()
         InfoBar.info(
-            title=tr("Refresh queued", "刷新已提交", "更新を受け付けました"),
+            title=stext("refresh_queued"),
             content="",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
@@ -285,12 +271,8 @@ class SettingsSubscriptionCardsMixin:
         app_config.global_speed_limit_enabled = self._speed_limit_switch.isChecked()
         app_config.global_speed_limit_kib = self._speed_limit_spin.value()
         app_config.download_schedule_enabled = self._schedule_switch.isChecked()
-        start = normalize_hhmm(self._schedule_start_edit.text())
-        end = normalize_hhmm(self._schedule_end_edit.text())
+        start, end = setting_values.set_schedule(self._schedule_start_edit.text(), self._schedule_end_edit.text())
         self._schedule_start_edit.setText(start)
         self._schedule_end_edit.setText(end)
-        app_config.download_schedule_start = start
-        app_config.download_schedule_end = end
         app_config.update_check_enabled = self._update_check_switch.isChecked()
-        download_manager.resume_scheduled_downloads()
-        signal_bus.background_settings_changed.emit()
+        setting_values.background_changed(download_manager)

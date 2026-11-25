@@ -19,7 +19,8 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...i18n import tr
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from ...presentation import preferences
 from ..style.theme import apply_theme_mode
 
@@ -32,26 +33,22 @@ class SettingsGeneralCardsMixin:
         appearance_layout = QVBoxLayout(appearance_card)
         appearance_layout.setContentsMargins(20, 16, 20, 16)
         appearance_layout.setSpacing(10)
-        appearance_layout.addWidget(SubtitleLabel(tr("Appearance", "外观", "外観"), appearance_card))
+        appearance_layout.addWidget(SubtitleLabel(stext("appearance"), appearance_card))
         appearance_layout.addWidget(
             BodyLabel(
-                tr(
-                    "Light and dark modes share one palette; the choice is remembered.",
-                    "浅色与深色模式共用同一套配色，选择会被记住。",
-                    "ライト/ダークは同じ配色を共有し、選択は保存されます。",
-                ),
+                stext("light_and_dark_modes_share_one"),
                 appearance_card,
             )
         )
         theme_row = QHBoxLayout()
-        theme_row.addWidget(BodyLabel(tr("Theme", "主题模式", "テーマ"), appearance_card))
+        theme_row.addWidget(BodyLabel(stext("theme"), appearance_card))
         theme_row.addStretch()
         self._theme_combo = ComboBox(appearance_card)
-        self._theme_combo.addItem(tr("Follow system", "跟随系统", "システムに合わせる"))
+        self._theme_combo.addItem(stext("follow_system"))
         self._theme_combo.setItemData(0, "auto")
-        self._theme_combo.addItem(tr("Light", "浅色", "ライト"))
+        self._theme_combo.addItem(stext("light"))
         self._theme_combo.setItemData(1, "light")
-        self._theme_combo.addItem(tr("Dark", "深色", "ダーク"))
+        self._theme_combo.addItem(stext("dark"))
         self._theme_combo.setItemData(2, "dark")
         self._theme_combo.setFixedWidth(180)
         self._theme_combo.currentIndexChanged.connect(self._on_theme_mode_changed)
@@ -65,14 +62,10 @@ class SettingsGeneralCardsMixin:
         lang_layout.setContentsMargins(20, 16, 20, 16)
         lang_layout.setSpacing(10)
 
-        lang_layout.addWidget(SubtitleLabel(tr("Interface Language", "界面语言", "表示言語"), lang_card))
+        lang_layout.addWidget(SubtitleLabel(stext("interface_language"), lang_card))
         lang_layout.addWidget(
             BodyLabel(
-                tr(
-                    "Default is Chinese; language switch is applied immediately",
-                    "默认中文；切换后立即生效",
-                    "初期値は中国語です。言語切替は即時反映されます",
-                ),
+                stext("default_is_chinese_language_switch_is"),
                 lang_card,
             )
         )
@@ -93,12 +86,12 @@ class SettingsGeneralCardsMixin:
         data_layout = QVBoxLayout(data_card)
         data_layout.setContentsMargins(20, 16, 20, 16)
         data_layout.setSpacing(8)
-        data_layout.addWidget(SubtitleLabel(tr("Local Data Paths", "本地数据位置", "ローカルデータパス"), data_card))
-        data_layout.addWidget(BodyLabel(f"{tr('Data dir', '数据目录', 'データディレクトリ')}: {app_config.app_data_dir}", data_card))
-        data_layout.addWidget(BodyLabel(f"{tr('Config file', '配置文件', '設定ファイル')}: {app_config.config_path}", data_card))
-        data_layout.addWidget(BodyLabel(f"{tr('History DB', '下载历史库', '履歴DB')}: {app_config.history_db_path}", data_card))
+        data_layout.addWidget(SubtitleLabel(stext("local_data_paths"), data_card))
+        data_layout.addWidget(BodyLabel(f"{stext('data_dir')}: {app_config.app_data_dir}", data_card))
+        data_layout.addWidget(BodyLabel(f"{stext('config_file')}: {app_config.config_path}", data_card))
+        data_layout.addWidget(BodyLabel(f"{stext('history_db')}: {app_config.history_db_path}", data_card))
         open_data_btn = PushButton(
-            tr("Open data folder", "打开数据目录", "データフォルダーを開く"),
+            stext("open_data_folder"),
             data_card,
             FluentIcon.FOLDER,
         )
@@ -112,21 +105,17 @@ class SettingsGeneralCardsMixin:
         quality_layout.setContentsMargins(20, 16, 20, 16)
         quality_layout.setSpacing(10)
 
-        quality_layout.addWidget(SubtitleLabel(tr("Preferred Quality", "下载画质偏好", "優先画質"), quality_card))
+        quality_layout.addWidget(SubtitleLabel(stext("preferred_quality"), quality_card))
         quality_layout.addWidget(
             BodyLabel(
-                tr(
-                    "If preferred quality is unavailable, fallback order is Source > 540 > 360",
-                    "首选画质不存在时自动回退到更低分辨率：Source > 540 > 360",
-                    "優先画質が無い場合は Source > 540 > 360 の順で自動フォールバックします",
-                ),
+                stext("if_preferred_quality_is_unavailable_fallback"),
                 quality_card,
             )
         )
 
         quality_row = QHBoxLayout()
         self._quality_combo = ComboBox(quality_card)
-        self._quality_combo.addItems([tr("Source", "原画", "オリジナル"), "540p", "360p"])
+        self._quality_combo.addItems([stext("source"), "540p", "360p"])
         self._quality_combo.setFixedWidth(180)
         self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
         quality_row.addWidget(self._quality_combo)
@@ -135,8 +124,7 @@ class SettingsGeneralCardsMixin:
         self._settings_board.add_card("quality", quality_card)
 
     def _on_quality_changed(self, idx: int):
-        q = ["Source", "540", "360"][idx]
-        app_config.preferred_quality = q
+        setting_values.set_quality(setting_values.QUALITIES[idx])
 
     def _on_language_changed(self, idx: int):
         if self._loading_settings:
@@ -162,7 +150,7 @@ class SettingsGeneralCardsMixin:
         path = str(path or "").strip()
         if not path or not os.path.isdir(path):
             InfoBar.warning(
-                title=tr("Folder not found", "文件夹不存在", "フォルダーが見つかりません"),
+                title=stext("folder_not_found"),
                 content=path,
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,

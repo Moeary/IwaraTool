@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, ComboBox, SubtitleLabel
 
 from ...core import site as sites
-from ...i18n import tr
+from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 
 
@@ -20,23 +20,15 @@ class SiteSettingsCard:
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
-        layout.addWidget(SubtitleLabel(tr("Site", "站点", "サイト"), card))
+        layout.addWidget(SubtitleLabel(stext("site"), card))
         layout.addWidget(
             BodyLabel(
-                tr(
-                    "The site Home, Search and Subscriptions show. Both share one account; pasted links "
-                    "always open on their own site, and posts already on screen keep theirs. "
-                    "The sidebar globe and Ctrl+Shift+S switch it too.",
-                    "首页、搜索和订阅页浏览的站点。两站共用同一个账号；粘贴的链接始终按自身站点处理，"
-                    "切换前已显示的作品仍按原站点打开。也可用侧栏的地球图标或 Ctrl+Shift+S 切换。",
-                    "ホーム・検索・購読で表示するサイトです。アカウントは共通で、貼り付けたリンクは常にそのサイトで開き、"
-                    "表示中の投稿も元のサイトのままです。サイドバーの地球アイコンや Ctrl+Shift+S でも切り替えられます。",
-                ),
+                stext("the_site_home_search_and_subscriptions"),
                 card,
             )
         )
         row = QHBoxLayout()
-        row.addWidget(BodyLabel(tr("Browse", "浏览站点", "表示するサイト"), card))
+        row.addWidget(BodyLabel(stext("browse_2"), card))
         row.addStretch()
         self._combo = ComboBox(card)
         for key, site in sites.SITES.items():
