@@ -137,6 +137,10 @@ async def main(page: ft.Page) -> None:
     await shell.tasks.reload()
     if services:
         page.run_task(shell.restore_login)
+    if ARGS.demo:
+        import flet_demo  # scripts/tools, on sys.path in demo runs
+
+        await flet_demo.play(shell, ARGS.route)
     if ARGS.shot:
         await take_shot(page, ARGS.shot)
 

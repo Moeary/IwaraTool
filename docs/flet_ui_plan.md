@@ -837,6 +837,12 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 双指右滑返回（macOS） | 依 Flet 能力，【需核实】 |
 | 头像下拉菜单 | 改为“账号与偏好”面板（分段按钮），见 6.3 |
 | 鼠标侧键返回、多段快捷键（如 Ctrl+K, Ctrl+S） | Flet 键盘事件暂未接入鼠标侧键；多段快捷键暂不匹配。Esc、Alt+← 返回可用 |
+| 搜索页网格 / 列表（表格）视图切换 | 先只有网格；列表视图与列显示设置放到 P6 与资料库表格一起做 |
+| 搜索框下拉的历史与标签候选 | 历史改为页头“搜索记录”菜单；标签候选（`tag_suggestions`）暂缺，标签搜索仍可手输，P4 前补 |
+| 搜索结果右键菜单（统一动作列表） | P4 与详情页一起做 `VideoActions`；P3 单个下载用“选中一项 → 加入下载” |
+| 搜索页按作者浏览（作者卡片 → 该作者视频）、作者订阅 | 作者卡片打开 `/author/<用户名>`（P5 作者页） |
+| 下载页任务表格的列、排序、多选批量 | 改为任务行 + 状态标签 + 关键词筛选；批量动作在页头“更多”（重试失败、全部取消、恢复已取消、清除已完成）；按行多选暂缺 |
+| 下载规则的每页常驻选择 | `DownloadSheet` 里选择并可“记住为本页规则” |
 
 ---
 
@@ -844,6 +850,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P3 搜索与下载闭环：搜索页（来源、范围、排序、筛选面板、搜索记录、网格、选择与加入下载、手机滚动加载 / 宽屏页码、Oreno3D 预解析与下载状态徽章）；下载页（链接栏、待确认卡片、状态标签、任务行与进度、取消/重试/恢复、优先级、打开文件夹、在资料库中查看、日志页）；`VideoCard` / `VideoGrid` / `DownloadSheet` / `FilterSheet`；`stores/tasks.py`、`stores/search.py`、`services/downloads.py`、`services/images.py`。新迁入共用层：`presentation/media/cards.py`、`presentation/search/options.py`、`post_filter_text.py`、搜索记录、`core/search/resolution.apply_oreno_link`、待确认文字。`main_flet.py --demo`（离线虚构数据）；截图见 `docs/verification/flet/P3/`。事件桥改为在页面上下文里分发（否则后台线程的事件无法触发重绘）。 |
 | 2026-11-25 | P2 外壳完成：`layout.py`（档位、导航形态、网格计算）、`routes.py`、`navigation.py`（每个目的地一个返回栈）、`shell.py` + `stores/app_state.py`（声明式，`page.render`）、自适应导航与“账号与偏好”面板、全局快捷键（共用 `presentation.shortcuts`）、事件桥接入（语言、主题、分级、站点、登录、下载徽章）、`core/account.py`；`main_flet.py --viewport/--route/--theme/--lang/--account/--shot` 与 `scripts/tools/flet_viewports.py`；截图见 `docs/verification/flet/P2/`。 |
 | 2026-11-25 | P1 核心整理（C1～C7）完成：取消令牌、搜索服务、首页/Oreno3D/订阅批量逻辑入 core，展示逻辑入 `presentation`，`app/bootstrap.py`，事件桥，无 Qt 守护测试。旧界面测试全部通过（本机焦点类用例受桌面焦点影响，以 CI 为准）。 |
 | 2026-11-25 | P0 工程：pixi 拆为 `qt` / `flet` 两个 feature（旧界面 3.11，见 2.3 的核查结果）；测试分层；`scripts/tools/build_flet.py` 与 `packaging/flet/`；`main_flet.py` 冒烟报告（是否加载 Qt、数据目录）；打包后的数据目录取 `FLET_APP_STORAGE_DATA`。 |

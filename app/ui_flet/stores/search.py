@@ -18,6 +18,7 @@ from ...core.cancellation import CancelToken
 from ...core.rating import api_rating
 from ...core.search.limits import configured_resolution_concurrency, resolution_mode
 from ...core.search.models import SearchFilters, SearchPageResult
+from ...core.search.post_filter import PostFilter, apply_post_filter
 from ...core.search.resolution import OrenoLinkResolver, apply_oreno_link
 from ...core.search.service import run_search
 from ...logging_setup import get_logger
@@ -48,6 +49,7 @@ class SearchState:
     last_page: int | None = None
     has_next: bool = False
     history: list[dict[str, str]] = field(default_factory=list)
+    post_filter: PostFilter = field(default_factory=PostFilter)
 
 
 class SearchStore:
@@ -218,12 +220,38 @@ class SearchStore:
             authors=len(self.results.authors),
             playlists=len(self.results.playlists),
             total=self.results.total,
+            shown=len(self._visible_videos()) if self.post_filter_applies() else None,
         )
+
+    # ── post-search filter ───────────────────────────────────────────────────
+
+    def grid_only(self) -> bool:
+        """Author and playlist results have no statistics to filter on."""
+        return self.state.scope == "authors" or bool(self.results.playlists)
+
+    def post_filter_applies(self) -> bool:
+        return self.state.post_filter.is_active() and not self.grid_only()
+
+    def _visible_videos(self) -> list:
+        if self.post_filter_applies():
+            return apply_post_filter(self.results.videos, self.state.post_filter)
+        return list(self.results.videos)
+
+    def set_post_filter(self, post_filter: PostFilter) -> None:
+        if post_filter == self.state.post_filter:
+            return
+        self.state.post_filter = post_filter
+        self._rebuild_cards()
+        self.state.selected = frozenset(key for key in self.state.selected if key in self.items)
+        self.state.selecting = bool(self.state.selected)
+        if self.state.searched and not self.state.loading:
+            self.state.status = self.found_text()
+        self.state.revision += 1
 
     def _rebuild_cards(self) -> None:
         self.items.clear()
         cards = []
-        for item in (*self.results.playlists, *self.results.videos, *self.results.authors):
+        for item in (*self.results.playlists, *self._visible_videos(), *self.results.authors):
             card = card_for(item)
             if card is not None and card.key not in self.items:
                 self.items[card.key] = item
@@ -300,6 +328,8 @@ class SearchStore:
             await asyncio.sleep(0.2)
             self._bump_pending = False
             self._rebuild_cards()
+            if self.post_filter_applies() and not self.state.loading:
+                self.state.status = self.found_text()
             self.state.revision += 1
 
         self.shell.page.run_task(bump)

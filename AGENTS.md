@@ -36,6 +36,7 @@
 | 主题样张 | `pixi run -e flet theme-gallery` |
 | Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet` |
 | 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
+| 离线虚构数据运行（搜索、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`） |
 | 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
 
 - pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
@@ -56,6 +57,9 @@
 - 根组件 `app/ui_flet/app.py` 的 `mount(page)`；页面按目的地在 `app/ui_flet/pages/` 用 `register(destination, Component)` 注册，组件签名 `(destination, path)`，外框用 `components/page_frame.py` 的 `PageFrame`。
 - 组件通过 `stores/app_state.py` 的 `use_shell()` 取 `Shell`（状态 + 动作）。`ft.use_context` 只对 `Observable` 值自动订阅，`Shell` 不是，所以 `use_shell()` 会额外 `use_state(shell.state)` 订阅；新组件不要直接 `use_context(ShellContext)`。
 - 页面需要随返回恢复的状态，给 `shell.navigator.destinations[name]` 设 `snapshot_state` / `restore_state`。
+- 搜索、下载等页面状态放在 `Shell` 上的仓库（`shell.search`、`shell.tasks`），切换目的地不丢；阻塞调用一律 `asyncio.to_thread`，长任务带 `CancelToken`，只接收当前 generation 的结果。
+- 卡片统一用 `presentation/media/cards.py` 的 `CardView` + `components/video_card.py`；封面统一经 `shell.images`（core 的图片缓存），不让客户端直接拉远程 URL。
+- 提示条用 `services/notify.py` 的 `notice()`；`EventBridge` 在页面上下文里分发事件，事件处理里可以直接改 observable。
 - `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
 
 ## 提交与 CI

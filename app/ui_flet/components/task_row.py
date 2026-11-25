@@ -12,8 +12,8 @@ from ...core.models import DownloadTask, TaskStatus, status_label
 from ...i18n import tr
 from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES
 from ...presentation.downloads.task_text import priority_text, progress_ratio, task_cover_url, task_meta_text, task_url
-from .. import layout
-from ..icons import AppIcon
+from .. import layout, routes
+from ..icons import AppIcon, NavIcon
 from ..stores.app_state import use_shell
 from ..stores.tasks import TaskItem
 from ..theme import palette_for, text_style
@@ -54,6 +54,8 @@ def _menu(shell, task: DownloadTask) -> ft.Control:
     if task.status == TaskStatus.COMPLETED:
         items.append(ft.PopupMenuItem(content=tr("Open folder", "打开所在文件夹", "フォルダーを開く"), icon=AppIcon.FOLDER_OPEN,
                                       on_click=lambda _e: shell.page.run_task(run, "open_task_output", task_id, open_file=False)))
+        items.append(ft.PopupMenuItem(content=tr("Show in library", "在资料库中查看", "ライブラリで表示"), icon=NavIcon.LIBRARY.rest,
+                                      on_click=lambda _e: shell.open(routes.route(routes.LIBRARY, task.video_id))))
     if task.status in _ACTIVE_STATUSES or task.status in _QUEUED:
         for value in (1, 0, -1):
             items.append(ft.PopupMenuItem(
@@ -94,6 +96,7 @@ def TaskRow(item: TaskItem):
     task = item.task
     palette = palette_for(shell.page)
     compact = shell.state.layout.width_class == layout.WIDTH_COMPACT
+    cover_width = 112 if not compact else 56 if shell.state.layout.width < 360 else 72
     title = ft.Text(task.title or task.video_id or task.url, style=text_style(TYPE.card_title), max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS, tooltip=task.title or None)
     meta = ft.Text(task_meta_text(task), style=text_style(TYPE.meta, color=palette.on_surface_variant), max_lines=1,
@@ -115,7 +118,7 @@ def TaskRow(item: TaskItem):
         content=ft.Row(
             spacing=Space.MD,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[Cover("video", task.video_id, task_cover_url(task), 72 if compact else 112, task.thumbnail_path),
+            controls=[Cover("video", task.video_id, task_cover_url(task), cover_width, task.thumbnail_path),
                       text_column, *actions],
         ),
     )

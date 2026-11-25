@@ -11,10 +11,12 @@ from ....core.models import TaskStatus
 from ....i18n import tr
 from ....presentation.media.cards import KIND_AUTHOR, KIND_PLAYLIST, CardView
 from ....presentation.search import options
+from ....presentation.search import post_filter_text
 from ....presentation.search.download_status import SearchDownloadStatus
 from ....presentation.search.history_entries import search_history_label
 from ... import layout, routes
 from ...components.download_sheet import open_download_sheet
+from ...components.filter_sheet import open_filter_sheet
 from ...components.page_frame import PageFrame
 from ...components.status_badge import BadgeKind
 from ...components.video_grid import VideoGrid
@@ -114,7 +116,7 @@ def QueryBar():
 
 
 @ft.component
-def ScopeChips():
+def ScopeChips(trailing: ft.Control | None = None):
     shell = use_shell()
     store = shell.search
     state = store.state
@@ -150,7 +152,23 @@ def ScopeChips():
             ],
         )
     )
-    return ft.Row(spacing=Space.SM, scroll=ft.ScrollMode.AUTO, controls=chips)
+    post_filter = state.post_filter
+    chips.append(
+        ft.Chip(
+            label=post_filter_text.button_text(post_filter),
+            leading=ft.Icon(AppIcon.FILTER, size=Size.ICON_SM),
+            selected=post_filter.is_active(),
+            show_checkmark=False,
+            tooltip=post_filter_text.button_tooltip(),
+            disabled=store.grid_only(),
+            on_click=lambda _e: open_filter_sheet(shell, store.state.post_filter, store.set_post_filter),
+        )
+    )
+    row = ft.Row(spacing=Space.SM, scroll=ft.ScrollMode.AUTO, controls=chips)
+    if trailing is None:
+        return row
+    return ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                  controls=[ft.Container(expand=True, content=row), trailing])
 
 
 # ── results ──────────────────────────────────────────────────────────────────
@@ -178,19 +196,19 @@ def _pager(shell) -> ft.Control:
 
 
 @ft.component
-def StatusRow():
+def StatusRow(inline: bool = False):
     shell = use_shell()
     state = shell.search.state
     subscribe(state)
     palette = palette_for(shell.page)
     paged = shell.state.layout.width_class not in (layout.WIDTH_COMPACT,)
     controls: list[ft.Control] = [
-        ft.Text(state.status, style=text_style(TYPE.meta, color=palette.on_surface_variant), expand=True,
+        ft.Text(state.status, style=text_style(TYPE.meta, color=palette.on_surface_variant), expand=not inline,
                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
     ]
     if state.searched and paged and shell.search.cards:
         controls.append(_pager(shell))
-    return ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=controls)
+    return ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=inline, controls=controls)
 
 
 @ft.component
@@ -325,9 +343,14 @@ def _history_menu(shell) -> ft.Control:
 def SearchPage(destination: str, path: str):
     shell = use_shell()
     subscribe(shell.search.state)
+    short = shell.state.layout.height_class == layout.HEIGHT_COMPACT
+    # Landscape phones: chips and the result line share a row so the grid keeps some height.
+    controls = [QueryBar(), ScopeChips(trailing=StatusRow(inline=True)) if short else ScopeChips()]
+    if not short:
+        controls.append(StatusRow())
     body = ft.Column(
         expand=True,
-        spacing=Space.MD,
-        controls=[QueryBar(), ScopeChips(), StatusRow(), SelectionBar(), Results()],
+        spacing=Space.SM if short else Space.MD,
+        controls=[*controls, SelectionBar(), Results()],
     )
     return PageFrame(title=routes.label(routes.SEARCH), body=body, actions=[_history_menu(shell)])

@@ -26,7 +26,8 @@ def PageFrame(
 ):
     shell = use_shell()
     state = shell.state
-    compact = state.layout.width_class == layout.WIDTH_COMPACT
+    # Phones, and landscape phones (little height): the smaller title and tighter header.
+    compact = state.layout.width_class == layout.WIDTH_COMPACT or state.layout.height_class == layout.HEIGHT_COMPACT
     padding = state.layout.page_padding
     leading: list[ft.Control] = []
     if state.can_back:
@@ -44,8 +45,8 @@ def PageFrame(
         padding=ft.Padding.only(
             left=padding - (Space.SM if leading else 0),
             right=padding - Space.SM,
-            top=Space.SM if compact else Space.LG,
-            bottom=Space.SM,
+            top=Space.XS if compact else Space.LG,
+            bottom=Space.XS if compact else Space.SM,
         ),
         content=ft.Row(
             spacing=Space.XS,

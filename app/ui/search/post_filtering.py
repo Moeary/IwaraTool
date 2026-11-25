@@ -9,7 +9,7 @@ from qfluentwidgets import FluentIcon, TogglePushButton
 
 from ...core.search.models import SearchVideo
 from ...core.search.post_filter import PostFilter, apply_post_filter
-from ...i18n import tr
+from ...presentation.search import post_filter_text
 from .post_filter_dialog import SearchPostFilterDialog
 
 
@@ -38,18 +38,10 @@ class SearchPostFilterMixin:
         button = getattr(self, "_post_filter_btn", None)
         if button is None:
             return
-        count = self._post_filter.condition_count()
-        label = tr("Filter", "筛选", "絞り込み")
-        button.setText(f"{label} · {count}" if count else label)
+        button.setText(post_filter_text.button_text(self._post_filter))
         button.setChecked(self._post_filter.is_active())
         button.setEnabled(not self._grid_only_results())
-        button.setToolTip(
-            tr(
-                "Filter and re-sort the loaded results by likes, views, duration and more",
-                "按点赞、播放、时长等条件筛选并重新排序已加载的结果",
-                "読み込み済みの結果をいいね・再生数・長さなどで絞り込み、並べ替えます",
-            )
-        )
+        button.setToolTip(post_filter_text.button_tooltip())
 
     def _open_post_filter_dialog(self):
         dialog = SearchPostFilterDialog(self.window(), self._post_filter)
