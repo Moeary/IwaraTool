@@ -217,6 +217,8 @@ module = "main_flet"
 - `build.yml`：新增独立的 Flet 构建任务，先只在 `workflow_dispatch` 时运行；产物前缀为 `IwaraTool-Flet-*`，**不进入**现有发版的 `files: dist/IwaraTool*` 匹配，直到决定替换旧界面。可以选用官方 `flet-dev/flet-build-action`，但要保证仍通过 `build_flet.py` 暂存源码。
 - Android 构建放在 Linux runner 上，签名密钥使用仓库 secrets，没有密钥时只出 debug 包。
 
+【已实施】Flet 构建只在 `workflow_dispatch` 且 `target` 为 `flet` / `all` 时运行（Windows、macOS），产物为 `flet-<OS>-<arch>` 构件。macOS 任务先切到 runner 上最新的 Xcode（≥ 26）：Flet 客户端依赖的 `connectivity_plus` 7.3 使用 macOS 26 SDK 的 `NWPath.isUltraConstrained`，runner 默认的 Xcode 16.4 编译失败。
+
 ---
 
 ## 3. 核心层整理（写 Flet 页面前完成）
@@ -230,11 +232,15 @@ module = "main_flet"
 - 旧界面的 `ManagedThread.requestInterruption()` 同时设置自身令牌，行为不变。
 - 测试：普通线程中设置令牌后，`cancellable_sleep` 与网络请求能在 `CANCEL_POLL_SECONDS` 量级内抛出 `RequestCancelled`；无 Qt 环境同样通过。
 
+【已实施】`app/core/cancellation.py`；`net_policy.cancellation_requested()` 先查令牌再查 QThread。旧界面不必让 `requestInterruption()` 另设令牌：QThread 检查保留，行为不变。
+
 ### C2 搜索服务
 
 - 新增 `app/core/search/service.py`：`run_search(filters, scope, page, *, source, cancel) -> SearchPageResult`，包含 `SearchWorker` 中的全部分派逻辑、`_scan_rated`、末页计算和输入校验（校验提示文字保留 `tr()`，或返回错误码由界面翻译，二选一并保持一致）。
 - 旧 `SearchWorker.run()` 只剩 `self.result_ready.emit(run_search(...))`。
 - 现有 `test_search*.py` 中针对 Worker 的用例改为针对服务，界面测试只验证信号转发。
+
+【已实施】`app/core/search/service.py` 的 `run_search(filters, scope, page, *, source, client, should_stop)`；校验提示保留 `tr()`。旧 Worker 用例原样保留（它们现在经过服务），另有不依赖 Qt 的 `core/test_search_service.py`。
 
 ### C3 其余 Worker 的业务逻辑
 
@@ -244,6 +250,8 @@ module = "main_flet"
 | `ui/home/workers.py` 的 `normalize_items`、`items_from_rows`、`author_user_id`、`FeedWorker._fetch` | `core/home/feed.py` | 首页栏目数据获取函数 `fetch_section(section, *, cancel)` |
 | `ui/subscription/components.py` 的刷新、头像、缩略图批量拉取 | `core/subscription/media_cache.py` / `refresh.py` | 带取消与进度回调的批量函数 |
 | `ui/search/worker_limits.py` | `core/search/` | 并发上限常量 |
+
+【已实施】`core/home/loading.py`（栏目、详情、评论、私有客户端调用）、`core/search/resolution.py`（入队 ID 与分阶段链接解析）、`core/search/limits.py`、`core/subscription/batch.py`（刷新、头像、封面批量）。为测试替身写的 `TypeError` 回退已删除，缺签名的替身已补全。
 
 ### C4 纯逻辑迁出 app/ui
 
@@ -264,6 +272,8 @@ module = "main_flet"
 | `ui/common/click_dispatch.py` 中的动作常量 | 统一的视频动作定义（见 7.0） |
 | `ui/shortcuts/catalog.py` | 快捷键目录：拆成纯数据（动作 ID、默认键位字符串、分组、平台差异）放 `presentation`，`QKeySequence` 解析留在旧界面 |
 
+【已实施】除列表各项外，订阅 `helpers` 的纯函数也迁入 `presentation/subscription/helpers.py`，颜色改为返回语义角色名（`success` / `info` / …），各界面自行映射；返回栈 `presentation/navigation.py` 的页面存活检查可替换（旧界面传入已销毁控件检查）；快捷键目录自带不依赖 Qt 的规范化函数，旧界面安装 `QKeySequence` 版本，二者对所有默认键位的结果由测试保证一致。引用直接改到新模块，不留转发文件（`worker_limits`、`subscription/helpers`、`shortcuts/catalog` 等仍需 Qt 的模块除外）。
+
 ### C5 共用启动与关闭
 
 新增 `app/bootstrap.py`，把 `main.py` 中与界面无关的步骤搬过去：
@@ -283,12 +293,16 @@ def stop(*, wait: bool, timeout: float = 30.0) -> None:
 - 旧 `main.py` 改为调用 `bootstrap.start()`，在 `aboutToQuit` 中调用 `bootstrap.stop(wait=False)`，行为与现在一致。
 - Flet：桌面窗口设置 `page.window.prevent_close = True`，在 `WindowEventType.CLOSE` 中先 `await asyncio.to_thread(bootstrap.stop, wait=True)` 再 `await page.window.destroy()`【已核实这些接口存在】。Android 在应用切到后台时同步设置与队列（生命周期事件名【需核实】）。
 
+【已实施】`app/bootstrap.py`：`restore_pending_backup()` → `prepare(frontend=)` → `start_services()`，`stop(wait=)` 只执行一次并调用 `settings_store.sync_all_open_stores()`。旧 `main.py` 的步骤顺序不变（`prepare` 仍在建窗口之前、主题之后）。Flet 侧在 `app/ui_flet/lifecycle.py`。顺带修正：`logging_setup` 在 `IWARATOOL_NO_QT` 时不再导入 PySide6。
+
 ### C6 事件桥约定
 
 - `main_flet.py` 第一行设置 `os.environ["IWARATOOL_NO_QT"] = "1"`，之后才能导入任何 `app` 模块。
 - `app/ui_flet/services/events.py` 订阅 `signal_bus`，回调在后台线程中只做一件事：把事件放进线程安全队列，并通过 `page.run_task`（文档注明可从任意线程调用）或 `loop.call_soon_threadsafe` 唤醒事件循环上的消费者。
 - 消费者按类型合并：下载进度按任务 ID 只保留最新值，每 150 ms 批量写入状态；状态变化、错误、完成立即处理。
 - 页面卸载时取消订阅；测试断言重复进出页面后订阅数不增长。
+
+【已实施】`app/ui_flet/services/events.py` 的 `EventBridge`（`call_soon_threadsafe`，`coalesce=` 时按键合并、每 150 ms 投递）与页面用的 `SubscriptionGroup`；测试覆盖顺序、合并、协程处理函数、反复进出页面不增加订阅数。
 
 ### C7 测试守护
 
@@ -297,6 +311,8 @@ def stop(*, wait: bool, timeout: float = 30.0) -> None:
 - 遍历 `app.presentation` 与 `app.ui_flet`，在拒绝 Qt 的解释器中全部可导入（`ui_flet` 在 Flet 环境中检查）。
 - 静态检查：`app/ui_flet/**` 源码中不得出现 `app.ui`、`from ..ui`、`PySide6`、`qfluentwidgets`。
 - `bootstrap.start()` / `stop()` 在临时数据目录中可完整走一遍，`stop()` 后 INI 已写盘。
+
+【已实施】`core/test_core_without_qt.py` 新增 `app.presentation`、`app.bootstrap`（有 Flet 时加 `app.ui_flet`）的无 Qt 导入检查；`core/test_bootstrap.py` 在临时数据目录中完整走一遍 `start` / `stop` 并断言 INI 已写盘。
 
 ---
 
@@ -823,6 +839,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-25 | P1 核心整理（C1～C7）完成：取消令牌、搜索服务、首页/Oreno3D/订阅批量逻辑入 core，展示逻辑入 `presentation`，`app/bootstrap.py`，事件桥，无 Qt 守护测试。旧界面测试全部通过（本机焦点类用例受桌面焦点影响，以 CI 为准）。 |
 | 2026-11-25 | P0 工程：pixi 拆为 `qt` / `flet` 两个 feature（旧界面 3.11，见 2.3 的核查结果）；测试分层；`scripts/tools/build_flet.py` 与 `packaging/flet/`；`main_flet.py` 冒烟报告（是否加载 Qt、数据目录）；打包后的数据目录取 `FLET_APP_STORAGE_DATA`。 |
 | 2026-11-25 | 分支 `feat/flet-ui`。pixi 新增独立 `flet` 环境（Python 3.12、Flet 1.1.3，不含 PySide6）；设计令牌、主题、图标注册表、`StatusBadge`；主题样张 `scripts/tools/flet_theme_gallery.py`；`main_flet.py` 空壳；CI 新增 Flet 测试任务（Windows / macOS / Linux）。旧界面截图基线在 `tmp/pyside6_baseline/`（不入库）。 |
 

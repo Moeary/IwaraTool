@@ -42,6 +42,13 @@
 - Flet 入口一律用 `app/ui_flet/runner.py` 的 `run(main)` 启动，不直接 `ft.run`：`flet_desktop` 会优先启动 `<当前目录>/build/macos/*.app`、`build/windows/*.exe`，而这里放的是 Nuitka 构建的旧版应用；`run` 会切到中立工作目录（相对的 `IWARATOOL_DATA_DIR` 等先转为绝对路径）。
 - Flet 首次启动会从 GitHub 下载桌面客户端（`~/.flet/client`）。本机 Python 内下载可能卡住时，先用 curl 下载 `https://github.com/flet-dev/flet/releases/download/v1.1.3/flet-macos.tar.gz`（Windows 为 `flet-windows.zip`），再设 `FLET_CLIENT_URL=file:///<路径>` 运行一次。
 
+## 分层落点（P1 之后）
+
+- 阻塞的业务流程在 `app/core`（如 `search/service.py`、`home/loading.py`、`search/resolution.py`、`subscription/batch.py`），接收 `manager` / `client` 参数与 `should_stop`，默认跟随当前 `CancelToken`（`core/cancellation.py`）。
+- 展示用的文字、派生数据与规则在 `app/presentation`（导航返回栈、快捷键目录、点击动作、入队与暂存提示等）；颜色只给语义角色名，由各界面映射。
+- 启动与关闭只走 `app/bootstrap.py`；Flet 侧用 `app/ui_flet/lifecycle.py`（关窗先 `stop` 再销毁窗口）和 `app/ui_flet/services/events.py` 的 `EventBridge`（页面用 `SubscriptionGroup`，卸载时 `close()`）。
+- 本机直接用 `pixi run python -m unittest ...` 跑 `qt` 用例时要设 `QT_QPA_PLATFORM=cocoa`（`pixi run test` 已设置），否则创建主窗口时 qframelesswindow 段错误。依赖窗口激活的焦点类用例在桌面被其他应用占用焦点时会超时失败，与代码无关，以 CI 结果为准。
+
 ## 提交与 CI
 
 - 在 `feat/flet-ui` 上工作，不直接提交到 `dev` / `main`。
