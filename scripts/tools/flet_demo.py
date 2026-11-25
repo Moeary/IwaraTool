@@ -2,7 +2,9 @@
 
 Runs after the window is mounted, on top of ``demo_fixture`` (offline made-up
 Iwara): the search route searches, the downloads route queues a few videos and
-cancels one, the subscription, library and author routes get seeded records.  Nothing here is imported outside demo runs.
+cancels one, the subscription, library and author routes get seeded records,
+the repair route gets a folder of badly named files (``IWARATOOL_DEMO_STEP``:
+``options`` / ``preview`` scans / ``done`` also repairs).  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -56,3 +58,22 @@ async def play(shell, route: str) -> None:
         tasks = download_manager.get_tasks()
         if len(tasks) > 2:
             download_manager.cancel_task(tasks[-1].task_id)
+    elif destination == routes.REPAIR and demo_fixture.ROOT:
+        folder = demo_fixture.ROOT / "Unsorted"
+        folder.mkdir(parents=True, exist_ok=True)
+        # Repair reads IDs of 8+ characters; the fake API answers any ID by its digits.
+        names = [f"Iwara - {demo_fixture.video(i)['title']} [demo{i:04d}].mp4" for i in range(4)]
+        names += [f"{demo_fixture.video(i)['title']} 1080p (demo{i:04d}).mp4" for i in range(4, 9)]
+        names += ["holiday clip.mp4", "untitled (2).mp4"]
+        for name in names:
+            (folder / name).write_bytes(b"\0" * 1024)
+        store = shell.repair
+        store.load()
+        store.update(folder=str(folder))
+        step = os.environ.get("IWARATOOL_DEMO_STEP", "")
+        if step:
+            store.go(1)
+        if step in ("preview", "done"):
+            await store.scan()
+        if step == "done":
+            await store.repair()

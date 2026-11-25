@@ -31,6 +31,7 @@ from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
 from .stores.detail import DetailStore
 from .stores.library import LibraryStore
+from .stores.repair import RepairStore
 from .stores.rules import RulesStore
 from .stores.subscriptions import SubscriptionStore
 from .stores.home import HomeStore
@@ -95,6 +96,7 @@ class Shell:
         self.subscriptions = SubscriptionStore(self, download_manager)
         self.library = LibraryStore(self, download_manager)
         self.rules = RulesStore(self, download_manager)
+        self.repair = RepairStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -243,6 +245,7 @@ class Shell:
         self.images.close()
         self.search.close()
         self.details.close()
+        self.repair.close()
         self.library.flush()
 
     def _on_release(self, release: dict) -> None:

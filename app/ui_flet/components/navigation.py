@@ -67,11 +67,20 @@ def _select_handler(shell, items: tuple[str, ...]):
     return on_change
 
 
-def build_bar(shell) -> ft.NavigationBar:
+def bar_items(shell) -> tuple[str, ...]:
+    """The bar's destinations: an open overflow destination (settings, rules…) joins them at the end,
+    since Flutter's NavigationBar always marks one destination."""
+
     items = nav_items(shell)
     current = shell.state.destination
+    return items if current in items or current not in DESTINATION_ICONS else (*items, current)
+
+
+def build_bar(shell) -> ft.NavigationBar:
+    items = bar_items(shell)
+    current = shell.state.destination
     return ft.NavigationBar(
-        selected_index=items.index(current) if current in items else None,
+        selected_index=items.index(current) if current in items else 0,
         label_behavior=ft.NavigationBarLabelBehavior.ALWAYS_SHOW,
         on_change=_select_handler(shell, items),
         destinations=[
