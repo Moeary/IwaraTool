@@ -245,8 +245,14 @@ def artwork(key: str, *, avatar: bool = False) -> bytes:
         cached = _IMAGE_CACHE.get(key)
     if cached is not None:
         return cached
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
-    from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QRadialGradient
+    try:
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
+        from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QRadialGradient
+    except ImportError:  # the Flet environment has no Qt: the same kind of picture with Pillow
+        payload = _artwork_pillow(key, avatar=avatar)
+        with _IMAGE_LOCK:
+            _IMAGE_CACHE[key] = payload
+        return payload
 
     rng = _rng("art", key)
     width, height = (160, 160) if avatar else (640, 360)
@@ -290,6 +296,45 @@ def artwork(key: str, *, avatar: bool = False) -> bytes:
     with _IMAGE_LOCK:
         _IMAGE_CACHE[key] = payload
     return payload
+
+
+def _artwork_pillow(key: str, *, avatar: bool = False) -> bytes:
+    from PIL import Image, ImageDraw, ImageFilter
+
+    rng = _rng("art", key)
+    width, height = (160, 160) if avatar else (640, 360)
+    top, bottom = (tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in _PALETTES[rng.randrange(len(_PALETTES))])
+    # Diagonal gradient from a small image scaled up (fast, smooth).
+    small = Image.new("RGB", (16, 16))
+    for y in range(16):
+        for x in range(16):
+            t = (x + y) / 30
+            small.putpixel((x, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    image = small.resize((width, height), Image.BICUBIC).convert("RGBA")
+    glow = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(glow)
+    for _ in range(3 if avatar else 6):
+        r = rng.uniform(0.12, 0.45) * height
+        cx, cy = rng.uniform(0, width), rng.uniform(0, height)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, rng.randint(50, 100)))
+    image = Image.alpha_composite(image, glow.filter(ImageFilter.GaussianBlur(height / 12)))
+    shapes = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(shapes)
+    if not avatar:
+        phase = rng.uniform(0, math.tau)
+        points = [(x, height * 0.72 + math.sin(x / width * math.tau * 1.5 + phase) * height * 0.06) for x in range(0, width + 8, 8)]
+        draw.polygon([*points, (width, height), (0, height)], fill=(255, 255, 255, 60))
+    else:
+        r = width * 0.17
+        draw.ellipse((width / 2 - r, height * 0.42 - r, width / 2 + r, height * 0.42 + r), fill=(255, 255, 255, 170))
+        draw.ellipse((width * 0.24, height * 0.66, width * 0.76, height * 1.16), fill=(255, 255, 255, 170))
+    image = Image.alpha_composite(image, shapes)
+    out = io.BytesIO()
+    if avatar:
+        image.save(out, "PNG")
+    else:
+        image.convert("RGB").save(out, "JPEG", quality=88)
+    return out.getvalue()
 
 
 # ── transport ───────────────────────────────────────────────────────────────
