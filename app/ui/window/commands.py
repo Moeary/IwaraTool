@@ -14,7 +14,8 @@ from ...signal_bus import signal_bus
 from ...config import app_config
 from ..shortcuts import catalog as shortcut_defs
 from ...core import site as sites
-from ...core.rating import RATING_ALL, RATINGS, UI_RATING_KEY, normalize_rating, rating_label
+from ...core.rating import rating_label
+from ...presentation import preferences
 from .back_stack import NavEntry, draft_of, restore_draft_into, restore_into, snapshot_of
 from ..style.fonts import apply_app_font
 from ..style.theme import apply_theme_mode, refresh_splitters
@@ -43,10 +44,7 @@ class WindowCommandsMixin:
     def cycle_rating(self):
         """Ctrl+Shift+R: All → SFW → NSFW for Home and Search together."""
 
-        current = normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL))
-        following = RATINGS[(RATINGS.index(current) + 1) % len(RATINGS)]
-        app_config.set_ui_value(UI_RATING_KEY, following)
-        signal_bus.content_rating_changed.emit(following)
+        following = preferences.cycle_rating()
         InfoBar.info(
             title=tr("Content filter", "内容分级", "コンテンツ区分"),
             content=rating_label(following),
@@ -56,15 +54,11 @@ class WindowCommandsMixin:
     def toggle_site(self):
         """Ctrl+Shift+S / the sidebar entry: switch browsing between iwara.tv and iwara.ai."""
 
-        target = sites.other(sites.configured_site())
-        sites.set_configured_site(target)
+        target = sites.other(preferences.current_site())
+        preferences.set_site(target)
         InfoBar.info(
             title=tr("Site", "站点", "サイト"),
-            content=tr(
-                f"Now browsing {sites.SITES[target].label}",
-                f"已切换到 {sites.SITES[target].label}",
-                f"{sites.SITES[target].label} に切り替えました",
-            ),
+            content=preferences.site_switched_text(target),
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self,
         )
 

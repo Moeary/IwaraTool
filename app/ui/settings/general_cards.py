@@ -20,8 +20,8 @@ from qfluentwidgets import (
 
 from ...config import app_config
 from ...i18n import tr
-from ...signal_bus import signal_bus
-from ..style.theme import apply_theme_mode, normalize_theme_mode
+from ...presentation import preferences
+from ..style.theme import apply_theme_mode
 
 
 class SettingsGeneralCardsMixin:
@@ -141,20 +141,12 @@ class SettingsGeneralCardsMixin:
     def _on_language_changed(self, idx: int):
         if self._loading_settings:
             return
-        if idx == 1:
-            app_config.ui_language = "en_US"
-        elif idx == 2:
-            app_config.ui_language = "ja_JP"
-        else:
-            app_config.ui_language = "zh_CN"
-        signal_bus.language_changed.emit(app_config.ui_language)
+        preferences.set_language({1: "en", 2: "ja"}.get(idx, "zh"))
 
     def _on_theme_mode_changed(self, idx: int):
         if self._loading_settings:
             return
-        mode = normalize_theme_mode(self._theme_combo.itemData(idx))
-        app_config.theme_mode = mode
-        apply_theme_mode(mode)
+        apply_theme_mode(preferences.set_theme_mode(self._theme_combo.itemData(idx)))
 
     def _sync_theme_combo(self):
         mode = app_config.theme_mode
