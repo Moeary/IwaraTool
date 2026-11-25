@@ -28,15 +28,17 @@ class _Batcher:
         self.should_stop = should_stop
         self.interval = interval
         self.pending: list[dict[str, Any]] = []
-        self.last_batch = 0.0
-        self.last_activity = 0.0
+        # None until the first report: that one goes out at once, whatever the monotonic clock reads
+        # (it starts near zero on a freshly booted machine, such as a CI runner).
+        self.last_batch: float | None = None
+        self.last_activity: float | None = None
 
     def item(self, item: dict[str, Any], index: int, total: int) -> bool:
         if self.should_stop():
             return False
         self.pending.append(dict(item))
         now = time.monotonic()
-        if index == total or now - self.last_batch >= self.interval:
+        if index == total or self.last_batch is None or now - self.last_batch >= self.interval:
             self.last_batch = now
             self.flush()
             self.on_progress(index, total)
@@ -46,7 +48,7 @@ class _Batcher:
         if self.should_stop():
             return
         now = time.monotonic()
-        if completed == total or now - self.last_activity >= self.interval:
+        if completed == total or self.last_activity is None or now - self.last_activity >= self.interval:
             self.last_activity = now
             self.on_activity(completed, total, active)
 

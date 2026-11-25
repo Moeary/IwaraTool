@@ -103,7 +103,7 @@ class RepairPresentationTests(unittest.TestCase):
         self.assertEqual(organize.output_root, os.path.abspath(folder))
         self.assertTrue(organize.options()["move_to_output"])
         custom = rp.RepairForm(folder=folder, mode=rp.MODE_ORGANIZE, output="~/out")
-        self.assertEqual(custom.output_root, os.path.expanduser("~/out"))
+        self.assertEqual(custom.output_root, os.path.abspath(os.path.expanduser("~/out")))
 
     def test_saved_form_restores_organize_only_when_saved(self):
         from app.presentation.repair import page as rp
