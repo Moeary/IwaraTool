@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 from app.config import app_config
 from app.signal_bus import signal_bus
 from app.ui.search.page import SearchInterface
-from app.ui.search.keyword_language import is_chinese_keyword
+from app.presentation.search.keyword_language import is_chinese_keyword
 
 
 class ChineseKeywordTests(unittest.TestCase):
@@ -157,7 +157,7 @@ class InitialLoadTests(_PageCase):
 
 class SearchHistoryUpsertTests(unittest.TestCase):
     def test_an_entry_not_worth_keeping_leaves_the_history_alone(self):
-        from app.ui.search.history_entries import _upsert_search_history
+        from app.presentation.search.history_entries import _upsert_search_history
 
         history = [{"keyword": "miku", "source": "iwara", "scope": "videos", "sort": "date"}]
         kept = _upsert_search_history(history, {"keyword": "", "source": "iwara", "scope": "images"})

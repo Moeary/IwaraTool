@@ -434,7 +434,7 @@ class DetailViewTests(unittest.TestCase):
         self.assertEqual(opened, ["https://i.iwara.tv/image/original/f1/f1.png"])
 
     def test_linkify_escapes_html_and_links_urls(self):
-        from app.ui.media.detail_text import linkify
+        from app.presentation.media.detail_text import linkify
 
         text = linkify("<b>hi</b>\nsee https://example.com/a?b=1&c=2")
         self.assertNotIn("<b>", text)

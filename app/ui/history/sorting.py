@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
 
-from .record_state import _video_url
+from ...presentation.history.record_state import _video_url
 
 
 class HistorySortingMixin:

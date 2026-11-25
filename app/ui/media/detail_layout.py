@@ -23,7 +23,7 @@ from ..shortcuts.registry import attach_hint
 from .grid import MediaGrid, transparent_scroll_area
 from ..style.theme import PAGE_MARGINS, PAGE_SPACING, set_secondary_text
 from ..common.flow_layout import ResponsiveFlowLayout
-from .detail_metrics import CONTENT_MAX_WIDTH, SIDE_WIDTH
+from ...presentation.media.detail_metrics import CONTENT_MAX_WIDTH, SIDE_WIDTH
 from .stage import MediaStage, StageBox
 
 

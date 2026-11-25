@@ -12,7 +12,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...i18n import tr
 from ..common.fluent_dialogs import show_fluent_confirmation, show_fluent_text_input
 from .page_dependencies import download_manager
-from .record_state import _video_url
+from ...presentation.history.record_state import _video_url
 
 
 class HistoryRecordActionsMixin:

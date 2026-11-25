@@ -45,7 +45,7 @@ from ..common.ui_state import (
 from .browse import HistoryBrowseMixin
 from .csv_export import HistoryCsvExportMixin
 from .record_actions import HistoryRecordActionsMixin
-from .record_state import HistoryRecordStateMixin
+from ...presentation.history.record_state import HistoryRecordStateMixin
 from .selection import HistorySelectionMixin
 from .sorting import HistorySortingMixin
 from .table import HistoryTableMixin

@@ -13,7 +13,7 @@ from qfluentwidgets import FluentWindow, qconfig
 from ..signal_bus import signal_bus
 from ..logging_setup import get_logger
 from .window.back_stack import NavigationController
-from .window.notification_dispatcher import TaskNotificationBatch
+from ..presentation.notifications import TaskNotificationBatch
 from .shortcuts.bindings import install_shortcuts
 from .window.swipe_back import SwipeBackTracker
 from .style.theme import install_accent

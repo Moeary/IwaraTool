@@ -37,7 +37,7 @@ from .helpers import _source_type_label
 from ..style.theme import PAGE_SPACING, set_secondary_text
 from ..common.flow_layout import ResponsiveFlowLayout
 from .cover_loader import CoverLoader, load_pixmap
-from .item_queries import downloadable_ids, filter_items, item_state, item_to_video, sort_items
+from ...presentation.subscription.item_queries import downloadable_ids, filter_items, item_state, item_to_video, sort_items
 
 
 GRID_PAGE_SIZE = 60

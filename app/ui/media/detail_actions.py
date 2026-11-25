@@ -16,7 +16,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..shortcuts import catalog as shortcut_defs
 from ..home.workers import ApiCallWorker
-from ..common.formatting import _format_count
+from ...presentation.formatting import _format_count
 from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
 from ...core import site as sites

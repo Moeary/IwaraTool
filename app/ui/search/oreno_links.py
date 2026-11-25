@@ -12,7 +12,7 @@ from qfluentwidgets import LineEdit
 from ...core.search.models import SearchVideo
 from ...core.search.normalize import normalize_video
 from ...i18n import tr
-from .result_authors import _author_subscription_target
+from ...presentation.search.result_authors import _author_subscription_target
 from .oreno_workers import SearchOrenoLinkWorker
 from ..common.worker_lifecycle import on_finished
 from .page_dependencies import signal_bus

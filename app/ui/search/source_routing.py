@@ -10,7 +10,7 @@ from ...config import app_config
 from ...core import site as sites
 from ...i18n import tr
 
-from .keyword_language import is_chinese_keyword
+from ...presentation.search.keyword_language import is_chinese_keyword
 
 
 class SearchSourceRoutingMixin:

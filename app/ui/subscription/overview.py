@@ -33,7 +33,7 @@ from .helpers import _source_search_text, _source_sort_key, _source_sort_label
 from ..style.theme import PAGE_SPACING, set_secondary_text, summary_text
 from ..common.flow_layout import ResponsiveFlowLayout
 from .cover_loader import CoverLoader, load_pixmap
-from .item_queries import is_feed_source
+from ...presentation.subscription.item_queries import is_feed_source
 from .source_row import SourceRow
 from .overview_rows import OverviewRowsMixin
 

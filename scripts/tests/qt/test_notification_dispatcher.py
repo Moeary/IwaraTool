@@ -1,6 +1,6 @@
 import unittest
 
-from app.ui.window.notification_dispatcher import (
+from app.presentation.notifications import (
     PreparedTaskNotifications,
     TaskNotificationBatch,
     TaskNotificationEvent,

@@ -25,7 +25,7 @@ from ..media.card import MediaCard
 from .helpers import _date_only, _source_origin_label, _source_type_label
 from ..style.theme import set_secondary_text
 from .cover_loader import load_pixmap
-from .item_queries import item_to_video
+from ...presentation.subscription.item_queries import item_to_video
 
 
 class TileStrip(QWidget):

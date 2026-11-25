@@ -11,9 +11,9 @@ from ..style.theme import link_color, summary_text, task_status_color
 from ..common.ui_state import fit_table_last_column
 from ..common.table_column_dialog import open_table_column_dialog
 from .page_dependencies import download_manager
-from .task_statuses import _ACTIVE_STATUSES
+from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES
 from .task_staging import staged_detail, staged_state_color, staged_state_text
-from .task_text import _task_url
+from ...presentation.downloads.task_text import _task_url
 from ...core import site as sites
 
 

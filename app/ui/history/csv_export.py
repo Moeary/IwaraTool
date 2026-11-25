@@ -13,7 +13,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...config import app_config
 from ...i18n import tr
-from .record_state import _video_url
+from ...presentation.history.record_state import _video_url
 
 
 HISTORY_CSV_FIELDS = (

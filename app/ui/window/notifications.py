@@ -13,7 +13,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ...config import app_config
 from ...core.download.manager import download_manager
-from .notification_dispatcher import PreparedTaskNotifications, prepare_task_notifications
+from ...presentation.notifications import PreparedTaskNotifications, prepare_task_notifications
 
 
 class WindowNotificationsMixin:

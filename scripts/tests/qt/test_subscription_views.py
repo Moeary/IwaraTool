@@ -19,7 +19,8 @@ from app.core.history import DownloadHistory
 from app.core.models import DownloadTask, TaskStatus
 from app.core.search.models import SearchVideo
 from app.core.subscription.store import SubscriptionStore
-from app.ui.subscription import item_queries, overview, source_items_view
+from app.presentation.subscription import item_queries
+from app.ui.subscription import overview, source_items_view
 
 
 def _item(video_id, **kwargs):

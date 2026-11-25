@@ -19,10 +19,10 @@ from ...core.search.normalize import avatar_url, normalize_image, normalize_vide
 from ...i18n import current_language, tr
 from .pixmaps import read_pixmap
 from ..window.back_stack import restore_scroll
-from ..common.formatting import _format_count, _format_duration
+from ...presentation.formatting import _format_count, _format_duration
 from .comment_widget import CommentWidget
-from .detail_state import DetailState
-from .detail_text import format_date, linkify
+from ...presentation.media.detail_state import DetailState
+from ...presentation.media.detail_text import format_date, linkify
 from .gallery_image import GALLERY_DECODE_WIDTH, GalleryImage
 from .page_dependencies import DetailWorker, download_manager
 

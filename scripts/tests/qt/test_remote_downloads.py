@@ -138,7 +138,7 @@ class RemoteHistoryTests(unittest.TestCase):
 
     def test_search_status_and_subscription_state_mark_remote_copies(self):
         from app.ui.search.download_status import SearchDownloadStatus, query_download_statuses
-        from app.ui.subscription.item_queries import filter_items, item_state
+        from app.presentation.subscription.item_queries import filter_items, item_state
 
         self.history.upsert_downloaded({"video_id": "r1", "storage": "remote", "remote_path": "/volume1/iwara/r.mp4"})
         self.history.upsert_downloaded({"video_id": "m1", "file_path": os.path.join(self.tmp, "gone.mp4")})

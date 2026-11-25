@@ -40,7 +40,7 @@ from .download_options import DownloadOptionsMixin
 from .link_tools import DownloadLinkToolsMixin
 from .staging_panel import StagingPanel
 from .log_panel import DownloadLogMixin
-from .submitted_urls import split_submitted_urls
+from ...presentation.downloads.submitted_urls import split_submitted_urls
 from .subscription_prompt import DownloadSubscriptionPromptMixin
 
 

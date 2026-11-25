@@ -12,8 +12,8 @@ from ...core.download.locations import STORAGE_REMOTE
 from ...signal_bus import signal_bus
 from ..media.video_menu import add_detail_action, add_link_actions, add_section, copy_text
 from .page_dependencies import download_manager
-from .task_statuses import _ACTIVE_STATUSES, _TERMINAL_STATUSES
-from .task_text import _task_url, _video_url
+from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES, _TERMINAL_STATUSES
+from ...presentation.downloads.task_text import _task_url, _video_url
 
 
 class TaskMenuMixin:
