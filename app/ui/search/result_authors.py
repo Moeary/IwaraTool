@@ -5,11 +5,10 @@ from __future__ import annotations
 import re
 
 from ...core.search.models import SearchAuthor, SearchVideo
+from ...core.search.query_params import video_reference
 
 
-def _extract_iwara_video_id(value: str) -> str:
-    match = re.search(r"/video/([^/?#]+)", str(value or ""))
-    return match.group(1) if match else ""
+_extract_iwara_video_id = video_reference
 
 
 def _oreno3d_video_url(video: SearchVideo) -> str:

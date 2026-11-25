@@ -248,7 +248,7 @@ class SearchOnlineTests(unittest.TestCase):
 
     def test_oreno_worker_uses_iwara_id_url_and_api_metadata(self):
         class _FakeManager:
-            def resolve_oreno3d_video_id(self, source_id, source_url):
+            def resolve_oreno3d_video_id(self, source_id, source_url, *, parallel=False):
                 self.assert_source = (source_id, source_url)
                 return "iwara-1"
 

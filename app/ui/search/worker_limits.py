@@ -1,15 +1,10 @@
-"""Concurrency limits shared by the search workers and the page."""
+"""Concurrency limits shared by the search workers and the page (see ``core.search.limits``)."""
 
 from __future__ import annotations
 
-
-DEFAULT_SEARCH_RESOLUTION_CONCURRENCY = 4
-
-
-MAX_SEARCH_RESOLUTION_CONCURRENCY = 8
-
-
-DEFAULT_COVER_DOWNLOAD_CONCURRENCY = 6
-
-
-MAX_COVER_DOWNLOAD_CONCURRENCY = 16
+from ...core.search.limits import (  # noqa: F401
+    DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
+    DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
+    MAX_COVER_DOWNLOAD_CONCURRENCY,
+    MAX_SEARCH_RESOLUTION_CONCURRENCY,
+)
