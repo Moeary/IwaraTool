@@ -81,6 +81,29 @@ def payload_from_form(form: dict[str, Any]) -> dict[str, Any]:
     return normalize_rule_payload(payload)
 
 
+TAG_FIELDS = ("filter_include_tags", "filter_exclude_tags")
+TAG_SUGGESTION_LIMIT = 12
+
+
+def tag_fragment(text: str) -> str:
+    """The tag being typed in a comma-separated tag field."""
+    return str(text or "").rsplit(",", 1)[-1].strip()
+
+
+def apply_tag(text: str, key: str) -> str:
+    """Replace the tag being typed with ``key`` and start the next one."""
+    text = str(text or "")
+    comma = text.rfind(",")
+    prefix = text[: comma + 1].rstrip() if comma >= 0 else ""
+    return f"{prefix} {key},".strip() + " "
+
+
+def tag_suggestions(manager: Any, text: str) -> list:
+    """Blocking (reads the tag dictionary)."""
+    query = tag_fragment(text)
+    return list(manager.get_search_tag_suggestions(query, limit=TAG_SUGGESTION_LIMIT) or []) if query else []
+
+
 def template_preview_text(template: str) -> str:
     shown = preview_template(template)
     if shown:

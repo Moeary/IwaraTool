@@ -26,6 +26,13 @@ class RuleFormTests(unittest.TestCase):
             rule_editing.payload_from_form({**form, "filename_template": "{nope}.mp4"})
         self.assertIn("Sample Title", rule_editing.template_preview_text("{title}.mp4"))
 
+    def test_tag_fragment_and_apply(self):
+        from app.presentation import rule_editing
+
+        self.assertEqual(rule_editing.tag_fragment("2d, mm"), "mm")
+        self.assertEqual(rule_editing.apply_tag("2d, mm", "mmd"), "2d, mmd, ")
+        self.assertEqual(rule_editing.apply_tag("mm", "mmd"), "mmd, ")
+
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class RulesStoreTests(unittest.TestCase):

@@ -6,6 +6,7 @@ announces them like the old page).  Rule files are tiny JSON, read on the loop.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,11 +26,16 @@ class RulesState:
     form: dict[str, Any] = field(default_factory=dict)
     dirty: bool = False
     error: str = ""
+    tag_field: str = ""  # the tag field the suggestions belong to
+    suggestions: list = field(default_factory=list)
 
 
 class RulesStore:
-    def __init__(self, shell):
+    def __init__(self, shell, manager: Any = None):
         self.shell = shell
+        self.manager = manager
+        self._suggest_handle: asyncio.TimerHandle | None = None
+        self._suggest_generation = 0
         self.state = RulesState()
         self.draft: dict[str, Any] | None = None
         self.rules: list[dict[str, Any]] = []
@@ -63,6 +69,7 @@ class RulesStore:
         state.form = rules.form_from_payload(rule["payload"]) if rule else {}
         state.dirty = rule_id == DRAFT_RULE_ID
         state.error = ""
+        state.tag_field, state.suggestions = "", []
 
     def select(self, rule_id: str) -> None:
         self._show(rule_id)
@@ -87,6 +94,37 @@ class RulesStore:
         self.state.form = form
         self.state.dirty = True
         self.state.error = ""
+        if key in rules.TAG_FIELDS:
+            self._schedule_suggestions(key, str(value or ""))
+
+    # ── tag suggestions ──────────────────────────────────────────────────────
+
+    def _schedule_suggestions(self, key: str, text: str) -> None:
+        if self._suggest_handle is not None:
+            self._suggest_handle.cancel()
+        self._suggest_generation += 1
+        generation = self._suggest_generation
+        if not rules.tag_fragment(text) or self.manager is None:
+            self.state.tag_field, self.state.suggestions = "", []
+            return
+        loop = asyncio.get_running_loop()
+        self._suggest_handle = loop.call_later(0.15, lambda: self.shell.page.run_task(self._fetch, key, text, generation))
+
+    async def _fetch(self, key: str, text: str, generation: int) -> None:
+        try:
+            found = await asyncio.to_thread(rules.tag_suggestions, self.manager, text)
+        except Exception:
+            found = []
+        if generation == self._suggest_generation:
+            self.state.tag_field, self.state.suggestions = key, found
+
+    def apply_suggestion(self, key: str) -> None:
+        field_key = self.state.tag_field
+        if not field_key:
+            return
+        self.set_field(field_key, rules.apply_tag(str(self.state.form.get(field_key, "")), key))
+        self._suggest_generation += 1
+        self.state.tag_field, self.state.suggestions = "", []
 
     def payload(self) -> dict[str, Any]:
         return rules.payload_from_form(self.state.form)

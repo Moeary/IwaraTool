@@ -87,7 +87,7 @@ class Shell:
         self.details = DetailStore(self, download_manager)
         self.subscriptions = SubscriptionStore(self, download_manager)
         self.library = LibraryStore(self, download_manager)
-        self.rules = RulesStore(self)
+        self.rules = RulesStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None

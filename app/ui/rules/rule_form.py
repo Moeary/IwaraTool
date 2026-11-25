@@ -236,11 +236,10 @@ class RuleFormWidget(QWidget):
     def _show_tag_suggestions(self, edit: LineEdit, text: str):
         if self._loading_payload:
             return
-        query = str(text or "").rsplit(",", 1)[-1].strip()
-        if not query or not self.isVisible():
+        if not rule_editing.tag_fragment(text) or not self.isVisible():
             self._hide_tag_suggestions()
             return
-        suggestions = download_manager.get_search_tag_suggestions(query, limit=12)
+        suggestions = rule_editing.tag_suggestions(download_manager, text)
         if not suggestions:
             self._hide_tag_suggestions()
             return
@@ -262,10 +261,7 @@ class RuleFormWidget(QWidget):
         if edit is None:
             return
         self._hide_tag_suggestions()
-        text = edit.text()
-        comma = text.rfind(",")
-        prefix = text[: comma + 1].rstrip() if comma >= 0 else ""
-        edit.setText(f"{prefix} {key},".strip() + " ")
+        edit.setText(rule_editing.apply_tag(edit.text(), key))
         edit.setFocus(Qt.FocusReason.OtherFocusReason)
         edit.setCursorPosition(len(edit.text()))
         QTimer.singleShot(0, lambda target=edit: self._restore_tag_edit_focus(target))

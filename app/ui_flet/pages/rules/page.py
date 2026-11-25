@@ -13,6 +13,7 @@ import flet as ft
 from ....core.download.template_builder import template_fields, template_presets
 from ....core.rules import PAGE_RULE_SCOPES, page_rule_choice
 from ....presentation import rule_editing as rules
+from ....presentation.search.tag_completion import suggestion_tooltip
 from ....presentation.rules import DRAFT_RULE_ID, page_scope_name, rule_choices
 from ... import layout, routes
 from ...components.page_frame import PageFrame
@@ -215,6 +216,16 @@ def RuleEditor():
         ]),
         ft.Text(labels["template_help"], style=text_style(TYPE.meta, color=palette.on_surface_variant)),
     ])
+    def suggestions(key: str) -> list[ft.Control]:
+        """Tag candidates under the field being typed in (same dictionary as the search bar)."""
+        if state.tag_field != key or not state.suggestions:
+            return []
+        return [ft.Row(spacing=Space.XS, scroll=ft.ScrollMode.AUTO, controls=[
+            ft.Chip(label=item.display_text, tooltip=suggestion_tooltip(item),
+                    on_click=lambda _e, k=item.key: store.apply_suggestion(k))
+            for item in state.suggestions
+        ])]
+
     filters_on = bool(form.get("filter_enabled"))
     width = None if compact else 200
     filters = _section(page, labels["filters"], [
@@ -230,8 +241,11 @@ def RuleEditor():
                                            text("filter_end_date", labels["end"], disabled=not filters_on)]),
         switch("filter_include_tags_enabled", labels["include_tags"]),
         ft.Row(controls=[text("filter_include_tags", labels["include_tags"], hint="2d,mmd", disabled=not filters_on)]),
+        *suggestions("filter_include_tags"),
         switch("filter_exclude_tags_enabled", labels["exclude_tags"]),
         ft.Row(controls=[text("filter_exclude_tags", labels["exclude_tags"], hint="vr,ai", disabled=not filters_on)]),
+        *suggestions("filter_exclude_tags"),
+        ft.Text(labels["tags_hint"], style=text_style(TYPE.meta, color=palette.on_surface_variant)),
     ])
     titles = _section(page, labels["titles"], [
         ft.Row(controls=[text("title_include", labels["title_include"], hint=labels["keywords_hint"])]),
