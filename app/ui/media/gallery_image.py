@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...presentation.media.detail_info import gallery_file
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -25,10 +26,8 @@ class GalleryImage(QWidget):
 
     def __init__(self, file_info: dict[str, Any], parent: QWidget | None = None):
         super().__init__(parent)
-        self.file_id = str(file_info.get("id") or "")
-        name = str(file_info.get("name") or "")
-        self.original_url = f"https://i.iwara.tv/image/original/{self.file_id}/{name}" if name else ""
-        self.thumb_url = f"https://i.iwara.tv/image/thumbnail/{self.file_id}/{self.file_id}.jpg"
+        urls = gallery_file(file_info)
+        self.file_id, self.original_url, self.thumb_url = urls.file_id, urls.original_url, urls.thumb_url
         width, height = file_info.get("width"), file_info.get("height")
         self._ratio = (height / width) if isinstance(width, int) and isinstance(height, int) and width and height else 0.62
         self._pixmap: QPixmap | None = None

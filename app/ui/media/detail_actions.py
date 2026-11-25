@@ -12,21 +12,19 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...core.rules import page_rule_id
 from ...core.search.models import SearchVideo
 from ..downloads.staging_flow import stage_videos
-from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..shortcuts import catalog as shortcut_defs
 from ..home.workers import ApiCallWorker
-from ...presentation.formatting import _format_count
+from ...presentation.media import detail_info
 from ..player.video_player import VideoPlayer
 from .page_dependencies import download_manager
-from ...core import site as sites
 
 
 class DetailActionsMixin:
     """Play, download, like, share and author actions of the detail view."""
 
     def _page_url(self) -> str:
-        return sites.web_url(self._kind, self._item_id, self.item_site())
+        return detail_info.page_url(self._kind, self._item_id, self.item_site())
 
     def _can_play(self) -> bool:
         return self._video is not None and self._kind == "video" and self._video.downloadable
@@ -90,26 +88,17 @@ class DetailActionsMixin:
     def _copy_link(self):
         QApplication.clipboard().setText(self._page_url())
         InfoBar.success(
-            title=tr("Link copied", "链接已复制", "リンクをコピーしました"), content=self._page_url(),
+            title=detail_info.link_copied_title(), content=self._page_url(),
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self.window(),
         )
 
     def _sync_like(self):
         likes = self._video.likes if self._video is not None else 0
-        count = _format_count(likes)
         self._like_btn.blockSignals(True)
         self._like_btn.setChecked(self._liked)
         self._like_btn.blockSignals(False)
-        self._like_btn.setText(
-            tr(f"Liked · {count}", f"已点赞 · {count}", f"いいね済み · {count}")
-            if self._liked
-            else tr(f"Like · {count}", f"点赞 · {count}", f"いいね · {count}")
-        )
-        text = (
-            tr("Click to remove your like", "再次点击取消点赞", "もう一度押すと取り消し")
-            if self._liked
-            else tr("Like this post with your Iwara account", "用你的 Iwara 账号点赞", "Iwaraアカウントでいいねする")
-        )
+        self._like_btn.setText(detail_info.like_text(self._liked, likes))
+        text = detail_info.like_tooltip(self._liked)
         key = shortcut_defs.display_key_for("detail_like")
         self._like_btn.setToolTip(f"{text} ({key})" if key else text)
 
@@ -119,9 +108,10 @@ class DetailActionsMixin:
             return
         if not download_manager.is_logged_in():
             self._sync_like()
+            title, content = detail_info.sign_in_to_like()
             InfoBar.warning(
-                title=tr("Sign in to like", "登录后才能点赞", "いいねにはログインが必要です"),
-                content=tr("Sign in to Iwara in Settings first.", "请先在设置中登录 Iwara 账号。", "先に設定でIwaraにログインしてください。"),
+                title=title,
+                content=content,
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return
@@ -154,14 +144,13 @@ class DetailActionsMixin:
                 self._meta.setText(self._meta_text(self._video))
         else:
             InfoBar.error(
-                title=tr("Could not change the like", "点赞操作失败", "いいねを変更できません"), content=str(message or error),
+                title=detail_info.like_failed_title(), content=str(message or error),
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=4500, parent=self.window(),
             )
         self._sync_like()
 
     def _search_tag(self, tag_id: str):
-        scope = "images" if self._kind == "image" else "tags"
-        signal_bus.search_requested.emit({"scope": scope, "keyword": tag_id})
+        signal_bus.search_requested.emit(detail_info.tag_search_request(self._kind, tag_id))
 
     def _author_works(self):
         if self._author_target:

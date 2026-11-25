@@ -12,17 +12,15 @@ from ...core import site as sites
 
 from qfluentwidgets import PushButton
 
-from ...config import app_config
-from ...core.rating import RATING_ALL, UI_RATING_KEY, filter_by_rating, is_adult, normalize_rating
 from ...core.search.models import SearchVideo
-from ...core.search.normalize import avatar_url, normalize_image, normalize_video, small_cover_url
-from ...i18n import current_language, tr
+from ...core.search.normalize import normalize_image, normalize_video, small_cover_url
+from ...i18n import tr
 from .pixmaps import read_pixmap
 from ..window.back_stack import restore_scroll
-from ...presentation.formatting import _format_count, _format_duration
 from .comment_widget import CommentWidget
+from ...presentation.media import detail_info
 from ...presentation.media.detail_state import DetailState
-from ...presentation.media.detail_text import format_date, linkify
+from ...presentation.media.detail_text import linkify
 from .gallery_image import GALLERY_DECODE_WIDTH, GalleryImage
 from .page_dependencies import DetailWorker, download_manager
 
@@ -185,18 +183,7 @@ class DetailContentMixin:
         self._sync_like()
 
     def _meta_text(self, video: SearchVideo) -> str:
-        parts = [
-            tr(f"{_format_count(video.views)} views", f"{_format_count(video.views)} 次播放", f"{_format_count(video.views)} 回再生"),
-            tr(f"{_format_count(video.likes)} likes", f"{_format_count(video.likes)} 喜欢", f"{_format_count(video.likes)} いいね"),
-            tr(f"{_format_count(video.comments)} comments", f"{_format_count(video.comments)} 评论", f"{_format_count(video.comments)} コメント"),
-        ]
-        if self._kind == "video" and video.duration:
-            parts.append(_format_duration(video.duration))
-        if video.published_at:
-            parts.append(format_date(video.published_at))
-        if is_adult(video.rating):
-            parts.append("R-18")
-        return "  ·  ".join(parts)
+        return detail_info.meta_text(video, self._kind)
 
     def _request_stage_cover(self, video: SearchVideo):
         if self._kind == "image":
@@ -212,7 +199,7 @@ class DetailContentMixin:
         if token != self._token:
             return
         if not isinstance(info, dict):
-            self._status.setText(tr(f"Could not load this post: {error}", f"无法加载该作品：{error}", f"読み込めませんでした: {error}"))
+            self._status.setText(detail_info.load_failed_text(error))
             return
         self._status.setText("")
         self._info = info
@@ -231,13 +218,9 @@ class DetailContentMixin:
         else:
             self._stage.show()
             playable = video.downloadable
-            quality = ""
-            file_info = info.get("file") if isinstance(info.get("file"), dict) else {}
-            if file_info.get("height"):
-                quality = f"{file_info['height']}p"
-            self._stage.set_playable(playable, quality)
+            self._stage.set_playable(playable, detail_info.file_quality(info))
             if not playable and info.get("embedUrl"):
-                self._status.setText(tr("Embedded from another site — open it in the browser.", "该视频为外站嵌入，请在浏览器中打开。", "外部サイトの埋め込み動画です。ブラウザーで開いてください。"))
+                self._status.setText(detail_info.embedded_text())
             self._request_stage_cover(video)
         can_play = self._kind == "video" and video.downloadable
         self._play_btn.setEnabled(can_play)
@@ -247,19 +230,17 @@ class DetailContentMixin:
         self._window_play_btn.setVisible(self._kind == "video")
         self._download_btn.setVisible(self._kind == "video")
 
-        user = info.get("user") if isinstance(info.get("user"), dict) else {}
-        username = str(user.get("username") or video.author_username or "")
-        if username:
-            name = str(user.get("name") or username)
+        author = detail_info.author_of(info, video)
+        if author is not None:
+            avatar_key = author.user_id or author.username
             self._author_card.show()
-            self._author_name.setText(name)
-            self._author_user.setText(f"@{username}")
-            self._author_target = (username, name, str(user.get("id") or ""), avatar_url(user))
-            self._author_status.set_author(username, name, str(user.get("id") or ""), avatar_url(user))
-            avatar = avatar_url(user)
-            if avatar:
-                self._fetcher.request([("avatar", str(user.get("id") or username), avatar)])
-            cached = self._fetcher.path_for("avatar", str(user.get("id") or username))
+            self._author_name.setText(author.name)
+            self._author_user.setText(f"@{author.username}")
+            self._author_target = author.target
+            self._author_status.set_author(*author.target)
+            if author.avatar_url:
+                self._fetcher.request([("avatar", avatar_key, author.avatar_url)])
+            cached = self._fetcher.path_for("avatar", avatar_key)
             if cached:
                 self._set_avatar(cached)
         body = str(info.get("body") or "").strip()
@@ -276,32 +257,19 @@ class DetailContentMixin:
 
     def _build_tags(self, tags: object):
         self._clear_layout(self._tags_layout)
-        shown = 0
-        for tag in tags if isinstance(tags, list) else []:
-            tag_id = str(tag.get("id") if isinstance(tag, dict) else tag or "").strip()
-            if not tag_id or tag_id == "uncategorized":
-                continue
-            label = tag_id
-            try:
-                entry = download_manager.tag_dictionary.entry_for(tag_id)
-            except Exception:
-                entry = None
-            if entry is not None:
-                label = getattr(entry, current_language(), "") or tag_id
-            button = PushButton(f"#{label}", self._tags_widget)
+        chips = detail_info.tag_chips(tags, download_manager.tag_dictionary)
+        for tag_id, label in chips:
+            button = PushButton(label, self._tags_widget)
             button.setFixedHeight(28)
             button.setToolTip(tag_id)
             button.clicked.connect(lambda _=False, tag_id=tag_id: self._search_tag(tag_id))
             self._tags_layout.addWidget(button)
-            shown += 1
-        self._tags_widget.setVisible(bool(shown))
+        self._tags_widget.setVisible(bool(chips))
 
     def _build_gallery(self, info: dict[str, Any]):
         self._clear_layout(self._gallery_box)
         self._gallery = []
-        files = [f for f in info.get("files") or [] if isinstance(f, dict) and f.get("id")]
-        if not files and isinstance(info.get("thumbnail"), dict):
-            files = [info["thumbnail"]]
+        files = detail_info.gallery_files(info)
         jobs = []
         for file_info in files:
             image = GalleryImage(file_info, self)
@@ -311,18 +279,14 @@ class DetailContentMixin:
             jobs.append(("gallery_thumb", image.file_id, image.thumb_url))
         self._fetcher.request(jobs)
         self._fetcher.request([("gallery", image.file_id, image.original_url) for image in self._gallery if image.original_url])
-        if len(files) > 1:
-            self._status.setText(tr(f"{len(files)} images — click one to open the original", f"共 {len(files)} 张图片，点击图片打开原图", f"{len(files)} 枚 — クリックで原寸を開く"))
-        elif files:
-            self._status.setText(tr("Click the image to open the original", "点击图片打开原图", "クリックで原寸を開く"))
+        self._status.setText(detail_info.gallery_hint(len(files)))
 
     def _on_related(self, token: int, videos: object):
         if token != self._token or not isinstance(videos, list):
             return
         videos = [v for v in videos if isinstance(v, SearchVideo)]
         self._related = list(videos)
-        # The related endpoint ignores the SFW/NSFW choice; honour it here.
-        videos = filter_by_rating(videos, normalize_rating(app_config.get_ui_value(UI_RATING_KEY, RATING_ALL)))
+        videos = detail_info.rated_related(videos)
         self._related_grid.set_videos(videos)
         self._related_box.setVisible(bool(videos))
 

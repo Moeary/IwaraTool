@@ -527,6 +527,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/24/7e/f7b6f453e6481d1e233540262ccbfcf89adcd43606f44a028d7f5fae5eb2/binaryornot-0.4.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2a/71/982ce908118adf7c876b0946099a0cbff5cd4e22cf7ddd96ca22290df632/watchdog-7.1.1-py3-none-manylinux_2_17_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/2d/20/b0ce18a198a05395997c3d8d3211ddc1f9eb36c58481b6b571bd1b17e43f/flet_video-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
@@ -595,6 +596,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/24/7e/f7b6f453e6481d1e233540262ccbfcf89adcd43606f44a028d7f5fae5eb2/binaryornot-0.4.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/27/fd/45f6cd13cefbb659a8e0128ea64d51b349571163fec3c9c20f99792dc42a/msgpack-1.2.4-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/2d/20/b0ce18a198a05395997c3d8d3211ddc1f9eb36c58481b6b571bd1b17e43f/flet_video-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
@@ -651,6 +653,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1b/0a/6a9d93a14baa4db269d0a31fac7dbe6aba238ff6a51ecc8bbc54eef8eaf6/flet_desktop-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/7e/f7b6f453e6481d1e233540262ccbfcf89adcd43606f44a028d7f5fae5eb2/binaryornot-0.4.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/2d/20/b0ce18a198a05395997c3d8d3211ddc1f9eb36c58481b6b571bd1b17e43f/flet_video-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
@@ -714,6 +717,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1b/0a/6a9d93a14baa4db269d0a31fac7dbe6aba238ff6a51ecc8bbc54eef8eaf6/flet_desktop-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/7e/f7b6f453e6481d1e233540262ccbfcf89adcd43606f44a028d7f5fae5eb2/binaryornot-0.4.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/2d/20/b0ce18a198a05395997c3d8d3211ddc1f9eb36c58481b6b571bd1b17e43f/flet_video-1.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/31/57/ff9edd8e7c1b9a0749c5db4dd154667140a3b8414659960fe182d18d6b4e/watchdog-7.1.1-py3-none-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl
@@ -5581,7 +5585,7 @@ packages:
   - pyobjc-framework-photos==12.2.1 ; (platform_release >= '15' and sys_platform == 'darwin') or platform_release >= '15.0'
   - pyobjc-framework-photosui==12.2.1 ; (platform_release >= '15' and sys_platform == 'darwin') or platform_release >= '15.0'
   - pyobjc-framework-preferencepanes==12.2.1
-  - pyobjc-framework-pubsub==12.2.1 ; python_version < '0'
+  - pyobjc-framework-pubsub==12.2.1 ; python_full_version < '0'
   - pyobjc-framework-pushkit==12.2.1 ; (platform_release >= '19' and sys_platform == 'darwin') or platform_release >= '19.0'
   - pyobjc-framework-quartz==12.2.1
   - pyobjc-framework-quicklookthumbnailing==12.2.1 ; (platform_release >= '19' and sys_platform == 'darwin') or platform_release >= '19.0'
@@ -5896,6 +5900,13 @@ packages:
   requires_dist:
   - pyyaml>=3.10 ; extra == 'watchmedo'
   requires_python: '>=3.11'
+- pypi: https://files.pythonhosted.org/packages/2d/20/b0ce18a198a05395997c3d8d3211ddc1f9eb36c58481b6b571bd1b17e43f/flet_video-1.1.3-py3-none-any.whl
+  name: flet-video
+  version: 1.1.3
+  sha256: 2a1a16ef8a288d6bc7efffe5be083b712e74c5606ced8d97820ad040d649044a
+  requires_dist:
+  - flet==1.1.3
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl
   name: python-dateutil
   version: 4.0.0
@@ -6983,7 +6994,7 @@ packages:
   - pyobjc-framework-photos==12.2.2 ; (platform_release >= '15' and sys_platform == 'darwin') or platform_release >= '15.0'
   - pyobjc-framework-photosui==12.2.2 ; (platform_release >= '15' and sys_platform == 'darwin') or platform_release >= '15.0'
   - pyobjc-framework-preferencepanes==12.2.2
-  - pyobjc-framework-pubsub==12.2.2 ; python_version < '0'
+  - pyobjc-framework-pubsub==12.2.2 ; python_full_version < '0'
   - pyobjc-framework-pushkit==12.2.2 ; (platform_release >= '19' and sys_platform == 'darwin') or platform_release >= '19.0'
   - pyobjc-framework-quartz==12.2.2
   - pyobjc-framework-quicklookthumbnailing==12.2.2 ; (platform_release >= '19' and sys_platform == 'darwin') or platform_release >= '19.0'
