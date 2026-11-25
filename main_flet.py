@@ -12,6 +12,7 @@ Development options (docs/flet_ui_plan.md 9.2):
     --account          open the account panel (for screenshots)
     --demo             offline made-up Iwara in a throw-away data folder (scripts/tools/demo_fixture.py)
     --platform NAME    behave as android / ios (the phone build's pages and settings, 8.3)
+    --bench MODE       with --demo: startup / library timings for scripts/tools/compare_frontends.py
 """
 import argparse
 import asyncio
@@ -83,6 +84,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--account", action="store_true")
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--platform", choices=("android", "ios", "macos", "windows", "linux"), default="")
+    parser.add_argument("--bench", choices=("startup", "library"), default="")
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before --shot")
     args, _unknown = parser.parse_known_args(argv)  # packaged runs may add their own
     if args.shot:
@@ -143,6 +145,11 @@ async def main(page: ft.Page) -> None:
     await shell.tasks.reload()
     if services:
         page.run_task(shell.restore_login)
+    if ARGS.demo and ARGS.bench:
+        import flet_bench  # scripts/tools, on sys.path in demo runs
+
+        await flet_bench.run(shell, page, ARGS.bench)
+        return
     if ARGS.demo:
         import flet_demo  # scripts/tools, on sys.path in demo runs
 

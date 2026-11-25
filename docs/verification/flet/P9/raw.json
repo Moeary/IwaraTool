@@ -1,0 +1,196 @@
+{
+  "qt-startup": [
+    {
+      "frontend": "qt",
+      "pid": 30065,
+      "mode": "startup",
+      "records": 0,
+      "seed_s": 0.0,
+      "first_frame": {
+        "t": 0.928,
+        "rss_mb": 333.7
+      },
+      "settled": {
+        "t": 8.954,
+        "rss_mb": 376.9
+      }
+    },
+    {
+      "frontend": "qt",
+      "pid": 30109,
+      "mode": "startup",
+      "records": 0,
+      "seed_s": 0.0,
+      "first_frame": {
+        "t": 0.867,
+        "rss_mb": 335.0
+      },
+      "settled": {
+        "t": 8.901,
+        "rss_mb": 378.9
+      }
+    },
+    {
+      "frontend": "qt",
+      "pid": 30151,
+      "mode": "startup",
+      "records": 0,
+      "seed_s": 0.0,
+      "first_frame": {
+        "t": 0.863,
+        "rss_mb": 332.1
+      },
+      "settled": {
+        "t": 8.893,
+        "rss_mb": 375.1
+      }
+    }
+  ],
+  "qt-library": [
+    {
+      "frontend": "qt",
+      "pid": 30178,
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.8,
+      "first_frame": {
+        "t": 7.737,
+        "rss_mb": 351.7
+      },
+      "library_open_s": 0.056,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.823,
+        "rss_mb": 490.9
+      }
+    },
+    {
+      "frontend": "qt",
+      "pid": 30201,
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.7,
+      "first_frame": {
+        "t": 7.619,
+        "rss_mb": 350.3
+      },
+      "library_open_s": 0.055,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.719,
+        "rss_mb": 491.0
+      }
+    },
+    {
+      "frontend": "qt",
+      "pid": 30220,
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.7,
+      "first_frame": {
+        "t": 7.671,
+        "rss_mb": 352.0
+      },
+      "library_open_s": 0.068,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.782,
+        "rss_mb": 490.7
+      }
+    }
+  ],
+  "flet-startup": [
+    {
+      "frontend": "flet",
+      "pid": 30250,
+      "first_frame": {
+        "t": 0.484,
+        "rss_mb": 272.5
+      },
+      "mode": "startup",
+      "settled": {
+        "t": 8.519,
+        "rss_mb": 307.0
+      }
+    },
+    {
+      "frontend": "flet",
+      "pid": 30264,
+      "first_frame": {
+        "t": 0.484,
+        "rss_mb": 278.2
+      },
+      "mode": "startup",
+      "settled": {
+        "t": 8.517,
+        "rss_mb": 326.3
+      }
+    },
+    {
+      "frontend": "flet",
+      "pid": 30278,
+      "first_frame": {
+        "t": 0.479,
+        "rss_mb": 277.6
+      },
+      "mode": "startup",
+      "settled": {
+        "t": 8.51,
+        "rss_mb": 318.2
+      }
+    }
+  ],
+  "flet-library": [
+    {
+      "frontend": "flet",
+      "pid": 30292,
+      "first_frame": {
+        "t": 0.47,
+        "rss_mb": 243.4
+      },
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.7,
+      "library_open_s": 0.255,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.44,
+        "rss_mb": 339.0
+      }
+    },
+    {
+      "frontend": "flet",
+      "pid": 30312,
+      "first_frame": {
+        "t": 0.479,
+        "rss_mb": 245.7
+      },
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.9,
+      "library_open_s": 0.258,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.632,
+        "rss_mb": 331.4
+      }
+    },
+    {
+      "frontend": "flet",
+      "pid": 30330,
+      "first_frame": {
+        "t": 0.494,
+        "rss_mb": 268.6
+      },
+      "mode": "library",
+      "records": 10000,
+      "seed_s": 6.7,
+      "library_open_s": 0.244,
+      "library_rows": 10000,
+      "library": {
+        "t": 13.523,
+        "rss_mb": 339.3
+      }
+    }
+  ]
+}

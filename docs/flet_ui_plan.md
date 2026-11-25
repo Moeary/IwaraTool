@@ -792,7 +792,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | P6 资料库、规则、设置 | 资料库、规则页、设置页（含自定义首页与快捷键） | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
 | P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致（已完成，两边共用 `core/repair/runs.py` 与压缩计划，见 `docs/verification/flet/P7/`） |
 | P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放（代码与 CI 打包已完成，见 `docs/verification/flet/P8/`；**真机验收待做**） |
-| P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距 |
+| P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距（已完成：v1.3.0 暂不替换，Flet 作为预览版与 Android 版并行发布，见 `docs/verification/flet/P9/`） |
 
 ### 9.1 测试
 
@@ -899,6 +899,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P9 对比与决策：`scripts/tools/compare_frontends.py`（两边同一离线演示数据、1280×800、各 3 次取中位数）。启动到首帧 PySide6 0.87 s / Flet 0.48 s；首页加载后内存 377 / 318 MB（Flet 含 Flutter 客户端进程）；1 万条资料库打开 0.06 / 0.26 s，内存 491 / 339 MB。包体：Windows 32 / 54 MB，macOS 61 / 68 MB，Android 通用 APK 184 MB（发布时应按 ABI 拆分）。结论：**v1.3.0 不替换旧界面**，Flet 桌面版作为预览、Android 版首次提供；托盘与开机自启、系统通知补齐且 Android 真机验收通过后再替换桌面版。滚动流畅度与 3 个并发下载未脚本化，替换前手动核对。见 `docs/verification/flet/P9/`。 |
 | 2026-11-26 | P8 Android（代码部分）：`ui_flet/platform/capabilities.py`（`Shell.caps`）集中判断平台能力，导航、路由、视频与任务菜单、设置卡片按能力隐藏；`platform/storage.py` 首次启动把默认下载目录移到应用专属外部目录；`bootstrap.checkpoint()` 与暂停时保存；下载进行时常亮；系统返回键经 `Shell.back()`（手机先回首页再退出）；回到前台检查剪贴板里的 Iwara 链接（代替分享 intent）；远端 aria2 在手机上固定；`usesCleartextTraffic`；`build_flet.py --platform apk` 与 CI `build-flet-android`。接上旧版“已完成任务单击行为”。修正修复批量计时在开机不久的机器上不立即回显首项（CI 失败原因）。`--platform android` 开发参数。截图见 `docs/verification/flet/P8/`；真机验收待做。 |
 | 2026-11-26 | P7 修复与工具：修复中心（`stores/repair.py` + `pages/repair/`，五步流程、扫描批量回显、扫描后改选项重新规划、按 ID / 链接重新查询、停止、结果摘要）；工具页（`stores/tools.py` + `pages/tools/`，上传压缩：探测、判断卡片、选项保存、编码器随 ffmpeg、开始 / 取消 / 进度与剩余时间、失败日志、打开文件夹与转到封面预览；封面预览：16 张并行截图、3:2 裁切、方向键、保存此帧、复制时间码；ffmpeg 缺失空状态）。新迁入：`core/repair/runs.py`（旧 `RepairWorker` 的循环与批量）、`presentation/repair/`、`presentation/tools/`（旧修复页与工具页改为调用）。顺带修复手机底栏在设置 / 规则等溢出目的地时 `selected_index` 越界。`--demo` 的修复路由写入混乱文件名，工具路由载入 `IWARATOOL_DEMO_VIDEO`。截图见 `docs/verification/flet/P7/`。 |
 | 2026-11-26 | P6 资料库、规则、设置：资料库（`stores/library.py` + `pages/library/`，表格 / 列表 / 网格、范围与作者筛选、按宽度隐藏列、记录面板、可撤销删除、清理已移走、重命名、导出 CSV）；规则页（列表-详情、各页面规则卡片、模板预览 / 预设 / 插入字段 / 检验、标签候选、未保存询问）；设置页（`pages/settings/`，9 个分类全部卡片即时保存、账号登录、代理应用、aria2 测试、ffmpeg 检测、备份恢复、快捷键录制、自定义首页 `/settings/home/rows`）；外壳新增新版本提示与“仍有下载时关闭询问”。新迁入共用层：`presentation/history/library.py`、`record_state.py`、`presentation/rule_editing.py`、`presentation/settings/{texts,catalog,values}.py`、`presentation/home/layout.py`、`presentation/updates.py`、`presentation.shortcuts` 的编辑与显示函数（旧资料库、规则页、设置页、首页栏目对话框、更新提示改为调用）。截图见 `docs/verification/flet/P6/`。 |
