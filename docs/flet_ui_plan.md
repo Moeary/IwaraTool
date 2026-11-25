@@ -350,6 +350,7 @@ pages/*  ──读──▶ stores/*  ◀──写── services/*  ──调�
 - 使用 `page.route` / `page.push_route` / `page.on_route_change` / `page.views` / `page.on_view_pop`【已核实】。
 - 路由表：`/home`、`/home/section/<id>`、`/detail/<kind>/<id>`、`/search`、`/subscriptions`、`/subscriptions/<source_id>`、`/author/<site>/<username>`、`/downloads`、`/downloads/log`、`/library`、`/library/<record_id>`、`/rules`、`/rules/<rule_id>`、`/repair`、`/tools/<tool>`、`/settings`、`/settings/<section>`。
 - 保留旧界面的返回语义：一级导航切换不入栈，每个一级页面各自维护返回栈；从别的页面跳转过来的（如搜索结果打开详情、打开作者页），返回回到原页面。逻辑放在 `presentation`，可参考 `ui/window/back_stack.py`。
+- 【已实施】返回栈复用 `presentation.navigation.NavigationController`：每个目的地一个 `Destination` 句柄，快照是“该目的地当前路由 + 页面 store 提供的状态”（`app/ui_flet/navigation.py`）；`/detail/…`、`/author/…` 叠在打开它的目的地上；再次点击当前目的地回到其顶层。桌面暂不同步 `page.route`（路由只在 `AppState.path`），移动端接入系统返回时（P8）再同步。
 - Android 系统返回键、预测性返回手势如何接入路由【需核实】：文档中 `on_view_pop` 只写了 AppBar 自动返回按钮，需要在真机上确认系统返回是否同样触发。
 
 ---
@@ -483,7 +484,7 @@ pages/*  ──读──▶ stores/*  ◀──写── services/*  ──调�
 | xlarge | ≥ 1600 | | |
 
 - 由 `app/ui_flet/layout.py` 统一计算 `LayoutState`：`width`、`height`、`width_class`、`height_class`、`orientation`、`aspect`（长边 ÷ 短边）、`safe_insets`、`keyboard_inset`、`is_touch`、`is_mobile`。
-- 数据来源：`page.on_resize`（`PageResizeEvent.width/height`）与 `page.on_media_change`（`PageMediaData.padding/view_padding/view_insets/orientation`）【已核实】。启动时首次计算需在页面尺寸可用后进行（`page.width` 在移动端的取值【需核实】）。
+- 数据来源：`page.on_resize`（`PageResizeEvent.width/height`）与 `page.on_media_change`（`PageMediaData.padding/view_padding/view_insets/orientation`）【已核实】。启动时首次计算需在页面尺寸可用后进行（`page.width` 在移动端的取值【需核实】）。【桌面已核实】`page.render` 之前 `page.width` 仍是默认的 800×600，设置的窗口尺寸在首次 `on_resize` 才到达（启动时必定触发一次），所以外壳先按当前值渲染、随后由 `on_resize` 修正；`Shell.on_resize` 以一帧（16 ms）合并连续的尺寸事件。
 - 组件只读 `LayoutState`，**禁止**在组件中直接读 `page.width` 或写死像素断点。
 - 档位切换加 1 帧防抖，避免拖动窗口时反复重建。
 - 需要栅格时使用 `ResponsiveRow` 的自定义断点，与上表保持一致【已核实支持自定义】：
@@ -519,6 +520,8 @@ ft.ResponsiveRow(breakpoints=BREAKPOINTS, controls=[
 | 二级（侧栏下部；手机放在头像菜单） | 规则、修复、工具、设置 | 修复、工具仅桌面显示（见 8.3） |
 | 全局偏好（头像菜单） | 登录状态与账号、站点 iwara.tv / iwara.ai、内容分级、主题、关于与更新 | 旧界面散落在首页标题栏、侧栏底部的地球、太阳图标中，统一收进这里 |
 
+- 【已实施】头像菜单改为“账号与偏好”面板：`PopupMenuButton` 不能嵌套单选组，铺平后十几项太长，改为分段按钮面板（宽屏对话框，手机底部抽屉），含登录状态、站点、分级、主题、语言与版本；导航放不下的目的地（手机上的二级目的地、高度不足时侧栏的二级组）也列在面板中。宽屏时账号入口在侧栏底部（展开侧栏显示“已登录 / 未登录”），手机在顶栏右侧。
+- 【已实施】侧栏高度不足以放下 9 个带标签的目的地时（如 841×673），二级组移入账号面板，避免滚动后才能看到“设置”（`LayoutState.rail_fits`）。底栏使用短标签（英文 Subs / Queue，日文 保存），320dp 下不换行。
 - 内容分级与站点是高频切换项，在首页和搜索页顶栏额外放一个**偏好标签**（例如“iwara.tv · 全部”），点击弹出两组单选，与头像菜单中的设置同步。
 - 启动页设置（`startup_page`）仍然有效，取值映射到新的目的地。
 - 下载页图标上显示进行中任务数徽章，待确认批次存在时显示圆点（对应旧的 `staging_badge`）。
@@ -832,6 +835,8 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 托盘、关闭到托盘 | 暂不可用，改为关闭确认 |
 | 系统通知 | 暂用应用内提示 |
 | 双指右滑返回（macOS） | 依 Flet 能力，【需核实】 |
+| 头像下拉菜单 | 改为“账号与偏好”面板（分段按钮），见 6.3 |
+| 鼠标侧键返回、多段快捷键（如 Ctrl+K, Ctrl+S） | Flet 键盘事件暂未接入鼠标侧键；多段快捷键暂不匹配。Esc、Alt+← 返回可用 |
 
 ---
 
@@ -839,6 +844,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-25 | P2 外壳完成：`layout.py`（档位、导航形态、网格计算）、`routes.py`、`navigation.py`（每个目的地一个返回栈）、`shell.py` + `stores/app_state.py`（声明式，`page.render`）、自适应导航与“账号与偏好”面板、全局快捷键（共用 `presentation.shortcuts`）、事件桥接入（语言、主题、分级、站点、登录、下载徽章）、`core/account.py`；`main_flet.py --viewport/--route/--theme/--lang/--account/--shot` 与 `scripts/tools/flet_viewports.py`；截图见 `docs/verification/flet/P2/`。 |
 | 2026-11-25 | P1 核心整理（C1～C7）完成：取消令牌、搜索服务、首页/Oreno3D/订阅批量逻辑入 core，展示逻辑入 `presentation`，`app/bootstrap.py`，事件桥，无 Qt 守护测试。旧界面测试全部通过（本机焦点类用例受桌面焦点影响，以 CI 为准）。 |
 | 2026-11-25 | P0 工程：pixi 拆为 `qt` / `flet` 两个 feature（旧界面 3.11，见 2.3 的核查结果）；测试分层；`scripts/tools/build_flet.py` 与 `packaging/flet/`；`main_flet.py` 冒烟报告（是否加载 Qt、数据目录）；打包后的数据目录取 `FLET_APP_STORAGE_DATA`。 |
 | 2026-11-25 | 分支 `feat/flet-ui`。pixi 新增独立 `flet` 环境（Python 3.12、Flet 1.1.3，不含 PySide6）；设计令牌、主题、图标注册表、`StatusBadge`；主题样张 `scripts/tools/flet_theme_gallery.py`；`main_flet.py` 空壳；CI 新增 Flet 测试任务（Windows / macOS / Linux）。旧界面截图基线在 `tmp/pyside6_baseline/`（不入库）。 |

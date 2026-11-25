@@ -35,6 +35,8 @@
 | Flet 测试（core + flet_ui） | `pixi run -e flet test-flet` |
 | 主题样张 | `pixi run -e flet theme-gallery` |
 | Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet` |
+| 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
+| 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
 
 - pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
 - 测试目录：`scripts/tests/core`（不依赖 Qt，两个环境都跑）、`qt`（需要 PySide6 或 `app/ui`）、`flet_ui`（Flet 界面；依赖 Flet 的用例 `skipUnless(HAS_FLET)`）。新测试放进对应目录；不能用 `flet` 作目录名。
@@ -48,6 +50,13 @@
 - 展示用的文字、派生数据与规则在 `app/presentation`（导航返回栈、快捷键目录、点击动作、入队与暂存提示等）；颜色只给语义角色名，由各界面映射。
 - 启动与关闭只走 `app/bootstrap.py`；Flet 侧用 `app/ui_flet/lifecycle.py`（关窗先 `stop` 再销毁窗口）和 `app/ui_flet/services/events.py` 的 `EventBridge`（页面用 `SubscriptionGroup`，卸载时 `close()`）。
 - 本机直接用 `pixi run python -m unittest ...` 跑 `qt` 用例时要设 `QT_QPA_PLATFORM=cocoa`（`pixi run test` 已设置），否则创建主窗口时 qframelesswindow 段错误。依赖窗口激活的焦点类用例在桌面被其他应用占用焦点时会超时失败，与代码无关，以 CI 结果为准。
+
+## 外壳与声明式写法（P2 之后）
+
+- 根组件 `app/ui_flet/app.py` 的 `mount(page)`；页面按目的地在 `app/ui_flet/pages/` 用 `register(destination, Component)` 注册，组件签名 `(destination, path)`，外框用 `components/page_frame.py` 的 `PageFrame`。
+- 组件通过 `stores/app_state.py` 的 `use_shell()` 取 `Shell`（状态 + 动作）。`ft.use_context` 只对 `Observable` 值自动订阅，`Shell` 不是，所以 `use_shell()` 会额外 `use_state(shell.state)` 订阅；新组件不要直接 `use_context(ShellContext)`。
+- 页面需要随返回恢复的状态，给 `shell.navigator.destinations[name]` 设 `snapshot_state` / `restore_state`。
+- `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
 
 ## 提交与 CI
 
