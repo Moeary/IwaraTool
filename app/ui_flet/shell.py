@@ -25,6 +25,7 @@ from .services.events import EventBridge
 from .services.images import ImageService
 from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
+from .stores.home import HomeStore
 from .stores.search import SearchStore
 from .stores.tasks import TaskStore
 from .theme import DESKTOP_PLATFORMS, apply_theme
@@ -78,6 +79,7 @@ class Shell:
         self.tasks = TaskStore(download_manager)
         self.images = ImageService(download_manager)
         self.search = SearchStore(self, download_manager)
+        self.home = HomeStore(self, download_manager)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -204,7 +206,7 @@ class Shell:
         self.events.on("site_changed", self._on_site_changed)
         self.events.on("history_changed", lambda: self.page.run_task(self.search.refresh_statuses),
                        coalesce=lambda *_a: "history")
-        self.events.on("login_state_changed", lambda logged_in: setattr(self.state, "logged_in", bool(logged_in)))
+        self.events.on("login_state_changed", self._on_login_changed)
         self.events.on("shortcuts_changed", self.shortcuts.refresh)
         for name in ("task_added", "tasks_added", "task_status_changed", "task_removed", "tasks_removed", "staging_changed"):
             self.events.on(name, self._schedule_badges, coalesce=lambda *_args: "badges")
@@ -219,6 +221,11 @@ class Shell:
     def _on_rating_changed(self, _rating: str) -> None:
         self.state.rating = preferences.current_rating()
         self.page.run_task(self.search.rerun)
+        self.home.set_rating(self.state.rating)
+
+    def _on_login_changed(self, logged_in: bool) -> None:
+        self.state.logged_in = bool(logged_in)
+        self.home.on_login_changed()
 
     def _on_site_changed(self, _key: str) -> None:
         self.state.site = preferences.current_site()
