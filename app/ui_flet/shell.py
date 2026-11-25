@@ -21,7 +21,6 @@ from ..logging_setup import get_logger
 from ..presentation import preferences
 from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
-from ..presentation.tools import covers as cover_keys
 from . import layout, routes
 from .navigation import ShellNavigator
 from .services.dialogs import confirm
@@ -327,8 +326,7 @@ class Shell:
         if self.key_capture is not None:
             self.key_capture(chord, str(event.key or ""))
             return
-        if self.state.destination == routes.TOOLS and self.tools.state.tool == "covers" and chord in cover_keys.KEY_STEPS:
-            self.tools.move(cover_keys.KEY_STEPS[chord])
+        if self.state.destination == routes.TOOLS and self.tools.handle_key(chord):
             return
         action = self.shortcuts.action_for(chord)
         if chord == "Alt+Left":

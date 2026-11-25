@@ -332,6 +332,7 @@ def RepairPage(destination: str, path: str):
     bar = ft.Container(padding=ft.Padding.only(top=Space.SM), border=ft.Border.only(top=ft.BorderSide(1, palette.outline_variant)),
                        content=ft.Row(alignment=ft.MainAxisAlignment.END, wrap=True, spacing=Space.SM, run_spacing=Space.SM,
                                       controls=actions)) if actions else None
-    body = ft.Column(expand=True, spacing=Space.MD, controls=[c for c in (Stepper(step, store.go), content, bar) if c])
+    body = ft.Column(expand=True, spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                     controls=[c for c in (Stepper(step, store.go), content, bar) if c])
     width = layout.MAX_WIDTH_FORM if step in (STEP_FOLDER, STEP_OPTIONS) else layout.MAX_WIDTH_LIST_DETAIL
     return PageFrame(title=repair_text("repair_center"), body=body, max_width=width)

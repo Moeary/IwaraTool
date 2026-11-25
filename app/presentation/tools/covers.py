@@ -12,8 +12,21 @@ from .common import format_bytes, format_clock
 CROP_KEY = "tools_cover_crop_v1"
 CARD_ASPECT = 3 / 2  # Iwara's video cards; the calculator this follows crops to 300×200
 COLUMNS = 4
-# Arrow keys move the selection through the 4×4 grid.
+MIN_TILE_WIDTH = 120  # narrower than this, the grid shows two columns
+# Arrow keys move the selection through the grid (up / down by a row).
 KEY_STEPS = {"Left": -1, "Right": 1, "Up": -COLUMNS, "Down": COLUMNS}
+
+
+def grid_columns(width: float, gap: float) -> int:
+    """Iwara's 4 × 4 order, in two columns when four tiles would be too small."""
+    return COLUMNS if (width - gap * (COLUMNS - 1)) / COLUMNS >= MIN_TILE_WIDTH else 2
+
+
+def key_step(key: str, columns: int = COLUMNS) -> int | None:
+    step = KEY_STEPS.get(key)
+    if step is None:
+        return None
+    return step if abs(step) == 1 else (columns if step > 0 else -columns)
 
 
 def crop_enabled() -> bool:

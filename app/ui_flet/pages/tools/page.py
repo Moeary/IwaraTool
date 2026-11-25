@@ -239,7 +239,9 @@ def CoverTool():
     view = shell.state.layout
     width = pane_width(view) - Space.LG * 2
     gap = Space.SM
-    tile_width = max(60, int((width - gap * (cv.COLUMNS - 1)) / cv.COLUMNS) - 1)
+    columns = cv.grid_columns(width, gap)
+    store.grid_columns = columns  # arrow keys move by a row
+    tile_width = max(60, int((width - gap * (columns - 1)) / columns) - 1)
     crop = state.crop
 
     async def save() -> None:

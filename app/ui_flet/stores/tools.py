@@ -82,6 +82,7 @@ class ToolsStore:
         self.frames: dict[int, bytes] = {}
         self.frame_errors: dict[int, str] = {}
         self._cover_generation = 0
+        self.grid_columns = cv.COLUMNS
         self.loaded = False
 
     # ── setup and ffmpeg ─────────────────────────────────────────────────────
@@ -303,6 +304,14 @@ class ToolsStore:
     def select(self, index: int) -> None:
         if 0 <= index < len(self.candidates):
             self.state.selected = index
+
+    def handle_key(self, key: str) -> bool:
+        """Arrow keys move the cover selection; True when the key was used."""
+        step = cv.key_step(key, self.grid_columns)
+        if step is None or self.state.tool != "covers":
+            return False
+        self.move(step)
+        return True
 
     def move(self, step: int) -> None:
         if self.candidates:

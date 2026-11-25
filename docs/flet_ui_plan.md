@@ -703,13 +703,15 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 - 改为步骤式流程：① 选择文件夹 → ② 规则与选项（原地重命名 / 整理到输出目录，封面、NFO、写入历史）→ ③ 扫描与预览（原路径 → 目标路径，冲突项标注并默认跳过）→ ④ 执行（进度与日志）→ ⑤ 结果摘要。expanded 及以上用横向步骤条，compact 用纵向步骤。
 - 复用 `core/repair/*`，Worker 中的循环与批量刷新逻辑（`ui/repair/worker.py`）迁到 core 并支持 C1 的取消。
 - Android 默认不显示（见 8.3）。
+- 【已实现】`pages/repair/page.py` + `stores/repair.py`；循环与批量回调在 `core/repair/runs.py`（`should_stop` 默认跟随取消令牌），表单、行状态、日志文字在 `presentation/repair/`，旧页面改为调用。步骤条：宽屏横向、窄屏只标当前步骤（纵向步骤在手机上太占高度，改为可横向滚动的一行）。扫描后改选项会重新规划目标路径（150 ms 去抖、后台线程）。
 
 ### 7.10 工具（桌面）
 
 - 左侧工具列表（上传压缩、封面预览），右侧单列表单，最大宽度 720，label 与控件同一行，避免控件被推到屏幕最右侧。
-- 上传压缩：源文件区域支持拖放（Flet 桌面拖放文件的能力【需核实】，不可用时只保留“浏览”）；显示判断结果卡片（可直接上传 / 只需转封装 / 需要重新编码及目标码率）；压缩中显示进度与剩余时间，可取消。
+- 上传压缩：源文件区域支持拖放（【已核实】Flet 1.1.3 不能接收系统拖入的文件，只保留“浏览”与输入路径）；显示判断结果卡片（可直接上传 / 只需转封装 / 需要重新编码及目标码率）；压缩中显示进度与剩余时间，可取消。
 - 封面预览：16 张截图的网格，选中后保存或复制时间码。
 - 复用 `core/tools/*`；未找到 ffmpeg 时显示安装指引空状态。
+- 【已实现】`pages/tools/page.py` + `stores/tools.py`；工具列表、判断卡片、选项保存、进度与封面文字在 `presentation/tools/`（`common`、`compress`、`covers`、`texts`），旧工具页改为调用。输出、开始、进度合为一张卡片放在判断卡片下方，设置卡片在后；设置页改 ffmpeg 路径后工具页重新检测。
 
 ### 7.11 设置
 
@@ -775,7 +777,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | P4 首页、详情、播放 | 首页货架与网格、详情页、播放器、流代理 | 本地与远程播放、跳转、全屏、过期地址续播；32 / 100 张封面滚动流畅 |
 | P5 订阅与作者 | 订阅总览与双栏、作者页 | 刷新、筛选、批量下载、封面优先级 |
 | P6 资料库、规则、设置 | 资料库、规则页、设置页（含自定义首页与快捷键） | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
-| P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致 |
+| P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致（已完成，两边共用 `core/repair/runs.py` 与压缩计划，见 `docs/verification/flet/P7/`） |
 | P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放 |
 | P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距 |
 
@@ -869,6 +871,11 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 快捷键录制按钮（QKeySequence） | 点击后由外壳接管下一次按键（`Shell.key_capture`），Esc 取消、Backspace 清除；显示用 `presentation.shortcuts.native_text`（macOS 为 ⌘⌥⌃⇧）；绑定 / 恢复 / 冲突提示两边共用 |
 | 开机自启、关闭到托盘 | Flet 版暂不提供（`core/autostart` 只认 Nuitka 打包的旧版 exe，托盘不可用）；关闭窗口时若仍有下载，询问“最小化 / 退出”【自启待打包后补】 |
 | 新版本提示（主窗口确认框） | 外壳监听 `release_update_available`，确认后打开 Release 页；判断与文案在 `presentation/updates.py`，两边共用 |
+| 修复中心的单页表单 + 七列表格（双击 ID 格修改） | 改为五步流程（文件夹 → 规则与选项 → 扫描与预览 → 执行 → 结果）；列表行为状态徽章 + 原路径 → 目标路径，✎ 打开输入框按 Iwara ID 或链接重新查询；日志可折叠；结果页给出数字摘要 |
+| 修复与工具的拖放文件夹 / 文件 | Flet 不能接收系统拖放：只保留“浏览”与输入路径 |
+| 工具页单个长表单（设置在前、开始按钮在底部） | 判断卡片后紧接“输出 + 开始 + 进度”卡片，压缩设置放在最后（设置会保存，通常只改一次） |
+| 封面预览的大图栏与 4 × 4 网格并排 | 改为网格在上、选中项大图在下；窗口太窄时网格为 2 列（方向键按行移动） |
+| 手机底栏只有主要目的地，打开设置 / 规则等时底栏无选中项（Flutter 要求必须选中一项，会报错） | 当前目的地不在底栏时临时追加到底栏末尾并选中 |
 
 ---
 
@@ -876,6 +883,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P7 修复与工具：修复中心（`stores/repair.py` + `pages/repair/`，五步流程、扫描批量回显、扫描后改选项重新规划、按 ID / 链接重新查询、停止、结果摘要）；工具页（`stores/tools.py` + `pages/tools/`，上传压缩：探测、判断卡片、选项保存、编码器随 ffmpeg、开始 / 取消 / 进度与剩余时间、失败日志、打开文件夹与转到封面预览；封面预览：16 张并行截图、3:2 裁切、方向键、保存此帧、复制时间码；ffmpeg 缺失空状态）。新迁入：`core/repair/runs.py`（旧 `RepairWorker` 的循环与批量）、`presentation/repair/`、`presentation/tools/`（旧修复页与工具页改为调用）。顺带修复手机底栏在设置 / 规则等溢出目的地时 `selected_index` 越界。`--demo` 的修复路由写入混乱文件名，工具路由载入 `IWARATOOL_DEMO_VIDEO`。截图见 `docs/verification/flet/P7/`。 |
 | 2026-11-26 | P6 资料库、规则、设置：资料库（`stores/library.py` + `pages/library/`，表格 / 列表 / 网格、范围与作者筛选、按宽度隐藏列、记录面板、可撤销删除、清理已移走、重命名、导出 CSV）；规则页（列表-详情、各页面规则卡片、模板预览 / 预设 / 插入字段 / 检验、标签候选、未保存询问）；设置页（`pages/settings/`，9 个分类全部卡片即时保存、账号登录、代理应用、aria2 测试、ffmpeg 检测、备份恢复、快捷键录制、自定义首页 `/settings/home/rows`）；外壳新增新版本提示与“仍有下载时关闭询问”。新迁入共用层：`presentation/history/library.py`、`record_state.py`、`presentation/rule_editing.py`、`presentation/settings/{texts,catalog,values}.py`、`presentation/home/layout.py`、`presentation/updates.py`、`presentation.shortcuts` 的编辑与显示函数（旧资料库、规则页、设置页、首页栏目对话框、更新提示改为调用）。截图见 `docs/verification/flet/P6/`。 |
 | 2026-11-26 | P5 订阅与作者：订阅页（`stores/subscriptions.py` + `pages/subscriptions/`，手机总览卡片与最近作品货架、`/subscriptions/<id>` 作品网格、宽屏双栏、源搜索与排序、添加（链接 / 用户名）、导入关注作者、全部刷新与单源刷新的进度条、停用 / 启用、删除确认、作品筛选 / 排序 / 标题搜索、状态徽章、选择、下载当前 / 选中 / 新增、标为已看、标为已移走与还原）；作者页 `/author/<用户名>`（资料卡、视频 / 图片标签、分页网格、批量下载）；`AuthorStatus`（程序内订阅与 Iwara 关注）；`components/feed_grid.py`（首页完整网格与作者页共用）、`services/dialogs.py`（确认与输入对话框）；`VideoGrid` 可指定所在栏宽。新迁入共用层：`presentation/subscription/text.py`、`source_actions.py`、`presentation/author/status.py`、`page.py`（旧订阅页、作者页、`AuthorStatusBar` 改为调用）。演示夹具的 `seed` 移入 `demo_fixture`，`--demo` 的订阅 / 资料库 / 作者路由会写入虚构记录。注意：`TextField` 不能放进 `wrap=True` 的 Row（宽度无界，整块渲染失败）。截图见 `docs/verification/flet/P5/`。 |
 | 2026-11-26 | P4 首页、详情、播放：首页（`stores/home.py` + `pages/home/`，手机货架 / 宽屏 2 行网格、栏目标签、缓存优先与过期重查、有新内容时不打断勾选、折叠记忆、未登录提示、“更多 ›”进搜索或完整网格页 `/home/<栏目>/<标签>`）；详情页 `/detail/video|image/<id>`（`stores/detail.py` 保留最近 12 个作品供返回、相关作品侧栏 / 网格、评论分页与回复、点赞、标签跳搜索、复制链接、浏览器打开、作者主页）；内嵌播放器（flet-video 1.1.3，本地副本直接播放，远程经流代理并续签）；`VideoActions` 右键菜单与手机动作面板；搜索标签候选。新迁入共用层：`presentation/home/section_feed.py`（旧 `SectionBlock` 改为调用）、`presentation/media/detail_info.py`、`video_actions.py`、`presentation/search/tag_completion.py`、`detail_text.link_segments`、`formatting.format_age`。修正演示夹具把 API 的 `/image/<id>` 当成图片文件的问题。截图见 `docs/verification/flet/P4/`。 |
@@ -900,7 +908,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 7. Android 应用私有目录与外部存储路径的获取方式；分区存储下选择下载目录。
 8. Android 接收分享 intent；后台执行与常亮。
 9. 应用生命周期事件（切到后台、恢复）。
-10. 桌面窗口最小尺寸属性、文件拖放、托盘、系统通知。
+10. 桌面窗口最小尺寸属性、~~文件拖放~~（Flet 1.1.3 不支持系统文件拖入，修复与工具页只保留浏览）、托盘、系统通知。
 11. 键盘事件接口名称与修饰键表示；macOS ⌘ 键。
 12. ~~locale 配置（日文字形优先）~~（已用字体回退实现，见 5.3）、减少动态效果、系统字体缩放、~~视觉密度~~（`Theme.visual_density` 可用，桌面设为 COMPACT）。
 13. Flet 组件测试工具。

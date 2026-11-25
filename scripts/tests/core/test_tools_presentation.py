@@ -85,6 +85,9 @@ class CoverPresentationTests(unittest.TestCase):
         self.assertEqual(cv.moved(-1, cv.KEY_STEPS["Right"], 16), 1)
         self.assertEqual(cv.moved(2, cv.KEY_STEPS["Up"], 16), 0)
         self.assertEqual(cv.moved(14, cv.KEY_STEPS["Down"], 16), 15)
+        self.assertEqual(cv.grid_columns(656, 8), 4)
+        self.assertEqual(cv.grid_columns(256, 8), 2)
+        self.assertEqual((cv.key_step("Down", 2), cv.key_step("Up", 4), cv.key_step("Left", 2), cv.key_step("A")), (2, -4, -1, None))
 
     def test_texts(self):
         from app.core.tools.covers import cover_candidates

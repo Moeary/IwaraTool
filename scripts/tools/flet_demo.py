@@ -81,6 +81,13 @@ async def play(shell, route: str) -> None:
             await store.repair()
     elif destination == routes.TOOLS and os.environ.get("IWARATOOL_DEMO_VIDEO"):
         video = os.path.abspath(os.environ["IWARATOOL_DEMO_VIDEO"])
+        if demo_fixture.ROOT:
+            # Show a neutral path in screenshots: work on a copy in the throw-away data folder.
+            import shutil
+
+            folder = demo_fixture.ROOT / "Videos"
+            folder.mkdir(parents=True, exist_ok=True)
+            video = shutil.copy2(video, folder / os.path.basename(video))
         store = shell.tools
         store.load()
         store.choose_tool(os.environ.get("IWARATOOL_DEMO_TOOL", "compress"))
