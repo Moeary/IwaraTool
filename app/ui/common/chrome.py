@@ -5,6 +5,8 @@ of being re-invented (slightly differently) on each page.
 """
 from __future__ import annotations
 
+from ...presentation.formatting import format_age  # noqa: F401  (re-exported)
+
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
@@ -231,24 +233,6 @@ class EmptyState(QWidget):
         self.title.setText(title)
         self.message.setText(message)
         self.message.setVisible(bool(message))
-
-
-def format_age(seconds: float) -> str:
-    """"just now" / "5 min ago" / "3 h ago" / "2 d ago" in the UI language."""
-
-    from ...i18n import tr
-
-    seconds = max(0.0, float(seconds))
-    if seconds < 60:
-        return tr("just now", "刚刚", "たった今")
-    minutes = int(seconds // 60)
-    if minutes < 60:
-        return tr(f"{minutes} min ago", f"{minutes} 分钟前", f"{minutes}分前")
-    hours = minutes // 60
-    if hours < 48:
-        return tr(f"{hours} h ago", f"{hours} 小时前", f"{hours}時間前")
-    days = hours // 24
-    return tr(f"{days} d ago", f"{days} 天前", f"{days}日前")
 
 
 __all__ = [
