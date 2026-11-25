@@ -45,10 +45,26 @@ def subscribe(state: AppState) -> None:
     ft.use_state(state)
 
 
+_MOUNTED: list = []  # the shell of this process's window (desktop and phone apps have exactly one)
+
+
+def register_shell(shell) -> None:
+    """Called by ``app.mount``: the fallback for ``use_shell`` below."""
+    _MOUNTED[:] = [shell]
+
+
 def use_shell():
-    """The ``Shell`` of the window this component renders in (and subscribe to its state)."""
+    """The ``Shell`` of the window this component renders in (and subscribe to its state).
+
+    Flet 1.1.3 loses the context for a component that re-renders on its own
+    inside a memoized parent that was skipped (the parent component object is
+    replaced and its contexts cleared; ``VideoGrid`` and the library rows are
+    memoized), so the window's registered shell stands in.
+    """
 
     shell = ft.use_context(ShellContext)
+    if shell is None and _MOUNTED:
+        shell = _MOUNTED[0]
     if shell is not None:
         subscribe(shell.state)
     return shell

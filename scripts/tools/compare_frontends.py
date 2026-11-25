@@ -9,7 +9,14 @@ at 1280×800, three times each; the medians are reported:
   imports), and the memory of the process tree 8 s later (home feeds and
   covers loaded; the Flet client is a separate process and is counted);
 - library: with ``--records`` made-up history records, the time from
-  switching to the library to the drawn page, and the memory after.
+  switching to the library to the drawn page, the memory after, and 20 scroll
+  steps (PySide6: one page of the table; Flet: the next 200 rows, the only part
+  of scrolling that involves Python — the Flutter client scrolls on its own),
+  then the same in the cover view (PySide6 builds every card item on switching;
+  Flet builds 200 cards per step);
+- downloads: three demo videos at concurrency 3 — total time, how late the UI
+  thread runs a 20 ms tick meanwhile (Qt's GUI thread / Flet's event loop),
+  and whether every completion event reached the UI.
 
 Each environment's Python is called directly so ``pixi run`` start-up is not
 counted.  Needs a desktop session (both open a window).
@@ -61,7 +68,9 @@ def run_once(frontend: str, mode: str, records: int) -> dict:
                                 timeout=TIMEOUT)
         if not report.exists():
             raise SystemExit(f"{frontend} {mode}: no report (exit {result.returncode})\n{result.stderr[-3000:]}")
-        return json.loads(report.read_text(encoding="utf-8"))
+        data = json.loads(report.read_text(encoding="utf-8"))
+        data["tracebacks"] = (result.stdout + result.stderr).count("Traceback (most recent call last)")
+        return data
 
 
 def median(values: list[float]) -> float:
@@ -79,7 +88,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     raw: dict[str, list[dict]] = {}
     for frontend in ([args.only] if args.only else ["qt", "flet"]):
-        for mode in ("startup", "library"):
+        for mode in ("startup", "library", "downloads"):
             key = f"{frontend}-{mode}"
             raw[key] = []
             for attempt in range(args.runs):
@@ -104,10 +113,25 @@ def main() -> int:
         ("Memory 8 s later, home loaded (MB)", "startup", ("settled", "rss_mb")),
         (f"Open library with {args.records} records (s)", "library", ("library_open_s",)),
         ("Memory with the library open (MB)", "library", ("library", "rss_mb")),
+        ("Library scroll step to drawn, median (ms)", "library", ("scroll_step_ms",)),
+        ("Library scroll step to drawn, worst (ms)", "library", ("scroll_worst_ms",)),
+        ("3 concurrent downloads: total (s)", "downloads", ("downloads_s",)),
+        ("…UI thread late on a 20 ms tick, p95 (ms)", "downloads", ("latency", "p95_ms")),
+        ("…UI thread late on a 20 ms tick, worst (ms)", "downloads", ("latency", "max_ms")),
+        ("…completion events received (of 3)", "downloads", ("completed_events",)),
+        ("…memory while downloading (MB)", "downloads", ("downloads", "rss_mb")),
+        ("Library cover view: switch to drawn (s)", "library", ("grid_open_s",)),
+        ("Cover view scroll step to drawn, median (ms)", "library", ("grid_step_ms",)),
+        ("Cover view scroll step to drawn, worst (ms)", "library", ("grid_worst_ms",)),
+        ("Memory after the cover view (MB)", "library", ("grid", "rss_mb")),
+        ("(Flet: a screenshot round trip alone, included in its steps) (ms)", "library", ("screenshot_ms",)),
     ]
     lines = ["| Measure | PySide6 | Flet |", "| --- | ---: | ---: |"]
     for label, mode, path in rows:
         lines.append(f"| {label} | {pick(f'qt-{mode}', *path)} | {pick(f'flet-{mode}', *path)} |")
+    errors = {key: sum(d.get("tracebacks", 0) for d in runs) for key, runs in raw.items()}
+    lines.append(f"| Python tracebacks in the runs | {sum(v for k, v in errors.items() if k.startswith('qt'))} | "
+                 f"{sum(v for k, v in errors.items() if k.startswith('flet'))} |")
     table = "\n".join(lines)
     (out / "summary.md").write_text(table + "\n", encoding="utf-8")
     print(table)

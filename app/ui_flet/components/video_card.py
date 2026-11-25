@@ -53,6 +53,7 @@ def VideoCard(
     on_open: Callable[[CardView], None] | None = None,
     on_toggle: Callable[[CardView], None] | None = None,
     menu: "VideoMenu | None" = None,
+    look: object = None,  # unused here: VideoGrid passes (palette, language) so memoized cards rebuild on a change
 ):
     hovered, set_hovered = ft.use_state(False)
     menu_ref = ft.use_ref(None)

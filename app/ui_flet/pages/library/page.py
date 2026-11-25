@@ -213,12 +213,10 @@ def RecordPanel(video_id: str, *, wide: bool = True):
 # ── list rows (phones) ───────────────────────────────────────────────────────
 
 
-def _list_row(shell, store: LibraryStore, record: dict, selecting: bool) -> ft.Control:
+def _list_row(shell, store: LibraryStore, record: dict, selecting: bool, selected: bool, palette) -> ft.Control:
     page = shell.page
-    palette = palette_for(page)
     video_id = str(record.get("video_id", "") or "")
     card = store.card(record)
-    selected = video_id in store.state.selected
     badge = _badge(store, record, page)
     trailing: list[ft.Control] = [badge] if badge else []
     if selecting:
@@ -278,13 +276,10 @@ def _header(shell, store: LibraryStore, columns: tuple) -> ft.Control:
     )
 
 
-def _table_row(shell, store: LibraryStore, record: dict, index: int, columns: tuple) -> ft.Control:
+def _table_row(shell, store: LibraryStore, record: dict, index: int, columns: tuple, selected: bool,
+               focused: bool, palette) -> ft.Control:
     page = shell.page
-    palette = palette_for(page)
-    state = store.state
     video_id = str(record.get("video_id", "") or "")
-    selected = video_id in state.selected
-    focused = video_id == state.focused
     label, key, detail = store.state_of(record)
     values = {
         "author": str(record.get("author", "") or ""),
@@ -312,6 +307,25 @@ def _table_row(shell, store: LibraryStore, record: dict, index: int, columns: tu
               for key, width, right in columns],
         ]),
     )
+
+
+# Rows are memoized components: "load more" (scrolling near the end) and a selection change only build the
+# rows whose arguments changed, not every row shown so far (P9: that grew to ~0.9 s at 4 200 rows).
+# ``language`` is an argument so a language switch rebuilds them; the palette covers theme changes.
+
+
+@ft.component
+def _ListRowView(shell, store, record, selecting, selected, palette, language):
+    return _list_row(shell, store, record, selecting, selected, palette)
+
+
+@ft.component
+def _TableRowView(shell, store, record, index, columns, selected, focused, palette, language):
+    return _table_row(shell, store, record, index, columns, selected, focused, palette)
+
+
+ListRow = ft.memo(_ListRowView)
+TableRow = ft.memo(_TableRowView)
 
 
 def _scrolled(store: LibraryStore):
@@ -426,6 +440,10 @@ def _selection_bar(shell, store: LibraryStore) -> ft.Control | None:
     ])
 
 
+def _vid(record: dict) -> str:
+    return str(record.get("video_id", "") or "")
+
+
 @ft.component
 def LibraryOverview():
     shell = use_shell()
@@ -490,13 +508,17 @@ def LibraryOverview():
         selecting = bool(state.selected)
         body = ft.ListView(expand=True, spacing=Space.XS, build_controls_on_demand=True, on_scroll=_scrolled(store),
                            scroll_interval=100, padding=ft.Padding.only(bottom=Space.XL),
-                           controls=[_list_row(shell, store, r, selecting) for r in shown])
+                           controls=[ListRow(shell, store, r, selecting, _vid(r) in state.selected, palette,
+                                             shell.state.language, key=_vid(r)) for r in shown])
     else:
         columns = table_columns(main_width)
         body = ft.Column(expand=True, spacing=0, controls=[
             _header(shell, store, columns),
             ft.ListView(expand=True, build_controls_on_demand=True, item_extent=TABLE_ROW_H, on_scroll=_scrolled(store),
-                        scroll_interval=100, controls=[_table_row(shell, store, r, i, columns) for i, r in enumerate(shown)]),
+                        scroll_interval=100, controls=[
+                            TableRow(shell, store, r, i, columns, _vid(r) in state.selected, _vid(r) == state.focused,
+                                     palette, shell.state.language, key=_vid(r))
+                            for i, r in enumerate(shown)]),
         ])
     row: list[ft.Control] = []
     if author_pane:

@@ -112,3 +112,43 @@ class Report:
 
     def write(self) -> None:
         self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ── downloads (both front ends share the core) ──────────────────────────────
+
+DOWNLOADS = 3
+DOWNLOAD_TIMEOUT = 60.0
+TICK = 0.02  # the latency probe asks to run every 20 ms on the UI thread
+
+
+def start_downloads() -> list[str]:
+    """Queue three demo videos (48 MB each, throttled by demo_fixture) at concurrency 3."""
+    import demo_fixture
+
+    from app.config import app_config
+    from app.core.download.manager import download_manager
+
+    app_config.max_concurrent = DOWNLOADS
+    download_manager.apply_config()
+    ids = [demo_fixture.video(60 + i)["id"] for i in range(DOWNLOADS)]
+    download_manager.enqueue_video_ids(ids, source_label="bench")
+    return ids
+
+
+def downloads_finished() -> bool:
+    from app.core.download.manager import download_manager
+
+    tasks = list(download_manager.get_tasks())
+    return len(tasks) >= DOWNLOADS and all(str(getattr(t.status, "value", t.status)) == "completed" for t in tasks)
+
+
+def latency_summary(lags: list[float]) -> dict:
+    """Milliseconds the UI thread ran late against a 20 ms tick: median, 95th percentile, worst."""
+    if not lags:
+        return {}
+    ordered = sorted(lags)
+    return {"ticks": len(ordered), "median_ms": round(ordered[len(ordered) // 2] * 1000, 1),
+            "p95_ms": round(ordered[int(len(ordered) * 0.95) - 1] * 1000, 1), "max_ms": round(ordered[-1] * 1000, 1)}
+
+
+SCROLL_STEPS = 20

@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import plistlib
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "IwaraTool-Flet"
@@ -55,7 +55,7 @@ def process_executable() -> str:
 
 def app_bundle(executable: str) -> str:
     """``/Applications/IwaraTool.app`` for ``.../IwaraTool.app/Contents/MacOS/IwaraTool``; "" outside a bundle."""
-    for parent in Path(executable).parents:
+    for parent in PurePosixPath(executable).parents:  # a macOS path, whatever this machine is
         if parent.suffix == ".app":
             return str(parent)
     return ""

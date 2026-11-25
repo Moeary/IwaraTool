@@ -15,7 +15,7 @@ from .components.navigation import build_bar, build_rail
 from .lifecycle import install_back_handler, install_pause_handler
 from .pages import page_for
 from .shell import Shell
-from .stores.app_state import ShellContext, subscribe
+from .stores.app_state import ShellContext, register_shell, subscribe
 
 
 @ft.component
@@ -56,6 +56,7 @@ def App(shell: Shell):
 
 def mount(page: ft.Page, *, start: str | None = None, theme_override: str = "") -> Shell:
     shell = Shell(page, start=start, theme_override=theme_override)
+    register_shell(shell)
     page.on_resize = shell.on_resize
     page.on_keyboard_event = shell.on_keyboard
     shell.connect()
