@@ -84,7 +84,7 @@ class SearchDownloadStatusQueryTests(unittest.TestCase):
                 "missing": {"file_path": os.path.join(temp_dir, "missing.mp4")},
                 "empty": {"file_path": ""},
             })
-            with patch("app.ui.search.download_status.os.path.isfile", wraps=os.path.isfile) as isfile:
+            with patch("app.presentation.search.download_status.os.path.isfile", wraps=os.path.isfile) as isfile:
                 statuses = query_download_statuses(history, ["one", "same-file", "one", "missing", "empty", "new"])
             self.assertEqual(history.calls, [("one", "same-file", "missing", "empty", "new")])
             self.assertEqual(isfile.call_count, 2)
@@ -120,7 +120,7 @@ class SearchDownloadStatusQueryTests(unittest.TestCase):
                 return real_isfile(path)
 
             worker = SearchDownloadStatusWorker(history, ["one"], 1, 1)
-            with patch("app.ui.search.download_status.os.path.isfile", side_effect=check_file):
+            with patch("app.presentation.search.download_status.os.path.isfile", side_effect=check_file):
                 worker.start()
                 self.assertTrue(worker.wait(3000))
             self.assertEqual(len(history.calls), 1)

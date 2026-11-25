@@ -10,6 +10,8 @@ from ...config import app_config
 from ...core.search.models import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
 from ...i18n import tr
+from ...presentation.search.request import PROBLEM_WARNING, merge_page, request_problem
+from ...presentation.search.request import page_size as search_page_size
 from .worker_limits import (
     DEFAULT_COVER_DOWNLOAD_CONCURRENCY as _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
     DEFAULT_SEARCH_RESOLUTION_CONCURRENCY as _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
@@ -100,11 +102,7 @@ class SearchExecutionMixin:
 
     @staticmethod
     def _page_size(iwara: bool, rating: str, keyword: str) -> int:
-        if rating and keyword:
-            # /search ignores the rating, so the page is filtered locally;
-            # ask for the largest page so a filtered page is not nearly empty.
-            return 100
-        return 32 if iwara else 36
+        return search_page_size(iwara, rating, keyword)
 
     def _rerated_filters(self, filters: SearchFilters) -> SearchFilters:
         """The same Iwara query under the current global content rating."""
@@ -126,23 +124,10 @@ class SearchExecutionMixin:
             return
         scope = str(self._scope_combo.currentData() or "videos")
         source = str(self._source_combo.currentData() or "oreno3d")
-        if scope in {"images", "authors", "playlists"} and source == "oreno3d":
-            self._show_warning(
-                tr(
-                    "Oreno3D online search currently returns video cards. Switch to Iwara live API for image, author or playlist results.",
-                    "Oreno3D 在线搜索当前返回视频卡片；图片、作者或播放列表结果请切换到 Iwara 实时 API。",
-                    "Oreno3Dオンライン検索は現在動画カードを返します。画像・作者・プレイリストはIwaraライブAPIへ切り替えてください。",
-                )
-            )
-            return
-        if scope == "authors" and not filters.keyword:
-            self._show_error(tr("Enter an author name first", "请先输入作者名称", "作者名を入力してください"))
-            return
-        if scope == "tags" and not filters.keyword:
-            self._show_error(tr("Enter at least one tag", "请至少输入一个标签", "タグを1つ以上入力してください"))
-            return
-        if scope == "playlists" and not filters.keyword:
-            self._show_error(tr("Enter playlist keywords, an ID or a URL", "请输入播放列表关键词、ID 或链接", "プレイリストのキーワード、ID、URLを入力してください"))
+        problem = request_problem(scope, source, filters.keyword)
+        if problem is not None:
+            level, message = problem
+            (self._show_warning if level == PROBLEM_WARNING else self._show_error)(message)
             return
 
         if record_history:
@@ -221,25 +206,7 @@ class SearchExecutionMixin:
         worker = self.sender()
         if not isinstance(worker, SearchWorker) or worker.generation != self._generation:
             return
-        if worker.replace_results:
-            self._all_videos.clear()
-            self._all_authors.clear()
-            self._all_playlists.clear()
-        existing_playlist_ids = {item.playlist_id for item in self._all_playlists}
-        for playlist in result.playlists:
-            if playlist.playlist_id not in existing_playlist_ids:
-                self._all_playlists.append(playlist)
-                existing_playlist_ids.add(playlist.playlist_id)
-        existing_video_ids = {video.video_id for video in self._all_videos}
-        for video in result.videos:
-            if video.video_id not in existing_video_ids:
-                self._all_videos.append(video)
-                existing_video_ids.add(video.video_id)
-        existing_author_ids = {author.author_id for author in self._all_authors}
-        for author in result.authors:
-            if author.author_id not in existing_author_ids:
-                self._all_authors.append(author)
-                existing_author_ids.add(author.author_id)
+        merge_page(self._all_videos, self._all_authors, self._all_playlists, result, replace=worker.replace_results)
         self._total = result.total
         self._current_page = max(0, int(result.current_page or 0))
         self._last_page = result.last_page
