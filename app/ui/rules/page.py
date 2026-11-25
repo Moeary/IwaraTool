@@ -53,7 +53,7 @@ from ..style.theme import (
 from ..common.fluent_dialogs import show_fluent_confirmation
 from .page_bindings import PageRuleBindings
 from .rule_form import RuleFormWidget
-from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary, page_scope_name
+from ...presentation.rules import DRAFT_RULE_ID, _rule_display_name, _rule_summary, page_scope_name
 
 
 class RulesInterface(QWidget):

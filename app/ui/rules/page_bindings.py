@@ -10,7 +10,7 @@ from ...core.rules import PAGE_RULE_SCOPES
 from ...i18n import tr
 from ..style.theme import set_secondary_text
 from .rule_picker import RulePicker
-from .rule_text import page_scope_name
+from ...presentation.rules import page_scope_name
 
 
 class PageRuleBindings(CardWidget):

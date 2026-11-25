@@ -34,7 +34,7 @@ from ...core.rules import rule_store
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..common.fluent_dialogs import show_fluent_confirmation
-from ..rules.rule_text import _rule_display_name
+from ...presentation.rules import _rule_display_name
 from ..style.theme import qcolor, set_secondary_text
 from .page_dependencies import download_manager
 

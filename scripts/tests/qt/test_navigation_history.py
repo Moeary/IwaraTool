@@ -431,7 +431,7 @@ class LanguageDraftTests(_WindowCase):
         self.assertEqual(new._history_page._search_edit.text(), "miku")
 
     def test_unsaved_rule_draft_survives_language_switch(self):
-        from app.ui.rules.rule_text import DRAFT_RULE_ID
+        from app.presentation.rules import DRAFT_RULE_ID
 
         rules = self.window._rules_page
         self.window.switchTo(rules)

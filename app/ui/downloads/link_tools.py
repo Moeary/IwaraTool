@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...i18n import tr
+from ...presentation.downloads import submission
 from ..common.worker_lifecycle import on_finished
 from .diagnosis_dialog import DiagnosisDialog
 from .link_workers import DiagnosisWorker
@@ -67,6 +67,6 @@ class DownloadLinkToolsMixin:
         flow.staged.connect(staged)
         return flow.start(
             lambda: download_manager.preview_listing(url, rule_id=rule_id),
-            busy_text=tr("Listing every video behind the link…", "正在列出链接中的全部作品并预解析…", "リンク内の動画を一覧にしています…"),
+            busy_text=submission.listing_busy_text(),
             allow_direct=False,
         )

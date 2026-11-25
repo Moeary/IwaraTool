@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.rules import normalize_rule_payload
-from ...i18n import tr
+from ..core.rules import normalize_rule_payload
+from ..i18n import tr
 
 
 DRAFT_RULE_ID = "__draft_rule__"
@@ -51,3 +51,22 @@ def _rule_display_name(rule: dict[str, Any]) -> str:
     if rule.get("builtin"):
         return tr("Default Download", "默认下载", "既定ダウンロード")
     return str(rule.get("name", "") or "")
+
+
+def follow_default_label(default_rule: dict[str, Any]) -> str:
+    name = _rule_display_name(default_rule)
+    return tr(f"Follow default · {name}", f"跟随默认 · {name}", f"既定に従う · {name}")
+
+
+def rule_label(rule: dict[str, Any]) -> str:
+    suffix = tr(" · built in", " · 内置", " · 内蔵") if rule.get("builtin") else ""
+    return _rule_display_name(rule) + suffix
+
+
+def rule_choices(rules: list[dict[str, Any]], default_rule_id: str) -> list[tuple[str, str]]:
+    """``(choice, label)`` for a page's rule selector: "follow default" first, then every rule."""
+
+    from ..core.rules import PAGE_RULE_FOLLOW_DEFAULT
+
+    default_rule = next((r for r in rules if r["id"] == default_rule_id), None) or (rules[0] if rules else {})
+    return [(PAGE_RULE_FOLLOW_DEFAULT, follow_default_label(default_rule))] + [(r["id"], rule_label(r)) for r in rules]

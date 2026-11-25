@@ -26,7 +26,7 @@ from ...core.download.template_builder import preview_template
 from ...core.download.manager import download_manager
 from ...i18n import tr
 from ..style.theme import set_secondary_text
-from .rule_text import _rule_summary
+from ...presentation.rules import _rule_summary
 from .tag_popup import _RuleTagSuggestionPopup
 from .template_builder import FilenameTemplateBuilder
 
