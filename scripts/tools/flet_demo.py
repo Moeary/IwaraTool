@@ -34,6 +34,14 @@ async def play(shell, route: str) -> None:
         store = shell.search
         store.set_source("iwara")
         await store.search(record=False)
+        if os.environ.get("IWARATOOL_DEMO_MENU") and store.cards:
+            # Show the action sheet of the first result (what a long press opens on a phone).
+            from app.ui_flet.components.video_actions import VideoMenu, open_action_sheet
+
+            card = store.cards[0]
+            menu = VideoMenu(shell, scope="search", item_for=lambda c: store.items.get(c.key), on_select=store.toggle)
+            actions = await menu.actions(card, touch=True)
+            open_action_sheet(shell.page, card.title, actions, lambda action: None)
     elif destination == routes.DOWNLOADS:
         from app.core.download.manager import download_manager
 

@@ -30,6 +30,7 @@ def VideoGrid(
     on_toggle: Callable[[CardView], None] | None = None,
     on_end_reached: Callable[[], None] | None = None,
     max_width: float = layout.MAX_WIDTH_GRID,
+    menu=None,
 ):
     shell = use_shell()
     state = shell.state.layout
@@ -64,6 +65,7 @@ def VideoGrid(
                 badge=badges.get(card.key),
                 on_open=on_open,
                 on_toggle=on_toggle,
+                menu=menu,
                 key=card.key,
             )
             for card in cards

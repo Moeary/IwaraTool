@@ -23,6 +23,7 @@ from ... import layout, routes
 from ...components.cover import Cover
 from ...components.page_frame import PageFrame
 from ...components.player import InlinePlayer
+from ...components.video_actions import VideoMenu
 from ...components.video_card import VideoCard, text_height
 from ...icons import AppIcon, StateIcon
 from ...services.notify import notice
@@ -254,10 +255,11 @@ def _related(shell, model: DetailModel, width: float, *, side: bool) -> ft.Contr
     if not cards:
         return None
     view = shell.state.layout
+    menu = VideoMenu(shell, scope="detail", item_for=lambda c: model.related.get(c.key))
 
     def card(item: CardView, card_width: float) -> ft.Control:
         return VideoCard(item, card_width, shell.page, touch=view.is_touch,
-                         on_open=lambda c: open_related(shell, model, c), key=item.key)
+                         on_open=lambda c: open_related(shell, model, c), menu=menu, key=item.key)
 
     title = ft.Text(tr("Related", "相关作品", "関連作品"), style=text_style(TYPE.section_title_compact))
     if side:

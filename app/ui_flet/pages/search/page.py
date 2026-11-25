@@ -19,6 +19,7 @@ from ...components.download_sheet import open_download_sheet
 from ...components.filter_sheet import open_filter_sheet
 from ...components.page_frame import PageFrame
 from ...components.status_badge import BadgeKind
+from ...components.video_actions import VideoMenu
 from ...components.video_grid import VideoGrid
 from ...icons import AppIcon, StateIcon
 from ...services.notify import notice
@@ -322,6 +323,7 @@ def Results():
         on_open=open_card,
         on_toggle=store.toggle,
         on_end_reached=end_reached if compact and state.has_next else None,
+        menu=VideoMenu(shell, scope="search", item_for=lambda c: store.items.get(c.key), on_select=store.toggle),
     )
     if compact and state.loading:
         return ft.Column(expand=True, spacing=Space.SM, controls=[

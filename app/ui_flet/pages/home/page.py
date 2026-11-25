@@ -18,6 +18,7 @@ from ....presentation.media.cards import CardView, video_card
 from ... import layout, routes
 from ...components.download_sheet import open_download_sheet
 from ...components.page_frame import PageFrame
+from ...components.video_actions import VideoMenu
 from ...components.video_card import VideoCard, text_height
 from ...components.video_grid import VideoGrid
 from ...icons import AppIcon, StateIcon
@@ -159,9 +160,12 @@ def HomeRowView(row: HomeRow):
     if not state.cards:
         return ft.Column(spacing=Space.SM, controls=[header, _message(shell, row)])
 
+    menu = VideoMenu(shell, scope=SCOPE, item_for=lambda c: row.videos.get(c.key), on_select=row.toggle)
+
     def card(item: CardView, width: float) -> ft.Control:
         return VideoCard(item, width, shell.page, selected=item.key in state.selected, selecting=bool(state.selected),
-                         touch=view.is_touch, on_open=lambda c: open_card(shell, c, row.videos), on_toggle=row.toggle, key=item.key)
+                         touch=view.is_touch, on_open=lambda c: open_card(shell, c, row.videos), on_toggle=row.toggle,
+                         menu=menu, key=item.key)
 
     if compact:
         height = SHELF_CARD * 9 / 16 + text_height()
@@ -261,6 +265,7 @@ def HomeBrowse(section_id: str, tab_id: str):
         body = VideoGrid(
             cards,
             on_open=lambda c: open_card(shell, c, videos),
+            menu=VideoMenu(shell, scope=SCOPE, item_for=lambda c: videos.get(c.key)),
             on_end_reached=(lambda: shell.page.run_task(load, page_state["page"] + 1)) if page_state["more"] else None,
         )
     return PageFrame(title=title, body=body)

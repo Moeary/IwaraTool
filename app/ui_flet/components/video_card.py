@@ -2,11 +2,14 @@
 
 The same card for videos, image posts, authors (round avatar) and playlists.
 A tick appears top-right while selecting, or on hover with a mouse; a long
-press (touch) or the tick starts selecting.
+press (touch) or the tick starts selecting.  With a ``menu`` (``VideoActions``)
+a right click opens the unified action menu; on touch a long press opens the
+action sheet, whose "Select" entry starts selecting.
 """
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import flet as ft
 
@@ -17,6 +20,9 @@ from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
 from .cover import Cover
 from .status_badge import BadgeKind, status_badge
+
+if TYPE_CHECKING:
+    from .video_actions import VideoMenu
 
 CARD_PADDING = Space.SM
 
@@ -46,8 +52,17 @@ def VideoCard(
     badge: tuple[BadgeKind, str | None] | None = None,
     on_open: Callable[[CardView], None] | None = None,
     on_toggle: Callable[[CardView], None] | None = None,
+    menu: "VideoMenu | None" = None,
 ):
     hovered, set_hovered = ft.use_state(False)
+    menu_ref = ft.use_ref(None)
+    request, set_request = ft.use_state(None)  # (actions, position, serial): open the menu after the render
+
+    async def open_menu_when_ready() -> None:
+        if request is not None and menu_ref.current is not None:
+            await menu_ref.current.open(global_position=request[1])
+
+    ft.use_effect(open_menu_when_ready, [request[2] if request else 0])
     palette = palette_for(page)
     overlays: list[ft.Control] = [
         Cover(card.cover_kind, card.cover_key, card.cover_url, width, card.cover_local,
@@ -86,8 +101,25 @@ def VideoCard(
         elif on_open:
             on_open(card)
 
+    def pick(action) -> None:
+        page.run_task(menu.run, card, action)
+
+    async def context_menu(event) -> None:
+        actions = await menu.actions(card)
+        if actions:
+            set_request((actions, event.global_position, (request[2] + 1) if request else 1))
+
+    async def action_sheet() -> None:
+        from .video_actions import open_action_sheet
+
+        actions = await menu.actions(card, touch=True)
+        if actions:
+            open_action_sheet(page, card.title, actions, pick)
+
     def long_press(_e) -> None:
-        if card.selectable and on_toggle:
+        if menu is not None and touch and not selecting:
+            page.run_task(action_sheet)
+        elif card.selectable and on_toggle:
             on_toggle(card)
 
     text = ft.Column(
@@ -101,7 +133,7 @@ def VideoCard(
                     overflow=ft.TextOverflow.ELLIPSIS),
         ],
     )
-    return ft.Container(
+    body = ft.Container(
         width=width,
         border_radius=Radius.CARD,
         bgcolor=palette.primary_container if selected else None,
@@ -116,4 +148,15 @@ def VideoCard(
                 ft.Container(padding=ft.Padding.symmetric(horizontal=Space.XS, vertical=CARD_PADDING), content=text),
             ],
         ),
+    )
+    if menu is None or touch:
+        return body
+    from .video_actions import menu_items
+
+    return ft.ContextMenu(
+        ref=menu_ref,
+        items=menu_items(request[0], pick) if request else [],
+        secondary_trigger=None,
+        tertiary_trigger=None,
+        content=ft.GestureDetector(on_secondary_tap_down=lambda e: page.run_task(context_menu, e), content=body),
     )

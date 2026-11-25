@@ -25,8 +25,9 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import Action, FluentIcon, InfoBar, InfoBarPosition, RoundMenu
 
 from ...core.download.history_actions import remote_unreachable_message
-from ...core.download.locations import FileLocation, resolve_record_location
-from ...i18n import tr
+from ...core.download.locations import FileLocation
+from ...presentation.media import video_actions as actions_text
+from ...presentation.media.video_actions import play_label, record_location  # noqa: F401  (re-exported)
 from ...signal_bus import signal_bus
 
 
@@ -49,18 +50,9 @@ def add_section(menu: RoundMenu) -> None:
     menu.addSeparator()
 
 
-def record_location(manager, video_id: str) -> FileLocation:
-    if not video_id:
-        return FileLocation()
-    try:
-        return resolve_record_location(manager.history.get_record(video_id))
-    except Exception:
-        return FileLocation()
-
-
 def _warn(parent, message: str) -> None:
     InfoBar.warning(
-        title=tr("Cannot open", "无法打开", "開けません"), content=message,
+        title=actions_text.cannot_open_title(), content=message,
         isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=parent,
     )
 
@@ -68,26 +60,14 @@ def _warn(parent, message: str) -> None:
 def copy_text(parent, text: str, *, what: str = "") -> None:
     QApplication.clipboard().setText(str(text or ""))
     InfoBar.success(
-        title=tr("Copied", "已复制", "コピーしました"), content=what or str(text or ""),
+        title=actions_text.copied_title(), content=what or str(text or ""),
         isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=parent,
     )
 
 
-def play_label(location: FileLocation, *, can_stream: bool = True) -> str:
-    if location.local_path and location.is_remote:
-        return tr("Play NAS copy (mounted)", "播放远端文件（挂载）", "リモートのファイルを再生（マウント）")
-    if location.local_path:
-        return tr("Play local file", "播放本地文件", "ローカルファイルを再生")
-    if location.stream_url:
-        return tr("Play NAS copy", "播放远端文件", "リモートのファイルを再生")
-    if can_stream:
-        return tr("Play online", "在线播放", "オンライン再生")
-    return ""
-
-
 def add_detail_action(menu: RoundMenu, parent, callback: Callable[[], None]) -> None:
     menu.addAction(Action(
-        FluentIcon.VIEW, tr("View details", "查看详情", "詳細を表示"), parent,
+        FluentIcon.VIEW, actions_text.detail_label(), parent,
         triggered=lambda _checked=False: callback(),
     ))
 
@@ -128,20 +108,20 @@ def add_play_actions(
                 _warn(parent, message)
 
         menu.addAction(Action(
-            FluentIcon.FOLDER, tr("Open containing folder", "打开所在文件夹", "保存先フォルダーを開く"), parent,
+            FluentIcon.FOLDER, actions_text.open_folder_label(), parent,
             triggered=lambda _checked=False: open_folder(),
         ))
         menu.addAction(Action(
-            FluentIcon.COPY, tr("Copy file path", "复制文件路径", "ファイルパスをコピー"), parent,
+            FluentIcon.COPY, actions_text.copy_path_label(), parent,
             triggered=lambda _checked=False, path=location.local_path: copy_text(parent, path),
         ))
     elif location.is_remote and location.remote_path:
         menu.addAction(Action(
-            FluentIcon.FOLDER, tr("Open containing folder (NAS)", "打开所在文件夹（远端）", "保存先フォルダーを開く（リモート）"), parent,
+            FluentIcon.FOLDER, actions_text.open_folder_label(remote=True), parent,
             triggered=lambda _checked=False: _warn(parent, remote_unreachable_message(location, for_folder=True)),
         ))
         menu.addAction(Action(
-            FluentIcon.COPY, tr("Copy NAS path", "复制远端路径", "リモートのパスをコピー"), parent,
+            FluentIcon.COPY, actions_text.copy_path_label(remote=True), parent,
             triggered=lambda _checked=False, path=location.remote_path: copy_text(parent, path),
         ))
     return location
@@ -152,11 +132,11 @@ def add_link_actions(menu: RoundMenu, parent, url: str) -> None:
     if not url:
         return
     menu.addAction(Action(
-        FluentIcon.GLOBE, tr("Open in browser", "在浏览器打开", "ブラウザーで開く"), parent,
+        FluentIcon.GLOBE, actions_text.open_browser_label(), parent,
         triggered=lambda _checked=False: webbrowser.open(url),
     ))
     menu.addAction(Action(
-        FluentIcon.LINK, tr("Copy link", "复制链接", "リンクをコピー"), parent,
+        FluentIcon.LINK, actions_text.copy_link_label(), parent,
         triggered=lambda _checked=False: copy_text(parent, url),
     ))
 
