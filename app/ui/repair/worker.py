@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
+from ...core.repair import runs
 from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
 
@@ -51,67 +51,42 @@ class RepairWorker(ManagedThread):
         self.move_to_output = bool(move_to_output)
         self.items = list(items or [])
         self.options = dict(options or {})
-        self._pending_items: list[dict[str, Any]] = []
-        self._last_batch_emit = 0.0
-        self._last_activity_emit = 0.0
 
     def run(self):
-        def callback(item: dict[str, Any], index: int, total: int) -> bool:
-            if self.isInterruptionRequested():
-                return False
-            self._pending_items.append(dict(item))
-            now = time.monotonic()
-            if index == total or now - self._last_batch_emit >= self.BATCH_INTERVAL:
-                self._last_batch_emit = now
-                self._flush_items()
-                self.progress.emit(index, total)
-            return True
-
-        def activity_callback(completed: int, total: int, active: int):
-            if self.isInterruptionRequested():
-                return
-            now = time.monotonic()
-            if completed == total or now - self._last_activity_emit >= self.BATCH_INTERVAL:
-                self._last_activity_emit = now
-                self.activity.emit(completed, total, active)
-
+        stop = self.isInterruptionRequested
         try:
             if self.mode == "scan":
-                result = download_manager.scan_repair_folder(
+                result = runs.scan(
+                    download_manager,
                     self.folder,
                     filename_template=self.filename_template,
                     output_root=self.output_root,
                     move_to_output=self.move_to_output,
-                    preview_options=self.options,
-                    progress_callback=callback,
-                    activity_callback=activity_callback,
+                    options=self.options,
+                    on_batch=self.items_ready.emit,
+                    on_progress=self.progress.emit,
+                    on_activity=self.activity.emit,
+                    should_stop=stop,
+                    interval=self.BATCH_INTERVAL,
                 )
             elif self.mode == "resolve":
-                result = download_manager.resolve_repair_item(
-                    self.items,
-                    self.path,
-                    self.video_id_text,
-                    options=self.options,
-                )
+                result = runs.resolve(download_manager, self.items, self.path, self.video_id_text, options=self.options)
                 if self.isInterruptionRequested():
                     self.discarded = True
                     return
             else:
-                result = download_manager.repair_folder_files(
+                result = runs.repair(
+                    download_manager,
                     self.items,
                     options=self.options,
-                    progress_callback=callback,
+                    on_batch=self.items_ready.emit,
+                    on_progress=self.progress.emit,
+                    should_stop=stop,
+                    interval=self.BATCH_INTERVAL,
                 )
-            self._flush_items()
             self.result_ready.emit(result)
         except Exception as exc:
-            self._flush_items()
             self.error.emit(str(exc))
-
-    def _flush_items(self):
-        if self._pending_items:
-            batch, self._pending_items = self._pending_items, []
-            self.items_ready.emit(batch)
 
 
 class RepairPreviewWorker(ManagedThread):
@@ -138,7 +113,7 @@ class RepairPreviewWorker(ManagedThread):
 
     def run(self):
         try:
-            result = download_manager.preview_repair_files(self.items, options=self.options)
+            result = runs.preview(download_manager, self.items, self.options)
         except Exception as exc:
             self.error.emit(str(exc))
             return

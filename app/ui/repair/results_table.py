@@ -8,13 +8,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
 from ...core.repair.matching import parse_manual_video_id
-from ...i18n import tr
+from ...presentation.repair import page as repair_page
 from ..style.theme import qcolor, summary_text
 from .worker import RepairPreviewWorker, RepairWorker
 
-# Rows whose Iwara ID the user may type in (a finished repair is final).
-_MANUAL_ID_STATES = frozenset({"not_found", "ambiguous", "failed", "ready", "conflict", "skipped", ""})
-_MANUAL_ID_HINT_STATES = frozenset({"not_found", "ambiguous"})
 
 
 class RepairResultsTableMixin:
@@ -67,15 +64,11 @@ class RepairResultsTableMixin:
         target_path = str(item.get("target_path", "") or "")
         if target_path:
             self._path_to_row.setdefault(target_path, row)
-        state_key = str(item.get("status", "") or "")
-        if state_key == "ready" and item.get("target_conflict"):
-            state_key = "conflict"
+        state_key = repair_page.state_key(item)
         styles = self._state_styles or self._build_state_styles()
         state_text, color = styles.get(state_key, (state_key or styles[""][0], None))
-        detail = str(item.get("target_conflict", "") or item.get("message", "") or "")
-        editable = state_key in _MANUAL_ID_STATES
-        if state_key in _MANUAL_ID_HINT_STATES:
-            detail = f"{detail} · {self._manual_id_hint()}" if detail else self._manual_id_hint()
+        detail = repair_page.row_detail(item, hint=self._manual_id_hint())
+        editable = repair_page.id_editable(item)
         values = [
             state_text,
             path,
@@ -118,11 +111,7 @@ class RepairResultsTableMixin:
 
     @staticmethod
     def _manual_id_hint() -> str:
-        return tr(
-            "Double-click the Iwara ID cell to enter an ID or URL",
-            "可双击 Iwara ID 列手动填写 ID 或链接",
-            "Iwara ID 欄をダブルクリックして ID または URL を入力できます",
-        )
+        return repair_page.manual_id_hint()
 
     def _restore_row(self, path: str):
         """Re-render ``path``'s row from its item, discarding typed-in cell text."""
@@ -151,23 +140,10 @@ class RepairResultsTableMixin:
             return
         if not parse_manual_video_id(text):
             self._restore_row(path)
-            self._show_warning(
-                tr("Invalid Iwara ID", "Iwara ID 无效", "無効な Iwara ID"),
-                tr(
-                    "Enter an Iwara video ID or a video link such as https://www.iwara.tv/video/<id>.",
-                    "请输入 Iwara 视频 ID，或 https://www.iwara.tv/video/<id> 这样的视频链接。",
-                    "Iwara 動画 ID、または https://www.iwara.tv/video/<id> のような動画リンクを入力してください。",
-                ),
-            )
+            self._show_warning(*repair_page.warning("invalid_id"))
             return
-        self._append_log(
-            tr(
-                f"[Repair] looking up {path} by Iwara ID {text}",
-                f"[修复] 按 Iwara ID {text} 重新查询：{path}",
-                f"[修復] Iwara ID {text} で再検索: {path}",
-            )
-        )
-        self._status_label.setText(tr("Looking up the video…", "正在查询视频…", "動画を検索中…"))
+        self._append_log(repair_page.lookup_started_log(path, text))
+        self._status_label.setText(repair_page.lookup_status("looking"))
         self._start_worker(
             RepairWorker(
                 "resolve",
@@ -188,23 +164,12 @@ class RepairResultsTableMixin:
         """
 
         return {
-            "": (tr("Unknown", "未知", "不明"), None),
-            "ready": (tr("Ready", "待修复", "待機"), qcolor("accent")),
-            "completed": (tr("Done", "已完成", "完了"), qcolor("success")),
-            "not_found": (tr("Skip", "跳过", "スキップ"), qcolor("warning")),
-            "ambiguous": (tr("Check", "待确认", "要確認"), qcolor("warning")),
-            "failed": (tr("Failed", "失败", "失敗"), qcolor("danger")),
-            "conflict": (tr("Conflict", "冲突", "競合"), qcolor("danger")),
-            "skipped": (tr("Skip", "跳过", "スキップ"), qcolor("neutral")),
+            key: (label, qcolor(role) if role else None)
+            for key, (label, role) in repair_page.state_styles().items()
         }
 
     def _set_items(self, items: list[dict[str, Any]]):
-        self._items = [dict(item) for item in items if isinstance(item, dict)]
-        self._items_by_path = {
-            str(item.get("path", "") or ""): item
-            for item in self._items
-            if str(item.get("path", "") or "")
-        }
+        self._items, self._items_by_path = repair_page.index_items(items)
 
     def _refresh_target_previews(self, *_args):
         """Re-plan targets after an option change, debounced and off the GUI thread."""
@@ -250,28 +215,7 @@ class RepairResultsTableMixin:
 
     def _update_start_button(self):
         if self._worker is None:
-            self._start_btn.setEnabled(any(
-                item.get("status") == "ready" and not item.get("target_conflict")
-                for item in self._items
-            ))
+            self._start_btn.setEnabled(repair_page.repairable(self._items))
 
     def _update_summary(self):
-        counts: dict[str, int] = {}
-        for item in self._items:
-            key = "conflict" if item.get("status") == "ready" and item.get("target_conflict") else str(item.get("status", "") or "unknown")
-            counts[key] = counts.get(key, 0) + 1
-        skipped = counts.get("not_found", 0) + counts.get("ambiguous", 0) + counts.get("skipped", 0)
-        self._summary_label.setText(
-            summary_text(
-                [
-                    (tr("Total", "共", "合計"), len(self._items)),
-                    (tr("Ready", "待修复", "待機"), counts.get("ready", 0)),
-                    (tr("Done", "已完成", "完了"), counts.get("completed", 0)),
-                    (tr("Skipped", "跳过", "スキップ"), skipped),
-                    (
-                        tr("Conflict/failed", "冲突/失败", "競合/失敗"),
-                        counts.get("conflict", 0) + counts.get("failed", 0),
-                    ),
-                ]
-            )
-        )
+        self._summary_label.setText(summary_text(repair_page.summary_counts(self._items)))

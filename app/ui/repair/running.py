@@ -8,8 +8,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QAbstractItemView
 
-from ...config import app_config
-from ...i18n import tr
+from ...presentation.repair import page as repair_page
 from ..common.worker_lifecycle import stop_qthreads
 from .worker import RepairWorker
 
@@ -22,33 +21,19 @@ class RepairRunningMixin:
             return
         folder = os.path.abspath(os.path.expanduser(self._folder_edit.text().strip()))
         if not os.path.isdir(folder):
-            self._show_warning(
-                tr("Folder not found", "文件夹不存在", "フォルダーが見つかりません"),
-                tr("Choose or drop a valid local folder first.", "请先选择或拖入有效的本地文件夹。", "有効なローカルフォルダーを選択またはドロップしてください。"),
-            )
+            self._show_warning(*repair_page.warning("folder"))
             return
         output_root = self._output_root()
         self._folder_edit.setText(folder)
-        app_config.set_ui_value("repair_folder", folder)
-        app_config.set_ui_value("repair_output_folder", self._output_edit.text().strip())
-        app_config.set_ui_value("repair_filename_template", self._template())
-        app_config.set_ui_value("repair_mode", "organize" if self._move_to_output() else "in_place")
+        repair_page.save_form(self._form(), folder=True)
         self._items.clear()
         self._items_by_path.clear()
         self._clear_table()
         self._repair_log_active = True
         self._last_feedback_log_at = 0.0
         self._scan_feedback = (0, 0, 0)
-        self._status_label.setText(
-            tr("Scanning files…", "正在扫描文件…", "ファイルを検索中…")
-        )
-        self._append_log(
-            tr(
-                f"[Repair] scanning ({self._mode_combo.currentText()}): {folder}" + (f" -> {output_root}" if output_root else ""),
-                f"[修复] 开始扫描（{self._mode_combo.currentText()}）：{folder}" + (f" → {output_root}" if output_root else ""),
-                f"[修復] 検索開始（{self._mode_combo.currentText()}）: {folder}" + (f" -> {output_root}" if output_root else ""),
-            )
-        )
+        self._status_label.setText(repair_page.scanning_status())
+        self._append_log(repair_page.scan_started_log(self._mode_combo.currentText(), folder, output_root))
         self._start_worker(
             RepairWorker(
                 "scan",
@@ -65,22 +50,11 @@ class RepairRunningMixin:
         if self._worker is not None and self._worker.isRunning():
             return
         if not self._items:
-            self._show_warning(
-                tr("Nothing to repair", "没有可修复的项目", "修復対象がありません"),
-                tr("Scan a folder first.", "请先扫描文件夹。", "先にフォルダーを検索してください。"),
-            )
+            self._show_warning(*repair_page.warning("empty"))
             return
-        app_config.set_ui_value("repair_filename_template", self._template())
-        app_config.set_ui_value("repair_output_folder", self._output_edit.text().strip())
-        app_config.set_ui_value("repair_mode", "organize" if self._move_to_output() else "in_place")
+        repair_page.save_form(self._form())
         self._repair_log_active = True
-        self._append_log(
-            tr(
-                f"[Repair] starting {len(self._items)} files",
-                f"[修复] 开始处理 {len(self._items)} 个文件",
-                f"[修復] {len(self._items)} 件の処理を開始",
-            )
-        )
+        self._append_log(repair_page.repair_started_log(len(self._items)))
         self._start_worker(
             RepairWorker(
                 "repair",
@@ -125,22 +99,12 @@ class RepairRunningMixin:
         if worker is None or not worker.isRunning():
             return
         worker.requestInterruption()
-        self._status_label.setText(tr("Stopping…", "正在停止…", "停止中…"))
+        self._status_label.setText(repair_page.stopping_status())
 
     def _on_progress(self, index: int, total: int):
-        if self._worker_mode == "scan":
-            if index == total:
-                self._status_label.setText(
-                    tr(
-                        f"Scan completed {index}/{total}",
-                        f"扫描完成 {index}/{total}",
-                        f"検索完了 {index}/{total}",
-                    )
-                )
-            return
-        self._status_label.setText(
-            tr(f"Processing {index}/{total}", f"处理中 {index}/{total}", f"処理中 {index}/{total}")
-        )
+        text = repair_page.progress_status(self._worker_mode == "scan", index, total)
+        if text:
+            self._status_label.setText(text)
 
     def _on_activity(self, completed: int, total: int, active: int):
         if self._worker_mode != "scan":
@@ -157,34 +121,17 @@ class RepairRunningMixin:
         completed, total, active = self._scan_feedback
         if total <= 0:
             return
-        queued = max(0, total - completed - active)
-        self._status_label.setText(
-            tr(
-                f"Scanning {completed}/{total} · active {active} · queued {queued}",
-                f"扫描中 {completed}/{total} · 活跃 {active} · 排队 {queued}",
-                f"検索中 {completed}/{total} · 実行中 {active} · 待機 {queued}",
-            )
-        )
+        status, log = repair_page.activity_status(completed, total, active)
+        self._status_label.setText(status)
         now = time.monotonic()
         if completed == total or now - self._last_feedback_log_at >= 1.0:
             self._last_feedback_log_at = now
-            self._append_log(
-                tr(
-                    f"[Repair] scan progress: {completed}/{total}, active={active}, queued={queued}",
-                    f"[修复] 扫描进度：{completed}/{total}，活跃请求 {active}，排队 {queued}",
-                    f"[修復] 検索進捗: {completed}/{total}、実行中={active}、待機={queued}",
-                )
-            )
+            self._append_log(log)
 
     def _on_items_ready(self, items: list[dict[str, Any]]):
         """Show a batch of scanned or repaired files as soon as they finish."""
 
-        rows = []
-        for item in items:
-            path = str(item.get("path", "") or "")
-            if path:
-                self._items_by_path[path] = dict(item)
-                rows.append(item)
+        rows = repair_page.merge_batch(self._items_by_path, items)
         if not rows:
             return
         self._items = list(self._items_by_path.values())
@@ -197,14 +144,7 @@ class RepairRunningMixin:
             # the page's options, conflicts included.
             self._set_items(result)
             self._render_all_items()
-            ready = sum(1 for item in self._items if item.get("status") == "ready" and not item.get("target_conflict"))
-            self._append_log(
-                tr(
-                    f"[Repair] scan complete: {ready}/{len(self._items)} ready",
-                    f"[修复] 扫描完成：{ready}/{len(self._items)} 个可修复",
-                    f"[修復] 検索完了: {ready}/{len(self._items)} 件が修復可能",
-                )
-            )
+            self._append_log(repair_page.scan_finished_log(self._items))
         elif self._worker_mode == "resolve" and isinstance(result, list):
             path = str(getattr(self._worker, "path", "") or "")
             # A row whose file a failed repair had already moved resolves
@@ -218,45 +158,28 @@ class RepairRunningMixin:
             self._set_items(result)
             self._render_all_items()
             item = self._items_by_path.get(path) or self._items_by_path.get(moved_path, {})
-            self._status_label.setText(
-                tr("Lookup finished", "查询完成", "検索完了")
-            )
-            self._append_log(
-                tr(
-                    f"[Repair] {path}: {item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
-                    f"[修复] {path}：{item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
-                    f"[修復] {path}: {item.get('video_id', '')} {item.get('title', '')} — {item.get('target_conflict') or item.get('message', '')}",
-                )
-            )
+            self._status_label.setText(repair_page.lookup_status("done"))
+            self._append_log(repair_page.lookup_finished_log(path, item))
         elif self._worker_mode == "repair" and isinstance(result, dict):
             repaired_items = result.get("items", [])
             if isinstance(repaired_items, list):
                 self._set_items(repaired_items)
                 self._render_all_items()
-            self._append_log(
-                tr(
-                    f"[Repair] finished: renamed={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, cover={result.get('thumbnail', 0)}, skipped={result.get('skipped', 0)}, failed={result.get('failed', 0)}",
-                    f"[修复] 完成：重命名 {result.get('renamed', 0)}，NFO {result.get('nfo', 0)}，封面 {result.get('thumbnail', 0)}，跳过 {result.get('skipped', 0)}，失败 {result.get('failed', 0)}",
-                    f"[修復] 完了: 名前変更={result.get('renamed', 0)}, NFO={result.get('nfo', 0)}, サムネイル={result.get('thumbnail', 0)}, スキップ={result.get('skipped', 0)}, 失敗={result.get('failed', 0)}",
-                )
-            )
+            self._append_log(repair_page.repair_finished_log(result))
         self._update_summary()
 
     def _on_worker_error(self, message: str):
         if self._worker is not None and self._worker_mode == "resolve":
             self._restore_row(str(getattr(self._worker, "path", "") or ""))
-            self._status_label.setText(tr("Lookup failed", "查询失败", "検索に失敗"))
-        self._append_log(tr(f"[Repair] error: {message}", f"[修复] 出错：{message}", f"[修復] エラー: {message}"))
-        self._show_warning(
-            tr("Repair failed", "修复失败", "修復に失敗"),
-            str(message),
-        )
+            self._status_label.setText(repair_page.lookup_status("failed"))
+        self._append_log(repair_page.error_log(message))
+        self._show_warning(repair_page.failed_title(), str(message))
 
     def _on_worker_finished(self):
         self._scan_feedback_timer.stop()
         if self._worker_mode == "resolve" and getattr(self._worker, "discarded", False):
             self._restore_row(str(getattr(self._worker, "path", "") or ""))
-            self._status_label.setText(tr("Lookup stopped", "已停止查询", "検索を停止しました"))
+            self._status_label.setText(repair_page.lookup_status("stopped"))
         self._worker = None
         self._scan_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)

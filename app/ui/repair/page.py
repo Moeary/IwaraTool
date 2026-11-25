@@ -34,7 +34,7 @@ from qfluentwidgets import (
 
 from ...core.download.template_builder import template_presets
 from ...core.download.manager import download_manager  # noqa: F401 - patch point, see page_dependencies
-from ...i18n import tr
+from ...presentation.repair.texts import repair_text
 from ...signal_bus import signal_bus
 from ..style.fonts import monospace_font
 from ..common.ui_state import keep_table_widths
@@ -112,10 +112,10 @@ class RepairInterface(
         root.setSpacing(PAGE_SPACING)
 
         title_row = QHBoxLayout()
-        title_row.addWidget(TitleLabel(tr("Repair Center", "修复中心", "修復センター"), self))
+        title_row.addWidget(TitleLabel(repair_text("repair_center"), self))
         title_row.addStretch()
         self._status_label = BodyLabel(
-            tr("Choose a folder to begin", "请选择一个文件夹开始", "フォルダーを選択して開始"),
+            repair_text("choose_a_folder_to_begin"),
             self,
         )
         set_secondary_text(self._status_label)
@@ -133,11 +133,11 @@ class RepairInterface(
         left_layout.addWidget(self._build_options_card(left_panel))
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
-        self._start_btn = PrimaryPushButton(tr("Repair Selected Folder", "开始修复", "修復を開始"), left_panel, FluentIcon.DOWNLOAD)
+        self._start_btn = PrimaryPushButton(repair_text("repair_selected_folder"), left_panel, FluentIcon.DOWNLOAD)
         self._start_btn.setEnabled(False)
         self._start_btn.clicked.connect(self._start_repair)
         action_row.addWidget(self._start_btn, 1)
-        self._stop_btn = PushButton(tr("Stop", "停止", "停止"), left_panel, FluentIcon.CANCEL)
+        self._stop_btn = PushButton(repair_text("stop"), left_panel, FluentIcon.CANCEL)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_worker)
         action_row.addWidget(self._stop_btn)
@@ -183,13 +183,9 @@ class RepairInterface(
         folder_layout = QVBoxLayout(folder_card)
         folder_layout.setContentsMargins(16, 14, 16, 14)
         folder_layout.setSpacing(9)
-        folder_layout.addWidget(SubtitleLabel(tr("Source Folder", "视频文件夹", "動画フォルダー"), folder_card))
+        folder_layout.addWidget(SubtitleLabel(repair_text("source_folder"), folder_card))
         self._folder_hint = BodyLabel(
-            tr(
-                "Drop a folder here or browse it. Subfolders are scanned too.",
-                "可将文件夹拖入此处或浏览选择；也会扫描子文件夹。",
-                "フォルダーをドロップまたは参照できます。サブフォルダーも検索します。",
-            ),
+            repair_text("drop_a_folder_here_or"),
             folder_card,
         )
         # Unwrapped hints become the scroll content's minimum width and hide
@@ -202,39 +198,35 @@ class RepairInterface(
         self._folder_edit = FolderDropLineEdit(folder_card)
         self._folder_edit.setClearButtonEnabled(True)
         self._folder_edit.setPlaceholderText(
-            tr("Drop a local folder or enter its path…", "拖入文件夹或输入路径…", "ローカルフォルダーをドロップまたは入力…")
+            repair_text("drop_a_local_folder_or")
         )
         self._folder_edit.returnPressed.connect(self._scan_folder)
         folder_row.addWidget(self._folder_edit, 1)
-        self._source_browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
+        self._source_browse_btn = PushButton(repair_text("browse"), folder_card, FluentIcon.FOLDER)
         self._source_browse_btn.clicked.connect(self._browse_folder)
         folder_row.addWidget(self._source_browse_btn)
         folder_layout.addLayout(folder_row)
         mode_row = QHBoxLayout()
         mode_row.setSpacing(8)
-        mode_row.addWidget(BodyLabel(tr("Mode", "模式", "モード"), folder_card))
+        mode_row.addWidget(BodyLabel(repair_text("mode"), folder_card))
         self._mode_combo = ComboBox(folder_card)
         self._mode_combo.addItems([
-            tr("Rename in place", "原地重命名", "現在の場所で名前変更"),
-            tr("Organize into output folder", "整理到输出目录", "出力フォルダーに整理"),
+            repair_text("rename_in_place"),
+            repair_text("organize_into_output_folder"),
         ])
         mode_row.addWidget(self._mode_combo, 1)
         folder_layout.addLayout(mode_row)
         output_row = QHBoxLayout()
         output_row.setSpacing(8)
-        output_row.addWidget(BodyLabel(tr("Output", "输出", "出力"), folder_card))
+        output_row.addWidget(BodyLabel(repair_text("output"), folder_card))
         self._output_edit = FolderDropLineEdit(folder_card)
         self._output_edit.setClearButtonEnabled(True)
         self._output_edit.setPlaceholderText(
-            tr(
-                "Leave blank to organize inside the source folder…",
-                "留空则在输入文件夹内整理…",
-                "空欄なら入力フォルダー内に整理…",
-            )
+            repair_text("leave_blank_to_organize_inside")
         )
         self._output_edit.textChanged.connect(self._refresh_target_previews)
         output_row.addWidget(self._output_edit, 1)
-        self._output_browse_btn = PushButton(tr("Browse", "浏览", "参照"), folder_card, FluentIcon.FOLDER)
+        self._output_browse_btn = PushButton(repair_text("browse"), folder_card, FluentIcon.FOLDER)
         self._output_browse_btn.clicked.connect(self._browse_output_folder)
         output_row.addWidget(self._output_browse_btn)
         folder_layout.addLayout(output_row)
@@ -242,7 +234,7 @@ class RepairInterface(
         self._mode_hint.setWordWrap(True)
         set_secondary_text(self._mode_hint)
         folder_layout.addWidget(self._mode_hint)
-        self._scan_btn = PrimaryPushButton(tr("Scan", "扫描", "検索"), folder_card, FluentIcon.SEARCH)
+        self._scan_btn = PrimaryPushButton(repair_text("scan"), folder_card, FluentIcon.SEARCH)
         self._scan_btn.clicked.connect(self._scan_folder)
         folder_layout.addWidget(self._scan_btn)
         return folder_card
@@ -252,13 +244,9 @@ class RepairInterface(
         rule_layout = QVBoxLayout(rule_card)
         rule_layout.setContentsMargins(16, 14, 16, 14)
         rule_layout.setSpacing(9)
-        rule_layout.addWidget(SubtitleLabel(tr("Repair Rule", "修复规则", "修復ルール"), rule_card))
+        rule_layout.addWidget(SubtitleLabel(repair_text("repair_rule"), rule_card))
         self._rule_hint = BodyLabel(
-            tr(
-                "In-place mode uses only the filename. Organize mode also applies directory segments such as {author}/.",
-                "原地模式只应用文件名段；整理模式还会应用 {author}/ 等目录段。",
-                "現在の場所ではファイル名のみを適用します。整理モードでは {author}/ などのディレクトリ部分も適用します。",
-            ),
+            repair_text("in_place_mode_uses_only"),
             rule_card,
         )
         self._rule_hint.setWordWrap(True)
@@ -266,7 +254,7 @@ class RepairInterface(
         rule_layout.addWidget(self._rule_hint)
         rule_row = QHBoxLayout()
         rule_row.setSpacing(8)
-        rule_row.addWidget(BodyLabel(tr("Rule", "规则", "ルール"), rule_card))
+        rule_row.addWidget(BodyLabel(repair_text("rule"), rule_card))
         self._rule_combo = ComboBox(rule_card)
         self._rule_combo.currentIndexChanged.connect(self._on_rule_changed)
         rule_row.addWidget(self._rule_combo, 1)
@@ -274,10 +262,10 @@ class RepairInterface(
 
         preset_row = QHBoxLayout()
         preset_row.setSpacing(8)
-        preset_row.addWidget(BodyLabel(tr("Preset", "预设", "プリセット"), rule_card))
+        preset_row.addWidget(BodyLabel(repair_text("preset"), rule_card))
         self._preset_combo = ComboBox(rule_card)
         self._template_presets = template_presets()
-        self._preset_combo.addItem(tr("Custom", "自定义", "カスタム"))
+        self._preset_combo.addItem(repair_text("custom"))
         for preset in self._template_presets:
             self._preset_combo.addItem(preset.label)
         self._preset_combo.currentIndexChanged.connect(self._on_preset_chosen)
@@ -286,7 +274,7 @@ class RepairInterface(
 
         template_row = QHBoxLayout()
         template_row.setSpacing(8)
-        template_row.addWidget(BodyLabel(tr("Name", "命名", "名前"), rule_card))
+        template_row.addWidget(BodyLabel(repair_text("name"), rule_card))
         self._template_edit = LineEdit(rule_card)
         self._template_edit.setPlaceholderText("{YYYY-MM-DD}_{title}_{id}.mp4")
         self._template_edit.textChanged.connect(self._sync_preset_combo)
@@ -300,37 +288,33 @@ class RepairInterface(
         options_layout = QVBoxLayout(options_card)
         options_layout.setContentsMargins(16, 14, 16, 14)
         options_layout.setSpacing(7)
-        options_layout.addWidget(SubtitleLabel(tr("Repair Options", "修复选项", "修復オプション"), options_card))
-        self._rename_check = CheckBox(tr("Rename existing videos", "重命名已有视频", "既存動画を名前変更"), options_card)
+        options_layout.addWidget(SubtitleLabel(repair_text("repair_options"), options_card))
+        self._rename_check = CheckBox(repair_text("rename_existing_videos"), options_card)
         self._rename_check.setChecked(True)
         self._rename_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._rename_check)
         self._download_video_check = CheckBox(
-            tr("Allow video download when needed", "必要时允许下载视频", "必要時に動画ダウンロードを許可"),
+            repair_text("allow_video_download_when_needed"),
             options_card,
         )
         self._download_video_check.setChecked(False)
         options_layout.addWidget(self._download_video_check)
         self._local_video_hint = BodyLabel(
-            tr(
-                "Existing local videos are always kept; this repair page never replaces them.",
-                "已有本地视频始终保留；修复页不会替换它们。",
-                "既存のローカル動画は保持され、修復ページで置き換えることはありません。",
-            ),
+            repair_text("existing_local_videos_are_always"),
             options_card,
         )
         self._local_video_hint.setWordWrap(True)
         set_secondary_text(self._local_video_hint)
         options_layout.addWidget(self._local_video_hint)
-        self._thumbnail_check = CheckBox(tr("Download cover screenshot", "下载封面截图", "サムネイルを取得"), options_card)
+        self._thumbnail_check = CheckBox(repair_text("download_cover_screenshot"), options_card)
         self._thumbnail_check.setChecked(True)
         self._thumbnail_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._thumbnail_check)
-        self._nfo_check = CheckBox(tr("Write NFO metadata", "写入 NFO 元数据", "NFO メタデータを書き込む"), options_card)
+        self._nfo_check = CheckBox(repair_text("write_nfo_metadata"), options_card)
         self._nfo_check.setChecked(True)
         self._nfo_check.toggled.connect(self._refresh_target_previews)
         options_layout.addWidget(self._nfo_check)
-        self._history_check = CheckBox(tr("Add to download history", "加入下载历史", "ダウンロード履歴に追加"), options_card)
+        self._history_check = CheckBox(repair_text("add_to_download_history"), options_card)
         self._history_check.setChecked(True)
         options_layout.addWidget(self._history_check)
         return options_card
@@ -342,17 +326,17 @@ class RepairInterface(
         log_layout.setContentsMargins(16, 14, 16, 14)
         log_layout.setSpacing(8)
         log_header = QHBoxLayout()
-        log_header.addWidget(SubtitleLabel(tr("Repair Log", "修复日志", "修復ログ"), log_card))
+        log_header.addWidget(SubtitleLabel(repair_text("repair_log"), log_card))
         log_header.addStretch()
         clear_btn = TransparentToolButton(FluentIcon.DELETE, log_card)
-        clear_btn.setToolTip(tr("Clear log", "清空日志", "ログをクリア"))
+        clear_btn.setToolTip(repair_text("clear_log"))
         clear_btn.clicked.connect(self._clear_log)
         log_header.addWidget(clear_btn)
         log_layout.addLayout(log_header)
         self._log_edit = PlainTextEdit(log_card)
         self._log_edit.setReadOnly(True)
         self._log_edit.setMaximumBlockCount(self._MAX_LOG_BLOCKS)
-        self._log_edit.setPlaceholderText(tr("Repair logs will appear here…", "修复日志将显示在此…", "修復ログはここに表示されます…"))
+        self._log_edit.setPlaceholderText(repair_text("repair_logs_will_appear_here"))
         self._log_edit.setFont(monospace_font(9))
         apply_scrollbars(self._log_edit)
         log_layout.addWidget(self._log_edit)
@@ -368,8 +352,8 @@ class RepairInterface(
         list_layout.setContentsMargins(16, 14, 16, 14)
         list_layout.setSpacing(8)
         list_header = QHBoxLayout()
-        list_header.addWidget(SubtitleLabel(tr("Repair List", "修复列表", "修復リスト"), list_card))
-        self._summary_label = BodyLabel(tr("No folder scanned", "尚未扫描文件夹", "未検索"), list_card)
+        list_header.addWidget(SubtitleLabel(repair_text("repair_list"), list_card))
+        self._summary_label = BodyLabel(repair_text("no_folder_scanned"), list_card)
         self._summary_label.setWordWrap(True)
         set_secondary_text(self._summary_label)
         list_header.addStretch()
@@ -382,13 +366,13 @@ class RepairInterface(
         self._table.setColumnCount(7)
         self._table.setHorizontalHeaderLabels(
             [
-                tr("State", "状态", "状態"),
-                tr("Original Path", "原路径", "元のパス"),
+                repair_text("state"),
+                repair_text("original_path"),
                 "Iwara ID",
-                tr("Title", "标题", "タイトル"),
-                tr("Date", "日期", "日付"),
-                tr("Target Path", "目标路径", "変更先パス"),
-                tr("Detail", "详情", "詳細"),
+                repair_text("title"),
+                repair_text("date"),
+                repair_text("target_path"),
+                repair_text("detail"),
             ]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
