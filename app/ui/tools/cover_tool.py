@@ -23,7 +23,9 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core.tools.covers import COVER_COUNT, CoverCandidate, cover_candidates, format_timecode
 from ...core.tools.ffmpeg import MediaInfo
-from ...i18n import tr
+from ...presentation.tools.texts import tool_text
+from ...presentation.tools import common as tools_common
+from ...presentation.tools import covers as cover_rules
 from ..style.theme import qcolor, set_secondary_text, set_status_text
 from ..common.worker_lifecycle import on_finished, stop_qthreads
 from .common import (
@@ -32,14 +34,11 @@ from .common import (
     FileDropLineEdit,
     card_layout,
     ffmpeg_state,
-    format_bytes,
-    format_clock,
     video_file_filter,
 )
 from .workers import CoverWorker, ProbeWorker, SaveFrameWorker
 
-_CROP_KEY = "tools_cover_crop_v1"
-CARD_ASPECT = 3 / 2  # Iwara's video cards; the calculator this follows crops to 300×200
+CARD_ASPECT = cover_rules.CARD_ASPECT
 
 
 def crop_rect(width: float, height: float, aspect: float = CARD_ASPECT) -> QRectF:
@@ -47,11 +46,7 @@ def crop_rect(width: float, height: float, aspect: float = CARD_ASPECT) -> QRect
 
     if width <= 0 or height <= 0:
         return QRectF()
-    if width / height > aspect:
-        cropped = height * aspect
-        return QRectF((width - cropped) / 2, 0, cropped, height)
-    cropped = width / aspect
-    return QRectF(0, (height - cropped) / 2, width, cropped)
+    return QRectF(*cover_rules.crop_box(width, height, aspect))
 
 
 def fit_rect(source_w: float, source_h: float, box: QRectF) -> QRectF:
@@ -154,7 +149,7 @@ class CoverPreview(QWidget):
             painter.setPen(qcolor("text_secondary"))
             painter.drawText(
                 box, Qt.AlignmentFlag.AlignCenter,
-                tr("Pick a candidate to see it here", "点选候选封面，在此查看大图", "候補を選ぶとここに表示されます"),
+                cover_rules.preview_empty_text(),
             )
             return
         target = fit_rect(self.pixmap.width(), self.pixmap.height(), box)
@@ -208,26 +203,15 @@ class CoverTool(DropArea):
         source = CardWidget(self)
         layout = card_layout(
             source,
-            tr("Cover Preview", "封面预览", "カバーのプレビュー"),
-            tr(
-                "After an upload Iwara offers 16 screenshots as the cover, apparently taken at the middle of 16 equal "
-                "slices (duration × (2i+1)/32), numbered here in the order of Iwara's picker (left to right, top to "
-                "bottom). Check the final file before uploading so a good frame is on offer. This is a community "
-                "finding, not confirmed by Iwara.",
-                "上传后 Iwara 会给出 16 张截图供选择封面，推测取自把视频等分成 16 段后每段的正中间（时长 × (2i+1)/32）。"
-                "编号与 Iwara 封面选择里的顺序一致（从左到右、从上到下）。上传前用最终成品算一遍，就能知道有没有合适的封面可选。"
-                "该算法来自社区推测，未经 Iwara 官方确认。",
-                "アップロード後、Iwara はカバー候補として 16 枚のスクリーンショットを提示します。動画を 16 等分した各区間の中央"
-                "（長さ × (2i+1)/32）と推定されています。番号は Iwara の選択画面の順（左上から）です。"
-                "アップロード前に最終ファイルで確認できます（非公式の推定です）。",
-            ),
+            tool_text("cover_preview"),
+            tool_text("after_an_upload_iwara_offers"),
         )
         row = QHBoxLayout()
         self._source_edit = FileDropLineEdit(source)
-        self._source_edit.setPlaceholderText(tr("Video file", "视频文件", "動画ファイル"))
+        self._source_edit.setPlaceholderText(tool_text("video_file"))
         self._source_edit.editingFinished.connect(lambda: self.load_file(self._source_edit.text()))
         self._source_edit.file_dropped.connect(self.load_file)
-        browse = PushButton(tr("Browse…", "浏览…", "参照…"), source, FluentIcon.FOLDER)
+        browse = PushButton(tool_text("browse"), source, FluentIcon.FOLDER)
         browse.clicked.connect(self._browse)
         row.addWidget(self._source_edit, 1)
         row.addWidget(browse)
@@ -236,9 +220,9 @@ class CoverTool(DropArea):
         self._info_label = BodyLabel("", source)
         self._info_label.setWordWrap(True)
         info_row.addWidget(self._info_label, 1)
-        info_row.addWidget(BodyLabel(tr("Crop like a card (3:2)", "按卡片比例裁切（3:2）", "カード比率で切り抜き（3:2）"), source))
+        info_row.addWidget(BodyLabel(tool_text("crop_like_a_card_3"), source))
         self._crop_switch = SwitchButton(source)
-        self._crop_switch.setChecked(str(app_config.get_ui_value(_CROP_KEY, "1")) != "0")
+        self._crop_switch.setChecked(cover_rules.crop_enabled())
         self._crop_switch.checkedChanged.connect(self._on_crop_changed)
         info_row.addWidget(self._crop_switch)
         layout.addLayout(info_row)
@@ -272,9 +256,9 @@ class CoverTool(DropArea):
         set_secondary_text(self._detail_label)
         detail.addWidget(self._detail_label)
         buttons = QHBoxLayout()
-        self._export_btn = PushButton(tr("Save Frame…", "保存此帧…", "フレームを保存…"), detail_card, FluentIcon.SAVE)
+        self._export_btn = PushButton(tool_text("save_frame"), detail_card, FluentIcon.SAVE)
         self._export_btn.clicked.connect(self._export)
-        self._copy_btn = PushButton(tr("Copy Time", "复制时间码", "時間をコピー"), detail_card, FluentIcon.COPY)
+        self._copy_btn = PushButton(tool_text("copy_time"), detail_card, FluentIcon.COPY)
         self._copy_btn.clicked.connect(self._copy_time)
         buttons.addWidget(self._export_btn)
         buttons.addWidget(self._copy_btn)
@@ -300,16 +284,15 @@ class CoverTool(DropArea):
         self._update_buttons()
 
     def _browse(self):
-        start = self._source_edit.text().strip() or str(app_config.download_dir or "")
         path, _ = QFileDialog.getOpenFileName(
-            self, tr("Choose a video", "选择视频", "動画を選択"),
-            str(Path(start).parent if Path(start).is_file() else start), video_file_filter(),
+            self, tools_common.choose_video_title(),
+            tools_common.browse_start(self._source_edit.text(), app_config.download_dir), video_file_filter(),
         )
         if path:
             self.load_file(path)
 
     def load_file(self, path: str, *, reload: bool = False):
-        path = str(path or "").strip().strip('"')
+        path = tools_common.clean_path(path)
         if self._source_edit.text() != path:
             self._source_edit.setText(path)
         if not reload and self._media is not None and str(self._media.path) == path:
@@ -331,9 +314,9 @@ class CoverTool(DropArea):
             return
         info = ffmpeg_state().info
         if info is None:
-            self._info_label.setText(tr("Waiting for ffmpeg…", "等待 ffmpeg…", "ffmpeg を待っています…"))
+            self._info_label.setText(tools_common.waiting_text())
             return
-        self._info_label.setText(tr("Reading the video…", "正在读取视频信息…", "動画を読み込んでいます…"))
+        self._info_label.setText(tools_common.reading_text())
         set_status_text(self._info_label, "text")
         self._reset_tiles("…")
         worker = ProbeWorker(self._generation, info, path)
@@ -352,30 +335,18 @@ class CoverTool(DropArea):
         if generation != self._generation:
             return
         if media is None:
-            self._info_label.setText(tr(f"Cannot read this file: {error}", f"无法读取此文件：{error}", f"読み込めません: {error}"))
+            self._info_label.setText(tools_common.unreadable_text(error))
             set_status_text(self._info_label, "danger")
             self._reset_tiles("")
             return
         self._media = media
-        width, height = media.display_size
-        frames = media.frame_count or round(media.picture_duration * (media.fps or 30))
-        self._info_label.setText(
-            " · ".join(
-                part for part in (
-                    f"{width}×{height}",
-                    f"{media.fps:.3f}".rstrip("0").rstrip(".") + " fps" if media.fps else "",
-                    format_clock(media.duration) + f" ({media.duration:.3f}s)",
-                    tr(f"{frames} frames", f"{frames} 帧", f"{frames} フレーム"),
-                    format_bytes(media.size),
-                ) if part
-            )
-        )
+        self._info_label.setText(cover_rules.media_summary(media))
         self._candidates = cover_candidates(media.picture_duration, media.fps)
         for tile, candidate in zip(self._tiles, self._candidates):
             tile.caption = format_timecode(candidate.seconds)
-            tile.message = tr("Extracting…", "截图中…", "抽出中…")
+            tile.message = cover_rules.tile_extracting_text()
             tile.update()
-        self._status_label.setText(tr(f"Extracting 0 / {COVER_COUNT}", f"正在截图 0 / {COVER_COUNT}", f"抽出中 0 / {COVER_COUNT}"))
+        self._status_label.setText(cover_rules.extracting_text(0))
         worker = CoverWorker(self._generation, ffmpeg_state().info, media.path, self._candidates)
         worker.frame_ready.connect(self._on_frame)
         on_finished(worker, self, self._on_cover_finished)
@@ -394,7 +365,7 @@ class CoverTool(DropArea):
         image = QImage.fromData(data, "PNG") if data else QImage()
         if image.isNull():
             tile.pixmap = None
-            tile.message = tr(f"Failed: {error}", f"失败：{error}", f"失敗: {error}") if error else tr("Failed", "失败", "失敗")
+            tile.message = cover_rules.tile_failed_text(error)
         else:
             pixmap = QPixmap.fromImage(image)
             self._pixmaps[index] = pixmap
@@ -403,16 +374,11 @@ class CoverTool(DropArea):
         self._done += 1
         if self._done >= COVER_COUNT:
             failed = sum(1 for t in self._tiles if t.pixmap is None)
-            text = tr("All 16 candidates ready. Click one to inspect it.", "16 张候选已全部生成，点选查看。", "16 枚の候補ができました。クリックで確認できます。")
-            if failed:
-                text += tr(f" {failed} failed.", f" 其中 {failed} 张失败。", f" {failed} 枚失敗しました。")
-            self._status_label.setText(text)
+            self._status_label.setText(cover_rules.finished_text(failed))
             if self._selected < 0:
                 self._select(0)
         else:
-            self._status_label.setText(
-                tr(f"Extracting {self._done} / {COVER_COUNT}", f"正在截图 {self._done} / {COVER_COUNT}", f"抽出中 {self._done} / {COVER_COUNT}")
-            )
+            self._status_label.setText(cover_rules.extracting_text(self._done))
         if index == self._selected:
             self._show_detail()
 
@@ -421,7 +387,7 @@ class CoverTool(DropArea):
             tile.pixmap = None
             tile.caption = ""
             tile.selected = False
-            tile.message = message or tr("Load a video", "载入视频后生成", "動画を読み込んでください")
+            tile.message = message or cover_rules.tile_empty_text()
             tile.update()
 
     # ── Selection ────────────────────────────────────────────────────────────
@@ -447,20 +413,8 @@ class CoverTool(DropArea):
             return
         candidate = self._candidates[self._selected]
         self._preview.set_pixmap(self._pixmaps.get(self._selected))
-        self._detail_title.setText(
-            tr(
-                f"No. {candidate.number} of {COVER_COUNT} · {format_timecode(candidate.seconds)}",
-                f"第 {candidate.number} 张（共 {COVER_COUNT} 张）· {format_timecode(candidate.seconds)}",
-                f"{candidate.number} / {COVER_COUNT} 枚目 · {format_timecode(candidate.seconds)}",
-            )
-        )
-        self._detail_label.setText(
-            tr(
-                f"{candidate.seconds:.6f} s · frame {candidate.frame} (0-based)",
-                f"{candidate.seconds:.6f} 秒 · 帧号 {candidate.frame}（第 {candidate.frame + 1} 帧）",
-                f"{candidate.seconds:.6f} 秒 · フレーム {candidate.frame}（{candidate.frame + 1} 枚目）",
-            )
-        )
+        self._detail_title.setText(cover_rules.detail_title(candidate))
+        self._detail_label.setText(cover_rules.detail_text(candidate))
         self._update_buttons()
 
     def keyPressEvent(self, event):
@@ -476,7 +430,7 @@ class CoverTool(DropArea):
         super().keyPressEvent(event)
 
     def _on_crop_changed(self, checked: bool):
-        app_config.set_ui_value(_CROP_KEY, "1" if checked else "0")
+        cover_rules.set_crop(checked)
         self._apply_crop()
 
     def _apply_crop(self):
@@ -502,9 +456,9 @@ class CoverTool(DropArea):
         if self._media is None or not 0 <= self._selected < len(self._candidates):
             return
         candidate = self._candidates[self._selected]
-        default = self._media.path.with_name(f"{self._media.path.stem}_cover{candidate.number:02d}.png")
+        default = cover_rules.default_frame_path(self._media.path, candidate)
         path, _ = QFileDialog.getSaveFileName(
-            self, tr("Save frame", "保存此帧", "フレームを保存"), str(default), "PNG (*.png);;JPEG (*.jpg)"
+            self, tool_text("save_frame_2"), str(default), "PNG (*.png);;JPEG (*.jpg)"
         )
         if not path:
             return
@@ -525,7 +479,7 @@ class CoverTool(DropArea):
 
     def _on_saved(self, target: str, error: str):
         (InfoBar.success if not error else InfoBar.error)(
-            title=tr("Saved", "已保存", "保存しました") if not error else tr("Failed", "失败", "失敗"),
+            title=cover_rules.saved_title(not error),
             content=target if not error else error,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
