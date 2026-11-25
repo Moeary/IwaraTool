@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QSplitter, QWidget
 
 from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton
 
+from ...presentation.subscription.text import SOURCE_SORT_OPTIONS
 from ...core.search.limits import DEFAULT_COVER_DOWNLOAD_CONCURRENCY, MAX_COVER_DOWNLOAD_CONCURRENCY
 from ...core.subscription.batch import cache_thumbnails, refresh_avatars, refresh_sources, source_id_list
 from ..common.worker_lifecycle import ManagedThread
@@ -101,16 +102,7 @@ _CONTROL_HEIGHT = 36
 _ROW_SPACING = 10
 _DEFAULT_SUBSCRIPTION_GRID_COLUMNS = 3
 _MAX_SUBSCRIPTION_GRID_COLUMNS = 8
-_SOURCE_SORT_OPTIONS = (
-    "title",
-    "created_at",
-    "last_checked_at",
-    "new_count",
-    "undownloaded_count",
-    "item_count",
-    "source_origin",
-    "source_key",
-)
+_SOURCE_SORT_OPTIONS = SOURCE_SORT_OPTIONS
 _SOURCE_SORT_FIELDS = frozenset(_SOURCE_SORT_OPTIONS)
 
 

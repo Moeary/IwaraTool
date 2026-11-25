@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog
 
 from qfluentwidgets import InfoBarPosition, PrimaryPushButton
 
+from ...presentation.subscription import text as sub_text
 from ...config import app_config
 from ...i18n import tr
 from ..downloads.filter_dialog import FilterDialog, option_button_style
@@ -31,17 +32,14 @@ class SubscriptionDownloadingMixin:
             else self._operation_video_ids()
         )
         if not ids:
-            self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
+            self._show_error(sub_text.select_videos_first_text())
             return
         marked = download_manager.mark_subscription_items_downloaded(ids)
         self._refresh_sources_keep_current_items()
+        title, content = sub_text.marked_notice(marked)
         InfoBar.success(
-            title=tr("Marked", "已标记", "マーク完了"),
-            content=tr(
-                f"Marked {marked} videos as downloaded/moved",
-                f"已将 {marked} 个视频标记为已下载（移走）",
-                f"{marked} 件を保存済み（移動済み）にしました",
-            ),
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -56,17 +54,14 @@ class SubscriptionDownloadingMixin:
             else self._operation_video_ids()
         )
         if not ids:
-            self._show_error(tr("Select one or more moved videos first", "请先选中一个或多个已移走的视频", "先に移動済み動画を選択してください"))
+            self._show_error(sub_text.select_moved_first_text())
             return
         restored = download_manager.restore_subscription_items_downloaded(ids)
         self._refresh_sources_keep_current_items()
+        title, content = sub_text.restored_notice(restored)
         InfoBar.success(
-            title=tr("Restored", "已还原", "解除完了"),
-            content=tr(
-                f"Restored {restored} moved records",
-                f"已还原 {restored} 个已移走记录",
-                f"移動済み記録を {restored} 件解除しました",
-            ),
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -81,7 +76,7 @@ class SubscriptionDownloadingMixin:
             else self._operation_video_ids()
         )
         if not ids:
-            self._show_error(tr("Select one or more videos first", "请先选中右侧列表里的一个或多个视频", "先に右側リストで動画を選択してください"))
+            self._show_error(sub_text.select_videos_first_text())
             return
         self._enqueue_ids(ids)
 
@@ -204,10 +199,10 @@ class SubscriptionDownloadingMixin:
     def _enqueue_ids(self, ids: list[str], *, rule_id: str = ""):
         ids = [video_id for video_id in ids if video_id]
         if not ids:
-            self._show_error(tr("No downloadable videos in current selection", "当前选择没有可下载视频", "保存可能な動画がありません"))
+            self._show_error(sub_text.no_downloadable_text())
             return
         if self._staging_flow.busy():
-            self._show_error(tr("Still checking the previous selection", "上一批仍在预解析中", "前の選択を確認中です"))
+            self._show_error(sub_text.still_checking_text())
             return
         selected_rule_id = str(
             rule_id
@@ -215,7 +210,7 @@ class SubscriptionDownloadingMixin:
         )
         # Pre-checked locally, then they wait on the download workbench for confirmation.
         source = next((s for s in self._all_sources if int(s.get("id", 0) or 0) == self._current_source_id), {})
-        label = str(source.get("title", "") or "") or tr("Subscription videos", "订阅作品", "購読の動画")
+        label = str(source.get("title", "") or "") or sub_text.default_batch_label()
         self._staging_flow.start(
             lambda: download_manager.preview_subscription_items(ids, rule_id=selected_rule_id, label=label),
         )
