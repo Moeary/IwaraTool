@@ -12,11 +12,20 @@ Raw numbers: `raw.json`.
 
 | Measure | PySide6 | Flet |
 | --- | ---: | ---: |
-| Launch → first frame (s) | 0.87 | 0.48 |
-| Memory at first frame (MB) | 334 | 278 |
-| Memory 8 s later, home feeds and covers loaded (MB) | 377 | 318 |
-| Open the library with 10 000 records (s) | 0.06 | 0.26 |
-| Memory with that library open (MB) | 491 | 339 |
+| Launch → first frame (s) | 0.86 | 0.48 |
+| Memory at first frame (MB) | 334 | 248 |
+| Memory 8 s later, home feeds and covers loaded (MB) | 374 | 314 |
+| Open the library with 10 000 records (s) | 0.06 | 0.25 |
+| Memory with that library open (MB) | 491 | 491 |
+| Library scroll step to drawn, median / worst (ms) | 27 / 37 | 139 / 260 |
+| Library cover view: switch to drawn (s) | 0.15 | 0.77 |
+| Cover view scroll step to drawn, median / worst (ms) | 6 / 7 | 190 / 499 |
+| Memory after the cover view (MB) | 517 | 629 |
+| 3 concurrent downloads (48 MB each): total (s) | 11.9 | 12.0 |
+| …UI thread late on a 20 ms tick, p95 / worst (ms) | 5.5 / 48 | 2.4 / 8.3 |
+| …completion events reaching the UI (of 3) | 3 | 3 |
+| …memory while downloading (MB) | 388 | 314 |
+| Python tracebacks in all runs | 0 | 0 |
 
 How to read them:
 
@@ -28,13 +37,25 @@ How to read them:
 - Flet memory is the Python process plus its Flutter client (a separate process, started by
   `open -n` on macOS and found by its command line).  macOS RSS counts shared framework pages
   for both, so the numbers compare like with like but are not "private memory".
-- Library: PySide6 fills a table model synchronously; Flet reads the records and their file
-  states in a thread and then sends the first page of rows to the client.  0.26 s for
-  10 000 records is well under the point where it feels slow; filtering and sorting run on the
-  in-memory list in both.
-- Not measured: scrolling smoothness and three concurrent downloads (flet_migration.md item 2).
-  The script has no frame-time probe for either toolkit, and the demo fixture has no real
-  transfers.  Both remain to check by hand before replacing the old interface.
+- Scroll steps are not the same unit.  PySide6 scrolls one page of an already built table or
+  card list (it builds all 10 000 items up front: the slower "switch" number).  In Flet the
+  Flutter client scrolls by itself without Python; Python is involved only when the end is
+  near and the next 200 rows or cards are built, which is what the Flet step measures (a
+  screenshot round trip alone takes 35 ms of it).  So Flet scrolls natively and pauses for
+  0.1–0.2 s (cover view up to 0.5 s) every 200 items; PySide6 pays once when the view opens.
+- Downloads: the same core in both, so the same total.  Flet's event loop stays far more
+  responsive while three downloads report progress (PySide6's GUI thread carries the
+  progress repaints); every completion event reached the UI in both.
+
+### Fixed during P9
+
+The first measurement exposed that every "load more" rebuilt every row or card shown so far:
+the library list took 0.15 → 0.9 s per step by 4 200 rows, and the cover view 2.6 → 6.4 s per
+step with memory above 1.1 GB.  Rows (`pages/library/page.py`) and cards (`VideoGrid`) are now
+memoized components (`ft.memo`) with stable callbacks, so a step builds only the new ones
+(numbers above).  Flet 1.1.3 loses the context of a component re-rendering inside a skipped
+memoized parent; `use_shell()` falls back to the window's registered shell
+(`stores/app_state.py`).
 
 ## Package size
 
@@ -49,33 +70,38 @@ The universal APK carries the native libraries of every ABI; releases should set
 
 ## Feature parity (from the plan's section 10 trade-off table)
 
-Everything in the old interface has a Flet counterpart or a recorded replacement, except:
+Everything in the old interface has a Flet counterpart or a recorded replacement.  Added after
+the first P9 pass:
 
-| Missing in Flet | Impact |
+| Former gap | Now |
 | --- | --- |
-| Tray, close to tray, launch at login | High for people who leave downloads running; Flet asks on close instead |
-| System notifications (subscription refresh, finished downloads) | Medium; in-app notices only |
-| Dropping files / folders onto repair and tools | Low; Browse and typed paths work |
-| Mouse side buttons, multi-chord shortcuts | Low; Esc / Alt+← work |
-| Per-row multi-select on the downloads page | Low; bulk actions are in the page menu |
-| Choosing a font from a list of installed fonts | Low; a name field with fallback |
+| Tray, close to tray | Windows: tray icon (`platform/tray_windows.py`, ctypes; CI adds and removes it on Windows); macOS: closing minimizes to the Dock; both behind "keep running when the window is closed" |
+| Launch at login | `core/login_items.py`: Windows Run value `IwaraTool-Flet`, macOS LaunchAgent, Linux XDG autostart (separate from the classic build's entry) |
+| System notifications | `core/system_notify.py`: macOS `osascript`, Windows toast, Linux `notify-send`; finished / failed downloads batched; in-app while the window has the focus |
+
+Still different, all low impact: no drag and drop of files onto repair and tools, no mouse
+side buttons or multi-chord shortcuts, no per-row multi-select on the downloads page, a font
+name field instead of a list, no tray on Linux.
 
 New in Flet: phone and tablet layouts, an Android build, the repair step flow, the reorganised
 library, settings that save immediately.
 
 ## Decision
 
-**Do not replace the PySide6 interface in v1.3.0 yet.**  Ship Flet next to it:
+**Desktop: Flet can replace the PySide6 interface.**  It starts faster, uses less memory in normal
+use, stays more responsive during downloads, and has no missing feature that matters.  Its one
+weaker area is very large libraries: a 0.1–0.5 s pause each time the next 200 items are built,
+against PySide6's single longer wait when opening the view.
 
-1. v1.3.0 keeps the PySide6 desktop builds as the main download and adds the Flet builds
-   (`IwaraTool-Flet-*`) as a preview, plus the Android APK, which only Flet can provide.
-2. Flet replaces PySide6 on the desktop once (a) tray / close to tray and launch at login and
-   (b) system notifications exist for the Flet build, and (c) Android passes the P8 real-device
-   checks.  None of these needs core changes; they are platform integration (a Flet extension or a
-   small native helper) and packaging work.
-3. Performance is not a blocker so far: Flet starts faster and uses less memory here; its only
-   slower number (library opening, 0.26 s) is acceptable.  Scrolling and concurrent downloads
-   still need a hand check (above).
+Before the switch is made in a release (the maintainer's call, since it changes what users download):
 
-Until then the hard rules of AGENTS.md stay: the old interface remains buildable and unchanged,
-and shared logic lives in `app/core` and `app/presentation`.
+1. Try the packaged Windows and macOS builds by hand: tray icon menu, close to tray / Dock,
+   launch at login after a real log-out, a system notification for a finished download.
+   The code paths are unit-tested and the tray icon is added on the Windows CI runner, but
+   none of this has been clicked through on a real desktop.
+2. Android: the APK starts on phone, foldable and tablet emulators in CI (`android-emulator`
+   job; its first run caught a start-up crash, since fixed) and the back key leaves the app
+   from the home page; the P8 real-device round (browse → download → play on each device class) is still open.
+
+The plan for the release: publish the Flet builds as `IwaraTool-*` (main) and keep the PySide6
+builds one more release as `IwaraTool-Classic-*`, then remove `app/ui/` and this file's hard rules.
