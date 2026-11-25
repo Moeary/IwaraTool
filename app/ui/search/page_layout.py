@@ -32,6 +32,7 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating, rating_options
 from ...i18n import tr
+from ...presentation.search import options as search_options
 from ..rules.rule_picker import RulePicker
 from ..common.card_list import CardGridList
 from ..common.click_dispatch import ClickDispatcher
@@ -136,13 +137,7 @@ class SearchPageLayoutMixin:
         options_row = QHBoxLayout()
         options_row.setSpacing(8)
         self._scope_combo = ComboBox(query_card)
-        self._scope_items = [
-            (tr("Videos", "视频", "動画"), "videos"),
-            (tr("Images", "图片", "画像"), "images"),
-            (tr("Authors", "作者", "作者"), "authors"),
-            (tr("Tags", "标签搜索", "タグ検索"), "tags"),
-            (tr("Playlists", "播放列表", "プレイリスト"), "playlists"),
-        ]
+        self._scope_items = search_options.scope_items()
         for text, data in self._scope_items:
             self._add_combo_item(self._scope_combo, text, data)
         self._scope_combo.setMinimumWidth(120)

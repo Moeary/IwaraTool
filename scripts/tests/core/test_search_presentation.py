@@ -78,3 +78,29 @@ class CoverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SearchOptionsTests(unittest.TestCase):
+    def test_sorts_follow_the_endpoint(self):
+        from app.presentation.search import options
+
+        keys = lambda *a: [key for _label, key in options.sort_choices(*a)]  # noqa: E731
+        self.assertEqual(keys("iwara", "videos", "dance"), ["date", "relevance", "views", "likes"])
+        self.assertEqual(keys("iwara", "authors", "ann"), ["date", "relevance"])
+        self.assertIn("trending", keys("iwara", "videos", ""))
+        self.assertIn("trending", keys("oreno3d", "videos", "dance"))
+
+    def test_oreno3d_only_answers_videos_and_tags(self):
+        from app.presentation.search import options
+
+        self.assertEqual(options.supported_scopes("oreno3d"), {"videos", "tags"})
+        self.assertIn("playlists", options.supported_scopes("iwara"))
+
+    def test_found_text_mentions_the_filtered_count(self):
+        from app.presentation.search import options
+
+        with_filter = options.found_text("videos", videos=22, authors=0, playlists=0, total=300, shown=18)
+        self.assertIn("22", with_filter)
+        self.assertIn("18", with_filter)
+        self.assertNotIn("18", options.found_text("videos", videos=22, authors=0, playlists=0, total=None))
+        self.assertIn("3", options.found_text("authors", videos=0, authors=3, playlists=0, total=None))

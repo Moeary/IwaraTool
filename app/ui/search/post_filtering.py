@@ -102,9 +102,3 @@ class SearchPostFilterMixin:
         self._select_keys(selected)
         self._start_image_loading()
         self._update_status()
-
-    def _post_filter_status_suffix(self) -> str:
-        if not self._post_filter_applies():
-            return ""
-        shown = len(self._visible_videos())
-        return tr(f" · {shown} after filtering", f" · 筛选后 {shown} 个", f" · 絞り込み後 {shown} 件")

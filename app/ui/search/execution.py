@@ -10,7 +10,7 @@ from ...config import app_config
 from ...core.search.models import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
 from ...core.search.limits import configured_cover_concurrency, configured_resolution_concurrency, resolution_mode
-from ...i18n import tr
+from ...presentation.search import options as search_options
 from ...presentation.search.request import PROBLEM_WARNING, merge_page, request_problem
 from ...presentation.search.request import page_size as search_page_size
 from .search_worker import SearchWorker
@@ -215,39 +215,21 @@ class SearchExecutionMixin:
         self._next_page_btn.setEnabled(not loading and has_next)
         self._update_page_controls()
         if loading:
-            self._status_label.setText(tr("Searching…", "搜索中…", "検索中…"))
+            self._status_label.setText(search_options.searching_text())
 
     def _update_status(self, result: SearchPageResult | None = None):
         if result is not None:
             self._search_error = result.error
         if self._search_error:
-            self._status_label.setText(tr(
-                f"Search failed: {self._search_error}",
-                f"搜索失败：{self._search_error}",
-                f"検索失敗: {self._search_error}",
-            ))
+            self._status_label.setText(search_options.failed_text(self._search_error))
             return
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")
-        total = f" / {self._total}" if self._total is not None else ""
-        if scope == "authors":
-            count = len(self._all_authors)
-            self._status_label.setText(
-                tr(f"Found {count} author(s){total}", f"找到 {count} 位作者{total}", f"作者 {count} 件{total}")
-            )
-        elif self._all_playlists:
-            count = len(self._all_playlists)
-            self._status_label.setText(
-                tr(f"Found {count} playlist(s){total}", f"找到 {count} 个播放列表{total}", f"プレイリスト {count} 件{total}")
-            )
-        elif scope == "images":
-            count = len(self._all_videos)
-            self._status_label.setText(
-                tr(f"Found {count} image post(s){total}", f"找到 {count} 个图片作品{total}", f"画像 {count} 件{total}")
-                + self._post_filter_status_suffix()
-            )
-        else:
-            count = len(self._all_videos)
-            self._status_label.setText(
-                tr(f"Found {count} video(s){total}", f"找到 {count} 个视频{total}", f"動画 {count} 件{total}")
-                + self._post_filter_status_suffix()
-            )
+        shown = len(self._visible_videos()) if self._post_filter_applies() else None
+        self._status_label.setText(search_options.found_text(
+            scope,
+            videos=len(self._all_videos),
+            authors=len(self._all_authors),
+            playlists=len(self._all_playlists),
+            total=self._total,
+            shown=shown,
+        ))

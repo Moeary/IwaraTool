@@ -10,7 +10,7 @@ from ...config import app_config
 from ...core import site as sites
 from ...i18n import tr
 
-from ...presentation.search.keyword_language import is_chinese_keyword
+from ...presentation.search import options as search_options
 
 
 class SearchSourceRoutingMixin:
@@ -25,13 +25,7 @@ class SearchSourceRoutingMixin:
     def _sync_scope_options_for_source(self, source: str):
         """Expose only scopes supported by the selected online source."""
 
-        supported = {"videos", "tags"} if source == "oreno3d" else {
-            "videos",
-            "images",
-            "authors",
-            "tags",
-            "playlists",
-        }
+        supported = search_options.supported_scopes(source)
         current_scope = str(self._scope_combo.currentData() or "videos")
         self._scope_combo.blockSignals(True)
         self._scope_combo.clear()
@@ -88,17 +82,11 @@ class SearchSourceRoutingMixin:
         True when the source had to be switched to Iwara.
         """
 
-        on_ai = sites.configured_site() == sites.SITE_AI
+        on_ai = not search_options.oreno3d_available()
         for index in range(self._source_combo.count()):
             if str(self._source_combo.itemData(index) or "") == "oreno3d":
                 self._source_combo.setItemEnabled(index, not on_ai)
-        self._source_combo.setToolTip(
-            tr(
-                "Search source (Oreno3D only covers iwara.tv)",
-                "数据源（Oreno3D 只收录 iwara.tv）",
-                "検索ソース（Oreno3D は iwara.tv のみ）",
-            ) if on_ai else tr("Search source", "数据源", "検索ソース")
-        )
+        self._source_combo.setToolTip(search_options.source_tooltip())
         if on_ai and str(self._source_combo.currentData() or "") == "oreno3d":
             self._source_auto_routed = False
             self._source_pinned = False
@@ -136,35 +124,26 @@ class SearchSourceRoutingMixin:
     def _route_source_for_keyword(self):
         """Chinese video keywords go to Oreno3D; the next other search goes back."""
 
-        if self._author_video_target is not None or self._source_pinned:
+        if self._author_video_target is not None:
             return
-        if sites.current_site() == sites.SITE_AI:
-            return  # Oreno3D only knows iwara.tv
-        if str(self._scope_combo.currentData() or "videos") != "videos":
-            return
-        source = str(self._source_combo.currentData() or "oreno3d")
-        chinese = bool(app_config.search_chinese_via_oreno3d) and is_chinese_keyword(
-            self._keyword_edit.text()
+        target, self._source_auto_routed = search_options.keyword_route(
+            self._keyword_edit.text(),
+            str(self._scope_combo.currentData() or "videos"),
+            str(self._source_combo.currentData() or "oreno3d"),
+            pinned=self._source_pinned,
+            auto_routed=self._source_auto_routed,
         )
-        if chinese and source == "iwara":
-            if self._switch_source("oreno3d"):
-                self._source_auto_routed = True
-                InfoBar.info(
-                    title=tr("Searching Oreno3D", "已改用 Oreno3D 搜索", "Oreno3D で検索"),
-                    content=tr(
-                        "Chinese keywords are searched with Oreno3D (see Settings › Search).",
-                        "中文关键词使用 Oreno3D 搜索（可在 设置 › 搜索 中关闭）。",
-                        "中国語キーワードは Oreno3D で検索します（設定 › 検索）。",
-                    ),
-                    orient=Qt.Orientation.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2500,
-                    parent=self,
-                )
-        elif not chinese and self._source_auto_routed:
-            self._source_auto_routed = False
-            self._switch_source(app_config.search_default_source)
+        if target and self._switch_source(target) and target == search_options.SOURCE_ORENO3D:
+            title, content = search_options.routed_text()
+            InfoBar.info(
+                title=title,
+                content=content,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2500,
+                parent=self,
+            )
 
     def _on_source_changed(self, *_args, trigger_search: bool = True):
         self._clear_author_navigation()
