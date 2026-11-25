@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app.config import app_config
+from app.presentation import shortcuts as shortcut_catalog
 from app.ui.shortcuts import catalog as defs
 from app.ui.shortcuts import registry as shortcuts
 from app.ui.settings.sections import settings_categories
@@ -55,26 +56,26 @@ class CatalogueTests(unittest.TestCase):
 
     def test_defaults_do_not_conflict_where_scopes_overlap(self):
         for mac in (False, True):
-            with self.subTest(mac=mac), mock.patch.object(defs, "IS_MAC", mac):
+            with self.subTest(mac=mac), mock.patch.object(shortcut_catalog, "IS_MAC", mac):
                 self._assert_no_default_conflicts(defs.all_actions())
 
     def test_every_default_is_a_valid_sequence(self):
         for mac in (False, True):
-            with self.subTest(mac=mac), mock.patch.object(defs, "IS_MAC", mac):
+            with self.subTest(mac=mac), mock.patch.object(shortcut_catalog, "IS_MAC", mac):
                 for action in defs.all_actions():
                     if action.id in defs.PLATFORM_ONLY and not action.default:
                         continue
                     self.assertTrue(defs.normalize(action.default), action.id)
 
     def test_macos_defaults_follow_mac_conventions(self):
-        with mock.patch.object(defs, "IS_MAC", True):
+        with mock.patch.object(shortcut_catalog, "IS_MAC", True):
             defaults = {a.id: a.default for a in defs.all_actions()}
         # "Ctrl" is Command on macOS, so Command+Tab (the app switcher) must not be used.
         self.assertEqual(defaults["nav_next"], "Meta+Tab")
         self.assertEqual(defaults["open_settings"], "Ctrl+,")
         self.assertEqual(defaults["home_refresh"], "Ctrl+R")
         self.assertEqual(defaults["close_window"], "Ctrl+W")
-        with mock.patch.object(defs, "IS_MAC", False):
+        with mock.patch.object(shortcut_catalog, "IS_MAC", False):
             defaults = {a.id: a.default for a in defs.all_actions()}
         self.assertEqual(defaults["nav_next"], "Ctrl+Tab")
         self.assertEqual(defaults["open_settings"], "Ctrl+,")
@@ -289,3 +290,19 @@ class MainWindowBindingTests(_OverridesMixin, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortableNormalizeParityTests(unittest.TestCase):
+    """The Qt-free normaliser (used by the Flet interface) agrees with QKeySequence."""
+
+    SAMPLES = (
+        "Shift+Meta+Alt+Ctrl+K", "ctrl+shift+tab", "Ctrl+Del", "Delete", "Ctrl+[", "esc", "f5", "Ctrl++",
+        "Ctrl+PgDown", "alt+left", "Meta+Ctrl+F", "space", "Ctrl+,", "Return", "shift+/", "Ctrl+K, Ctrl+S",
+        "Backspace", "bogus+K", "Ctrl+=", "Home", "]",
+    )
+
+    def test_every_default_and_sample_normalises_the_same(self):
+        samples = {*self.SAMPLES, *(action.default for action in defs.all_actions() if action.default)}
+        for sample in sorted(samples):
+            with self.subTest(sample=sample):
+                self.assertEqual(shortcut_catalog.portable_normalize(sample), defs.normalize(sample))
