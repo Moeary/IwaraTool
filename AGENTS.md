@@ -36,7 +36,7 @@
 | 主题样张 | `pixi run -e flet theme-gallery` |
 | Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet` |
 | 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
-| 离线虚构数据运行（搜索、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`） |
+| 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板 |
 | 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
 
 - pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
@@ -59,6 +59,10 @@
 - 页面需要随返回恢复的状态，给 `shell.navigator.destinations[name]` 设 `snapshot_state` / `restore_state`。
 - 搜索、下载等页面状态放在 `Shell` 上的仓库（`shell.search`、`shell.tasks`），切换目的地不丢；阻塞调用一律 `asyncio.to_thread`，长任务带 `CancelToken`，只接收当前 generation 的结果。
 - 卡片统一用 `presentation/media/cards.py` 的 `CardView` + `components/video_card.py`；封面统一经 `shell.images`（core 的图片缓存），不让客户端直接拉远程 URL。
+- 卡片的动作菜单传 `menu=VideoMenu(shell, scope=..., item_for=..., on_select=...)`（`components/video_actions.py`），动作条目来自 `presentation/media/video_actions.py`，不要在页面里另写菜单。
+- 声明式控件是冻结的，不能事后改属性再 `update()`；要在重绘后调用控件方法（如 `ContextMenu.open`），把参数放进 `use_state`，在 `use_effect` 里用 `use_ref` 拿控件调用。
+- 详情与作者路由（`/detail/...`、`/author/...`）叠在来源目的地之上，`app.CurrentPage` 按路径根选择页面；详情状态在 `shell.details`（最近 12 个），播放中标记 `state.playing` 离开页面时复位。
+- 远程播放一律经 `components/player.py` → `core/playback/preview_stream.open_stream`（回环代理负责授权头与续签），卸载时释放代理条目。
 - 提示条用 `services/notify.py` 的 `notice()`；`EventBridge` 在页面上下文里分发事件，事件处理里可以直接改 observable。
 - `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
 

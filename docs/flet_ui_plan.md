@@ -640,7 +640,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
   - 高度 compact（横屏）：播放时进入沉浸全屏；暂停时显示两栏：左播放器、右信息滚动区。
   - expanded 及以上：左侧播放器 + 标题 + 操作 + 作者 + 简介 + 评论，右侧 320～380 宽的相关推荐栏（沿用旧版宽窗口布局）。
   - 图片作品：整组图片竖向排列，点开进入全屏查看器，左右滑动切换。
-- **播放器**：使用 `flet-video` 的 `ftv.Video`（基于 media_kit，属性含 `playlist`、`fullscreen`、`controls`、`autoplay`、`volume`、`wakelock`，事件含 `on_error`、`on_position_change`）【已核实】。`VideoMedia` 是否支持请求头【未核实】，因此**统一通过现有 `core/playback/stream_proxy.py` 的本地回环代理播放远程视频**：代理负责授权头、用户代理设置与过期地址重签，播放器只拿到 `http://127.0.0.1:<port>/s/<token>`。Android 上回环 HTTP 需要允许明文流量（`usesCleartextTraffic` 或网络安全配置），打包时配置并验证。
+- **播放器**：使用 `flet-video` 的 `ftv.Video`（基于 media_kit，属性含 `playlist`、`fullscreen`、`controls`、`autoplay`、`volume`、`wakelock`，事件含 `on_error`、`on_position_change`）【已核实】。`VideoMedia` 有 `http_headers` 字段【已核实，flet-video 1.1.3】，但过期地址重签仍需代理，因此**统一通过现有 `core/playback/stream_proxy.py` 的本地回环代理播放远程视频**：代理负责授权头、用户代理设置与过期地址重签，播放器只拿到 `http://127.0.0.1:<port>/s/<token>`。Android 上回环 HTTP 需要允许明文流量（`usesCleartextTraffic` 或网络安全配置），打包时配置并验证。
 - **迁移要点**：详情数据与评论来自 C3 迁出的获取函数；文字格式用 C4 迁出的 `detail_*`；点赞、关注接口沿用 `download_manager`；Linux 桌面需完整版客户端才含 Video（`FLET_DESKTOP_FLAVOR=full`）。
 
 ### 7.4 订阅
@@ -838,8 +838,13 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 头像下拉菜单 | 改为“账号与偏好”面板（分段按钮），见 6.3 |
 | 鼠标侧键返回、多段快捷键（如 Ctrl+K, Ctrl+S） | Flet 键盘事件暂未接入鼠标侧键；多段快捷键暂不匹配。Esc、Alt+← 返回可用 |
 | 搜索页网格 / 列表（表格）视图切换 | 先只有网格；列表视图与列显示设置放到 P6 与资料库表格一起做 |
-| 搜索框下拉的历史与标签候选 | 历史改为页头“搜索记录”菜单；标签候选（`tag_suggestions`）暂缺，标签搜索仍可手输，P4 前补 |
-| 搜索结果右键菜单（统一动作列表） | P4 与详情页一起做 `VideoActions`；P3 单个下载用“选中一项 → 加入下载” |
+| 搜索框下拉的历史与标签候选 | 历史改为页头“搜索记录”菜单；标签候选（P4 补齐）在“标签搜索”范围下以搜索框下方的一行标签显示，点选后补全（共用 `presentation/search/tag_completion.py`） |
+| 搜索结果右键菜单（统一动作列表） | P4 完成 `VideoActions`（`presentation/media/video_actions.py`，旧界面菜单共用文字与位置判断）：桌面右键弹出菜单，手机长按打开动作面板（含“选择”，选择模式下长按仍为勾选）。首页、搜索、首页完整网格、详情页相关作品共用 |
+| 旧版独立播放窗口与“弹出播放” | 改为详情页内嵌播放器 + flet-video 自带全屏；菜单“播放”打开详情并直接播放；系统 / 自定义播放器设置对本地副本仍生效 |
+| 详情页作者卡的程序内订阅与 Iwara 关注状态 | P5 与作者页一起迁出 `AuthorStatusBar` 的逻辑；P4 作者卡只有“作者主页” |
+| 图片作品点开全屏查看器、左右滑动 | 暂沿用旧行为：点按在浏览器打开原图；查看器放到 P8 移动端 |
+| 首页“自定义栏目”、封面大小滑块 | 更多菜单入口指向设置的首页分区，P6 设置页实现；封面大小随 6.6 档位自动 |
+| 首页栏目“下载当前展示” | 移入栏目更多菜单，经 `DownloadSheet` 选择规则 |
 | 搜索页按作者浏览（作者卡片 → 该作者视频）、作者订阅 | 作者卡片打开 `/author/<用户名>`（P5 作者页） |
 | 下载页任务表格的列、排序、多选批量 | 改为任务行 + 状态标签 + 关键词筛选；批量动作在页头“更多”（重试失败、全部取消、恢复已取消、清除已完成）；按行多选暂缺 |
 | 下载规则的每页常驻选择 | `DownloadSheet` 里选择并可“记住为本页规则” |
@@ -850,6 +855,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P4 首页、详情、播放：首页（`stores/home.py` + `pages/home/`，手机货架 / 宽屏 2 行网格、栏目标签、缓存优先与过期重查、有新内容时不打断勾选、折叠记忆、未登录提示、“更多 ›”进搜索或完整网格页 `/home/<栏目>/<标签>`）；详情页 `/detail/video|image/<id>`（`stores/detail.py` 保留最近 12 个作品供返回、相关作品侧栏 / 网格、评论分页与回复、点赞、标签跳搜索、复制链接、浏览器打开、作者主页）；内嵌播放器（flet-video 1.1.3，本地副本直接播放，远程经流代理并续签）；`VideoActions` 右键菜单与手机动作面板；搜索标签候选。新迁入共用层：`presentation/home/section_feed.py`（旧 `SectionBlock` 改为调用）、`presentation/media/detail_info.py`、`video_actions.py`、`presentation/search/tag_completion.py`、`detail_text.link_segments`、`formatting.format_age`。修正演示夹具把 API 的 `/image/<id>` 当成图片文件的问题。截图见 `docs/verification/flet/P4/`。 |
 | 2026-11-26 | P3 搜索与下载闭环：搜索页（来源、范围、排序、筛选面板、搜索记录、网格、选择与加入下载、手机滚动加载 / 宽屏页码、Oreno3D 预解析与下载状态徽章）；下载页（链接栏、待确认卡片、状态标签、任务行与进度、取消/重试/恢复、优先级、打开文件夹、在资料库中查看、日志页）；`VideoCard` / `VideoGrid` / `DownloadSheet` / `FilterSheet`；`stores/tasks.py`、`stores/search.py`、`services/downloads.py`、`services/images.py`。新迁入共用层：`presentation/media/cards.py`、`presentation/search/options.py`、`post_filter_text.py`、搜索记录、`core/search/resolution.apply_oreno_link`、待确认文字。`main_flet.py --demo`（离线虚构数据）；截图见 `docs/verification/flet/P3/`。事件桥改为在页面上下文里分发（否则后台线程的事件无法触发重绘）。 |
 | 2026-11-25 | P2 外壳完成：`layout.py`（档位、导航形态、网格计算）、`routes.py`、`navigation.py`（每个目的地一个返回栈）、`shell.py` + `stores/app_state.py`（声明式，`page.render`）、自适应导航与“账号与偏好”面板、全局快捷键（共用 `presentation.shortcuts`）、事件桥接入（语言、主题、分级、站点、登录、下载徽章）、`core/account.py`；`main_flet.py --viewport/--route/--theme/--lang/--account/--shot` 与 `scripts/tools/flet_viewports.py`；截图见 `docs/verification/flet/P2/`。 |
 | 2026-11-25 | P1 核心整理（C1～C7）完成：取消令牌、搜索服务、首页/Oreno3D/订阅批量逻辑入 core，展示逻辑入 `presentation`，`app/bootstrap.py`，事件桥，无 Qt 守护测试。旧界面测试全部通过（本机焦点类用例受桌面焦点影响，以 CI 为准）。 |
@@ -867,7 +873,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 3. `ResponsiveRow` 断点依据窗口宽度还是自身宽度。
 4. `page.width` / `page.height` 在移动端启动时的取值时机。
 5. 下拉刷新控件、可拖动排序列表。
-6. `VideoMedia` 是否支持 HTTP 请求头（不支持则按 7.3 走流代理）。
+6. ~~`VideoMedia` 是否支持 HTTP 请求头~~：支持（`http_headers`）；为了续签过期地址仍走 7.3 的流代理，本机模拟源站已验证 403 → 重签 → 继续播放。
 7. Android 应用私有目录与外部存储路径的获取方式；分区存储下选择下载目录。
 8. Android 接收分享 intent；后台执行与常亮。
 9. 应用生命周期事件（切到后台、恢复）。

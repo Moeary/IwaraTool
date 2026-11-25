@@ -377,11 +377,12 @@ class FakeAdapter(BaseAdapter):
         host = urlparse(url).netloc
         status, headers, body = 200, {}, b""
         raw = None
-        if "/image/" in urlparse(url).path:
+        api = host.startswith("api.") or host.startswith("apiq.")
+        if "/image/" in urlparse(url).path and not api:
             avatar = "/avatar/" in url or "avatar-" in url
             body = artwork(urlparse(url).path, avatar=avatar)
             headers["Content-Type"] = "image/png" if avatar else "image/jpeg"
-        elif host.startswith("api.") or host.startswith("apiq."):
+        elif api:
             status, data = api_answer(request.method, url, request.headers)
             headers["Content-Type"] = "application/json"
             body = json.dumps(data).encode()

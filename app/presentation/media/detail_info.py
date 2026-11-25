@@ -32,6 +32,7 @@ class GalleryFile:
     file_id: str
     thumb_url: str
     original_url: str
+    aspect: float = 16 / 9  # width / height when the API gives both
 
 
 def page_url(kind: str, item_id: str, site: str | None = None) -> str:
@@ -132,10 +133,16 @@ def tag_chips(tags: object, tag_dictionary: Any = None) -> list[tuple[str, str]]
 def gallery_file(file_info: dict[str, Any]) -> GalleryFile:
     file_id = str(file_info.get("id") or "")
     name = str(file_info.get("name") or "")
+    try:
+        width, height = float(file_info.get("width") or 0), float(file_info.get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0.0
+    aspect = min(max(width / height, 0.3), 4.0) if width > 0 and height > 0 else 16 / 9
     return GalleryFile(
         file_id=file_id,
         thumb_url=f"https://i.iwara.tv/image/thumbnail/{file_id}/{file_id}.jpg",
         original_url=f"https://i.iwara.tv/image/original/{file_id}/{name}" if name else "",
+        aspect=aspect,
     )
 
 

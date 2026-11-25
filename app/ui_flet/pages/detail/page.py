@@ -61,6 +61,10 @@ def _stage(shell, model: DetailModel, width: float, playing: bool, set_playing) 
         files = model.gallery()
         if not files:
             return ft.Container()
+        tall = max(320.0, shell.state.layout.height - 160)  # a portrait picture fits the window height
+
+        def fit(item) -> float:
+            return min(width, tall * item.aspect)
         return ft.Column(spacing=Space.SM, horizontal_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             ft.Container(
                 on_click=(lambda _e, url=item.original_url: shell.page.run_task(ft.UrlLauncher().launch_url, url))
@@ -68,10 +72,13 @@ def _stage(shell, model: DetailModel, width: float, playing: bool, set_playing) 
                 tooltip=detail_info.gallery_hint(len(files)),
                 border_radius=Radius.CARD,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                content=Cover("gallery_thumb", item.file_id, item.thumb_url, width, icon=AppIcon.IMAGE, radius=Radius.CARD),
+                content=Cover("gallery_thumb", item.file_id, item.thumb_url, fit(item), aspect=item.aspect, icon=AppIcon.IMAGE,
+                              radius=Radius.CARD),
             )
             for item in files
         ])
+    # Short or very wide windows: keep the title and actions in view under the 16:9 stage.
+    width = min(width, max(280.0, shell.state.layout.height * 0.7) * 16 / 9)
     if playing and video is not None:
         return InlinePlayer(video.video_id, video.title, model.site, width, on_close=lambda: set_playing(False),
                             key=f"player:{video.video_id}")
@@ -343,7 +350,8 @@ def DetailBody(model: DetailModel):
         return ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=ft.Column(
             tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=Space.MD, controls=[
                 ft.Icon(AppIcon.ERROR, color=palette.danger.fg, size=Size.ICON_LG),
-                ft.Text(state.error, style=text_style(TYPE.body), text_align=ft.TextAlign.CENTER),
+                ft.Text(state.error, style=text_style(TYPE.body), text_align=ft.TextAlign.CENTER, max_lines=4,
+                        overflow=ft.TextOverflow.ELLIPSIS, selectable=True),
                 ft.OutlinedButton(content=tr("Try again", "重试", "再試行"), icon=AppIcon.REFRESH,
                                   on_click=lambda _e: shell.page.run_task(start)),
             ]))
@@ -358,7 +366,8 @@ def DetailBody(model: DetailModel):
     if state.loading and video is None:
         main.append(ft.ProgressRing())
     if state.error:
-        main.append(ft.Text(state.error, style=text_style(TYPE.body, color=palette.danger.fg)))
+        main.append(ft.Text(state.error, style=text_style(TYPE.body, color=palette.danger.fg), max_lines=4,
+                            overflow=ft.TextOverflow.ELLIPSIS))
     if model.embedded():
         main.append(ft.Text(detail_info.embedded_text(), style=text_style(TYPE.body, color=palette.warning.fg)))
     main.append(_actions(shell, model, set_playing, compact))
