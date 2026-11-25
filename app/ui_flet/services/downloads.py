@@ -13,7 +13,8 @@ from typing import Any
 
 from ...config import app_config
 from ...core.download.manager import download_manager
-from ...core.rules import PAGE_RULE_FOLLOW_DEFAULT, active_rule_id, normalize_rule_payload, page_rule_choice, page_rule_id, rule_store, set_page_rule_choice
+from ...core.rules import PAGE_RULE_FOLLOW_DEFAULT, active_rule_id, normalize_rule_payload, page_rule_choice, page_rule_id, rule_store
+from ...presentation import rule_editing
 from ...core.search.resolution import resolve_queue_ids
 from ...core.search.limits import configured_resolution_concurrency
 from ...logging_setup import get_logger
@@ -55,7 +56,7 @@ class DownloadService:
 
     @staticmethod
     def remember_page_rule(scope: str, choice: str) -> None:
-        set_page_rule_choice(scope, choice)
+        rule_editing.choose_page_rule(scope, choice)
 
     @staticmethod
     def page_rule(scope: str) -> str:

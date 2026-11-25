@@ -27,6 +27,7 @@ from .shortcuts import ShortcutMap, event_chord
 from .stores.app_state import AppState
 from .stores.detail import DetailStore
 from .stores.library import LibraryStore
+from .stores.rules import RulesStore
 from .stores.subscriptions import SubscriptionStore
 from .stores.home import HomeStore
 from .stores.search import SearchStore
@@ -86,6 +87,7 @@ class Shell:
         self.details = DetailStore(self, download_manager)
         self.subscriptions = SubscriptionStore(self, download_manager)
         self.library = LibraryStore(self, download_manager)
+        self.rules = RulesStore(self)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -218,6 +220,8 @@ class Shell:
         # System notifications are in-app notices for now (docs/flet_ui_plan.md 10); the background
         # subscription refresh announces itself this way, so the list is read again too.
         self.events.on("desktop_notification_requested", self._on_desktop_notification)
+        for name in ("rules_changed", "active_rule_changed", "page_rule_changed"):
+            self.events.on(name, self.rules.refresh, coalesce=lambda *_args: "rules")
         # A finished download is a new library record (the old page re-read on completion too).
         self.events.on("task_status_changed", self._on_task_finished,
                        coalesce=lambda _task_id="", status="", *_a: ("library", status))  # one per status: "completed" survives

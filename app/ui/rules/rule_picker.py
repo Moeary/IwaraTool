@@ -15,10 +15,10 @@ from ...core.rules import (
     normalize_rule_payload,
     page_rule_choice,
     rule_store,
-    set_page_rule_choice,
 )
 from ...i18n import tr
 from ...signal_bus import signal_bus
+from ...presentation import rule_editing
 from ...presentation.rules import _rule_display_name, _rule_summary, page_scope_name, rule_choices
 
 
@@ -104,8 +104,7 @@ class RulePicker(QWidget):
         if self._syncing:
             return
         choice = str(self.combo.currentData() or PAGE_RULE_FOLLOW_DEFAULT)
-        set_page_rule_choice(self.scope, choice)
-        signal_bus.page_rule_changed.emit(self.scope, choice)
+        rule_editing.choose_page_rule(self.scope, choice)
         rule = self.selected_rule()
         if rule is None:
             return

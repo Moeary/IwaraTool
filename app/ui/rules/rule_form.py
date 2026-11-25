@@ -20,9 +20,8 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
+from ...presentation import rule_editing
 from ...core.rules import default_rule_payload, normalize_rule_payload
-from ...core.download.paths import validate_filename_template
-from ...core.download.template_builder import preview_template
 from ...core.download.manager import download_manager
 from ...i18n import tr
 from ..style.theme import set_secondary_text
@@ -120,12 +119,7 @@ class RuleFormWidget(QWidget):
 
     def _on_template_text_changed(self, text: str):
         self.template_builder.set_template(text)
-        shown = preview_template(text)
-        self.template_preview_label.setText(
-            tr("Preview: ", "预览：", "プレビュー: ") + shown
-            if shown
-            else tr("Preview: (template is invalid)", "预览：（规则无效）", "プレビュー: （テンプレートが無効です）")
-        )
+        self.template_preview_label.setText(rule_editing.template_preview_text(text))
 
     def _build_filter_card(self) -> CardWidget:
         filter_card = CardWidget(self)
@@ -284,30 +278,14 @@ class RuleFormWidget(QWidget):
 
     def _update_record_history_hint(self, checked: bool | None = None):
         enabled = self.record_history.isChecked() if checked is None else bool(checked)
-        self.record_history_hint.setText(
-            tr(
-                "Downloaded content will be saved to history.",
-                "下载内容会保存到历史。",
-                "ダウンロード内容を履歴に保存します。",
-            )
-            if enabled
-            else tr(
-                "Downloaded content will no longer be saved to history.",
-                "不再将下载内容保存到历史。",
-                "ダウンロード内容を履歴に保存しません。",
-            )
-        )
+        self.record_history_hint.setText(rule_editing.history_hint(enabled))
 
     def _validate_filename_template(self):
-        valid, reason = validate_filename_template(self.filename_template_edit.text())
+        valid, title, message = rule_editing.template_validity(self.filename_template_edit.text())
         if valid:
             InfoBar.success(
-                title=tr("Valid template", "命名规则有效", "有効なテンプレート"),
-                content=tr(
-                    "The template can be used safely.",
-                    "该命名规则可以安全使用。",
-                    "この命名テンプレートは安全に使用できます。",
-                ),
+                title=title,
+                content=message,
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -316,8 +294,8 @@ class RuleFormWidget(QWidget):
             )
             return True
         InfoBar.error(
-            title=tr("Invalid template", "命名规则无效", "無効なテンプレート"),
-            content=reason,
+            title=title,
+            content=message,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -387,41 +365,26 @@ class RuleFormWidget(QWidget):
         self._hide_tag_suggestions()
         self._update_record_history_hint()
 
+    def form(self) -> dict[str, Any]:
+        """The fields as ``rule_editing`` reads them (payload keys)."""
+
+        texts = {
+            "filename_template": self.filename_template_edit, "filter_min_likes": self.likes_edit,
+            "filter_min_views": self.views_edit, "filter_start_date": self.start_edit, "filter_end_date": self.end_edit,
+            "filter_include_tags": self.include_tags_edit, "filter_exclude_tags": self.exclude_tags_edit,
+            "title_include": self.title_include_edit, "title_exclude": self.title_exclude_edit,
+        }
+        switches = {
+            "filter_enabled": self.filter_enabled, "filter_min_likes_enabled": self.likes_enabled,
+            "filter_min_views_enabled": self.views_enabled, "filter_date_enabled": self.date_enabled,
+            "filter_include_tags_enabled": self.include_tags_enabled, "filter_exclude_tags_enabled": self.exclude_tags_enabled,
+            "download_video_file": self.download_video, "mark_submitted_as_downloaded": self.mark_only,
+            "download_thumbnail": self.download_thumb, "collect_nfo_info": self.collect_nfo,
+            "record_to_history": self.record_history,
+        }
+        form: dict[str, Any] = {key: edit.text() for key, edit in texts.items()}
+        form.update({key: switch.isChecked() for key, switch in switches.items()})
+        return form
+
     def payload(self) -> dict[str, Any]:
-        try:
-            likes = max(0, int((self.likes_edit.text() or "0").strip()))
-            views = max(0, int((self.views_edit.text() or "0").strip()))
-            start = (self.start_edit.text() or "1970-01-01").strip()
-            end = (self.end_edit.text() or "").strip()
-            datetime.strptime(start, "%Y-%m-%d")
-            if end:
-                datetime.strptime(end, "%Y-%m-%d")
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
-        valid, reason = validate_filename_template(self.filename_template_edit.text())
-        if not valid:
-            raise ValueError(f"命名规则无效：{reason}")
-        return normalize_rule_payload(
-            {
-                "filter_enabled": self.filter_enabled.isChecked(),
-                "filter_min_likes_enabled": self.likes_enabled.isChecked(),
-                "filter_min_likes": likes,
-                "filter_min_views_enabled": self.views_enabled.isChecked(),
-                "filter_min_views": views,
-                "filter_date_enabled": self.date_enabled.isChecked(),
-                "filter_start_date": start,
-                "filter_end_date": end,
-                "filter_include_tags_enabled": self.include_tags_enabled.isChecked(),
-                "filter_include_tags": self.include_tags_edit.text(),
-                "filter_exclude_tags_enabled": self.exclude_tags_enabled.isChecked(),
-                "filter_exclude_tags": self.exclude_tags_edit.text(),
-                "title_include": self.title_include_edit.text(),
-                "title_exclude": self.title_exclude_edit.text(),
-                "download_video_file": self.download_video.isChecked(),
-                "download_thumbnail": self.download_thumb.isChecked(),
-                "collect_nfo_info": self.collect_nfo.isChecked(),
-                "mark_submitted_as_downloaded": self.mark_only.isChecked(),
-                "record_to_history": self.record_history.isChecked(),
-                "filename_template": self.filename_template_edit.text(),
-            }
-        )
+        return rule_editing.payload_from_form(self.form())
