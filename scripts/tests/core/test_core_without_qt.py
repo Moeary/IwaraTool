@@ -71,6 +71,38 @@ class CoreWithoutQtTests(unittest.TestCase):
         self.assertEqual(result["failed"], {})
         self.assertEqual(result["qt"], [])
 
+    def test_presentation_and_flet_modules_import_without_qt(self):
+        """app.presentation always; app.ui_flet and app.bootstrap where Flet is installed."""
+
+        result = self._run(
+            """
+            import importlib, importlib.util, json, pkgutil
+            import app.presentation
+
+            packages = [app.presentation]
+            names = ["app.bootstrap"]
+            if importlib.util.find_spec("flet") is not None:
+                import app.ui_flet
+                packages.append(app.ui_flet)
+            failed = {}
+            for package in packages:
+                names += [m.name for m in pkgutil.walk_packages(package.__path__, package.__name__ + ".")]
+            for name in names:
+                try:
+                    importlib.import_module(name)
+                except Exception as error:
+                    failed[name] = repr(error)
+            loaded = sorted(
+                name for name in sys.modules
+                if name.split(".")[0] in ("PySide6", "shiboken6", "qfluentwidgets") or name.startswith("app.ui.")
+            )
+            print(json.dumps({"failed": failed, "loaded": loaded, "count": len(names)}))
+            """
+        )
+        self.assertEqual(result["failed"], {})
+        self.assertEqual(result["loaded"], [])
+        self.assertGreater(result["count"], 20)
+
     def test_settings_events_and_translations_work_without_qt(self):
         result = self._run(
             """
