@@ -4,7 +4,9 @@ Runs after the window is mounted, on top of ``demo_fixture`` (offline made-up
 Iwara): the search route searches, the downloads route queues a few videos and
 cancels one, the subscription, library and author routes get seeded records,
 the repair route gets a folder of badly named files (``IWARATOOL_DEMO_STEP``:
-``options`` / ``preview`` scans / ``done`` also repairs).  Nothing here is imported outside demo runs.
+``options`` / ``preview`` scans / ``done`` also repairs), the tools route loads
+``IWARATOOL_DEMO_VIDEO`` (``IWARATOOL_DEMO_TOOL=covers`` for the cover preview,
+``IWARATOOL_DEMO_STEP=run`` compresses it).  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -77,3 +79,20 @@ async def play(shell, route: str) -> None:
             await store.scan()
         if step == "done":
             await store.repair()
+    elif destination == routes.TOOLS and os.environ.get("IWARATOOL_DEMO_VIDEO"):
+        video = os.path.abspath(os.environ["IWARATOOL_DEMO_VIDEO"])
+        store = shell.tools
+        store.load()
+        store.choose_tool(os.environ.get("IWARATOOL_DEMO_TOOL", "compress"))
+        for _ in range(100):
+            if store.state.ffmpeg_checked and not store.state.ffmpeg_busy:
+                break
+            await asyncio.sleep(0.1)
+        if store.state.tool == "covers":
+            await store.load_cover_source(video)
+            store.move(5)
+        else:
+            store.set_output(os.path.join(os.path.dirname(video), "sample_iwara.mp4"))
+            await store.load_source(video)
+            if os.environ.get("IWARATOOL_DEMO_STEP") == "run":
+                await store.start()

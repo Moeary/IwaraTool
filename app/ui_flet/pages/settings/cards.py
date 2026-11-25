@@ -722,6 +722,8 @@ def FfmpegCard():
     def set_path(text: str) -> None:
         if sv.set_ffmpeg_path(text):
             page.run_task(check)
+            if shell.tools.loaded:
+                page.run_task(shell.tools.refresh_ffmpeg)
         refresh()
 
     async def browse() -> None:

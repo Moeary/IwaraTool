@@ -13,7 +13,7 @@ CROP_KEY = "tools_cover_crop_v1"
 CARD_ASPECT = 3 / 2  # Iwara's video cards; the calculator this follows crops to 300×200
 COLUMNS = 4
 # Arrow keys move the selection through the 4×4 grid.
-KEY_STEPS = {"Arrow Left": -1, "Arrow Right": 1, "Arrow Up": -COLUMNS, "Arrow Down": COLUMNS}
+KEY_STEPS = {"Left": -1, "Right": 1, "Up": -COLUMNS, "Down": COLUMNS}
 
 
 def crop_enabled() -> bool:

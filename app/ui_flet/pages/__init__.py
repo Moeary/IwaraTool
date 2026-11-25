@@ -34,6 +34,7 @@ def _register_ported() -> None:
     from .search.page import SearchPage
     from .settings.page import SettingsPage
     from .subscriptions.page import SubscriptionsPage
+    from .tools.page import ToolsPage
 
     register(routes.AUTHOR, AuthorPage)
     register(routes.DETAIL, DetailPage)
@@ -45,3 +46,4 @@ def _register_ported() -> None:
     register(routes.SEARCH, SearchPage)
     register(routes.SETTINGS, SettingsPage)
     register(routes.SUBSCRIPTIONS, SubscriptionsPage)
+    register(routes.TOOLS, ToolsPage)

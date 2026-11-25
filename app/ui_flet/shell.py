@@ -21,6 +21,7 @@ from ..logging_setup import get_logger
 from ..presentation import preferences
 from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
+from ..presentation.tools import covers as cover_keys
 from . import layout, routes
 from .navigation import ShellNavigator
 from .services.dialogs import confirm
@@ -33,6 +34,7 @@ from .stores.detail import DetailStore
 from .stores.library import LibraryStore
 from .stores.repair import RepairStore
 from .stores.rules import RulesStore
+from .stores.tools import ToolsStore
 from .stores.subscriptions import SubscriptionStore
 from .stores.home import HomeStore
 from .stores.search import SearchStore
@@ -97,6 +99,7 @@ class Shell:
         self.library = LibraryStore(self, download_manager)
         self.rules = RulesStore(self, download_manager)
         self.repair = RepairStore(self, download_manager)
+        self.tools = ToolsStore(self)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
         self._pending_size: tuple[float, float] | None = None
@@ -246,6 +249,7 @@ class Shell:
         self.search.close()
         self.details.close()
         self.repair.close()
+        self.tools.close()
         self.library.flush()
 
     def _on_release(self, release: dict) -> None:
@@ -322,6 +326,9 @@ class Shell:
         chord = event_chord(event.key, shift=event.shift, ctrl=event.ctrl, alt=event.alt, meta=event.meta)
         if self.key_capture is not None:
             self.key_capture(chord, str(event.key or ""))
+            return
+        if self.state.destination == routes.TOOLS and self.tools.state.tool == "covers" and chord in cover_keys.KEY_STEPS:
+            self.tools.move(cover_keys.KEY_STEPS[chord])
             return
         action = self.shortcuts.action_for(chord)
         if chord == "Alt+Left":
