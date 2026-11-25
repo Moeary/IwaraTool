@@ -74,6 +74,11 @@ def available(destinations: tuple[str, ...], *, desktop: bool) -> tuple[str, ...
     return tuple(d for d in destinations if desktop or d not in DESKTOP_ONLY)
 
 
+def allowed(path: str, *, desktop: bool) -> bool:
+    """False for a desktop-only destination (or a path inside one) on a phone (8.3)."""
+    return desktop or parse(path, fallback=HOME).destination not in DESKTOP_ONLY
+
+
 def startup_destination(value: object, *, desktop: bool = True) -> str:
     destination = _STARTUP.get(str(value or "").strip().lower(), HOME)
     return destination if desktop or destination not in DESKTOP_ONLY else HOME

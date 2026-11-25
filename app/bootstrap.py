@@ -60,6 +60,23 @@ def start(*, frontend: str) -> None:
     start_services()
 
 
+def checkpoint() -> None:
+    """Save the download queue and write settings without stopping anything.
+
+    Phones never close a window: the system suspends the app and may end it
+    without warning, so the interface calls this whenever the app is paused.
+    """
+    if _stopped:
+        return
+    from .core.download.manager import download_manager
+    from .settings_store import sync_all_open_stores
+
+    try:
+        download_manager.flush_task_queue()
+    finally:
+        sync_all_open_stores()
+
+
 def stop(*, wait: bool) -> None:
     """Stop background work, save the download queue and write settings (once)."""
 

@@ -3,6 +3,7 @@
     pixi run -e flet build-flet                          # this host's desktop platform
     pixi run -e flet build-flet --label v1.3.0-alpha1    # name used in the artifact
     pixi run -e flet build-flet --no-smoke               # skip launching the result
+    pixi run -e flet build-flet --platform apk           # Android (needs the Android SDK; CI builds it)
 
 Steps (docs/flet_ui_plan.md 2.5):
 
@@ -16,11 +17,14 @@ Steps (docs/flet_ui_plan.md 2.5):
 5. Launch the result in smoke-test mode (data in a temporary folder) and check
    its report: it started, knows it is packaged, loaded no Qt module, and the
    app storage Flet provides (the data folder of real runs) is outside the bundle.
-6. Zip it as dist/IwaraTool-Flet-<Platform>-<arch>-<label>.zip.
+   Desktop only: an APK needs a device or an emulator.
+6. Zip it as dist/IwaraTool-Flet-<Platform>-<arch>-<label>.zip (an APK is
+   copied as dist/IwaraTool-Flet-Android-<label>.apk).
 """
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import platform
@@ -41,7 +45,8 @@ PACKAGING = ROOT / "packaging" / "flet"
 
 APP_PACKAGES = ("core", "presentation", "ui_flet", "data")
 FORBIDDEN = re.compile(r"(^|[/\\])(PySide6|shiboken6|qfluentwidgets|qframelesswindow)([/\\.]|$)|(^|[/\\])app[/\\]ui[/\\]")
-PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux"}
+PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
+DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
 SMOKE_TIMEOUT = 120
 
 
@@ -104,6 +109,7 @@ def flet_build(target: str, version: str, verbose: bool) -> Path:
         "--yes", "--no-rich-output",
         "--python-version", "3.12",
         "--build-version", re.sub(r"[^0-9.].*$", "", version) or "0.0.0",
+        "--build-number", str(build_number(version)),
         "--output", str(out),
     ]
     if verbose:
@@ -111,6 +117,13 @@ def flet_build(target: str, version: str, verbose: bool) -> Path:
     print("Running:", " ".join(command[2:]))
     subprocess.run(command, cwd=STAGE, check=True)
     return out
+
+
+def build_number(version: str) -> int:
+    """1.3.0 → 10300: Android's versionCode must grow with every release."""
+    parts = [int(p) for p in re.findall(r"\d+", re.sub(r"[^0-9.].*$", "", version))[:3]]
+    parts += [0] * (3 - len(parts))
+    return max(1, parts[0] * 10000 + parts[1] * 100 + parts[2])
 
 
 def find_executable(target: str, out: Path) -> Path:
@@ -141,12 +154,22 @@ def audit(out: Path) -> None:
         rel = path.relative_to(out).as_posix()
         if FORBIDDEN.search(rel):
             problems.append(rel)
-        if path.is_file() and path.suffix == ".zip":
+        if path.is_file() and path.suffix in (".zip", ".apk", ".aab"):
             with zipfile.ZipFile(path) as archive:
-                problems += [f"{rel}!{name}" for name in archive.namelist() if FORBIDDEN.search(name)]
+                problems += _archive_problems(archive, rel)
     if problems:
         raise SystemExit("Flet build contains old-interface files:\n  " + "\n  ".join(problems[:20]))
     print("Audit: no PySide6, shiboken6, qfluentwidgets or app/ui in the build")
+
+
+def _archive_problems(archive: zipfile.ZipFile, label: str) -> list[str]:
+    """Forbidden names in an archive and in the archives inside it (an APK holds the app as a zip)."""
+    problems = [f"{label}!{name}" for name in archive.namelist() if FORBIDDEN.search(name)]
+    for name in archive.namelist():
+        if name.endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(archive.read(name))) as inner:
+                problems += _archive_problems(inner, f"{label}!{name}")
+    return problems
 
 
 def smoke(executable: Path, out: Path) -> None:
@@ -194,6 +217,16 @@ def smoke(executable: Path, out: Path) -> None:
 
 def package(target: str, out: Path, label: str) -> Path:
     DIST.mkdir(exist_ok=True)
+    if target == "apk":
+        apks = sorted(out.rglob("*.apk"))
+        if not apks:
+            raise SystemExit(f"no .apk in {out}")
+        for apk in apks:  # one universal APK, or one per ABI with split_per_abi
+            suffix = "" if len(apks) == 1 else "-" + apk.stem.replace("app-", "").replace("-release", "")
+            target_path = DIST / f"IwaraTool-Flet-Android{suffix}-{label}.apk"
+            shutil.copy2(apk, target_path)
+            print(f"Artifact: {target_path.relative_to(ROOT)} ({target_path.stat().st_size / 1e6:.1f} MB)")
+        return target_path
     archive = DIST / f"IwaraTool-Flet-{PLATFORM_LABELS[target]}-{arch_label(target)}-{label}.zip"
     archive.unlink(missing_ok=True)
     if target == "macos":
@@ -213,14 +246,14 @@ def main() -> None:
     parser.add_argument("--no-smoke", action="store_true", help="do not launch the built app")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    if args.platform != host_platform():
+    if args.platform in DESKTOP_TARGETS and args.platform != host_platform():
         raise SystemExit(f"{args.platform} can only be built on {args.platform}; this host is {host_platform()}")
 
     version = app_version()
     stage(version)
     out = flet_build(args.platform, version, args.verbose)
     audit(out)
-    if not args.no_smoke:
+    if not args.no_smoke and args.platform in DESKTOP_TARGETS:
         smoke(find_executable(args.platform, out), out)
     package(args.platform, out, args.label or f"v{version}")
 

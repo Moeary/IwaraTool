@@ -33,6 +33,7 @@ def main() -> int:
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before each screenshot")
     parser.add_argument("--only", default="", help="comma-separated sizes (default: all of 9.2)")
     parser.add_argument("--prefix", default="", help="file name prefix")
+    parser.add_argument("--platform", choices=("android", "ios"), default="", help="behave as a phone platform (8.3)")
     args = parser.parse_args()
     sizes = [s.strip() for s in args.only.split(",") if s.strip()] or list(SIZES)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -49,6 +50,8 @@ def main() -> int:
                 command.append("--account")
             if args.demo:
                 command.append("--demo")
+            if args.platform:
+                command += ["--platform", args.platform]
             command += ["--wait", str(args.wait)]
             result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=180)
             ok = result.returncode == 0 and shot.exists()

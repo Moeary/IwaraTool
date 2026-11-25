@@ -52,9 +52,9 @@ async def _pick_video(initial: str) -> str:
     return str(files[0].path or "") if files else ""
 
 
-def _open_folder(path: str) -> None:
+async def _open_folder(path: str) -> None:
     if path:
-        ft.UrlLauncher().launch_url(Path(path).resolve().parent.as_uri())
+        await ft.UrlLauncher().launch_url(Path(path).resolve().parent.as_uri())
 
 
 @ft.component
@@ -202,7 +202,7 @@ def CompressTool():
         ]),
         ft.ProgressBar(value=state.progress) if running or state.progress > 0 else None,
         buttons(
-            ft.OutlinedButton(content=tool_text("show_in_folder"), icon=AppIcon.FOLDER, on_click=lambda _e: _open_folder(state.last_output)),
+            ft.OutlinedButton(content=tool_text("show_in_folder"), icon=AppIcon.FOLDER, on_click=lambda _e: page.run_task(_open_folder, state.last_output)),
             ft.OutlinedButton(content=tool_text("preview_covers_of_the_result"), icon=AppIcon.IMAGE,
                               on_click=lambda _e: page.run_task(preview_covers)),
         ) if state.last_output else None,

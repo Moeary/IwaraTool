@@ -15,6 +15,7 @@ from ...presentation.downloads.task_text import priority_text, progress_ratio, t
 from .. import layout, routes
 from ..icons import AppIcon, NavIcon
 from ..stores.app_state import use_shell
+from ..services.notify import notice
 from ..stores.tasks import TaskItem
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
@@ -37,6 +38,16 @@ def task_badge(task: DownloadTask, palette) -> ft.Control:
     return status_badge(BadgeKind.NEUTRAL, palette, text=status_label(status))
 
 
+async def _open_output(shell, task: DownloadTask, open_file: bool | None = None) -> None:
+    """Completed task: the folder or the player (``None`` follows the setting); phones show the library record."""
+    if not shell.caps.open_folder:
+        shell.open(routes.route(routes.LIBRARY, task.video_id))
+        return
+    ok, message = await shell.downloads.run("open_task_output", task.task_id, open_file=open_file)
+    if not ok and message:
+        notice(shell.page, "warning", tr("Cannot open", "无法打开", "開けません"), message)
+
+
 def _menu(shell, task: DownloadTask) -> ft.Control:
     service = shell.downloads
     task_id = task.task_id
@@ -52,8 +63,9 @@ def _menu(shell, task: DownloadTask) -> ft.Control:
         await ft.UrlLauncher().launch_url(task_url(task))
 
     if task.status == TaskStatus.COMPLETED:
-        items.append(ft.PopupMenuItem(content=tr("Open folder", "打开所在文件夹", "フォルダーを開く"), icon=AppIcon.FOLDER_OPEN,
-                                      on_click=lambda _e: shell.page.run_task(run, "open_task_output", task_id, open_file=False)))
+        if shell.caps.open_folder:
+            items.append(ft.PopupMenuItem(content=tr("Open folder", "打开所在文件夹", "フォルダーを開く"), icon=AppIcon.FOLDER_OPEN,
+                                          on_click=lambda _e: shell.page.run_task(_open_output, shell, task, False)))
         items.append(ft.PopupMenuItem(content=tr("Show in library", "在资料库中查看", "ライブラリで表示"), icon=NavIcon.LIBRARY.rest,
                                       on_click=lambda _e: shell.open(routes.route(routes.LIBRARY, task.video_id))))
     if task.status in _ACTIVE_STATUSES or task.status in _QUEUED:
@@ -112,9 +124,13 @@ def TaskRow(item: TaskItem):
         expand=True,
         controls=[title, ft.Row(spacing=Space.SM, controls=[task_badge(task, palette), meta]), *([progress] if progress else [])],
     )
+    completed = task.status == TaskStatus.COMPLETED
     return ft.Container(
         padding=ft.Padding.symmetric(horizontal=Space.SM, vertical=Space.SM),
         border_radius=Radius.CONTROL,
+        # Settings › Downloads › "completed card click" (the classic window's behaviour).
+        on_click=(lambda _e: shell.page.run_task(_open_output, shell, task)) if completed else None,
+        ink=completed,
         content=ft.Row(
             spacing=Space.MD,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,

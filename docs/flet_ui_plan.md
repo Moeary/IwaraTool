@@ -745,6 +745,17 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 - 分享：接收浏览器“分享到 IwaraTool”的链接（Android intent）【需核实】，可行时直接打开 `DownloadSheet`。
 - 剪贴板、文件选择、外部打开链接使用 Flet 提供的接口，封装在 `ui_flet/platform/`。
 
+【已实现（P8，真机验收待做）】
+- 数据目录：打包后 `runner.prepare_environment` 取 `FLET_APP_STORAGE_DATA/IwaraTool`（与桌面同一路径）。下载目录在用户未自选时，启动时由 `platform/storage.py` 改为 `StoragePaths.get_external_storage_directory()/Downloads`（即 `Android/data/<包名>/files/Downloads`，无需权限、文件管理器可见、卸载时随应用删除），取不到时退回数据目录下的 `Downloads`。
+- 生命周期：`lifecycle.install_pause_handler` 在 `pause` / `hide` / `detach` 时调用 `bootstrap.checkpoint()`（保存队列与设置，不停止服务）；手机没有关窗流程。
+- 常亮：`Shell.refresh_badges` 在有下载进行时 `ft.Wakelock().enable()`，结束后关闭（`wakelock_plus`，Flet 核心自带，无需权限）。
+- 返回键：根视图 `can_pop=False` + `on_confirm_pop` 调用 `Shell.back()`，能后退就留在应用内，否则 `confirm_pop(True)` 退出；对话框与面板由 Flutter 先行关闭。手机在其他顶层目的地按返回先回首页（Material 惯例）。
+- 远端 aria2：手机隐藏“aria2 在另一台设备”开关并固定为远端，三个远端路径字段直接显示，卡片顶部说明“手机只负责浏览和提交”。
+- 分享：Flet 1.1.3 只有对外分享（`ft.Share`），没有接收 intent 的接口【已核实】。替代为：应用回到前台时读取剪贴板，若是新复制的 Iwara 作品 / 作者链接，弹出提示条“打开”（`presentation/clipboard_links.py`，每次复制只提示一次）。
+- 明文回环：`packaging/flet/pyproject.toml` 的 `[tool.flet.android.manifest_application] usesCleartextTraffic = true`（流代理在 `http://127.0.0.1`）。
+- 打包：`build_flet.py --platform apk`（递归审计 APK 内嵌的 `app.zip`，`--build-number` 由版本号得出，如 1.3.0 → 10300）；CI `build.yml` 的 `build-flet-android` 任务在 Ubuntu 上构建并上传 APK（按需触发）。
+- 开发：`main_flet.py --platform android`（`flet_viewports.py` 同名参数）让桌面运行按手机能力隐藏功能，便于截图检查。
+
 ### 8.3 功能可用性
 
 | 功能 | 桌面 | Android | 说明 |
@@ -762,6 +773,8 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 不可用的功能在导航与设置中直接隐藏，而不是显示后报错。可用性判断集中在 `ui_flet/platform/capabilities.py`。
 
+【已实现】`capabilities(shell.state.layout)`（`Shell.caps`）给出 `repair`、`tools`、`open_folder`、`local_aria2`、`player_command`、`keyboard_shortcuts`、`window`、`keep_awake`。手机上：导航与路由不含修复 / 工具（`routes.allowed`，深链接与 `--route` 也回到首页）；视频动作菜单、任务菜单、设置的“打开数据 / 下载 / 日志文件夹”隐藏；播放器选项去掉“自定义命令”；“已完成任务单击行为”隐藏（手机点已完成任务打开资料库记录）；窗口卡片只保留启动页。
+
 ---
 
 ## 9. 阶段计划与验收
@@ -778,7 +791,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | P5 订阅与作者 | 订阅总览与双栏、作者页 | 刷新、筛选、批量下载、封面优先级 |
 | P6 资料库、规则、设置 | 资料库、规则页、设置页（含自定义首页与快捷键） | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
 | P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致（已完成，两边共用 `core/repair/runs.py` 与压缩计划，见 `docs/verification/flet/P7/`） |
-| P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放 |
+| P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放（代码与 CI 打包已完成，见 `docs/verification/flet/P8/`；**真机验收待做**） |
 | P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距 |
 
 ### 9.1 测试
@@ -876,6 +889,9 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 | 工具页单个长表单（设置在前、开始按钮在底部） | 判断卡片后紧接“输出 + 开始 + 进度”卡片，压缩设置放在最后（设置会保存，通常只改一次） |
 | 封面预览的大图栏与 4 × 4 网格并排 | 改为网格在上、选中项大图在下；窗口太窄时网格为 2 列（方向键按行移动） |
 | 手机底栏只有主要目的地，打开设置 / 规则等时底栏无选中项（Flutter 要求必须选中一项，会报错） | 当前目的地不在底栏时临时追加到底栏末尾并选中 |
+| 下载页已完成任务的单击行为（旧版设置项生效，Flet 版此前未接入） | 桌面按设置打开文件夹或播放器（失败时提示原因）；手机打开资料库记录，设置项隐藏 |
+| 浏览器“分享到 IwaraTool” | Flet 不能接收 intent：回到前台时若剪贴板里有新复制的 Iwara 链接，提示条“打开”进入详情或作者页 |
+| 手机上的文件夹相关动作、自定义播放器命令、本机 aria2、修复、工具 | 直接隐藏（8.3），远端 aria2 在手机上固定开启远端模式 |
 
 ---
 
@@ -883,6 +899,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | P8 Android（代码部分）：`ui_flet/platform/capabilities.py`（`Shell.caps`）集中判断平台能力，导航、路由、视频与任务菜单、设置卡片按能力隐藏；`platform/storage.py` 首次启动把默认下载目录移到应用专属外部目录；`bootstrap.checkpoint()` 与暂停时保存；下载进行时常亮；系统返回键经 `Shell.back()`（手机先回首页再退出）；回到前台检查剪贴板里的 Iwara 链接（代替分享 intent）；远端 aria2 在手机上固定；`usesCleartextTraffic`；`build_flet.py --platform apk` 与 CI `build-flet-android`。接上旧版“已完成任务单击行为”。修正修复批量计时在开机不久的机器上不立即回显首项（CI 失败原因）。`--platform android` 开发参数。截图见 `docs/verification/flet/P8/`；真机验收待做。 |
 | 2026-11-26 | P7 修复与工具：修复中心（`stores/repair.py` + `pages/repair/`，五步流程、扫描批量回显、扫描后改选项重新规划、按 ID / 链接重新查询、停止、结果摘要）；工具页（`stores/tools.py` + `pages/tools/`，上传压缩：探测、判断卡片、选项保存、编码器随 ffmpeg、开始 / 取消 / 进度与剩余时间、失败日志、打开文件夹与转到封面预览；封面预览：16 张并行截图、3:2 裁切、方向键、保存此帧、复制时间码；ffmpeg 缺失空状态）。新迁入：`core/repair/runs.py`（旧 `RepairWorker` 的循环与批量）、`presentation/repair/`、`presentation/tools/`（旧修复页与工具页改为调用）。顺带修复手机底栏在设置 / 规则等溢出目的地时 `selected_index` 越界。`--demo` 的修复路由写入混乱文件名，工具路由载入 `IWARATOOL_DEMO_VIDEO`。截图见 `docs/verification/flet/P7/`。 |
 | 2026-11-26 | P6 资料库、规则、设置：资料库（`stores/library.py` + `pages/library/`，表格 / 列表 / 网格、范围与作者筛选、按宽度隐藏列、记录面板、可撤销删除、清理已移走、重命名、导出 CSV）；规则页（列表-详情、各页面规则卡片、模板预览 / 预设 / 插入字段 / 检验、标签候选、未保存询问）；设置页（`pages/settings/`，9 个分类全部卡片即时保存、账号登录、代理应用、aria2 测试、ffmpeg 检测、备份恢复、快捷键录制、自定义首页 `/settings/home/rows`）；外壳新增新版本提示与“仍有下载时关闭询问”。新迁入共用层：`presentation/history/library.py`、`record_state.py`、`presentation/rule_editing.py`、`presentation/settings/{texts,catalog,values}.py`、`presentation/home/layout.py`、`presentation/updates.py`、`presentation.shortcuts` 的编辑与显示函数（旧资料库、规则页、设置页、首页栏目对话框、更新提示改为调用）。截图见 `docs/verification/flet/P6/`。 |
 | 2026-11-26 | P5 订阅与作者：订阅页（`stores/subscriptions.py` + `pages/subscriptions/`，手机总览卡片与最近作品货架、`/subscriptions/<id>` 作品网格、宽屏双栏、源搜索与排序、添加（链接 / 用户名）、导入关注作者、全部刷新与单源刷新的进度条、停用 / 启用、删除确认、作品筛选 / 排序 / 标题搜索、状态徽章、选择、下载当前 / 选中 / 新增、标为已看、标为已移走与还原）；作者页 `/author/<用户名>`（资料卡、视频 / 图片标签、分页网格、批量下载）；`AuthorStatus`（程序内订阅与 Iwara 关注）；`components/feed_grid.py`（首页完整网格与作者页共用）、`services/dialogs.py`（确认与输入对话框）；`VideoGrid` 可指定所在栏宽。新迁入共用层：`presentation/subscription/text.py`、`source_actions.py`、`presentation/author/status.py`、`page.py`（旧订阅页、作者页、`AuthorStatusBar` 改为调用）。演示夹具的 `seed` 移入 `demo_fixture`，`--demo` 的订阅 / 资料库 / 作者路由会写入虚构记录。注意：`TextField` 不能放进 `wrap=True` 的 Row（宽度无界，整块渲染失败）。截图见 `docs/verification/flet/P5/`。 |
@@ -899,15 +916,15 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 实施对应功能前，先在 `scripts/tools/flet_probe/` 写最小样例验证，并把结论补进本节：
 
-1. Android 系统返回键与预测性返回是否触发 `on_view_pop` 或其他事件。
+1. ~~Android 系统返回键与预测性返回是否触发 `on_view_pop` 或其他事件~~：只有一个视图时不触发 `on_view_pop`；根视图设 `can_pop=False` 并提供 `on_confirm_pop`，由 `View.confirm_pop(bool)` 决定（Flet 1.1.3 `view.dart` 的 `PopScope`，`enableOnBackInvokedCallback` 默认开启）【已核实（源码），真机待验】。
 2. 折叠屏铰链与姿态信息（`displayFeatures`）。
 3. `ResponsiveRow` 断点依据窗口宽度还是自身宽度。
 4. `page.width` / `page.height` 在移动端启动时的取值时机。
 5. 下拉刷新控件、可拖动排序列表。
 6. ~~`VideoMedia` 是否支持 HTTP 请求头~~：支持（`http_headers`）；为了续签过期地址仍走 7.3 的流代理，本机模拟源站已验证 403 → 重签 → 继续播放。
-7. Android 应用私有目录与外部存储路径的获取方式；分区存储下选择下载目录。
-8. Android 接收分享 intent；后台执行与常亮。
-9. 应用生命周期事件（切到后台、恢复）。
+7. ~~Android 应用私有目录与外部存储路径的获取方式~~：`FLET_APP_STORAGE_DATA` 与 `ft.StoragePaths()`（`get_external_storage_directory` 仅 Android）；分区存储下用目录选择器另选公共目录是否可写【真机待验】。
+8. ~~Android 接收分享 intent~~：Flet 1.1.3 不支持（只有对外 `Share`），改为回到前台时检查剪贴板；~~常亮~~：`ft.Wakelock`（核心自带）；后台执行仍只保证前台。
+9. ~~应用生命周期事件~~：`page.on_app_lifecycle_state_change`，状态含 `show` / `resume` / `hide` / `inactive` / `pause` / `detach`。
 10. 桌面窗口最小尺寸属性、~~文件拖放~~（Flet 1.1.3 不支持系统文件拖入，修复与工具页只保留浏览）、托盘、系统通知。
 11. 键盘事件接口名称与修饰键表示；macOS ⌘ 键。
 12. ~~locale 配置（日文字形优先）~~（已用字体回退实现，见 5.3）、减少动态效果、系统字体缩放、~~视觉密度~~（`Theme.visual_density` 可用，桌面设为 COMPACT）。

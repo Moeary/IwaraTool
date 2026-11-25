@@ -24,3 +24,9 @@ copyright = "Copyright (c) 2026 Moeary. MIT License."
 [tool.flet.app]
 path = "."
 module = "main_flet"
+
+# Android (docs/flet_ui_plan.md 8): built in CI (`build_flet.py --platform apk`).
+# Remote videos play through the loopback stream proxy at http://127.0.0.1,
+# which Android refuses unless cleartext traffic is allowed.
+[tool.flet.android.manifest_application]
+usesCleartextTraffic = true

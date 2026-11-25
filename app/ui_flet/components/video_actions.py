@@ -84,6 +84,7 @@ class VideoMenu:
             download=self.download and card.selectable and not image,
             author=video.author_username,
             select=touch and self.on_select is not None and card.selectable,
+            open_folder=self.shell.caps.open_folder,
         )
 
     async def run(self, card: CardView, action: va.VideoAction) -> None:

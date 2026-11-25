@@ -142,7 +142,8 @@ def DataPathsCard():
     return card(page, stext("local_data_paths"), [
         *[ft.Text(f"{label}: {path}", style=text_style(TYPE.meta), selectable=True) for label, path in lines],
         buttons(ft.OutlinedButton(content=stext("open_data_folder"), icon=AppIcon.FOLDER_OPEN,
-                                  on_click=lambda _e: page.run_task(_open_folder, app_config.app_data_dir))),
+                                  on_click=lambda _e: page.run_task(_open_folder, app_config.app_data_dir)))
+        if shell.caps.open_folder else None,
     ])
 
 
@@ -346,7 +347,7 @@ def DownloadDirCard():
         buttons(
             ft.OutlinedButton(content=stext("browse"), icon=AppIcon.FOLDER, on_click=lambda _e: page.run_task(browse)),
             ft.TextButton(content=stext("open_download_folder"), icon=AppIcon.FOLDER_OPEN,
-                          on_click=lambda _e: page.run_task(_open_folder, folder)),
+                          on_click=lambda _e: page.run_task(_open_folder, folder)) if shell.caps.open_folder else None,
             ft.TextButton(content=stext("clean_temp"), icon=AppIcon.CLEAN, on_click=lambda _e: page.run_task(clean)),
         ),
         hint(page, stext("clean_stale_temp_files_in_download")),
@@ -382,8 +383,10 @@ def BehaviorCard():
                    lambda v: put("skip_existing_files", v)),
         switch_row(page, stext("download_a_single_video_at_once"), bool(app_config.direct_download_single),
                    lambda v: put("direct_download_single", v)),
+        # Phones open the library record instead (no file manager, 8.3).
         row(page, stext("completed_card_click_action"),
-            dropdown(action, clicks, lambda v: put("completed_task_click_action", v), width=200), compact=_compact(shell)),
+            dropdown(action, clicks, lambda v: put("completed_task_click_action", v), width=200), compact=_compact(shell))
+        if shell.caps.open_folder else None,
     ])
 
 
@@ -480,6 +483,8 @@ def Aria2Card():
                        remote=cfg.aria2_remote_enabled, remote_dir=cfg.aria2_remote_dir,
                        mount_dir=cfg.aria2_remote_mount_dir, http_base=cfg.aria2_remote_http_base)
         current.update(changes)
+        if not shell.caps.local_aria2:
+            current["remote"] = True  # phones cannot run aria2 themselves
         sv.save_aria2(**current)
         shell.manager.apply_config()
         refresh()
@@ -496,14 +501,23 @@ def Aria2Card():
 
     rows: list[ft.Control | None] = [switch_row(page, "Aria2 RPC", cfg.aria2_rpc_enabled, lambda v: save(enabled=v),
                                                 help=stext("when_enabled_downloads_are_delegated_to"))]
+    if not shell.caps.local_aria2:
+        # Phones: the most useful way to download (8.2). The phone browses and submits; a NAS keeps the files.
+        rows.append(hint(page, tr(
+            "On a phone aria2 runs on another device (a NAS or PC): the phone only browses and submits, "
+            "the files never pass through it, and downloads go on while the app sleeps.",
+            "在手机上 aria2 运行于另一台设备（NAS 或电脑）：手机只负责浏览和提交，文件不经过手机，应用休眠时下载也不中断。",
+            "スマートフォンでは aria2 を別の機器（NAS や PC）で動かします。端末は閲覧と送信だけを行い、"
+            "ファイルは端末を通らず、アプリがスリープ中でもダウンロードが続きます。")))
     if cfg.aria2_rpc_enabled:
         rows += [
             text_field(cfg.aria2_rpc_url, lambda t: save(url=t), hint_text="http://127.0.0.1:6800/jsonrpc", key=f"url:{tick}"),
             text_field(cfg.aria2_rpc_token, lambda t: save(token=t), hint_text=stext("rpc_token_optional"), password=True,
                        key=f"token:{tick}"),
-            switch_row(page, stext("aria2_runs_on_another_device_nas"), cfg.aria2_remote_enabled, lambda v: save(remote=v)),
+            switch_row(page, stext("aria2_runs_on_another_device_nas"), cfg.aria2_remote_enabled, lambda v: save(remote=v))
+            if shell.caps.local_aria2 else None,
         ]
-        if cfg.aria2_remote_enabled:
+        if cfg.aria2_remote_enabled or not shell.caps.local_aria2:
             rows += [
                 hint(page, stext("videos_are_saved_by_aria2_on")),
                 text_field(cfg.aria2_remote_dir, lambda t: save(remote_dir=t),
@@ -758,9 +772,9 @@ def WindowCard():
         refresh()
 
     startup = str(app_config.startup_page or "home")
-    return card(page, stext("window_startup"), [
+    return card(page, stext("window_startup") if shell.caps.window else tr("Start-up", "启动", "起動"), [
         row(page, stext("page_shown_at_launch"), dropdown(startup, sv.startup_pages(), put, width=200), compact=_compact(shell)),
-        hint(page, tr(
+        None if not shell.caps.window else hint(page, tr(
             "The tray and launch at login belong to the classic window for now; closing this window asks first while downloads run.",
             "托盘与开机自启暂由旧版窗口提供；本窗口关闭时若仍有下载会先询问。",
             "トレイとログイン時の起動は当面クラシック版のみです。ダウンロード中にこのウィンドウを閉じると確認します。",
@@ -804,10 +818,11 @@ def PlaybackCard():
 
     mode = app_config.preview_player_mode
     rows: list[ft.Control | None] = [
-        row(page, stext("player_for_downloaded_videos"), dropdown(mode, sv.player_modes(), lambda v: put("preview_player_mode", v)),
-            compact=_compact(shell)),
+        row(page, stext("player_for_downloaded_videos"), dropdown(
+            mode, [(k, t) for k, t in sv.player_modes() if shell.caps.player_command or k != video_player.MODE_CUSTOM],
+            lambda v: put("preview_player_mode", v)), compact=_compact(shell)),
     ]
-    if mode == video_player.MODE_CUSTOM:
+    if mode == video_player.MODE_CUSTOM and shell.caps.player_command:
         rows += [
             ft.Row(controls=[
                 text_field(app_config.preview_player_command, lambda t: put("preview_player_command", t.strip()),
@@ -888,7 +903,8 @@ def MaintenanceCard():
         buttons(
             ft.OutlinedButton(content=stext("back_up"), icon=AppIcon.SAVE, on_click=lambda _e: page.run_task(back_up)),
             ft.OutlinedButton(content=stext("restore"), icon=AppIcon.HISTORY, on_click=lambda _e: page.run_task(restore)),
-            ft.TextButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs)),
+            ft.TextButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs))
+            if shell.caps.open_folder else None,
         ),
     ], description=stext("backups_include_settings_history_subscriptions_r"))
 

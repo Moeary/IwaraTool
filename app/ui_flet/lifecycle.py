@@ -14,6 +14,7 @@ import flet as ft
 from .. import bootstrap
 from ..i18n import tr
 from ..logging_setup import get_logger
+from .platform.storage import prepare_phone_storage
 from .theme import DESKTOP_PLATFORMS
 
 logger = get_logger(__name__)
@@ -23,9 +24,58 @@ async def start_app(page: ft.Page, *, services: bool = True) -> None:
     """``bootstrap.prepare`` (and ``start_services`` unless ``services`` is False) off the loop."""
 
     await asyncio.to_thread(bootstrap.prepare, frontend="flet")
+    await prepare_phone_storage(page)  # before the queue resumes into the download folder
     if services:
         await asyncio.to_thread(bootstrap.start_services)
     install_close_handler(page)
+
+
+SAVE_ON = frozenset({ft.AppLifecycleState.PAUSE, ft.AppLifecycleState.HIDE, ft.AppLifecycleState.DETACH})
+
+
+def install_pause_handler(page: ft.Page, on_resume=None) -> None:
+    """Phones: save the queue and settings whenever the app leaves the foreground (8.2).
+
+    The system may end a paused app without notice, and there is no window
+    close to wait for.  ``on_resume`` (a coroutine function) runs when it
+    comes back.
+    """
+    if page.platform in DESKTOP_PLATFORMS:
+        return
+
+    async def on_lifecycle(event: ft.AppLifecycleStateChangeEvent) -> None:
+        try:
+            if event.state in SAVE_ON:
+                await asyncio.to_thread(bootstrap.checkpoint)
+            elif event.state == ft.AppLifecycleState.RESUME and on_resume is not None:
+                await on_resume()
+        except Exception:
+            logger.exception("Handling %s failed", event.state)
+
+    page.on_app_lifecycle_state_change = on_lifecycle
+
+
+def install_back_handler(page: ft.Page, back) -> None:
+    """The system back key / gesture steps back in the app; at the start it leaves (8.2).
+
+    ``back`` is ``Shell.back`` (True when it went somewhere).  Dialogs and
+    sheets are popped by Flutter before this runs.  The root view must not pop
+    on its own, so it asks first (``can_pop=False`` + ``on_confirm_pop``).
+    """
+    if page.platform in DESKTOP_PLATFORMS or not page.views:
+        return
+    view = page.views[0]
+
+    async def on_confirm_pop(_event) -> None:
+        stepped = False
+        try:
+            stepped = bool(back())
+        except Exception:
+            logger.exception("Back navigation failed")
+        await view.confirm_pop(not stepped)
+
+    view.can_pop = False
+    view.on_confirm_pop = on_confirm_pop
 
 
 async def shutdown(page: ft.Page) -> None:

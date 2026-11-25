@@ -11,6 +11,7 @@ Development options (docs/flet_ui_plan.md 9.2):
     --shot FILE.png    save a screenshot after start-up and quit
     --account          open the account panel (for screenshots)
     --demo             offline made-up Iwara in a throw-away data folder (scripts/tools/demo_fixture.py)
+    --platform NAME    behave as android / ios (the phone build's pages and settings, 8.3)
 """
 import argparse
 import asyncio
@@ -23,6 +24,10 @@ from app.ui_flet.runner import loaded_qt_modules, prepare_environment, run
 
 # Before the rest of ``app`` is imported (the core reads these at import time).
 prepare_environment(Path(__file__).resolve().parent)
+
+if "--platform" in sys.argv[:-1]:
+    # Dev runs only: app/ui_flet/platform/capabilities.py reads this.
+    os.environ["IWARATOOL_PLATFORM"] = sys.argv[sys.argv.index("--platform") + 1].lower()
 
 if "--demo" in sys.argv:
     # Made-up offline Iwara and a throw-away data folder (scripts/tools/demo_fixture.py).
@@ -77,6 +82,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--shot", type=Path)
     parser.add_argument("--account", action="store_true")
     parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--platform", choices=("android", "ios", "macos", "windows", "linux"), default="")
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before --shot")
     args, _unknown = parser.parse_known_args(argv)  # packaged runs may add their own
     if args.shot:

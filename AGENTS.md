@@ -38,6 +38,8 @@
 | 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
 | 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板；修复路由用 `IWARATOOL_DEMO_STEP=options|preview|done` 推进步骤；工具路由用 `IWARATOOL_DEMO_VIDEO=<视频>`（`IWARATOOL_DEMO_TOOL=covers` 封面预览，`IWARATOOL_DEMO_STEP=run` 开始压缩） |
 | 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
+| 按手机能力运行（隐藏修复 / 工具 / 文件夹等） | `start-flet --platform android`；`flet_viewports.py --platform android` |
+| Android APK（需 Android SDK，平时由 CI 构建） | `pixi run -e flet build-flet --platform apk`；CI：`gh workflow run build.yml --ref feat/flet-ui -f target=flet` |
 
 - pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
 - 测试目录：`scripts/tests/core`（不依赖 Qt，两个环境都跑）、`qt`（需要 PySide6 或 `app/ui`）、`flet_ui`（Flet 界面；依赖 Flet 的用例 `skipUnless(HAS_FLET)`）。新测试放进对应目录；不能用 `flet` 作目录名。
@@ -70,6 +72,8 @@
 - 后台回调若来自 core 自己的线程池（修复扫描、封面截图），`call_soon_threadsafe` 要带上在事件循环上 `contextvars.copy_context()` 得到的上下文，否则改 observable 时报 “context is not associated with any page”（见 `stores/repair.py` 的 `_threadsafe`）。
 - Row / Column 的 `controls` 里不能有 `None`（渲染成灰色错误块），条件控件先过滤。
 - `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
+- 平台差异只问 `shell.caps`（`platform/capabilities.py`），不要在页面里比较平台名；新的桌面专属功能先在那里加能力项。手机的返回、暂停保存、剪贴板链接在 `lifecycle.py` / `Shell` 里，桌面不安装。
+- 测试不要给真正的 `app_config` 赋值（测试没有隔离数据目录，macOS 上会写进旧版的设置文件）；用 `mock.patch.object(模块, "app_config", 替身)`。
 
 ## 提交与 CI
 

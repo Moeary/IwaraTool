@@ -18,11 +18,12 @@ from ..core import account
 from ..core.download.manager import download_manager
 from ..i18n import current_language
 from ..logging_setup import get_logger
-from ..presentation import preferences
+from ..presentation import clipboard_links, preferences
 from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
+from .platform.capabilities import MOBILE_PLATFORMS, capabilities, platform_override
 from .services.dialogs import confirm
 from .services.downloads import DownloadService
 from .services.events import EventBridge
@@ -38,7 +39,7 @@ from .stores.subscriptions import SubscriptionStore
 from .stores.home import HomeStore
 from .stores.search import SearchStore
 from .stores.tasks import TaskStore
-from .theme import DESKTOP_PLATFORMS, apply_theme
+from .theme import apply_theme
 from .tokens import Size
 
 logger = get_logger(__name__)
@@ -61,7 +62,8 @@ _NAV_SHORTCUTS = {
 
 
 def platform_name(page: ft.Page) -> str:
-    return str(page.platform.value if page.platform else "macos").lower()
+    """The page's platform, or the one ``--platform`` asks a desktop run to behave as."""
+    return platform_override() or str(page.platform.value if page.platform else "macos").lower()
 
 
 class Shell:
@@ -69,8 +71,10 @@ class Shell:
         self.page = page
         self.loop = asyncio.get_running_loop()
         self.theme_override = theme_override  # dev/screenshot runs: not saved
-        desktop = page.platform in DESKTOP_PLATFORMS
+        desktop = platform_name(page) not in MOBILE_PLATFORMS
         first = start or routes.startup_destination(app_config.startup_page, desktop=desktop)
+        if not routes.allowed(first, desktop=desktop):
+            first = routes.HOME  # --route /repair on a phone
         self.state = AppState(
             layout=self._layout(page.width or 1280, page.height or 800),
             destination=first,
@@ -101,6 +105,8 @@ class Shell:
         self.tools = ToolsStore(self)
         self.drafts: dict[str, str] = {}  # unsent input (typed links…) kept across destination switches
         self._resize_handle: asyncio.TimerHandle | None = None
+        self._awake = False
+        self._offered_clipboard = ""
         self._pending_size: tuple[float, float] | None = None
 
     # ── layout ───────────────────────────────────────────────────────────────
@@ -146,19 +152,29 @@ class Shell:
 
     def select(self, destination: str) -> None:
         """A navigation item was clicked: switch, or return to the top when already there."""
+        if not routes.allowed(destination, desktop=self.caps.desktop):
+            return
         if destination == self.state.destination:
             self.navigator.go_root(destination)
         else:
             self.navigator.switch(destination)
 
     def open(self, path: str) -> None:
+        if not routes.allowed(path, desktop=self.caps.desktop):
+            return  # a link to a desktop-only page (repair, tools) on a phone
         self.navigator.open(path)
 
     def back(self) -> bool:
         if self.state.account_open:
             self.state.account_open = False
             return True
-        return self.navigator.back()
+        if self.navigator.back():
+            return True
+        if self.caps.mobile and self.state.destination != routes.HOME:
+            # Material: back from another top-level destination goes home before it leaves the app.
+            self.navigator.switch(routes.HOME)
+            return True
+        return False
 
     def cycle_destination(self, step: int) -> None:
         items = self.visible_destinations()
@@ -310,6 +326,47 @@ class Shell:
             logger.exception("Could not count downloads for the navigation badge")
             return
         self.state.active_downloads, self.state.staged_downloads = active, staged
+        await self._keep_awake(active > 0)
+
+    @property
+    def caps(self):
+        """What this platform can do (``platform/capabilities.py``)."""
+        return capabilities(self.state.layout)
+
+    async def offer_copied_link(self) -> None:
+        """Phones, back in the foreground: offer a newly copied Iwara link (no share intents in Flet)."""
+        if not self.caps.mobile:
+            return
+        try:
+            text = str(await ft.Clipboard().get() or "")
+        except Exception:
+            logger.debug("Clipboard unavailable", exc_info=True)
+            return
+        if not text or text == self._offered_clipboard:
+            return
+        self._offered_clipboard = text  # offer each copy once
+        link = clipboard_links.copied_link(text)
+        if link is None:
+            return
+        target = (routes.route(routes.AUTHOR, link.key) if link.kind == "profile"
+                  else routes.route(routes.DETAIL, link.kind, link.key))
+        from .services.notify import notice
+
+        notice(self.page, "info", clipboard_links.offer_title(link), link.url,
+               action=clipboard_links.open_label(), on_action=lambda: self.open(target), duration_ms=8000)
+
+    async def _keep_awake(self, wanted: bool) -> None:
+        """Phones: the app is suspended when the screen sleeps, so keep it on while downloads run (8.2)."""
+        if not self.caps.keep_awake or wanted == self._awake:
+            return
+        self._awake = wanted
+        try:
+            if wanted:
+                await ft.Wakelock().enable()
+            else:
+                await ft.Wakelock().disable()
+        except Exception:  # an unsupported platform or a dev run with --platform
+            logger.debug("Wakelock unavailable", exc_info=True)
 
     async def restore_login(self) -> None:
         try:

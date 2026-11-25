@@ -115,8 +115,12 @@ def video_actions(
     download: bool = True,
     author: str = "",
     select: bool = False,
+    open_folder: bool = True,
 ) -> list[VideoAction]:
-    """The entries for one video, in menu order (``group`` marks the separators)."""
+    """The entries for one video, in menu order (``group`` marks the separators).
+
+    ``open_folder`` is False where no file manager can be opened (phones).
+    """
 
     actions: list[VideoAction] = []
     if detail:
@@ -125,10 +129,12 @@ def video_actions(
     if label:
         actions.append(VideoAction(PLAY, label, GROUP_PLAY, location.playable_target))
     if location.local_path:
-        actions.append(VideoAction(OPEN_FOLDER, open_folder_label(), GROUP_PLAY))
+        if open_folder:
+            actions.append(VideoAction(OPEN_FOLDER, open_folder_label(), GROUP_PLAY))
         actions.append(VideoAction(COPY_PATH, copy_path_label(), GROUP_PLAY, location.local_path))
     elif location.is_remote and location.remote_path:
-        actions.append(VideoAction(NAS_FOLDER, open_folder_label(remote=True), GROUP_PLAY))
+        if open_folder:
+            actions.append(VideoAction(NAS_FOLDER, open_folder_label(remote=True), GROUP_PLAY))
         actions.append(VideoAction(COPY_NAS_PATH, copy_path_label(remote=True), GROUP_PLAY, location.remote_path))
     if download:
         actions.append(VideoAction(DOWNLOAD, download_label(), GROUP_DOWNLOAD))

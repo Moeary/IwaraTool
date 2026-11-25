@@ -12,6 +12,7 @@ import flet as ft
 from . import layout, routes
 from .components.account_panel import AccountPanelHost
 from .components.navigation import build_bar, build_rail
+from .lifecycle import install_back_handler, install_pause_handler
 from .pages import page_for
 from .shell import Shell
 from .stores.app_state import ShellContext, subscribe
@@ -60,4 +61,6 @@ def mount(page: ft.Page, *, start: str | None = None, theme_override: str = "") 
     shell.connect()
     shell.apply_theme()
     page.render(App, shell)
+    install_back_handler(page, shell.back)
+    install_pause_handler(page, on_resume=shell.offer_copied_link)
     return shell

@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from .platform.capabilities import MOBILE_PLATFORMS
 from .tokens import Size
 
 # Material 3 window size classes.
@@ -45,7 +46,7 @@ RAIL_ROW = {NAV_RAIL: 66, NAV_RAIL_EXTENDED: 48, NAV_RAIL_COLLAPSED: 56}
 RAIL_CHROME = {NAV_RAIL: 136, NAV_RAIL_EXTENDED: 176, NAV_RAIL_COLLAPSED: 136}
 
 DESKTOP = frozenset({"windows", "macos", "linux"})
-MOBILE = frozenset({"android", "ios"})
+MOBILE = MOBILE_PLATFORMS
 
 
 def width_class(width: float) -> str:
