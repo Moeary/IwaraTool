@@ -1,0 +1,855 @@
+# Flet 前端改造与移植方案（v1.3.0）
+
+编写日期：2026-11-22。本文是 Flet 前端的执行依据，面向实际动手改造的开发者或代理。可行性结论见 [`flet_migration.md`](./flet_migration.md)，本文不重复。
+
+- 第 1 节记录 2026-11-22 对仓库分层和构建流程的核查结论。
+- 第 2、3 节是动手写界面前必须完成的工程与核心层整理。
+- 第 4～8 节是新界面的架构、设计语言、响应式体系和逐页方案。
+- 第 9～11 节是阶段计划、验收方式、新旧对照和待核实事项。
+
+标注约定：**【已核实】** 指已在 Flet 官方文档中确认的接口；**【需核实】** 指文档中没有找到或未读到的能力，实现前必须先写最小样例验证，不能凭印象使用。
+
+---
+
+## 0. 硬性约束
+
+1. 旧版 PySide6 界面 `app/ui/` 与入口 `main.py` 在 Flet 版正式替换前保持可运行、可测试、可发版，不为新界面修改其行为。
+2. 新界面全部放在 `app/ui_flet/`，入口为根目录 `main_flet.py`。`app/ui_flet` **禁止**导入 `app.ui`、`PySide6`、`shiboken6`、`qfluentwidgets`、`qframelesswindow`，由测试强制检查（见 C7）。
+3. 业务逻辑只写在 `app/core/`（或新增的中立模块）里，界面层只做展示、输入和调度。发现界面需要的逻辑在旧 `app/ui/` 中时，先迁到 core，再让新旧两套界面都调用它，**不得复制一份到 `app/ui_flet`**。
+4. 事件处理函数不得在 Flet 事件循环上执行阻塞调用（HTTP、SQLite 批量读写、文件扫描、FFmpeg）。Flet 1.0 起处理函数运行在应用的事件循环上，阻塞会让整个界面卡住。
+5. 所有用户可见文字使用 `app.i18n.tr(en, zh, ja)`，与旧界面保持同一套用词。
+6. 改动保持小步提交，每步都能运行 `pixi run test`（旧界面）与 `pixi run -e flet test-flet`（新界面）。
+
+---
+
+## 1. 核查结论（2026-11-22）
+
+### 1.1 项目状态
+
+- 分支 `dev`，与 `origin/dev` 同步，领先 `main` 71 个提交；最近一次发版 v1.2.3。
+- `plan.md`（本地文件，已被 `.gitignore` 忽略）把 v1.3.0 定为“尝试 Flet 前端”。
+- 规模：`app/core` 约 1.98 万行，`app/ui` 约 3.65 万行。
+
+### 1.2 依赖方向：已分离
+
+- `app/core` 中没有任何对 `app.ui` 的导入。
+- `app/ui` 以外只有 5 处引用 Qt，均先经过 `qt_available()` 判断：`settings_store.py`、`signal_bus.py`、`logging_setup.py`、`qt_runtime.py`、`core/net_policy.py`。
+- `scripts/tests/test_core_without_qt.py` 在拒绝导入 PySide6 的解释器中加载全部核心模块并检查配置、事件、翻译，2026-11-22 运行通过。
+- 核心后台线程使用标准库 `threading` / `ThreadPoolExecutor`，不依赖 QThread。
+
+### 1.3 职责划分：未完全分离
+
+以下问题需在写 Flet 页面前处理，对应第 3 节任务编号：
+
+| 编号 | 问题 | 位置 |
+| --- | --- | --- |
+| C1 | 取消机制只认 QThread：`cancellation_requested()` 只检查 `QThread.isInterruptionRequested()`，普通线程或 `asyncio.to_thread` 中永远返回 False | `app/core/net_policy.py:37`，相关调用约 13 处 |
+| C2 | 搜索编排写在 Qt Worker 里：来源与范围分派、Oreno3D 多标签、分级连续扫描 `_scan_rated`、末页计算、输入校验提示 | `app/ui/search/search_worker.py`（377 行） |
+| C3 | 其他 Worker 混有业务逻辑：Oreno3D ID/作者解析与并发、首页数据归一化与 `author_user_id`、订阅缩略图与头像并发拉取 | `app/ui/search/oreno_workers.py`、`app/ui/home/workers.py`、`app/ui/subscription/components.py` |
+| C4 | 不依赖 Qt 的纯逻辑放在 `app/ui` 下 | 见 3.4 的清单 |
+| C5 | 启动与关闭流程绑在 Qt 上；设置写盘依赖 `atexit`，而编译后的 Flet 应用退出时不保证执行 `atexit` | `main.py`、`app/settings_store.py:304` |
+| C6 | 事件后端在导入时固定：装了 PySide6 又未设 `IWARATOOL_NO_QT=1` 时会选中 Qt 信号，没有 Qt 事件循环则投递不到；纯 Python 事件在发出线程同步回调 | `app/signal_bus.py` |
+| —  | 界面直接引用全局单例：`download_manager` 67 个文件、`app_config` 59 个、`signal_bus` 55 个；界面共调用 `download_manager` 的 91 个方法。不阻塞迁移，Flet 端照 `page_dependencies.py` 的中转模式统一走服务层 | `app/ui/**` |
+
+### 1.4 构建与 pixi：只支持一套界面
+
+- `pixi.toml` 只有一个环境；`start` / `test` / `build` 都默认 Qt。
+- `build_windows.py`、`build_macos.py`、CI 的 Linux 步骤都写死 `--enable-plugin=pyside6` 与 `main.py`；`macos_bundle.py` 含 PySide6 嵌套 bundle 修补。这些保留给旧界面。
+- 63 个测试文件中 42 个导入 Qt 或 `app.ui`，在没有 PySide6 的环境中 `unittest discover` 会失败。
+
+### 1.5 Flet 打包事实【已核实】
+
+- 当前版本：Flet 1.0 于 2026 年 9 月发布，1.1 于 2026-11-05 发布。
+- `flet build` **不会**在项目根目录生成 `android/`、`ios/`、`macos/`、`windows/`、`web/`。它在应用目录下生成并缓存 `build/flutter` 临时工程，产物默认放在 `build/<平台>`；`flet clean` 删除整个 `build/`。
+- 原生配置通过 `pyproject.toml` 的 `[tool.flet.*]` 或命令行参数设置：`--android-permissions`、`--android-features`、`--android-meta-data`、`--info-plist`、`--macos-entitlements` 等；更深的定制使用 `--template` 自定义模板。
+- 入口模块由 `--module-name` 或 `[tool.flet.app].module` 指定，默认 `main`；应用目录由 `[tool.flet.app].path` 指定。
+- 依赖**不读取** pixi/conda 环境，而是按 `[project].dependencies`（或 `requirements.txt`）从 PyPI 与 pypi.flet.dev 下载目标平台的包。
+- 可打包的 Python 版本只有 3.12、3.13、3.14，默认 3.14；可用 `--python-version` 或 `requires-python` 选择。
+- 默认排除规则只有 `build/`，`exclude` 只做精确匹配、不支持通配符；直接以项目根打包会把 `.pixi/`、`dist/` 等带进去（flet-dev/flet#6839）。
+- 编译主机：macOS 可编 macOS/iOS/Android/Web；Windows 可编 Windows（Linux 需 WSL）/Android/Web；Linux 可编 Linux/Android/Web。缺少 Flutter SDK 时会自动下载到 `~/flutter/<版本>`。
+- 编译后的 Flet 应用“立即终止”，`atexit` 与 `__del__` 不保证执行。
+
+---
+
+## 2. 工程结构与构建
+
+### 2.1 目录
+
+```
+main.py                       # 旧界面入口（不动）
+main_flet.py                  # 新入口：第一行设置 IWARATOOL_NO_QT=1，再导入 app
+app/
+  core/                       # 共用核心
+  bootstrap.py                # 新增：两套界面共用的启动/关闭流程（C5）
+  presentation/               # 新增：不依赖任何界面框架的展示逻辑（C4）
+  ui/                         # PySide6（不动，只改为调用迁出的逻辑）
+  ui_flet/
+    app.py                    # 根组件、主题、路由、外壳
+    layout.py                 # LayoutInfo：尺寸档位、方向、安全区（第 6 节）
+    theme.py                  # 设计令牌 → Flet Theme（第 5 节）
+    services/                 # 对 core 单例的异步包装与事件桥（4.3）
+    stores/                   # 可观察的应用状态
+    components/               # 卡片、网格、状态徽章、筛选面板、动作菜单等通用组件
+    pages/
+      home/ detail/ search/ subscriptions/ author/
+      downloads/ library/ rules/ repair/ tools/ settings/
+    platform/                 # 桌面与 Android 的差异封装（文件选择、剪贴板、窗口、分享）
+packaging/flet/
+  pyproject.toml              # 仅供 flet build：依赖、元数据、平台权限
+  assets/                     # 图标、启动图
+scripts/
+  tools/build_flet.py         # 暂存干净源码并调用 flet build
+  tests/core/ tests/qt/ tests/flet/
+```
+
+`app/ui_flet/pages/<页面>/` 与 `app/ui/<页面>/` 一一对应（资料库对应旧的历史记录），方便新旧对照，见第 10 节。
+
+### 2.2 pixi.toml
+
+拆成共用依赖加两个 feature，两个环境使用同一个 `solve-group`，保证 core 依赖版本完全一致。以下为结构示意，具体版本以实际解出的 lock 为准：
+
+```toml
+[workspace]
+name = "IwaraTool"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
+
+[dependencies]
+python = "3.12.*"
+requests = ">=2.32.5,<3"
+
+[pypi-dependencies]
+cloudscraper = ">=1.2.71"
+
+# ── 旧界面 ──
+[feature.qt.dependencies]
+nuitka = ">=2.8.9,<3"
+zstandard = ">=0.25.0,<0.26"
+[feature.qt.pypi-dependencies]
+pyside6-fluent-widgets = ">=1.10.2,<2"
+[feature.qt.target.win-64.dependencies]
+pyside6 = "==6.6.2"
+[feature.qt.target.linux-64.dependencies]
+pyside6 = "==6.6.2"
+[feature.qt.target.osx-arm64.pypi-dependencies]
+pyside6 = "==6.6.2"
+dmgbuild = ">=1.6"
+[feature.qt.target.osx-64.pypi-dependencies]
+pyside6 = "==6.6.2"
+dmgbuild = ">=1.6"
+[feature.qt.tasks]
+start = "python main.py"
+test = "python -X faulthandler -m unittest discover -s scripts/tests -t . -p \"test_*.py\""   # 跑 core + qt
+build = "..."                                       # 维持现有各平台写法
+
+# ── 新界面 ──
+[feature.flet.pypi-dependencies]
+flet = { version = "==1.1.*", extras = ["all"] }   # 需核实 extras 名称
+flet-video = "*"                                    # 解出后固定版本
+[feature.flet.tasks]
+start-flet = { cmd = "python main_flet.py", env = { IWARATOOL_NO_QT = "1", IWARATOOL_DATA_DIR = "data-flet" } }
+test-flet  = { cmd = "python -X faulthandler -m unittest discover -s scripts/tests -t . -p \"test_*.py\"", env = { IWARATOOL_NO_QT = "1", IWARATOOL_TEST_SCOPE = "core,flet" } }
+build-flet = "python scripts/tools/build_flet.py"
+
+[environments]
+default = { features = ["qt"], solve-group = "main" }
+flet    = { features = ["flet"], solve-group = "main" }
+```
+
+要点：
+
+- 现有 `[tasks]` 与各平台的 `target.*.tasks`（macOS 测试固定 `QT_QPA_PLATFORM=cocoa`）全部移进 `feature.qt`，不改变旧界面的运行方式。
+- `start-flet` 默认使用独立数据目录 `data-flet`（相对路径时按 `app/paths.py` 的规则解析，需确认），避免两套界面争用同一份 INI、SQLite 与下载队列。`data-flet/` 加入 `.gitignore`。
+- 测试的选择方式二选一：按目录拆成 `scripts/tests/{core,qt,flet}`（推荐，清楚），或在 `qt_helpers` 中按 `IWARATOOL_TEST_SCOPE` 跳过。拆目录时注意测试里的相对路径与 `PROJECT_ROOT = parents[2]` 需要随之调整。
+
+### 2.3 Python 3.12
+
+Flet 打包不支持 3.11，因此整个项目升到 3.12：
+
+1. `python = "3.12.*"`，重新解 lock。
+2. 旧界面完整跑一遍 `pixi run test` 与 macOS `pixi run build`（含 DMG 冒烟）。PySide6 6.6.2 与 Nuitka 2.8 预期支持 3.12，但必须以实际结果为准；不支持时先升级 PySide6 小版本并单独提交。
+3. `packaging/flet/pyproject.toml` 写 `requires-python = ">=3.12,<3.13"`，使打包固定使用 3.12。
+
+### 2.4 packaging/flet/pyproject.toml
+
+```toml
+[project]
+name = "iwaratool"
+version = "1.3.0"            # build_flet.py 从 app/version.py 写入
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "flet==1.1.*",
+  "flet-video==<固定版本>",
+  "requests>=2.32.5,<3",
+  "cloudscraper>=1.2.71",
+]
+
+[tool.flet]
+product = "IwaraTool"
+org = "<反向域名，待定>"
+
+[tool.flet.app]
+path = "."
+module = "main_flet"
+
+# Android 权限、Info.plist、entitlements 等按需添加，名称以 flet build 文档为准
+```
+
+### 2.5 scripts/tools/build_flet.py
+
+仿照现有构建脚本，流程：
+
+1. 清空并创建 `build/flet-src/`。
+2. 复制 `main_flet.py`、`app/*.py`、`app/core/`、`app/presentation/`、`app/ui_flet/`、`app/data/`、`app/icon.ico`，以及 `packaging/flet/` 下的 `pyproject.toml` 与 `assets/`。**不复制** `app/ui/`。
+3. 把版本号写入暂存的 `pyproject.toml`。
+4. 在 `build/flet-src/` 中执行 `flet build <平台> --output ../../dist/flet-<平台> --python-version 3.12`。Flet 自己的 `build/flutter` 位于 `build/flet-src/build/`，不会碰到 Nuitka 用的 `build/macos`。
+5. 产物重命名为 `IwaraTool-Flet-<平台>-<架构>-<版本>.*`。
+6. 冒烟：检查包内不含 `PySide6`、`app/ui/`；桌面平台启动产物并在限定时间内正常退出（可仿照 `main.py --smoke-test` 加一个 `main_flet.py --smoke-test`）。
+
+### 2.6 CI
+
+- `test.yml`：新增 Flet 环境的测试任务（三平台，`pixi run -e flet test-flet`），与现有任务并行。
+- `build.yml`：新增独立的 Flet 构建任务，先只在 `workflow_dispatch` 时运行；产物前缀为 `IwaraTool-Flet-*`，**不进入**现有发版的 `files: dist/IwaraTool*` 匹配，直到决定替换旧界面。可以选用官方 `flet-dev/flet-build-action`，但要保证仍通过 `build_flet.py` 暂存源码。
+- Android 构建放在 Linux runner 上，签名密钥使用仓库 secrets，没有密钥时只出 debug 包。
+
+---
+
+## 3. 核心层整理（写 Flet 页面前完成）
+
+每项单独提交，提交后旧界面测试必须全部通过。
+
+### C1 中立的取消机制（最优先）
+
+- 在 `app/core/` 新增 `cancellation.py`：`CancelToken`（内部 `threading.Event`），以及基于 `contextvars` 的“当前令牌”：`with cancel_scope(token): ...`。
+- `net_policy.cancellation_requested()` 改为：先查当前令牌，再查 QThread（保留旧行为）。
+- 旧界面的 `ManagedThread.requestInterruption()` 同时设置自身令牌，行为不变。
+- 测试：普通线程中设置令牌后，`cancellable_sleep` 与网络请求能在 `CANCEL_POLL_SECONDS` 量级内抛出 `RequestCancelled`；无 Qt 环境同样通过。
+
+### C2 搜索服务
+
+- 新增 `app/core/search/service.py`：`run_search(filters, scope, page, *, source, cancel) -> SearchPageResult`，包含 `SearchWorker` 中的全部分派逻辑、`_scan_rated`、末页计算和输入校验（校验提示文字保留 `tr()`，或返回错误码由界面翻译，二选一并保持一致）。
+- 旧 `SearchWorker.run()` 只剩 `self.result_ready.emit(run_search(...))`。
+- 现有 `test_search*.py` 中针对 Worker 的用例改为针对服务，界面测试只验证信号转发。
+
+### C3 其余 Worker 的业务逻辑
+
+| 现位置 | 迁往 | 内容 |
+| --- | --- | --- |
+| `ui/search/oreno_workers.py` 的 `_resolve_oreno_video_id`、`_resolve_oreno_video_details` 和批量解析的并发控制 | `core/search/oreno3d_bridge.py` 或新 `core/search/resolution.py` | 去掉为测试替身写的 `TypeError` 回退，测试替身改为实现完整签名 |
+| `ui/home/workers.py` 的 `normalize_items`、`items_from_rows`、`author_user_id`、`FeedWorker._fetch` | `core/home/feed.py` | 首页栏目数据获取函数 `fetch_section(section, *, cancel)` |
+| `ui/subscription/components.py` 的刷新、头像、缩略图批量拉取 | `core/subscription/media_cache.py` / `refresh.py` | 带取消与进度回调的批量函数 |
+| `ui/search/worker_limits.py` | `core/search/` | 并发上限常量 |
+
+### C4 纯逻辑迁出 app/ui
+
+迁到新包 `app/presentation/`（展示用的派生数据与文字，不依赖界面框架），旧位置保留一行 re-export 或直接改引用：
+
+| 现位置 | 内容 |
+| --- | --- |
+| `ui/search/result_authors.py` | 作者目标解析 |
+| `ui/search/history_entries.py`、`ui/search/keyword_language.py` | 搜索历史条目、关键词语言判断 |
+| `ui/search/author_navigation.py`、`ui/search/queueing.py` 中与控件无关的部分 | 作者跳转目标、可入队判断 |
+| `ui/history/record_state.py` | 记录状态（本地/已移走/远端）与搜索文本 |
+| `ui/subscription/item_queries.py` | 订阅条目筛选、排序、可下载 ID |
+| `ui/downloads/task_text.py`、`task_statuses.py`、`submitted_urls.py` | 任务文字、状态分组 |
+| `ui/downloads/staging_flow.py` 的 `video_payload` | 入队载荷 |
+| `ui/window/notification_dispatcher.py` | 通知合并 |
+| `ui/media/detail_text.py`、`detail_metrics.py`、`detail_state.py`、`detail_comments.py` 中的纯函数 | 详情页文字与统计格式 |
+| `ui/common/formatting.py` | 数字、大小、时长格式 |
+| `ui/common/click_dispatch.py` 中的动作常量 | 统一的视频动作定义（见 7.0） |
+| `ui/shortcuts/catalog.py` | 快捷键目录：拆成纯数据（动作 ID、默认键位字符串、分组、平台差异）放 `presentation`，`QKeySequence` 解析留在旧界面 |
+
+### C5 共用启动与关闭
+
+新增 `app/bootstrap.py`，把 `main.py` 中与界面无关的步骤搬过去：
+
+```python
+def start(*, frontend: str) -> None:
+    # apply_pending_restore → 加载配置 → setup_logging → ensure_temporary_rule
+    # → download_manager.apply_config() → restore_cached_login() → start()
+    # → background_service.start()
+
+def stop(*, wait: bool, timeout: float = 30.0) -> None:
+    # background_service.stop → download_manager.shutdown → 保存任务队列
+    # → 关闭数据库 → 同步全部设置存储（替代 atexit）
+```
+
+- `IniSettingsStore` 增加公开的 `sync_all_open_stores()`；`stop()` 必须显式调用，不能依赖 `atexit`。
+- 旧 `main.py` 改为调用 `bootstrap.start()`，在 `aboutToQuit` 中调用 `bootstrap.stop(wait=False)`，行为与现在一致。
+- Flet：桌面窗口设置 `page.window.prevent_close = True`，在 `WindowEventType.CLOSE` 中先 `await asyncio.to_thread(bootstrap.stop, wait=True)` 再 `await page.window.destroy()`【已核实这些接口存在】。Android 在应用切到后台时同步设置与队列（生命周期事件名【需核实】）。
+
+### C6 事件桥约定
+
+- `main_flet.py` 第一行设置 `os.environ["IWARATOOL_NO_QT"] = "1"`，之后才能导入任何 `app` 模块。
+- `app/ui_flet/services/events.py` 订阅 `signal_bus`，回调在后台线程中只做一件事：把事件放进线程安全队列，并通过 `page.run_task`（文档注明可从任意线程调用）或 `loop.call_soon_threadsafe` 唤醒事件循环上的消费者。
+- 消费者按类型合并：下载进度按任务 ID 只保留最新值，每 150 ms 批量写入状态；状态变化、错误、完成立即处理。
+- 页面卸载时取消订阅；测试断言重复进出页面后订阅数不增长。
+
+### C7 测试守护
+
+扩展 `test_core_without_qt.py`：
+
+- 遍历 `app.presentation` 与 `app.ui_flet`，在拒绝 Qt 的解释器中全部可导入（`ui_flet` 在 Flet 环境中检查）。
+- 静态检查：`app/ui_flet/**` 源码中不得出现 `app.ui`、`from ..ui`、`PySide6`、`qfluentwidgets`。
+- `bootstrap.start()` / `stop()` 在临时数据目录中可完整走一遍，`stop()` 后 INI 已写盘。
+
+---
+
+## 4. Flet 前端架构
+
+### 4.1 写法：声明式为主
+
+Flet 1.0 提供声明式写法：`@ft.component`、`ft.use_state` / `use_effect` / `use_context` / `use_memo`，以及 `@ft.observable` 数据类；官方建议较大的应用使用声明式，命令式仍受支持【已核实】。本项目页面多、状态联动多（语言、主题、分级、站点、登录、尺寸档位），采用声明式：
+
+- 根组件 `App` 通过 `ft.run(main)` + `page.render(App)` 挂载。
+- 全局状态放在 `stores/` 的可观察数据类中，通过 context 提供，避免层层传参。
+- 高频数据（下载进度）先在服务层合并再写入 store，避免每个字节回调都触发重绘。
+- 如果某个大列表在声明式下性能不达标（第 9 节的性能验收），只对该组件局部改用命令式，并在代码中注明原因。
+
+### 4.2 分层
+
+```
+pages/*  ──读──▶ stores/*  ◀──写── services/*  ──调用──▶ app.core / app.presentation
+   │                                   ▲
+   └──── 用户操作（async 处理函数）─────┘
+```
+
+- **services**：对 core 单例的薄包装，所有阻塞调用写成 `await asyncio.to_thread(...)` 并传入 `CancelToken`。每个页面只从自己的 `services` 入口拿依赖，与旧界面的 `page_dependencies.py` 对应，便于测试替换。
+- **stores**：`AppState`（语言、主题、分级、站点、登录状态、当前路由）、`LayoutState`（第 6 节）、`TaskStore`（下载任务）、`SelectionState`（多选）等。
+- **components**：只依赖 props 与 store，不直接调用 core。
+
+### 4.3 并发规则
+
+- 处理函数一律 `async def`；耗时工作用 `asyncio.to_thread` 或 `page.run_thread`。
+- 每个可取消的操作（搜索、翻页、加载详情、刷新订阅）持有一个 `CancelToken`；发起新请求或离开页面时取消旧令牌，结果回来时校验令牌，过期结果直接丢弃。
+- 封面加载使用独立的有界队列（桌面 6～8 并发，移动 4 并发），可见区域优先；复用 `core/image_cache.py` 与订阅封面缓存。
+
+### 4.4 路由
+
+- 使用 `page.route` / `page.push_route` / `page.on_route_change` / `page.views` / `page.on_view_pop`【已核实】。
+- 路由表：`/home`、`/home/section/<id>`、`/detail/<kind>/<id>`、`/search`、`/subscriptions`、`/subscriptions/<source_id>`、`/author/<site>/<username>`、`/downloads`、`/downloads/log`、`/library`、`/library/<record_id>`、`/rules`、`/rules/<rule_id>`、`/repair`、`/tools/<tool>`、`/settings`、`/settings/<section>`。
+- 保留旧界面的返回语义：一级导航切换不入栈，每个一级页面各自维护返回栈；从别的页面跳转过来的（如搜索结果打开详情、打开作者页），返回回到原页面。逻辑放在 `presentation`，可参考 `ui/window/back_stack.py`。
+- Android 系统返回键、预测性返回手势如何接入路由【需核实】：文档中 `on_view_pop` 只写了 AppBar 自动返回按钮，需要在真机上确认系统返回是否同样触发。
+
+---
+
+## 5. 设计语言
+
+### 5.1 原则
+
+1. **内容优先**：封面是主角，界面框架安静、低对比，不用大面积描边框把页面切成格子（现有界面卡片描边、面板描边、表头描边叠在一起，视觉噪音偏多）。
+2. **一屏一个主操作**：每个视图只有一个强调色主按钮（下载、搜索、添加订阅、保存），其余操作放进次级按钮、图标按钮或“更多”菜单。
+3. **渐进展开**：筛选、排序、下载规则等低频设置默认收起，用筛选面板或底部抽屉打开，不常驻占用工具栏。
+4. **状态一致**：同一状态在所有页面使用同样的徽章、颜色、文字（见 5.5）。
+5. **触控优先，键盘完整**：所有操作都有 48dp 以上的触控目标；桌面端保留全部快捷键与网格键盘导航。
+
+### 5.2 颜色
+
+基于 Material 3 配色体系，以现有品牌青色为种子，保留旧界面的语义色。Flet 主题使用 `color_scheme_seed` 生成后，覆盖以下角色：
+
+| 令牌 | 浅色 | 深色 | 用途 |
+| --- | --- | --- | --- |
+| primary | `#00848E` | `#4CC2C9` | 主按钮、选中指示、链接 |
+| on-primary | `#FFFFFF` | `#00363A` | 主按钮文字 |
+| primary-container | `#D9EEF0` | `#2C4B4D` | 选中卡片、选中行、导航指示器 |
+| background | `#F6F7F9` | `#111315` | 页面背景 |
+| surface | `#FFFFFF` | `#1B1E21` | 卡片、面板 |
+| surface-variant | `#EEF1F4` | `#25292D` | 输入框、分段控件底色、骨架屏 |
+| outline-variant | `#E1E4E8` | `#33383D` | 必要的分隔线（尽量少用） |
+| on-surface | `#1B1B1B` | `#F3F3F3` | 正文 |
+| on-surface-variant | `#5F6368` | `#B4B8BC` | 次要文字、元信息 |
+| success | `#0F7B0F` / 底 `#DFF3E2` | `#6CCB5F` / 底 `#1E3A22` | 已下载、完成 |
+| warning | `#9D5D00` / 底 `#FFF1D6` | `#F0B44C` / 底 `#3D2E12` | 排队、待确认、已移走 |
+| danger | `#C42B1C` / 底 `#FDE7E4` | `#FF99A4` / 底 `#47201F` | 失败、删除 |
+| info | `#005FB8` / 底 `#E1EEFB` | `#60CDFF` / 底 `#14304A` | 新内容、远端 |
+
+深色模式下的语义色底色为本文给出的建议值，实施时需检查文字对比度不低于 4.5:1。强调色只用于主操作和选中状态，不用于大面积背景。
+
+> **已实施（2026-11-25）**：令牌在 `app/ui_flet/tokens.py`，主题在 `app/ui_flet/theme.py`。与上表的差异：
+> - 浅色 primary 改为 `#007A84`（原 `#00848E` 上白字仅 4.48:1、在页面底色上 4.18:1），色相不变；`#00848E` 保留为 `color_scheme_seed`。
+> - 补齐 Material 3 表面阶梯：`surface`（页面）→ `lowest` → `card`（surface_container_low）→ `container`（底栏、菜单）→ `raised`（对话框、抽屉）→ `field`（surface_container_highest，输入框、Chip、骨架）。
+> - `secondary_container` 设为 primary-container，侧栏/底栏指示器、选中分段、色调按钮共用同一种选中色；`surface_tint` 透明，表面不叠 Material 色调。
+> - 新增 inverse 角色供 SnackBar 与 Tooltip 使用，深色模式 inverse_primary 为 `#006B73`。
+> - `scripts/tests/test_flet_theme.py` 对全部组合做 WCAG 检查：正文 4.5:1，状态色图标在卡片上 3:1。
+
+### 5.3 字体与字号
+
+- 字体使用系统界面字体，不内置字体文件。日文界面需让日文字形优先于中文字形。
+  - **已实施**：主字体不指定（Windows 为 Segoe UI，macOS 为系统字体），所有文字角色设置 `font_family_fallback`，按界面语言排列中日字体（Windows：Microsoft YaHei UI / Yu Gothic UI…；macOS：PingFang SC / Hiragino Sans…）。字体表与旧界面共用 `app/presentation/fonts.py`。用户在设置中选的字体（`ui_font_family`）作为主字体。已在 macOS 上目测日文界面显示日文字形。
+  - Flet 主题里没有颜色的 `TextStyle` 会被画成白色（与明暗无关），因此主题中的每个文字样式都显式带颜色，由测试检查。
+- 字号（逻辑像素）：
+
+| 角色 | compact | medium 及以上 | 字重 |
+| --- | --- | --- | --- |
+| 页面标题 | 22（放在顶栏） | 28 | 600 |
+| 区块标题（首页栏目、设置分组） | 18 | 20 | 600 |
+| 卡片标题 | 14，最多 2 行 | 14，最多 2 行 | 500 |
+| 正文 | 14 | 14 | 400 |
+| 元信息 | 12 | 12 | 400 |
+| 徽章、计数 | 11 | 11 | 600 |
+
+现有页面标题约 40px，过大且占高，新界面下调。
+- 系统字体放大到 130% 时不得截断关键文字：卡片文字区不写死高度，按字号计算（见 6.6）。
+
+### 5.4 间距、圆角、阴影、动效
+
+- 间距采用 4 的倍数：4 / 8 / 12 / 16 / 24 / 32。页面左右边距：compact 16（宽度 < 360 时 12），medium 24，expanded 及以上 32。
+- 圆角：封面与卡片 12；按钮、输入框 10；徽章 6；底部抽屉顶部 28；对话框 24。
+- 阴影：默认不用。桌面端悬停卡片时上移 2dp 并加一层很淡的阴影；触控设备不做悬停效果。
+- 动效：150～250 ms，标准缓动；封面载入淡入 180 ms；页面切换使用 Flet 默认过渡。系统开启“减少动态效果”时关闭非必要动画（接口【需核实】）。
+
+### 5.5 状态徽章
+
+所有封面卡片、列表行、详情页使用同一组件 `StatusBadge`：
+
+| 状态 | 文字 | 颜色 | 显示位置 |
+| --- | --- | --- | --- |
+| 新 | 新 | info | 封面左上 |
+| 排队中 / 下载中 | 排队 / 42% | warning / primary | 封面左上；下载中可在封面底部加 3dp 进度条 |
+| 本地已下载 | 已下载 | success | 封面左上 |
+| 已移走 | 已移走 | warning | 封面左上 |
+| 已下载到远端 | 远端 | info | 封面左上 |
+| 失败 | 失败 | danger | 封面左上 |
+| 未下载 | 不显示 | — | — |
+
+现有搜索卡片逐张写“Not downloaded”，属于无效信息，新界面只在状态值得注意时显示徽章。
+
+### 5.6 图标
+
+使用 Flet 内置 Material Icons，全应用统一，不混用其他图标库。
+
+**已实施**：Flet 1.1 只带传统 Material Icons（每个图标有 filled / `_OUTLINED` / `_ROUNDED` / `_SHARP` 四种字形，没有可变填充的 Material Symbols），因此规则定为：静止状态用线框 `_OUTLINED`，导航选中和开关激活（已点赞、已订阅）用实心 `_ROUNDED`；箭头、关闭等纯线条字形用 `_ROUNDED`。所有图标按含义登记在 `app/ui_flet/icons.py`（`NavIcon` 成对、`StateIcon` 成对、`AppIcon` 单个），页面不得直接写 `ft.Icons.X`，由测试检查。
+
+### 5.7 通用状态视图
+
+每个列表、网格都必须实现四种状态，统一放在 `components/states.py`：
+
+- **加载中**：与真实布局同尺寸的骨架卡片或骨架行，不使用页面中央的大转圈。
+- **空**：插图或图标 + 一句说明 + 一个能解决问题的按钮（如“还没有订阅 → 添加作者或播放列表”）。
+- **错误**：顶部横幅或内联卡片，写明原因（保留核心层返回的错误文字），附“重试”。
+- **未登录**：需要登录的区域显示“登录后查看”与登录按钮，而不是空白。
+
+---
+
+## 6. 响应式布局体系
+
+### 6.1 目标设备与典型尺寸
+
+以下为逻辑像素（dp）下的典型值，用于设计与测试，不代表精确机型参数：
+
+| 设备形态 | 竖向 | 横向 | 宽度档 | 高度档 |
+| --- | --- | --- | --- | --- |
+| 普通手机 | 360～412 × 780～915 | 780～915 × 360～412 | compact | 横向时 compact |
+| 21:9 长屏手机 | 360～411 × 840～960 | 840～960 × 360～411 | compact | 横向时 compact |
+| 折叠屏外屏（窄长型） | 约 344～390 × 850～900 | — | compact | — |
+| 折叠屏内屏（展开） | 约 673～840 × 840 | 约 840～900 × 673 | medium / expanded | — |
+| 平板 | 约 800 × 1280 | 约 1280 × 800 | medium / large | — |
+| 大平板 | 约 1024 × 1366 | 约 1366 × 1024 | expanded / large | — |
+| 桌面窗口 | 任意，最小 360 × 560 | — | 全部档位 | — |
+
+设计的最小宽度为 **320dp**，在该宽度下不得出现横向溢出。
+
+### 6.2 尺寸档位
+
+采用 Material 3 的窗口尺寸档位，而不是 Flet `ResponsiveRow` 默认的 Bootstrap 断点：
+
+| 宽度档 | 宽度 | 高度档 | 高度 |
+| --- | --- | --- | --- |
+| compact | < 600 | compact | < 480 |
+| medium | 600～839 | medium | 480～899 |
+| expanded | 840～1199 | expanded | ≥ 900 |
+| large | 1200～1599 | | |
+| xlarge | ≥ 1600 | | |
+
+- 由 `app/ui_flet/layout.py` 统一计算 `LayoutState`：`width`、`height`、`width_class`、`height_class`、`orientation`、`aspect`（长边 ÷ 短边）、`safe_insets`、`keyboard_inset`、`is_touch`、`is_mobile`。
+- 数据来源：`page.on_resize`（`PageResizeEvent.width/height`）与 `page.on_media_change`（`PageMediaData.padding/view_padding/view_insets/orientation`）【已核实】。启动时首次计算需在页面尺寸可用后进行（`page.width` 在移动端的取值【需核实】）。
+- 组件只读 `LayoutState`，**禁止**在组件中直接读 `page.width` 或写死像素断点。
+- 档位切换加 1 帧防抖，避免拖动窗口时反复重建。
+- 需要栅格时使用 `ResponsiveRow` 的自定义断点，与上表保持一致【已核实支持自定义】：
+
+```python
+BREAKPOINTS = {"compact": 0, "medium": 600, "expanded": 840, "large": 1200, "xlarge": 1600}
+ft.ResponsiveRow(breakpoints=BREAKPOINTS, controls=[
+    ft.Container(col={"compact": 12, "expanded": 6, "large": 4}, content=...),
+])
+```
+
+`ResponsiveRow` 依据窗口宽度还是自身宽度计算断点，文档未说明【需核实】；如依据窗口宽度，在双栏布局的子栏中使用时会出错，此时改用 `LayoutState` 计算列数。
+
+### 6.3 应用外壳
+
+| 条件 | 主导航 | 顶栏 | 全局主操作 |
+| --- | --- | --- | --- |
+| compact 宽且高度非 compact（手机竖屏、折叠屏外屏） | 底部 `NavigationBar`，5 个目的地，始终显示标签 | `AppBar`：页面标题 + 至多 2 个图标 + 头像菜单 | 页面内 FAB（如下载页“粘贴链接”） |
+| 高度 compact（手机横屏，含 21:9 横屏） | 收起的 `NavigationRail`，无标签，72dp | 滚动时自动隐藏的精简顶栏 | 侧栏顶部的图标按钮 |
+| medium（折叠屏内屏、平板竖屏） | `NavigationRail`，显示标签 | 页面头部（标题 + 操作） | 侧栏顶部“粘贴链接”按钮 |
+| expanded | `NavigationRail`，显示标签 | 页面头部 | 同上 |
+| large / xlarge | 展开的 `NavigationRail`（`extended=True`，宽 240～256），用户可手动收起，记住选择 | 页面头部 | 同上 |
+
+相关接口：`NavigationRail.extended`、`label_type`、`min_width`、`min_extended_width`，`page.navigation_bar`、`NavigationBar.label_behavior`，`page.drawer` / `page.end_drawer`【已核实】。外壳最外层用 `SafeArea` 处理刘海、挖孔、手势条【已核实】。
+
+#### 目的地重组
+
+旧侧栏有 9 个页面加 4 个底部按钮，手机底栏放不下，按使用频率重组：
+
+| 层级 | 目的地 | 说明 |
+| --- | --- | --- |
+| 一级（底栏 / 侧栏上部） | 首页、订阅、搜索、下载、资料库 | “资料库”即旧的历史记录，以下载过的作品为中心 |
+| 二级（侧栏下部；手机放在头像菜单） | 规则、修复、工具、设置 | 修复、工具仅桌面显示（见 8.3） |
+| 全局偏好（头像菜单） | 登录状态与账号、站点 iwara.tv / iwara.ai、内容分级、主题、关于与更新 | 旧界面散落在首页标题栏、侧栏底部的地球、太阳图标中，统一收进这里 |
+
+- 内容分级与站点是高频切换项，在首页和搜索页顶栏额外放一个**偏好标签**（例如“iwara.tv · 全部”），点击弹出两组单选，与头像菜单中的设置同步。
+- 启动页设置（`startup_page`）仍然有效，取值映射到新的目的地。
+- 下载页图标上显示进行中任务数徽章，待确认批次存在时显示圆点（对应旧的 `staging_badge`）。
+
+### 6.4 四种页面布局模式
+
+所有页面只使用以下四种模式，便于统一实现和测试：
+
+1. **网格流**（首页、搜索、订阅作品、作者页）：封面网格，列数随宽度变化（6.6）。
+2. **列表-详情**（订阅源与作品、规则列表与编辑、设置分类与内容、资料库列表与详情）：宽度 ≥ 840 时左右双栏，左栏 280～360、右栏占满；< 840 时单栏，点击列表项推入详情路由。
+3. **单列表单**（设置子页、工具、修复步骤、登录）：内容最大宽度 720，居中；label 与控件在 medium 及以上同一行、在 compact 上下排列。
+4. **详情页**（作品详情、播放）：见 7.3。
+
+所有页面内容区在 xlarge 下设最大宽度（网格流 1600，表单 720，列表-详情 1440），两侧留白，避免超宽屏上元素被拉得过远。旧设置页、工具页的控件被推到 1400px 外的最右侧，就是缺少最大宽度的结果。
+
+### 6.5 折叠屏与 21:9
+
+- Flet 文档中没有找到折叠屏铰链与姿态信息（对应 Flutter 的 `MediaQuery.displayFeatures`）【需核实，当前视为不可用】。因此：
+  - 只根据宽高档位布局，不做铰链对齐。
+  - 列表-详情双栏只在宽度 ≥ 840 时启用。折叠屏展开的竖向内屏（约 673～840 宽）通常落在 medium，使用单栏加更多网格列，内容不会被分在铰链两侧。
+  - 折叠/展开时窗口尺寸变化会触发 `on_resize`，必须保证切换后滚动位置、选中项、正在播放的视频、未提交的输入框内容都保持不变：这些状态放在 store 里，不放在组件局部。
+- 21:9 长屏竖向：宽度与普通手机相同，档位不变，多出来的高度只用于显示更多行；**不得**按高宽比放大卡片。详情页播放器保持 16:9，下方信息区更长。
+- 21:9 横屏（约 900 × 400）：宽度落在 expanded，但高度 compact。此时一律按“高度 compact”处理：收起侧栏、顶栏滚动隐藏、底部抽屉改为右侧面板、播放时默认全屏。判断条件写成 `height_class == "compact"` 优先于宽度档。
+- 外屏极窄（约 344dp）：网格保持 2 列（6.6 已按此计算），顶栏图标不超过 2 个，筛选标签横向滚动而不换行。
+
+### 6.6 封面网格尺寸
+
+- 卡片结构：16:9 封面 + 文字区（标题 2 行 + 元信息 1 行）。文字区高度 = 内边距 + 标题行高 × 2 + 元信息行高，随系统字号缩放计算，不写死。
+- 不直接依赖 `GridView.max_extent` 推算列数，而是在 `LayoutState` 变化时计算：
+
+```
+avail = 内容区宽度 − 左右边距
+cols  = clamp(floor((avail + gap) / (min_card + gap)), min_cols, max_cols)
+tile_w = (avail − gap × (cols − 1)) / cols
+child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
+→ GridView(runs_count=cols, child_aspect_ratio=..., spacing=gap, run_spacing=gap)
+```
+
+- 参数：
+
+| 宽度档 | gap | min_card（标准密度） | min_cols | max_cols |
+| --- | --- | --- | --- | --- |
+| compact | 8（< 360 时）／12 | 150 | 2 | 3 |
+| medium | 16 | 180 | 3 | 5 |
+| expanded | 16 | 200 | 3 | 6 |
+| large / xlarge | 20 | 220 | 4 | 8 |
+
+- 密度：手机与平板提供“紧凑 / 标准 / 大”三档（min_card 乘以 0.85 / 1 / 1.4，“大”在 compact 上即单列大卡）；桌面保留连续的封面大小滑块和 Ctrl+= / Ctrl+- / Ctrl+0，滑块值映射为 min_card（160～420）。两者写入同一个设置项，首页、搜索、订阅、作者页共用。
+- 网格使用 `GridView(build_controls_on_demand=True)`【已核实默认开启】，只构建可见卡片；封面图片按可见顺序加载。
+
+### 6.7 交互适配
+
+| 交互 | 触控（手机、平板） | 鼠标键盘（桌面） |
+| --- | --- | --- |
+| 打开 | 点按 | 单击；Enter |
+| 右键菜单 | 长按 → 底部动作面板 | 右键 → 弹出菜单；菜单键、Shift+F10 |
+| 多选 | 长按第一项进入选择模式，之后点按切换；顶栏变为上下文操作栏（已选数量、全选、下载、更多） | 悬停显示卡片右上角复选框；Ctrl/⌘ 单击切换，Shift 单击连选；Ctrl+A、Esc |
+| 刷新 | 下拉刷新（Flet 是否提供下拉刷新控件【需核实】，不提供则在顶栏放刷新按钮） | F5 / ⌘R |
+| 筛选与排序 | 底部抽屉 | expanded 及以上为内联工具栏，或右侧面板 |
+| 对话框 | compact：全屏对话框或底部抽屉 | 居中对话框，最大宽度 560 |
+| 返回 | 系统返回、屏幕左缘右滑 | 左上角返回、Esc、鼠标侧键、触控板右滑 |
+| 提示 | `SnackBar`（`page.show_dialog(ft.SnackBar(...))`【已核实】），破坏性操作附“撤销” | 同左 |
+
+- 触控目标至少 48 × 48dp；桌面可使用较紧凑的视觉密度（行高 40），通过主题的 visual density 切换（接口【需核实】）。
+- 键盘弹出时，输入框所在区域通过 `view_insets` 上移，表单底部操作栏不被遮挡（`SafeArea.maintain_bottom_view_padding`【已核实】）。
+
+---
+
+## 7. 逐页方案
+
+每页按“定位 / 旧界面问题 / 新布局 / 交互 / 迁移要点”给出。截图参考 `docs/panel_view/`。
+
+### 7.0 跨页面通用组件
+
+| 组件 | 说明 |
+| --- | --- |
+| `VideoCard` | 封面、时长（右下）、状态徽章（左上）、选择框（右上）、标题 2 行、元信息 1 行“作者 · 播放 · 点赞 · 日期”。首页、搜索、订阅、作者页、资料库封面视图共用，统一旧版首页卡片与搜索卡片两种不同样式 |
+| `VideoGrid` | 6.6 的网格 + 骨架、空、错误状态 + 选择模式 + 键盘导航 |
+| `VideoActions` | 统一动作列表，顺序沿用旧版统一右键菜单：查看详情 → 播放（本地 / 远端 / 在线）→ 打开所在文件夹 / 复制文件路径 → 下载 → 在浏览器打开 / 复制链接 → 作者相关 → 本页管理项。同一份定义生成桌面弹出菜单与手机底部动作面板。动作是否可用由 `presentation` 计算 |
+| `DownloadSheet` | 点“下载”时弹出：数量摘要、下载规则选择（默认取本页规则）、“记住为本页规则”、跳过已下载开关、确认。替代旧界面每页常驻的规则下拉框 |
+| `FilterSheet` | 筛选条件面板，compact 为底部抽屉，宽屏为右侧面板 |
+| `SectionHeader` | 区块标题 + 折叠 + 次要信息 + 操作 + “更多 ›” |
+| `PageHeader` | medium 及以上的页面头部：标题、副标题、主操作、更多菜单；向下滚动时收缩为单行 |
+| `StatusBadge`、`EmptyState`、`ErrorBanner`、`Skeleton` | 见 5.5、5.7 |
+
+### 7.1 首页
+
+- **定位**：发现内容，按栏目浏览。
+- **旧界面问题**：标题行同时放封面大小滑块、内容分级分段控件、编辑、全部刷新；栏目标题行同时放分段控件、更新时间、下载当前展示、刷新、更多。宽屏尚可，窄屏必然溢出。
+- **新布局**：
+  - 顶栏：标题“首页”、偏好标签（站点 · 分级）、更多菜单（自定义栏目、全部刷新、封面大小）。
+  - 每个栏目：`SectionHeader`（标题、折叠箭头、“更新于 x 分钟前”、更多菜单：下载当前展示 / 刷新；右侧“更多 ›”），下方一行可横向滚动的排序标签（趋势 / 热度 / 最新，视频 / 图片）。
+  - compact：每个栏目是**横向滚动的货架**，卡片宽约 168dp，露出第三张卡片的一部分以提示可滑动；“更多 ›”进入该栏目的完整网格页。
+  - medium 及以上：每个栏目显示 2 行网格（列数按 6.6），折叠时只显示标题行。
+- **交互**：有新内容时，在栏目上方显示“有新内容，点击显示”标签，不打断用户正在进行的勾选（沿用旧行为）；自定义栏目在 compact 为全屏页面，支持拖动排序（Flet 的可拖动列表控件【需核实】，不可用时提供上移/下移按钮）。
+- **迁移要点**：栏目定义与缓存复用 `core/home/feed.py`、`core/home/cache.py`；C3 迁出的 `fetch_section`；布局对话框逻辑参考 `ui/home/layout_dialog.py`。
+
+### 7.2 搜索
+
+- **定位**：按来源、范围、关键词、标签搜索，批量加入下载。
+- **旧界面问题**：两行下拉框（来源、范围、排序、分级、筛选、网格/列表），第三行再放分页、下载规则、加入选中、打开选中、回到顶部，工具栏占去约四分之一高度；结果卡片纵向堆 6 行文字，与首页卡片样式不一致。
+- **新布局**：
+  - 顶部搜索框（`SearchBar` 风格，带搜索历史与标签候选），左侧来源切换（Iwara / Oreno3D，iwara.ai 下 Oreno3D 置灰），右侧清除与重置。
+  - 下方一行横向滚动的标签：范围（视频 / 图片 / 作者 / 播放列表 / 标签）+“排序：最新 ▾” +“筛选（2）”。分级不在此重复，使用顶栏偏好标签。
+  - 结果摘要行：“找到 22 个视频 · 筛选后 18 个”+ 视图切换（网格 / 列表，桌面）。
+  - compact：搜索区随滚动收起，向上滑动时重新出现；结果为 `VideoGrid`；分页改为**滚动到底自动加载下一页**（核心层 `next_page` 已支持，分级扫描时同样从读到的最后一页继续），底部显示“已加载到第 3 页”。
+  - expanded 及以上：保留页码与跳页（顶部、底部各一组），兼顾键盘 Alt+← / →；后筛选在右侧面板中展开，不弹窗。
+- **交互**：多选后上下文操作栏显示“加入下载（n）”，点后弹出 `DownloadSheet`；作者、播放列表结果使用列表卡片（头像 / 封面 + 名称 + 统计 + 订阅状态）。
+- **迁移要点**：C2 的 `run_search`；后筛选 `core/search/post_filter.py`；搜索历史与作者跳转用 C4 迁出的模块；Oreno3D 结果补全后再参与筛选与下载状态判断，沿用旧逻辑。
+
+### 7.3 作品详情与播放
+
+- **定位**：查看单个作品并播放、点赞、下载、跳转作者。
+- **新布局**：
+  - compact 竖屏：顶部 16:9 播放器（滚动时固定在顶部，可缩小）；下面依次是标题、元信息、操作行（点赞、下载、外部播放、复制链接、更多，均为图标 + 短文字、可横向滚动）、作者卡片（头像、名称、程序内订阅状态、Iwara 关注状态、作者页按钮）、简介（默认 3 行，可展开）、标签、相关推荐（2 列网格）、评论（单独标签页或“查看评论”打开底部抽屉）。
+  - 高度 compact（横屏）：播放时进入沉浸全屏；暂停时显示两栏：左播放器、右信息滚动区。
+  - expanded 及以上：左侧播放器 + 标题 + 操作 + 作者 + 简介 + 评论，右侧 320～380 宽的相关推荐栏（沿用旧版宽窗口布局）。
+  - 图片作品：整组图片竖向排列，点开进入全屏查看器，左右滑动切换。
+- **播放器**：使用 `flet-video` 的 `ftv.Video`（基于 media_kit，属性含 `playlist`、`fullscreen`、`controls`、`autoplay`、`volume`、`wakelock`，事件含 `on_error`、`on_position_change`）【已核实】。`VideoMedia` 是否支持请求头【未核实】，因此**统一通过现有 `core/playback/stream_proxy.py` 的本地回环代理播放远程视频**：代理负责授权头、用户代理设置与过期地址重签，播放器只拿到 `http://127.0.0.1:<port>/s/<token>`。Android 上回环 HTTP 需要允许明文流量（`usesCleartextTraffic` 或网络安全配置），打包时配置并验证。
+- **迁移要点**：详情数据与评论来自 C3 迁出的获取函数；文字格式用 C4 迁出的 `detail_*`；点赞、关注接口沿用 `download_manager`；Linux 桌面需完整版客户端才含 Video（`FLET_DESKTOP_FLAVOR=full`）。
+
+### 7.4 订阅
+
+- **定位**：管理作者与播放列表订阅，查看新作品并下载。
+- **旧界面问题**：工具栏挤了筛选框、状态下拉、排序、方向、封面滑块、添加、导入、全部刷新共 8 个控件；“总览”与“经典表格”两套视图并存。
+- **新布局**：
+  - 头部：标题 + 统计（订阅 6 · 新 48 · 未下载 32）；主操作“添加”（compact 为 FAB）；更多菜单：导入已关注、全部刷新、缓存全部封面。
+  - 工具行：搜索框 + “状态：全部 ▾” +“排序：名称 ↑ ▾”。
+  - compact / medium：总览列表，每个订阅一张卡片：头像、名称、类型、“8 新”徽章、刷新与更多按钮，下方横向滚动的最近作品货架；点卡片进入该订阅的作品网格页。
+  - expanded 及以上：**列表-详情双栏**：左栏订阅列表（头像、名称、新增数、未下载数），右栏选中订阅的作品网格与筛选。双栏取代旧的“经典表格”，不再保留第二套视图。
+- **交互**：进入某个订阅时，该页封面排到封面队列最前（沿用旧行为）；作品网格支持状态筛选、标题搜索、多选下载（`DownloadSheet`）、标记为已处理。
+- **迁移要点**：`core/subscription/*`；C3 迁出的批量刷新与封面拉取；C4 迁出的 `item_queries`；订阅源按站点过滤的规则不变。
+
+### 7.5 作者页
+
+- 与订阅作品网格共用布局：头部为作者卡片（头像、名称、两枚状态标签“程序内订阅 / Iwara 关注”、订阅与关注按钮），下方“视频 / 图片”标签与 `VideoGrid`，支持翻页与多选下载。已在程序内订阅的作者直接显示订阅网格（沿用旧行为）。
+
+### 7.6 下载
+
+- **定位**：提交链接、查看与控制下载任务、处理待确认批次。
+- **旧界面问题**：左侧常驻“目标链接”与“运行日志”两块面板，占去四分之一宽度；任务中心头部 7 个按钮加 3 个下拉；表格列被截断，状态列只显示“Do...”“Qu...”；统计数字是一行纯文本。
+- **新布局**：
+  - 链接栏：输入框（支持粘贴多条链接）+ 粘贴按钮 + “下载”主按钮；规则在点击下载后的 `DownloadSheet` 中选择。compact 下链接栏收为 FAB“粘贴链接”，点后弹出底部抽屉，自动读取剪贴板。
+  - 头部右侧：总下载速度、登录状态。
+  - 待确认批次：存在时在任务列表上方显示提示卡片“2 个批次待确认 → 查看”，进入后显示示例文件名、换规则、确认（复用旧 `staging_panel` 的流程）。
+  - 状态标签（带计数，可横向滚动）：全部 · 下载中 3 · 排队 2 · 失败 0 · 已完成 · 已跳过 · 已取消。替代旧的状态下拉和统计文字。
+  - 任务行（所有档位）：小封面、标题、作者、进度条、“21.2 / 48.0 MB · 4.2 MB/s · 剩余 6 秒”、状态徽章、行尾操作（暂停 / 继续 / 重试 / 更多）。compact 下为两行布局，medium 及以上为单行。不再使用横向滚动的宽表格。
+  - 批量操作放进更多菜单：重试失败、全部取消、清除已完成、恢复全部、优先级设置；多选后上下文操作栏显示“调整优先级”“取消”“移除”。
+  - 运行日志：独立路由 `/downloads/log`（compact）或可折叠的底部面板（expanded 及以上），默认收起，有错误时在头部显示红点。
+  - “跳过已下载”开关移到 `DownloadSheet` 与设置中。
+- **迁移要点**：任务状态来自 `TaskStore`（C6 的事件桥 + 150 ms 合并）；排序与筛选用 C4 迁出的 `task_statuses`、`task_text`；诊断“为什么没下载”复用 `download_manager.explain_not_downloaded`，以底部抽屉显示结果。
+
+### 7.7 资料库（原历史记录）
+
+- **定位**：浏览、查找、打开已下载的作品，清理失效记录，导出。
+- **旧界面问题**：表格列多且窄，质量、点赞、播放、日期大量被截断；顶部常驻显示数据库路径；“全部 / 最近下载 / 未观看 / 按作者”与“列表 / 网格 / 封面”两组分段控件并排。
+- **新布局**：
+  - 头部：标题 + 统计（记录 25 · 正常 25 · 已移走 0 · 未观看 25）；更多菜单：清理失效记录、同步下载文件夹、导出 CSV、列设置。数据库路径移到“设置 → 系统与维护”。
+  - 工具行：搜索框（可选搜索字段）+ 范围标签（全部 / 最近下载 / 未观看 / 按作者）+ 状态筛选 + 视图切换（列表 / 封面）。
+  - compact：列表行 = 小封面 + 标题 + “作者 · 下载日期 · 大小”，状态正常时不显示徽章；“按作者”使用分组标题。点行进入详情路由（大封面、文件路径、质量、统计、操作：播放、打开文件夹、复制路径、浏览器打开、删除记录）。
+  - expanded：表格视图，列宽按内容设定（标题自适应，数字列右对齐并格式化为 1.2K、67.2K），可选列；large 及以上增加右侧详情栏，选中行即显示。
+  - 封面视图：`VideoGrid`。
+- **交互**：删除记录使用 SnackBar 撤销，而不是确认对话框；1 万条记录时滚动流畅（第 9 节性能验收）。
+- **迁移要点**：Flet `DataTable` 不是按需构建的，大数据量下使用 `ListView` + 自定义行组件 + 固定表头实现表格视图（`ListView` 是否按需构建【需核实】，不行则分页加载）；记录状态用 C4 迁出的 `record_state`；CSV 导出逻辑若在 `ui/history/csv_export.py` 中，先迁到 core。
+
+### 7.8 下载规则
+
+- **定位**：编辑文件名模板、筛选条件和下载行为，设置各页面使用的规则。
+- **旧界面问题**：页面顶部常驻一行 5 个“各页面使用的规则”下拉框；模板编辑器每行“字段下拉 + 分隔符 + 删除”，只显示完整模板，不显示示例文件名。
+- **新布局**：
+  - 列表-详情：左栏规则列表（名称、默认标记 ●、摘要“视频 · 无筛选”、“用于：订阅、首页”），底部“新建”“复制”；右栏编辑器。
+  - “各页面使用的规则”收进一个可折叠卡片，放在规则列表上方；compact 下作为单独入口。
+  - 编辑器分组：基本（名称、类型）→ 文件名（**醒目的示例文件名预览**，如 `aoi_motion/2026-11-14_Starlight Dance_abc123.mp4`，下方为可拖动排序的字段片段与分隔符，以及可编辑的完整模板和校验）→ 筛选 → 行为（是否写入历史等）。
+  - 底部固定操作栏：设为默认、保存；有未保存修改时离开页面先询问。
+- **迁移要点**：`core/rules.py`、`core/download/template_builder.py`；旧界面的 `ui/rules/template_builder.py` 中若有字段拼装逻辑，先迁到 core。
+
+### 7.9 修复中心（桌面）
+
+- 改为步骤式流程：① 选择文件夹 → ② 规则与选项（原地重命名 / 整理到输出目录，封面、NFO、写入历史）→ ③ 扫描与预览（原路径 → 目标路径，冲突项标注并默认跳过）→ ④ 执行（进度与日志）→ ⑤ 结果摘要。expanded 及以上用横向步骤条，compact 用纵向步骤。
+- 复用 `core/repair/*`，Worker 中的循环与批量刷新逻辑（`ui/repair/worker.py`）迁到 core 并支持 C1 的取消。
+- Android 默认不显示（见 8.3）。
+
+### 7.10 工具（桌面）
+
+- 左侧工具列表（上传压缩、封面预览），右侧单列表单，最大宽度 720，label 与控件同一行，避免控件被推到屏幕最右侧。
+- 上传压缩：源文件区域支持拖放（Flet 桌面拖放文件的能力【需核实】，不可用时只保留“浏览”）；显示判断结果卡片（可直接上传 / 只需转封装 / 需要重新编码及目标码率）；压缩中显示进度与剩余时间，可取消。
+- 封面预览：16 张截图的网格，选中后保存或复制时间码。
+- 复用 `core/tools/*`；未找到 ffmpeg 时显示安装指引空状态。
+
+### 7.11 设置
+
+- **旧界面问题**：语言等部分设置立即生效，但底部又有“保存全部设置”按钮，行为不一致。
+- **新布局**：列表-详情（expanded 及以上）/ 分类列表 → 子页面（compact，Android 设置的常见做法）。分类沿用旧版：通用、首页、账号与网络、下载、搜索、订阅与刷新、工具、系统与维护、键盘快捷键（快捷键与工具仅桌面）。
+- **保存方式**：每项修改立即保存并生效，去掉“保存全部设置”；需要校验的项（路径、aria2 地址、代理）在失焦或点“应用”时校验，失败时就地显示错误，不写入。
+- 内容最大宽度 720；每组为一张卡片，组内为“标题 + 说明 + 控件”的行。
+- 复用 `app/config.py` 的设置项；旧 `ui/settings/persistence.py` 中的转换逻辑若有，迁到 core。
+
+### 7.12 账号与全局偏好
+
+- 头像菜单（所有档位都在顶栏或侧栏底部）：登录状态 / 登录 / 退出、站点切换、内容分级、主题（跟随系统 / 浅色 / 深色）、设置、关于与检查更新。
+- 登录使用单列表单页；登录失败原因就地显示。
+
+---
+
+## 8. 平台差异
+
+### 8.1 桌面
+
+- 窗口：记住尺寸与位置；最小尺寸 360 × 560（`page.window` 的最小尺寸属性名【需核实】）。
+- 关闭：`prevent_close` + 关闭事件中走 `bootstrap.stop()`（C5）。旧版的“关闭到托盘继续下载”在 Flet 中没有托盘支持【需核实，视为不可用】，改为关闭时若有进行中的任务弹出确认：“仍有 3 个任务在下载：最小化 / 退出”。
+- 快捷键：使用页面键盘事件（`page.on_keyboard_event`【需核实名称】）实现，键位数据来自 C4 拆出的中立快捷键目录，macOS 显示 ⌘ ⌥ ⌃ ⇧。全局快捷键（应用不在前台时）不支持。
+- 系统通知：Flet 未提供【需核实】，暂用应用内 SnackBar 与下载页徽章代替。
+
+### 8.2 Android
+
+- 数据目录：应用私有存储（Flet 打包环境变量或存储路径接口【需核实】），在 `main_flet.py` 中设置 `IWARATOOL_DATA_DIR`；下载目录默认放在应用专属外部目录，用户可通过目录选择器另选（分区存储限制下的可行性【需核实】）。
+- 后台：切到后台后 Python 进程可能被挂起，下载会中断。第一版只保证前台下载并启用常亮（`Video.wakelock` 之外，下载页需要单独的常亮能力【需核实】），切回前台时自动继续；前台服务作为后续工作。
+- **远端 aria2 是 Android 上最有价值的下载方式**：手机只负责浏览和提交，文件由 NAS 下载，规避后台与存储限制。设置向导中突出这一选项。
+- 分享：接收浏览器“分享到 IwaraTool”的链接（Android intent）【需核实】，可行时直接打开 `DownloadSheet`。
+- 剪贴板、文件选择、外部打开链接使用 Flet 提供的接口，封装在 `ui_flet/platform/`。
+
+### 8.3 功能可用性
+
+| 功能 | 桌面 | Android | 说明 |
+| --- | --- | --- | --- |
+| 首页、搜索、详情、作者页、订阅 | ✅ | ✅ | |
+| 内置下载器 | ✅ | ⚠️ 仅前台 | 见 8.2 |
+| 远端 aria2 | ✅ | ✅ | Android 推荐 |
+| 本机 aria2 | ✅ | ❌ | |
+| 资料库 | ✅ | ✅ | 打开文件夹在 Android 上不提供 |
+| 下载规则 | ✅ | ✅ | |
+| 修复中心 | ✅ | ❌ | 需要遍历任意文件夹 |
+| 工具（FFmpeg） | ✅ | ❌ | Android 无 ffmpeg 可执行文件 |
+| 自定义外部播放器命令 | ✅ | ❌ | |
+| 开机自启、托盘、快捷键 | ⚠️ 自启保留，托盘不可用 | ❌ | |
+
+不可用的功能在导航与设置中直接隐藏，而不是显示后报错。可用性判断集中在 `ui_flet/platform/capabilities.py`。
+
+---
+
+## 9. 阶段计划与验收
+
+每个阶段结束时提交一次，并附上第 9.2 节要求的截图到 `docs/verification/flet/<阶段>/`。
+
+| 阶段 | 内容 | 验收 |
+| --- | --- | --- |
+| P0 工程 | Python 3.12；pixi 双环境；测试分层；`main_flet.py` 空壳；`build_flet.py`；CI 测试任务 | 旧界面测试与 macOS 构建通过；`pixi run -e flet start-flet` 打开空白外壳；Flet 包内不含 PySide6 |
+| P1 核心整理 | 第 3 节 C1～C7 | 旧界面全部测试通过；无 Qt 测试覆盖新模块；`app/ui` 中不再有 3.4 清单里的逻辑 |
+| P2 外壳 | 主题、`LayoutState`、导航外壳、路由与返回栈、i18n、头像菜单、事件桥、关闭流程 | 9.2 全部尺寸下无溢出；拖动窗口跨档位时导航正确切换；关闭后设置已写盘 |
+| P3 搜索与下载闭环 | 搜索页、`VideoGrid`、`DownloadSheet`、下载页、任务事件 | 搜索翻页、横竖屏筛选、单项与批量下载、进度、取消、失败重试、跳转资料库定位；运行时未加载 PySide6 |
+| P4 首页、详情、播放 | 首页货架与网格、详情页、播放器、流代理 | 本地与远程播放、跳转、全屏、过期地址续播；32 / 100 张封面滚动流畅 |
+| P5 订阅与作者 | 订阅总览与双栏、作者页 | 刷新、筛选、批量下载、封面优先级 |
+| P6 资料库、规则、设置 | | 1 万条记录滚动与搜索；规则编辑与示例预览；设置即时生效 |
+| P7 修复与工具 | 仅桌面 | 与旧界面同一组样本结果一致 |
+| P8 Android | 打包、权限、数据目录、远端 aria2、明文回环、返回键 | 真机：普通手机、21:9 手机、折叠屏内外屏、平板，各完成一次浏览→下载→播放 |
+| P9 对比与决策 | 按 `flet_migration.md` 的性能对比项与旧界面对比 | 形成结论：是否替换旧界面及剩余差距 |
+
+### 9.1 测试
+
+- 核心层：现有单元测试继续使用。
+- `presentation`：纯函数单元测试。
+- `ui_flet`：`LayoutState` 档位计算、网格列数与宽高比计算、返回栈、事件合并、`VideoActions` 可用性等写成不依赖界面的单元测试；页面级测试以服务替身驱动组件，断言渲染出的关键控件（Flet 测试工具【需核实】）。
+
+### 9.2 尺寸验收清单
+
+`main_flet.py` 增加开发参数 `--viewport WxH`，在桌面上以指定窗口尺寸启动，用于模拟：
+
+| 尺寸 | 模拟对象 |
+| --- | --- |
+| 320 × 640 | 最小宽度 |
+| 344 × 882 | 折叠屏外屏（窄长型） |
+| 360 × 800 | 普通手机 |
+| 411 × 960 | 21:9 手机竖屏 |
+| 960 × 411 | 21:9 手机横屏（高度 compact） |
+| 673 × 841 | 折叠屏内屏竖向 |
+| 841 × 673 | 折叠屏内屏横向 |
+| 800 × 1280 | 平板竖屏 |
+| 1280 × 800 | 平板横屏 |
+| 1440 × 900 | 桌面 |
+| 2560 × 1440 | 大屏 |
+
+每个页面在以上尺寸下检查：无横向溢出、无文字截断导致信息丢失、主操作可见、导航形态符合 6.3、系统字体 130% 时仍可用。
+
+---
+
+## 10. 新旧对照
+
+| 页面 | 旧界面 | 新界面 | 主要变化 |
+| --- | --- | --- | --- |
+| 外壳 | `ui/main_window.py`、`ui/window/*` | `ui_flet/app.py`、`layout.py` | 底栏 / 侧栏自适应；全局偏好收进头像菜单 |
+| 首页 | `ui/home/*` | `pages/home/` | compact 改为货架；栏目头部精简 |
+| 详情 / 播放 | `ui/media/*`、`ui/player/*` | `pages/detail/` | flet-video + 流代理 |
+| 搜索 | `ui/search/*` | `pages/search/` | 搜索栏 + 标签；手机自动加载下一页；规则移入下载面板 |
+| 订阅 | `ui/subscription/*` | `pages/subscriptions/` | 宽屏双栏取代经典表格 |
+| 作者 | `ui/author/*` | `pages/author/` | 与订阅网格共用布局 |
+| 下载 | `ui/downloads/*` | `pages/downloads/` | 任务行取代宽表格；日志默认收起；状态标签带计数 |
+| 资料库 | `ui/history/*` | `pages/library/` | 手机列表行 + 详情页；宽屏详情栏 |
+| 规则 | `ui/rules/*` | `pages/rules/` | 示例文件名预览；各页面规则收进折叠卡片 |
+| 修复 | `ui/repair/*` | `pages/repair/` | 步骤式流程，仅桌面 |
+| 工具 | `ui/tools/*` | `pages/tools/` | 限制表单宽度，仅桌面 |
+| 设置 | `ui/settings/*` | `pages/settings/` | 即时保存；手机分类 → 子页 |
+| 快捷键 | `ui/shortcuts/*` | `ui_flet/shortcuts.py` + `presentation` 目录数据 | 仅桌面 |
+
+功能取舍（实施中有新的取舍时补进本表）：
+
+| 旧功能 | 处理 |
+| --- | --- |
+| 订阅页“经典表格” | 移除，由宽屏双栏代替 |
+| 每页常驻的规则下拉框 | 移入 `DownloadSheet`，页面规则设置保留 |
+| 设置页“保存全部设置” | 移除，改为即时保存 |
+| 托盘、关闭到托盘 | 暂不可用，改为关闭确认 |
+| 系统通知 | 暂用应用内提示 |
+| 双指右滑返回（macOS） | 依 Flet 能力，【需核实】 |
+
+---
+
+## 进度
+
+| 日期 | 内容 |
+| --- | --- |
+| 2026-11-25 | 分支 `feat/flet-ui`。pixi 新增独立 `flet` 环境（Python 3.12、Flet 1.1.3，不含 PySide6）；设计令牌、主题、图标注册表、`StatusBadge`；主题样张 `scripts/tools/flet_theme_gallery.py`；`main_flet.py` 空壳；CI 新增 Flet 测试任务（Windows / macOS / Linux）。旧界面截图基线在 `tmp/pyside6_baseline/`（不入库）。 |
+
+开发运行注意：`flet_desktop` 会优先启动 `<当前目录>/build/macos/*.app` 或 `build/windows/*.exe` 作为“上次 flet build 的客户端”，而本仓库这两个目录存放的是 Nuitka 构建的旧版应用。Flet 入口一律通过 `app/ui_flet/runner.py` 的 `run()` 启动，它在检测到这些目录时切换到中立的工作目录。
+
+## 11. 待核实的 Flet 能力
+
+实施对应功能前，先在 `scripts/tools/flet_probe/` 写最小样例验证，并把结论补进本节：
+
+1. Android 系统返回键与预测性返回是否触发 `on_view_pop` 或其他事件。
+2. 折叠屏铰链与姿态信息（`displayFeatures`）。
+3. `ResponsiveRow` 断点依据窗口宽度还是自身宽度。
+4. `page.width` / `page.height` 在移动端启动时的取值时机。
+5. 下拉刷新控件、可拖动排序列表。
+6. `VideoMedia` 是否支持 HTTP 请求头（不支持则按 7.3 走流代理）。
+7. Android 应用私有目录与外部存储路径的获取方式；分区存储下选择下载目录。
+8. Android 接收分享 intent；后台执行与常亮。
+9. 应用生命周期事件（切到后台、恢复）。
+10. 桌面窗口最小尺寸属性、文件拖放、托盘、系统通知。
+11. 键盘事件接口名称与修饰键表示；macOS ⌘ 键。
+12. ~~locale 配置（日文字形优先）~~（已用字体回退实现，见 5.3）、减少动态效果、系统字体缩放、~~视觉密度~~（`Theme.visual_density` 可用，桌面设为 COMPACT）。
+13. Flet 组件测试工具。
+14. ~~整页截图~~：`page.enable_screenshots = True` 后 `await page.take_screenshot()` 返回 PNG（已用于主题样张）。
+
+## 参考资料
+
+- [flet build 命令](https://flet.dev/docs/cli/flet-build/)
+- [发布 Flet 应用](https://docs.flet.dev/publish/)
+- [Flet 0.86 发布说明（多 Python 版本、默认 3.14）](https://flet.dev/blog/flet-v-0-86-release-announcement)
+- [Flet 1.0 发布说明](https://flet.dev/blog/flet-1-0)、[声明式 UI 介绍](https://flet.dev/blog/introducing-declarative-ui-in-flet)
+- [Page](https://flet.dev/docs/controls/page/)、[PageResizeEvent](https://flet.dev/docs/types/pageresizeevent/)、[PageMediaData](https://flet.dev/docs/types/pagemediadata/)
+- [ResponsiveRow](https://flet.dev/docs/controls/responsiverow/)、[GridView](https://flet.dev/docs/controls/gridview/)、[SafeArea](https://flet.dev/docs/controls/safearea/)
+- [NavigationRail](https://flet.dev/docs/controls/navigationrail/)、[NavigationBar](https://flet.dev/docs/controls/navigationbar/)、[NavigationDrawer](https://flet.dev/docs/controls/navigationdrawer/)
+- [Video（flet-video）](https://flet.dev/docs/controls/video/)
+- [flet-build-action](https://github.com/flet-dev/flet-build-action)、[flet#6839 默认排除规则不完整](https://github.com/flet-dev/flet/issues/6839)
+- Material 3 窗口尺寸档位：<https://m3.material.io/foundations/layout/applying-layout/window-size-classes>
