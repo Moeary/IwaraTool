@@ -47,7 +47,7 @@ APP_PACKAGES = ("core", "presentation", "ui_flet", "data")
 FORBIDDEN = re.compile(r"(^|[/\\])(PySide6|shiboken6|qfluentwidgets|qframelesswindow)([/\\.]|$)|(^|[/\\])app[/\\]ui[/\\]")
 PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
 DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
-SMOKE_TIMEOUT = 120
+SMOKE_TIMEOUT = 240  # start-up plus the desktop check (each of its steps is capped)
 
 
 def host_platform() -> str:

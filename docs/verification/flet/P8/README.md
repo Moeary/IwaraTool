@@ -25,15 +25,17 @@ APK: built by the `build-flet-android` job of `.github/workflows/build.yml`
 `build_flet.py` audits the APK and the app archive inside it for Qt / `app/ui`.
 
 Emulators: the `android-emulator` job of the same workflow installs that APK on
-API 34 phone (pixel_6), foldable (pixel_fold) and tablet (pixel_tablet)
-emulators, keeps it running for 90 s and fails on a dead process or a Python
+API 34 emulators: phone (pixel_6), 21:9 phone (pixel_6 at 1080×2520), foldable
+(pixel_fold) open and folded (outer screen 1080×2092), and tablet (pixel_tablet);
+the app is kept running for 90 s; the job fails on a dead process or a Python
 traceback / fatal exception in logcat (`scripts/tools/android_smoke.sh`).
 Screenshots, logcat and the back-key result are the job's artifacts; they show
 the live Iwara feed, so they stay out of the repository.  Its first run found
 that the APK crashed at start (cloudscraper reads `browsers.json` by path, which
 fails inside the zipped site-packages; fixed with `extract_packages`).  Since
-then the app starts on all three and lays out as designed (bottom bar, rail,
-sidebar; repair and tools hidden), and the back key on the home page returns to
+then the app starts on all five and lays out as designed (bottom bar on the
+phones and the outer screen, rail on the open foldable, sidebar on the tablet;
+repair and tools hidden), and the back key on the home page returns to
 the launcher.  This proves start-up, layout and the back key only.
 
 **Pending on real devices** (plan 9, P8): an ordinary phone, a 21:9 phone, a

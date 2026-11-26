@@ -755,7 +755,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 - 明文回环：`packaging/flet/pyproject.toml` 的 `[tool.flet.android.manifest_application] usesCleartextTraffic = true`（流代理在 `http://127.0.0.1`）。
 - 打包：`build_flet.py --platform apk`（递归审计 APK 内嵌的 `app.zip`，`--build-number` 由版本号得出，如 1.3.0 → 10300）；CI `build.yml` 的 `build-flet-android` 任务在 Ubuntu 上构建并上传 APK（按需触发）。
 - 开发：`main_flet.py --platform android`（`flet_viewports.py` 同名参数）让桌面运行按手机能力隐藏功能，便于截图检查。
-- 模拟器冒烟：CI `android-emulator` 任务（API 34，x86_64，手机 pixel_6 / 折叠屏 pixel_fold / 平板 pixel_tablet）用 `scripts/tools/android_smoke.sh` 安装 APK、启动 90 秒，进程存活且 logcat 无 Python traceback / FATAL EXCEPTION 才通过，并截图、检查首页按返回键离开应用。首次运行即发现 APK 启动崩溃：cloudscraper 按文件路径读 `browsers.json`，Android 上纯 Python 包在 zip 内读不到，已用 `[tool.flet.android] extract_packages = ["cloudscraper"]` 修正；三种设备均能启动并显示首页（底栏 / 导航栏 / 侧栏各自正确），首页按返回键回到系统桌面。模拟器不替代真机验收（下载、播放、存储、返回手势仍待真机）。
+- 模拟器冒烟：CI `android-emulator` 任务（API 34，x86_64，手机 pixel_6、21:9 手机（pixel_6 改为 1080×2520）、折叠屏 pixel_fold 展开与合上（外屏 1080×2092）、平板 pixel_tablet）用 `scripts/tools/android_smoke.sh` 安装 APK、启动 90 秒，进程存活且 logcat 无 Python traceback / FATAL EXCEPTION 才通过，并截图、检查首页按返回键离开应用。首次运行即发现 APK 启动崩溃：cloudscraper 按文件路径读 `browsers.json`，Android 上纯 Python 包在 zip 内读不到，已用 `[tool.flet.android] extract_packages = ["cloudscraper"]` 修正；五种形态均能启动并显示首页（手机、21:9、折叠屏外屏为底栏，折叠屏内屏为导航栏，平板为侧栏），首页按返回键回到系统桌面。模拟器不替代真机验收（下载、播放、存储、返回手势仍待真机）。
 
 ### 8.3 功能可用性
 
@@ -900,6 +900,7 @@ child_aspect_ratio = tile_w / (tile_w × 9 / 16 + text_h)
 
 | 日期 | 内容 |
 | --- | --- |
+| 2026-11-26 | 打包版桌面自检：`app/ui_flet/desktop_check.py` 在 `build_flet.py` 的冒烟测试里于打包应用内运行（临时数据目录）——开启“关闭后继续运行”发出关窗请求，须由客户端报告窗口隐藏 / 最小化或唤回时的 SHOW / RESTORE；Windows 托盘图标须在运行；按打包可执行文件写入、读回、删除开机自启条目；发出系统通知。本机 macOS 打包版通过（最小化到程序坞并恢复，自启命令 `open -a …/IwaraTool.app`）；Windows 由 CI 打包任务执行。Android 模拟器增加 21:9 手机与折叠屏合上（外屏）。 |
 | 2026-11-26 | P9 补齐与复测：桌面集成——系统通知（`core/system_notify.py`，完成 / 失败批量合并，窗口在前台时用应用内提示）、开机自启（`core/login_items.py`，与旧版条目分开）、Windows 托盘与关闭到托盘（`platform/tray_windows.py`，ctypes；macOS 关窗最小化到程序坞）。性能——资料库行与 `VideoGrid` 卡片改为 `ft.memo`，“加载更多”只构建新项（列表每 200 行由 0.15→0.9 s 降到中位 0.14 s；封面视图由 2.6→6.4 s 降到中位 0.19 s）；Flet 1.1.3 在被跳过的 memo 父组件下丢失上下文，`use_shell()` 回退到窗口注册的 Shell。补测滚动与 3 个并发下载（总时长相同；下载时 Flet 界面最坏延迟 8 ms，旧版 48 ms；完成事件均送达），对比脚本统计每次运行的 traceback（均为 0）。Android 模拟器冒烟进 CI（发现并修正 cloudscraper 启动崩溃）。结论改为：Flet 可替换旧界面，替换前手动试用打包版与真机验收。 |
 | 2026-11-26 | P9 对比与决策：`scripts/tools/compare_frontends.py`（两边同一离线演示数据、1280×800、各 3 次取中位数）。启动到首帧 PySide6 0.87 s / Flet 0.48 s；首页加载后内存 377 / 318 MB（Flet 含 Flutter 客户端进程）；1 万条资料库打开 0.06 / 0.26 s，内存 491 / 339 MB。包体：Windows 32 / 54 MB，macOS 61 / 68 MB，Android 通用 APK 184 MB（发布时应按 ABI 拆分）。结论：**v1.3.0 不替换旧界面**，Flet 桌面版作为预览、Android 版首次提供；托盘与开机自启、系统通知补齐且 Android 真机验收通过后再替换桌面版。滚动流畅度与 3 个并发下载未脚本化，替换前手动核对（以上结论已被同日的“P9 补齐与复测”取代）。见 `docs/verification/flet/P9/`。 |
 | 2026-11-26 | P8 Android（代码部分）：`ui_flet/platform/capabilities.py`（`Shell.caps`）集中判断平台能力，导航、路由、视频与任务菜单、设置卡片按能力隐藏；`platform/storage.py` 首次启动把默认下载目录移到应用专属外部目录；`bootstrap.checkpoint()` 与暂停时保存；下载进行时常亮；系统返回键经 `Shell.back()`（手机先回首页再退出）；回到前台检查剪贴板里的 Iwara 链接（代替分享 intent）；远端 aria2 在手机上固定；`usesCleartextTraffic`；`build_flet.py --platform apk` 与 CI `build-flet-android`。接上旧版“已完成任务单击行为”。修正修复批量计时在开机不久的机器上不立即回显首项（CI 失败原因）。`--platform android` 开发参数。截图见 `docs/verification/flet/P8/`；真机验收待做。 |

@@ -29,6 +29,7 @@ from ..core import login_items, system_notify
 from .platform import tray
 
 WAIT = 8.0
+STEP = 15.0  # any one client round trip; a step that hangs is reported, not waited for
 HIDDEN = {ft.WindowEventType.HIDE, ft.WindowEventType.MINIMIZE}
 # SHOW / RESTORE only follow a hidden / minimized window, so they also prove the close step
 # (on macOS the client reports RESTORE but not MINIMIZE for a minimize the app asked for).
@@ -65,16 +66,20 @@ async def _window(page: ft.Page, report: dict) -> None:
     page.update()
     await asyncio.sleep(1.0)  # let the window settle (initial FOCUS / SHOW)
     start = len(events)
-    await recording(SimpleNamespace(type=ft.WindowEventType.CLOSE))  # what the red button / X sends
+    report["step"] = "close"
+    # what the red button / X sends
+    await asyncio.wait_for(recording(SimpleNamespace(type=ft.WindowEventType.CLOSE)), STEP)
     report["after_close"] = await _wait_for(events, HIDDEN, start, wait=3.0)
     start = len(events)
-    await service.show_window()
+    report["step"] = "show"
+    await asyncio.wait_for(service.show_window(), STEP)
     report["after_show"] = await _wait_for(events, SHOWN, start)
     if not report["after_close"] and not report["after_show"]:
         report["failures"].append("closing with keep-running on did not hide or minimize the window")
     elif not report["after_show"]:
         report["failures"].append("the window did not come back")
     report["window_events"] = [e.value for e in events]
+    report["step"] = "done"
     service.stop()
     page.window.on_event = handler
 
@@ -107,11 +112,11 @@ def _login_item(report: dict) -> None:
 async def run(page: ft.Page) -> dict:
     report: dict = {"failures": []}
     try:
-        await _window(page, report)
-    except Exception as exc:  # report, never hang the smoke test
-        report["failures"].append(f"window check: {exc!r}")
+        await asyncio.wait_for(_window(page, report), 4 * STEP)
+    except Exception as exc:  # report, never hang the smoke test (TimeoutError names the step)
+        report["failures"].append(f"window check ({report.get('step', 'start')}): {exc!r}")
     try:
-        await asyncio.to_thread(_login_item, report)
+        await asyncio.wait_for(asyncio.to_thread(_login_item, report), STEP)
     except Exception as exc:
         report["failures"].append(f"login item check: {exc!r}")
     report["notification"] = await asyncio.to_thread(
