@@ -53,7 +53,8 @@ def App(shell: Shell):
         if shell.caps.desktop:
             current = SwipeBack(current, shell.back)  # two fingers to the right on the trackpad
         if mode == layout.NAV_BAR:
-            content = ft.Column(expand=True, spacing=0, controls=[current, build_bar(shell)])
+            bar = [] if shell.secondary_page() else [build_bar(shell)]
+            content = ft.Column(expand=True, spacing=0, controls=[current, *bar])
         else:
             content = ft.Row(
                 expand=True,

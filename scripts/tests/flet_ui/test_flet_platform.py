@@ -149,7 +149,9 @@ class ShellBackTests(unittest.TestCase):
         switched = []
         navigator = SimpleNamespace(back=lambda: False, switch=switched.append)
         state = SimpleNamespace(account_open=False, destination=destination)
-        return SimpleNamespace(state=state, navigator=navigator, caps=capabilities(SimpleNamespace(platform=platform))), switched
+        shell = SimpleNamespace(state=state, navigator=navigator, caps=capabilities(SimpleNamespace(platform=platform)),
+                                secondary_page=lambda: False)
+        return shell, switched
 
     def test_phones_go_home_before_leaving(self):
         from app.ui_flet import routes

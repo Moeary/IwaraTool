@@ -73,6 +73,28 @@ class SelectEntryTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class SecondaryPageTests(unittest.TestCase):
+    def test_phone_back_from_settings_returns_where_it_was_opened(self):
+        from app.ui_flet import layout, routes
+        from app.ui_flet.shell import Shell
+
+        moves = []
+        shell = SimpleNamespace(
+            state=SimpleNamespace(destination=routes.SEARCH, path="/search", can_back=False, account_open=False,
+                                  layout=SimpleNamespace(nav_mode=layout.NAV_BAR)),
+            _return_to=routes.HOME, caps=SimpleNamespace(mobile=True),
+            navigator=SimpleNamespace(back=lambda: False, can_go_back=lambda: False, switch=lambda d: moves.append(d)),
+        )
+        shell.secondary_page = lambda: Shell.secondary_page(shell)
+        self.assertFalse(shell.secondary_page())
+        Shell._on_navigated(shell, routes.SETTINGS, "/settings")
+        self.assertTrue(shell.secondary_page())
+        self.assertTrue(Shell.back(shell))
+        self.assertEqual(moves, [routes.SEARCH])
+        shell.state.layout.nav_mode = layout.NAV_RAIL  # wide windows keep settings in the rail
+        self.assertFalse(shell.secondary_page())
+
+
 class RailDragTests(unittest.TestCase):
     def test_drag_widens_then_collapses_and_saves(self):
         from app.ui_flet import layout, shell as shell_module

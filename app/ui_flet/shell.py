@@ -116,6 +116,7 @@ class Shell:
         self._profile_asked = False
         self._rail_reach: float | None = None  # where a rail drag has got to (moves arrive faster than renders)
         self._last_tool = "rules"  # the Tools entry reopens the tool used last (presentation/tools/hub.py keys)
+        self._return_to = routes.HOME  # where Back leaves a phone's secondary page (settings, rules…)
         self._pending_size: tuple[float, float] | None = None
 
     # ── layout ───────────────────────────────────────────────────────────────
@@ -178,6 +179,8 @@ class Shell:
     # ── navigation ───────────────────────────────────────────────────────────
 
     def _on_navigated(self, destination: str, path: str) -> None:
+        if destination not in routes.PRIMARY and self.state.destination in routes.PRIMARY:
+            self._return_to = self.state.destination
         self.state.destination = destination
         self.state.path = path
         self.state.can_back = self.navigator.can_go_back()
@@ -231,6 +234,9 @@ class Shell:
             return True
         if self.navigator.back():
             return True
+        if self.secondary_page():
+            self.navigator.switch(self._return_to)
+            return True
         if self.caps.mobile and self.state.destination != routes.HOME:
             # Material: back from another top-level destination goes home before it leaves the app.
             self.navigator.switch(routes.HOME)
@@ -244,6 +250,11 @@ class Shell:
             return
         index = (items.index(self.state.destination) + step) % len(items)
         self.navigator.switch(items[index])
+
+    def secondary_page(self) -> bool:
+        """Phones: settings, rules and the other overflow destinations open over the bar's five
+        (Material's bar holds 3–5), full screen with Back instead of a sixth bar item."""
+        return self.state.layout.nav_mode == layout.NAV_BAR and self.state.destination not in routes.PRIMARY
 
     def visible_destinations(self) -> tuple[str, ...]:
         return routes.available(routes.DESTINATIONS, desktop=self.state.layout.is_desktop)

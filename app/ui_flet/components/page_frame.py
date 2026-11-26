@@ -31,7 +31,7 @@ def PageFrame(
     compact = state.layout.width_class == layout.WIDTH_COMPACT or state.layout.height_class == layout.HEIGHT_COMPACT
     padding = state.layout.page_padding
     leading: list[ft.Control] = []
-    if state.can_back:
+    if state.can_back or shell.secondary_page():
         leading.append(
             ft.IconButton(
                 icon=AppIcon.BACK,
