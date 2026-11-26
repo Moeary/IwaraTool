@@ -175,6 +175,8 @@ class Size:
     NAV_RAIL = 72
     NAV_RAIL_EXTENDED = 248
     NAV_BAR = 64
+    NAV_INDICATOR_WIDTH = 56  # the rail's selection pill (Material 3)
+    NAV_INDICATOR_HEIGHT = 32
     PROGRESS_BAR = 3  # the bar along the bottom of a downloading cover
     DIALOG_MAX_WIDTH = 560
     FORM_MAX_WIDTH = 720

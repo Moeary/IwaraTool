@@ -23,6 +23,7 @@ def PageFrame(
     actions: list[ft.Control] | None = None,
     max_width: float = layout.MAX_WIDTH_GRID,
     scroll: bool = False,
+    below: ft.Control | None = None,  # under the title row (the Tools tabs)
 ):
     shell = use_shell()
     state = shell.state
@@ -48,7 +49,7 @@ def PageFrame(
             top=Space.XS if compact else Space.LG,
             bottom=Space.XS if compact else Space.SM,
         ),
-        content=ft.Row(
+        content=ft.Column(spacing=Space.SM, controls=[c for c in (ft.Row(
             spacing=Space.XS,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
@@ -62,7 +63,7 @@ def PageFrame(
                 ),
                 *trailing,
             ],
-        ),
+        ), below) if c is not None]),
     )
     content = ft.Container(
         expand=True,

@@ -23,6 +23,7 @@ from ....presentation.tools import covers as cv
 from ....presentation.tools.texts import tool_text
 from ... import layout, routes
 from ...components.page_frame import PageFrame
+from ...components.tool_tabs import tool_frame
 from ...icons import AppIcon, NavIcon
 from ...stores.app_state import subscribe, use_shell
 from ...stores.tools import ToolsStore
@@ -354,7 +355,8 @@ def ToolsPage(destination: str, path: str):
 
     if not view.two_pane:
         if not asked:
-            return PageFrame(title=routes.label(routes.TOOLS), body=ToolList("", pick), max_width=layout.MAX_WIDTH_FORM)
+            return PageFrame(body=ToolList("", pick), max_width=layout.MAX_WIDTH_FORM,
+                             **tool_frame(shell, routes.TOOLS, routes.label(routes.TOOLS)))
         body = ft.ListView(expand=True, padding=ft.Padding.only(bottom=Space.XL), controls=[TOOLS[asked](key=f"tool:{asked}")])
         return PageFrame(title=infos[asked].title, body=body, max_width=layout.MAX_WIDTH_FORM)
     current = asked or store.state.tool
@@ -371,4 +373,5 @@ def ToolsPage(destination: str, path: str):
             ])),
         ]),
     ])
-    return PageFrame(title=routes.label(routes.TOOLS), body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL)
+    return PageFrame(body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL,
+                     **tool_frame(shell, routes.TOOLS, routes.label(routes.TOOLS)))

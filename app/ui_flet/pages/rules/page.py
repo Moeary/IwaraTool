@@ -17,6 +17,7 @@ from ....presentation.search.tag_completion import suggestion_tooltip
 from ....presentation.rules import DRAFT_RULE_ID, page_scope_name, rule_choices
 from ... import layout, routes
 from ...components.page_frame import PageFrame
+from ...components.tool_tabs import tool_frame
 from ...icons import AppIcon, StateIcon
 from ...services.dialogs import confirm
 from ...services.notify import notice
@@ -338,9 +339,10 @@ def RulesOverview():
                 ft.Container(expand=True, content=RuleEditor(key=f"editor:{store.state.selected}")),
             ]),
         ])
-        return PageFrame(title=rules.page_title(), body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL)
+        return PageFrame(body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL,
+                         **tool_frame(shell, routes.RULES, rules.page_title()))
     body = ft.Column(expand=True, spacing=Space.MD, controls=[intro, PageBindings(), RuleList()])
-    return PageFrame(title=rules.page_title(), body=body)
+    return PageFrame(body=body, **tool_frame(shell, routes.RULES, rules.page_title()))
 
 
 @ft.component

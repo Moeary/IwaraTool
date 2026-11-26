@@ -17,8 +17,9 @@ from ....presentation import rule_editing
 from ....presentation.repair import page as rp
 from ....presentation.repair.texts import repair_text
 from ....i18n import tr
-from ... import layout
+from ... import layout, routes
 from ...components.page_frame import PageFrame
+from ...components.tool_tabs import tool_frame
 from ...icons import AppIcon, StateIcon
 from ...services.dialogs import prompt_text
 from ...services.notify import notice
@@ -335,4 +336,4 @@ def RepairPage(destination: str, path: str):
     body = ft.Column(expand=True, spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                      controls=[c for c in (Stepper(step, store.go), content, bar) if c])
     width = layout.MAX_WIDTH_FORM if step in (STEP_FOLDER, STEP_OPTIONS) else layout.MAX_WIDTH_LIST_DETAIL
-    return PageFrame(title=repair_text("repair_center"), body=body, max_width=width)
+    return PageFrame(body=body, max_width=width, **tool_frame(shell, routes.REPAIR, repair_text("repair_center")))

@@ -19,7 +19,7 @@ from ..icons import AppIcon, NavIcon
 from ..stores.app_state import use_shell
 from ..theme import text_style
 from ..tokens import TYPE, Size, Space
-from .navigation import DESTINATION_ICONS, overflow_items
+from .navigation import DESTINATION_ICONS, current_entry, overflow_items
 
 
 def _section(title: str, control: ft.Control) -> ft.Control:
@@ -111,8 +111,8 @@ def panel_content(shell) -> ft.Control:
             ft.ListTile(
                 leading=ft.Icon(DESTINATION_ICONS[d].rest),
                 title=ft.Text(routes.label(d)),
-                selected=d == state.destination,
-                on_click=lambda _e, d=d: shell.select(d),
+                selected=d == current_entry(shell),
+                on_click=lambda _e, d=d: shell.select_entry(d),
             )
             for d in extra
         )

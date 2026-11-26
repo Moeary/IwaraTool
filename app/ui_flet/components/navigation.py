@@ -13,8 +13,8 @@ from ...i18n import tr
 from ...presentation.downloads.task_statuses import badge_text
 from .. import layout, routes
 from ..icons import IconPair, NavIcon, StateIcon
-from ..theme import text_style
-from ..tokens import TYPE, Size, Space
+from ..theme import palette_for, text_style
+from ..tokens import TYPE, Radius, Size, Space
 
 DESTINATION_ICONS: dict[str, IconPair] = {
     routes.HOME: NavIcon.HOME,
@@ -30,21 +30,32 @@ DESTINATION_ICONS: dict[str, IconPair] = {
 
 
 def nav_items(shell) -> tuple[str, ...]:
-    """Destinations the bar or rail shows for the current layout."""
+    """Destinations the bar or the rail's upper group shows."""
+
+    return routes.PRIMARY
+
+
+def foot_items(shell) -> tuple[str, ...]:
+    """Entries pinned to the rail's foot (Tools, Settings) when the window is tall enough."""
 
     state = shell.state.layout
-    if state.nav_mode in (layout.NAV_BAR, layout.NAV_RAIL_COLLAPSED):
-        return routes.PRIMARY
-    everything = routes.available(routes.DESTINATIONS, desktop=state.is_desktop)
-    # Too short for the secondary group (841×673 with labels): it moves to the account panel.
-    return everything if state.rail_fits(len(everything)) else routes.PRIMARY
+    if state.nav_mode in (layout.NAV_BAR, layout.NAV_RAIL_COLLAPSED) or not state.is_desktop:
+        return ()
+    entries = routes.entries(desktop=True)
+    # Too short for them (841×673 with labels): they move to the account panel.
+    return routes.FOOT if state.rail_fits(len(entries)) else ()
 
 
 def overflow_items(shell) -> tuple[str, ...]:
-    """Destinations only the account panel offers."""
+    """Entries only the account panel offers."""
 
-    shown = set(nav_items(shell))
-    return tuple(d for d in shell.visible_destinations() if d not in shown)
+    shown = set(nav_items(shell)) | set(foot_items(shell))
+    entries = routes.entries(desktop=shell.state.layout.is_desktop)
+    return tuple(d for d in entries if d not in shown)
+
+
+def current_entry(shell) -> str:
+    return routes.entry_for(shell.state.destination, desktop=shell.state.layout.is_desktop)
 
 
 def _icon(shell, destination: str, *, active: bool) -> ft.Control:
@@ -62,7 +73,7 @@ def _select_handler(shell, items: tuple[str, ...]):
     def on_change(event: ft.Event) -> None:
         index = event.control.selected_index
         if index is not None and 0 <= index < len(items):
-            shell.select(items[index])
+            shell.select_entry(items[index])
 
     return on_change
 
@@ -72,13 +83,13 @@ def bar_items(shell) -> tuple[str, ...]:
     since Flutter's NavigationBar always marks one destination."""
 
     items = nav_items(shell)
-    current = shell.state.destination
+    current = current_entry(shell)
     return items if current in items or current not in DESTINATION_ICONS else (*items, current)
 
 
 def build_bar(shell) -> ft.NavigationBar:
     items = bar_items(shell)
-    current = shell.state.destination
+    current = current_entry(shell)
     return ft.NavigationBar(
         selected_index=items.index(current) if current in items else 0,
         label_behavior=ft.NavigationBarLabelBehavior.ALWAYS_SHOW,
@@ -122,11 +133,42 @@ def _account_row(shell) -> ft.Control:
     )
 
 
+def _foot_item(shell, destination: str, mode: str, *, selected: bool) -> ft.Control:
+    """A rail-looking entry for the foot: the indicator pill, icon and label as the rail draws them."""
+
+    palette = palette_for(shell.page)
+    icon = _icon(shell, destination, active=selected)
+    color = palette.on_surface if selected else palette.on_surface_variant
+    label = ft.Text(routes.label(destination), style=text_style(TYPE.label, color=color),
+                    weight=ft.FontWeight.W_700 if selected else None)
+    indicator = palette.primary_container if selected else None
+    select = lambda _e: shell.select_entry(destination)  # noqa: E731
+    pill = ft.Container(width=Size.NAV_INDICATOR_WIDTH, height=Size.NAV_INDICATOR_HEIGHT, border_radius=Radius.FULL,
+                        bgcolor=indicator, alignment=ft.Alignment.CENTER, content=icon)
+    if mode == layout.NAV_RAIL_EXTENDED:
+        # As the extended rail draws its own items: the pill around the icon only, the label beside it.
+        return ft.Container(
+            width=Size.NAV_RAIL_EXTENDED - 2 * Space.MD,
+            padding=ft.Padding.symmetric(vertical=Space.SM),
+            on_click=select,
+            content=ft.Row(spacing=Space.XS, controls=[pill, label]),
+        )
+    return ft.Container(
+        width=Size.NAV_RAIL,
+        on_click=select,
+        padding=ft.Padding.symmetric(vertical=Space.XS),
+        content=ft.Column(tight=True, spacing=Space.XS, horizontal_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+            pill,
+            label,
+        ]),
+    )
+
+
 def build_rail(shell) -> ft.NavigationRail:
     state = shell.state.layout
     mode = state.nav_mode
     items = nav_items(shell)
-    current = shell.state.destination
+    current = current_entry(shell)
     extended = mode == layout.NAV_RAIL_EXTENDED
     leading = None
     if extended:
@@ -151,18 +193,17 @@ def build_rail(shell) -> ft.NavigationRail:
             tooltip=tr("Expand the sidebar", "展开侧栏", "サイドバーを展開"),
             on_click=lambda _e: shell.toggle_rail(),
         )
-    first_secondary = next((d for d in items if d in routes.SECONDARY), None)
-    destinations = []
-    for d in items:
-        destinations.append(
-            ft.NavigationRailDestination(
-                icon=_icon(shell, d, active=False),
-                selected_icon=_icon(shell, d, active=True),
-                label=routes.label(d),
-                # A gap separates the secondary group (rules, repair, tools, settings).
-                padding=ft.Padding.only(top=Space.XL) if d == first_secondary else None,
-            )
+    destinations = [
+        ft.NavigationRailDestination(
+            icon=_icon(shell, d, active=False),
+            selected_icon=_icon(shell, d, active=True),
+            label=routes.label(d),
         )
+        for d in items
+    ]
+    # Flutter's rail cannot split its destinations, so the foot (Tools, Settings) is drawn
+    # in the pinned trailing area, above the account entry, looking like rail items.
+    foot = [_foot_item(shell, d, mode, selected=d == current) for d in foot_items(shell)]
     return ft.NavigationRail(
         selected_index=items.index(current) if current in items else None,
         extended=extended,
@@ -176,7 +217,12 @@ def build_rail(shell) -> ft.NavigationRail:
         leading=leading,
         trailing=ft.Container(
             padding=ft.Padding.only(bottom=Space.MD),
-            content=_account_row(shell) if extended else account_button(shell),
+            content=ft.Column(
+                tight=True,
+                spacing=Space.XS,
+                horizontal_alignment=ft.CrossAxisAlignment.START if extended else ft.CrossAxisAlignment.CENTER,
+                controls=[*foot, _account_row(shell) if extended else account_button(shell)],
+            ),
         ),
         pin_trailing_to_bottom=True,
         on_change=_select_handler(shell, items),

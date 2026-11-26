@@ -109,6 +109,7 @@ class Shell:
         self._resize_handle: asyncio.TimerHandle | None = None
         self._awake = False
         self._offered_clipboard = ""
+        self._last_tool = routes.RULES  # the Tools entry reopens the tab used last
         self._pending_size: tuple[float, float] | None = None
 
     # ── layout ───────────────────────────────────────────────────────────────
@@ -156,10 +157,19 @@ class Shell:
         """A navigation item was clicked: switch, or return to the top when already there."""
         if not routes.allowed(destination, desktop=self.caps.desktop):
             return
+        if destination in routes.TOOL_GROUP:
+            self._last_tool = destination
         if destination == self.state.destination:
             self.navigator.go_root(destination)
         else:
             self.navigator.switch(destination)
+
+    def select_entry(self, entry: str) -> None:
+        """A rail / bar / panel entry: Tools opens the tab used last (rules at first)."""
+        if entry == routes.TOOLS and self.caps.desktop:
+            current = self.state.destination
+            entry = current if current in routes.TOOL_GROUP else self._last_tool
+        self.select(entry)
 
     def open(self, path: str) -> None:
         if not routes.allowed(path, desktop=self.caps.desktop):

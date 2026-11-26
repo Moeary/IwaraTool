@@ -2,9 +2,11 @@
 
 Framework-neutral.  A route is ``/<destination>[/<rest>]``; each destination
 is one page of the shell with its own back stack (``presentation.navigation``).
-Primary destinations sit in the bottom bar / upper rail; secondary ones in
-the lower rail on wide windows and in the account menu on phones.  Repair and
-Tools are desktop only (8.3).
+Primary destinations sit in the bottom bar / upper rail.  On the desktop the
+rail's foot holds two entries, Tools and Settings; Tools stands for rules,
+repair and the upload tools (``TOOL_GROUP``, switched by tabs on those pages).
+Phones show rules and settings in the account panel.  Repair and Tools are
+desktop only (8.3).
 """
 from __future__ import annotations
 
@@ -29,6 +31,9 @@ PRIMARY = (HOME, SUBSCRIPTIONS, SEARCH, DOWNLOADS, LIBRARY)
 SECONDARY = (RULES, REPAIR, TOOLS, SETTINGS)
 DESKTOP_ONLY = frozenset({REPAIR, TOOLS})
 DESTINATIONS = PRIMARY + SECONDARY
+# One "Tools" entry on the desktop: rules first, repair second, then the upload tools (maintainer, 2026-11-26).
+TOOL_GROUP = (RULES, REPAIR, TOOLS)
+FOOT = (TOOLS, SETTINGS)  # the rail's foot on the desktop
 
 # The PySide6 ``startup_page`` values → destinations.
 _STARTUP = {
@@ -60,6 +65,25 @@ def label(destination: str) -> str:
         DETAIL: tr("Details", "详情", "詳細"),
         AUTHOR: tr("Author", "作者", "作者"),
     }.get(destination, destination)
+
+
+def tab_label(destination: str) -> str:
+    """The tabs across the Tools group's pages."""
+    return {
+        RULES: tr("Rules", "规则", "ルール"),
+        REPAIR: tr("Repair", "修复", "修復"),
+        TOOLS: tr("Upload tools", "上传工具", "アップロードツール"),
+    }.get(destination) or label(destination)
+
+
+def entries(*, desktop: bool) -> tuple[str, ...]:
+    """Navigation entries in order: the primary five, then the foot (or rules and settings on phones)."""
+    return PRIMARY + (FOOT if desktop else (RULES, SETTINGS))
+
+
+def entry_for(destination: str, *, desktop: bool) -> str:
+    """The entry that is marked while ``destination`` is shown."""
+    return TOOLS if desktop and destination in TOOL_GROUP else destination
 
 
 def short_label(destination: str) -> str:
