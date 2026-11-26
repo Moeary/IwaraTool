@@ -14,6 +14,33 @@ def is_logged_in(manager) -> bool:
     return bool(getattr(manager.api, "token", None))
 
 
+def current_profile(manager) -> dict[str, str]:
+    """The signed-in account's name, user name and avatar URL (blocking; ``{}`` when unknown).
+
+    ``GET /user`` first; when that fails and the saved login is a user name
+    (not an e-mail), its public profile.
+    """
+    from .search.normalize import avatar_url
+
+    if not is_logged_in(manager):
+        return {}
+    api = manager.api
+    user, _error = api.get_current_user()
+    if not user:
+        login_name = str(app_config.username or "").strip()
+        if login_name and "@" not in login_name:
+            profile, _error = api.get_user_profile(login_name)
+            user = profile.get("user") if isinstance(profile, dict) else None
+    if not isinstance(user, dict):
+        return {}
+    return {
+        "id": str(user.get("id", "") or ""),
+        "name": str(user.get("name", "") or user.get("username", "") or ""),
+        "username": str(user.get("username", "") or ""),
+        "avatar_url": avatar_url(user),
+    }
+
+
 def saved_credentials() -> tuple[str, str] | None:
     if app_config.auth_enabled and app_config.username and app_config.password:
         return str(app_config.username), str(app_config.password)

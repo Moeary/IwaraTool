@@ -19,6 +19,7 @@ from ..icons import AppIcon, NavIcon
 from ..stores.app_state import use_shell
 from ..theme import text_style
 from ..tokens import TYPE, Size, Space
+from .cover import Cover
 from .navigation import DESTINATION_ICONS, current_entry, overflow_items
 
 
@@ -51,22 +52,26 @@ def panel_content(shell) -> ft.Control:
     def theme_icon(icon):
         return None if narrow else icon
 
+    profile = state.profile if logged_in else {}
+    if logged_in and not profile:
+        shell.page.run_task(shell.load_profile)  # fetched once per sign-in; shown when it lands
+    avatar: ft.Control = (
+        Cover("avatar", profile["id"], profile.get("avatar_url", ""), Size.AVATAR, aspect=1, round=True,
+              icon=NavIcon.ACCOUNT.active, key=f"avatar:{profile['id']}")
+        if profile.get("id") else ft.Icon(NavIcon.ACCOUNT.pick(logged_in), size=Size.AVATAR)
+    )
+    name = profile.get("name") or (tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"))
+    handle = f"@{profile['username']}" if profile.get("username") else tr("Iwara account", "Iwara 账号", "Iwara アカウント")
     account = ft.Row(
         spacing=Space.MD,
         controls=[
-            ft.Icon(NavIcon.ACCOUNT.pick(logged_in), size=Size.AVATAR),
+            avatar,
             ft.Column(
                 spacing=0,
                 expand=True,
                 controls=[
-                    ft.Text(
-                        tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"),
-                        style=text_style(TYPE.subtitle),
-                    ),
-                    ft.Text(
-                        tr("Iwara account", "Iwara 账号", "Iwara アカウント"),
-                        style=text_style(TYPE.meta),
-                    ),
+                    ft.Text(name, style=text_style(TYPE.subtitle), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(handle, style=text_style(TYPE.meta), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ],
             ),
             ft.TextButton(

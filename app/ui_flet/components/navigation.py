@@ -127,7 +127,8 @@ def _account_row(shell) -> ft.Control:
         width=shell.state.layout.nav_width - 2 * Space.MD,
         content=ft.TextButton(
             icon=NavIcon.ACCOUNT.pick(logged_in),
-            content=tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"),
+            content=(shell.state.profile.get("name") or tr("Signed in", "已登录", "ログイン済み")) if logged_in
+            else tr("Not signed in", "未登录", "未ログイン"),
             tooltip=tr("Account and preferences", "账号与偏好", "アカウントと設定"),
             style=ft.ButtonStyle(alignment=ft.Alignment.CENTER_LEFT, padding=ft.Padding.symmetric(horizontal=Space.LG, vertical=Space.MD)),
             on_click=lambda _e: shell.open_account(),

@@ -32,6 +32,19 @@ class UserApiMixin:
         except Exception as exc:
             return None, str(exc)
 
+    def get_current_user(self) -> tuple[Optional[dict], str]:
+        """The signed-in account's ``user`` object (``GET /user``), or ``(None, reason)``."""
+        if not self.token:
+            return None, "not signed in"
+        try:
+            data = self._get_json(f"{BASE_API}/user")
+            user = data.get("user") if isinstance(data, dict) else None
+            if isinstance(user, dict) and user.get("id"):
+                return user, ""
+            return None, "API did not return user"
+        except Exception as exc:
+            return None, str(exc)
+
     def get_user_profile(self, username: str) -> tuple[Optional[dict], str]:
         try:
             data = self._get_json(f"{BASE_API}/profile/{username}")

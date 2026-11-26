@@ -113,6 +113,7 @@ class Shell:
         self._resize_handle: asyncio.TimerHandle | None = None
         self._awake = False
         self._offered_clipboard = ""
+        self._profile_asked = False
         self._rail_reach: float | None = None  # where a rail drag has got to (moves arrive faster than renders)
         self._last_tool = "rules"  # the Tools entry reopens the tool used last (presentation/tools/hub.py keys)
         self._pending_size: tuple[float, float] | None = None
@@ -356,6 +357,23 @@ class Shell:
 
     def _on_login_changed(self, logged_in: bool) -> None:
         self.state.logged_in = bool(logged_in)
+        self.state.profile = {}
+        self._profile_asked = False
+        if logged_in:
+            self.page.run_task(self.load_profile)
+
+    async def load_profile(self) -> None:
+        """The account panel's avatar and name, fetched once per sign-in."""
+        if not self.state.logged_in or self.state.profile or self._profile_asked:
+            return
+        self._profile_asked = True  # one try per sign-in (the panel asks on every render until then)
+        try:
+            profile = await asyncio.to_thread(account.current_profile, self.manager)
+        except Exception:
+            logger.debug("Reading the account profile failed", exc_info=True)
+            return
+        if profile and self.state.logged_in:
+            self.state.profile = profile
         self.home.on_login_changed()
 
     def _on_site_changed(self, _key: str) -> None:
