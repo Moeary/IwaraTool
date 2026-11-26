@@ -10,7 +10,6 @@ from __future__ import annotations
 import flet as ft
 
 from ....config import app_config
-from ....core import site as sites
 from ....i18n import tr
 from ....presentation.subscription import text as sub_text
 from ....presentation.subscription.helpers import _source_url

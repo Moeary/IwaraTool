@@ -23,22 +23,19 @@ from ....presentation.tools import covers as cv
 from ....presentation.tools.texts import tool_text
 from ... import layout, routes
 from ...components.page_frame import PageFrame
-from ...components.tool_tabs import tool_frame
+from ...components.tools_hub import ToolHubList, hub_frame, hub_pane_width
 from ...icons import AppIcon, NavIcon
 from ...stores.app_state import subscribe, use_shell
 from ...stores.tools import ToolsStore
 from ...theme import palette_for, text_style
-from ...tokens import TYPE, Radius, Size, Space
+from ...tokens import TYPE, Radius, Space
 from ..settings.rows import buttons, card, dropdown, hint, number_field, row, switch_row, use_refresh
 
-NAV_WIDTH = 232
-ICONS = {"compress": AppIcon.VIDEO, "covers": AppIcon.IMAGE}
-
-
-def pane_width(view) -> float:
-    """The tool column's width: beside the tool list on wide windows, the page width otherwise."""
-    if view.two_pane:  # less the list, the divider and the row's two gaps
-        return min(layout.MAX_WIDTH_FORM, max(320, view.body_width(layout.MAX_WIDTH_LIST_DETAIL) - NAV_WIDTH - 1 - Space.LG * 2))
+def pane_width(shell) -> float:
+    """The tool column's width: beside the tools list on wide windows, the page width otherwise."""
+    view = shell.state.layout
+    if view.two_pane:
+        return min(layout.MAX_WIDTH_FORM, hub_pane_width(shell))
     return view.body_width(layout.MAX_WIDTH_FORM)
 
 
@@ -237,8 +234,7 @@ def CoverTool():
     state = store.state
     subscribe(state)
     palette = palette_for(page)
-    view = shell.state.layout
-    width = pane_width(view) - Space.LG * 2
+    width = pane_width(shell) - Space.LG * 2
     gap = Space.SM
     columns = cv.grid_columns(width, gap)
     store.grid_columns = columns  # arrow keys move by a row
@@ -315,29 +311,6 @@ TOOLS = {"compress": CompressTool, "covers": CoverTool}
 
 
 @ft.component
-def ToolList(selected: str, on_pick):
-    shell = use_shell()
-    palette = palette_for(shell.page)
-    two_pane = shell.state.layout.two_pane
-
-    def item(tool: tc.ToolInfo) -> ft.Control:
-        chosen = two_pane and tool.key == selected
-        return ft.Container(
-            padding=Space.MD, border_radius=Radius.CONTROL, bgcolor=palette.primary_container if chosen else None,
-            on_click=lambda _e, k=tool.key: on_pick(k), tooltip=tool.summary if two_pane else None,
-            content=ft.Row(spacing=Space.MD, controls=[
-                ft.Icon(ICONS[tool.key], size=Size.ICON_LG),
-                ft.Column(spacing=Space.XXS, expand=True, controls=[
-                    ft.Text(tool.title, style=text_style(TYPE.label)),
-                    *([] if two_pane else [ft.Text(tool.summary, style=text_style(TYPE.meta, color=palette.on_surface_variant))]),
-                ]),
-            ]),
-        )
-
-    return ft.ListView(expand=True, spacing=Space.XXS, controls=[item(t) for t in tc.tools()])
-
-
-@ft.component
 def ToolsPage(destination: str, path: str):
     shell = use_shell()
     store: ToolsStore = shell.tools
@@ -347,31 +320,16 @@ def ToolsPage(destination: str, path: str):
     parts = list(routes.parse(path).parts)
     asked = parts[0] if parts and parts[0] in TOOLS else ""
     infos = {t.key: t for t in tc.tools()}
-
-    def pick(key: str) -> None:
-        store.choose_tool(key)
-        if not view.two_pane:
-            shell.open(routes.route(routes.TOOLS, key))
-
-    if not view.two_pane:
-        if not asked:
-            return PageFrame(body=ToolList("", pick), max_width=layout.MAX_WIDTH_FORM,
-                             **tool_frame(shell, routes.TOOLS, routes.label(routes.TOOLS)))
-        body = ft.ListView(expand=True, padding=ft.Padding.only(bottom=Space.XL), controls=[TOOLS[asked](key=f"tool:{asked}")])
-        return PageFrame(title=infos[asked].title, body=body, max_width=layout.MAX_WIDTH_FORM)
-    current = asked or store.state.tool
     palette = palette_for(shell.page)
-    content_width = pane_width(view)
-    body = ft.Row(expand=True, spacing=Space.LG, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-        ft.Container(width=NAV_WIDTH, content=ToolList(current, pick)),
-        ft.VerticalDivider(width=1),
-        ft.Column(expand=True, spacing=Space.SM, controls=[
-            ft.Text(infos[current].summary, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
-            ft.Container(expand=True, content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-                ft.Container(width=content_width, content=ft.ListView(
-                    expand=True, padding=ft.Padding.only(bottom=Space.XL), controls=[TOOLS[current](key=f"tool:{current}")])),
-            ])),
-        ]),
+    if not view.two_pane and not asked:
+        # Narrow windows: every tool as a list; each opens as its own page.
+        return PageFrame(title=routes.label(routes.TOOLS), body=ToolHubList("", detailed=True), max_width=layout.MAX_WIDTH_FORM)
+    current = asked or store.state.tool
+    body = ft.Column(expand=True, spacing=Space.SM, controls=[
+        ft.Text(infos[current].summary, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
+        ft.Container(expand=True, content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
+            ft.Container(width=pane_width(shell), content=ft.ListView(
+                expand=True, padding=ft.Padding.only(bottom=Space.XL), controls=[TOOLS[current](key=f"tool:{current}")])),
+        ])),
     ])
-    return PageFrame(body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL,
-                     **tool_frame(shell, routes.TOOLS, routes.label(routes.TOOLS)))
+    return hub_frame(shell, current, body, title=infos[current].title, max_width=layout.MAX_WIDTH_FORM)

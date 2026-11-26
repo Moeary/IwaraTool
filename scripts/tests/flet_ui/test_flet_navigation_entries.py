@@ -28,39 +28,47 @@ class EntryTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class SelectEntryTests(unittest.TestCase):
-    def _shell(self, platform, destination):
-        from app.ui_flet import routes
+    def _shell(self, platform, destination, *, two_pane=True):
         from app.ui_flet.platform.capabilities import capabilities
         from app.ui_flet.shell import Shell
 
-        selected = []
-        shell = SimpleNamespace(state=SimpleNamespace(destination=destination), _last_tool=routes.RULES,
-                                caps=capabilities(SimpleNamespace(platform=platform)), select=selected.append)
-        return shell, selected, lambda entry: Shell.select_entry(shell, entry)
+        calls = []
+        navigator = SimpleNamespace(switch=lambda d: calls.append(("switch", d)), go_root=lambda d: calls.append(("root", d)))
+        shell = SimpleNamespace(
+            state=SimpleNamespace(destination=destination, layout=SimpleNamespace(two_pane=two_pane)),
+            _last_tool="rules", caps=capabilities(SimpleNamespace(platform=platform)), navigator=navigator,
+            select=lambda d: calls.append(("select", d)), open=lambda p: calls.append(("open", p)),
+            tools=SimpleNamespace(choose_tool=lambda k: calls.append(("tool", k))),
+        )
+        shell.open_tool = lambda key: Shell.open_tool(shell, key)
+        return shell, calls, lambda entry: Shell.select_entry(shell, entry)
 
-    def test_tools_opens_rules_first_then_the_tab_used_last(self):
+    def test_tools_opens_rules_first_then_the_tool_used_last(self):
         from app.ui_flet import routes
 
-        shell, selected, select_entry = self._shell("macos", routes.HOME)
+        shell, calls, select_entry = self._shell("macos", routes.HOME)
         select_entry(routes.TOOLS)
-        shell._last_tool = routes.REPAIR
+        shell.open_tool("covers")
+        shell.state.destination = routes.HOME
         select_entry(routes.TOOLS)
-        self.assertEqual(selected, [routes.RULES, routes.REPAIR])
+        self.assertEqual(calls, [("switch", routes.RULES), ("tool", "covers"), ("switch", routes.TOOLS),
+                                 ("tool", "covers"), ("switch", routes.TOOLS)])
 
-    def test_tools_on_a_tools_page_stays_on_it(self):
+    def test_narrow_windows_open_the_tools_list(self):
         from app.ui_flet import routes
 
-        _shell, selected, select_entry = self._shell("macos", routes.TOOLS)
+        shell, calls, select_entry = self._shell("macos", routes.HOME, two_pane=False)
         select_entry(routes.TOOLS)
-        self.assertEqual(selected, [routes.TOOLS])
+        shell.open_tool("compress")
+        self.assertEqual(calls, [("select", routes.TOOLS), ("tool", "compress"), ("open", routes.route(routes.TOOLS, "compress"))])
 
-    def test_other_entries_pass_through(self):
+    def test_phones_have_no_repair_and_pass_other_entries(self):
         from app.ui_flet import routes
 
-        _shell, selected, select_entry = self._shell("android", routes.HOME)
+        shell, calls, select_entry = self._shell("android", routes.HOME)
+        shell.open_tool("repair")
         select_entry(routes.RULES)
-        select_entry(routes.SETTINGS)
-        self.assertEqual(selected, [routes.RULES, routes.SETTINGS])
+        self.assertEqual(calls, [("select", routes.RULES)])
 
 
 if __name__ == "__main__":

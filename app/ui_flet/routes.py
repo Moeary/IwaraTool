@@ -4,7 +4,7 @@ Framework-neutral.  A route is ``/<destination>[/<rest>]``; each destination
 is one page of the shell with its own back stack (``presentation.navigation``).
 Primary destinations sit in the bottom bar / upper rail.  On the desktop the
 rail's foot holds two entries, Tools and Settings; Tools stands for rules,
-repair and the upload tools (``TOOL_GROUP``, switched by tabs on those pages).
+repair and the upload tools (``TOOL_GROUP``, listed side by side in the Tools hub).
 Phones show rules and settings in the account panel.  Repair and Tools are
 desktop only (8.3).
 """
@@ -65,15 +65,6 @@ def label(destination: str) -> str:
         DETAIL: tr("Details", "详情", "詳細"),
         AUTHOR: tr("Author", "作者", "作者"),
     }.get(destination, destination)
-
-
-def tab_label(destination: str) -> str:
-    """The tabs across the Tools group's pages."""
-    return {
-        RULES: tr("Rules", "规则", "ルール"),
-        REPAIR: tr("Repair", "修复", "修復"),
-        TOOLS: tr("Upload tools", "上传工具", "アップロードツール"),
-    }.get(destination) or label(destination)
 
 
 def entries(*, desktop: bool) -> tuple[str, ...]:

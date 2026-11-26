@@ -12,13 +12,14 @@ import flet as ft
 
 from ....core.download.template_builder import template_fields, template_presets
 from ....core.rules import PAGE_RULE_SCOPES, page_rule_choice
+from ....i18n import tr
 from ....presentation import rule_editing as rules
 from ....presentation.search.tag_completion import suggestion_tooltip
 from ....presentation.rules import DRAFT_RULE_ID, page_scope_name, rule_choices
 from ... import layout, routes
 from ...components.page_frame import PageFrame
-from ...components.tool_tabs import tool_frame
-from ...icons import AppIcon, StateIcon
+from ...components.tools_hub import hub_frame
+from ...icons import AppIcon, NavIcon, StateIcon
 from ...services.dialogs import confirm
 from ...services.notify import notice
 from ...stores.app_state import subscribe, use_shell
@@ -56,6 +57,77 @@ async def choose(shell, rule_id: str) -> None:
 
 
 # ── page bindings ────────────────────────────────────────────────────────────
+
+
+@ft.component
+def PageRulePickers():
+    """One picker per page: which rule that page downloads with."""
+    shell = use_shell()
+    store: RulesStore = shell.rules
+    subscribe(store.state)
+    palette = palette_for(shell.page)
+    saved = [r for r in store.rules if r["id"] != DRAFT_RULE_ID]
+    choices = rule_choices(saved, store.active_id)
+
+    def picked(scope: str, value: str) -> None:
+        rules.choose_page_rule(scope, value)
+        store.refresh()
+
+    return ft.Column(tight=True, spacing=Space.MD, controls=[
+        ft.Text(rules.page_rules_hint(), style=text_style(TYPE.meta, color=palette.on_surface_variant)),
+        *[ft.Dropdown(
+            label=page_scope_name(scope), value=page_rule_choice(scope), dense=True, expand=True,
+            options=[ft.DropdownOption(key=key, text=text) for key, text in choices],
+            on_select=lambda e, scope=scope: picked(scope, e.control.value),
+        ) for scope in PAGE_RULE_SCOPES],
+    ])
+
+
+def open_page_rules(shell) -> None:
+    page = shell.page
+    page.show_dialog(ft.AlertDialog(
+        title=ft.Text(rules.page_rules_title()),
+        content=ft.Container(width=Size.DIALOG_MAX_WIDTH * 0.8, content=PageRulePickers()),
+        actions=[ft.TextButton(content=tr("Done", "完成", "完了"), on_click=lambda _e: page.pop_dialog())],
+    ))
+
+
+@ft.component
+def RuleWorkspace():
+    """Wide windows, beside the tools list: pick a rule at the top, edit it below."""
+    shell = use_shell()
+    store: RulesStore = shell.rules
+    state = store.state
+    subscribe(state)
+    palette = palette_for(shell.page)
+    buttons = rules.button_texts()
+    current = next((r for r in store.rules if r["id"] == state.selected), None)
+
+    def new(_e) -> None:
+        async def go():
+            if await _leave_ok(shell):
+                store.new()
+        shell.page.run_task(go)
+
+    picker = ft.Dropdown(
+        value=state.selected or None, dense=True, width=300, leading_icon=NavIcon.RULES.rest,
+        options=[ft.DropdownOption(key=r["id"], text=rules.rule_lines(r, store.active_id)[0]) for r in store.rules],
+        on_select=lambda e: shell.page.run_task(choose, shell, e.control.value),
+    )
+    head = ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+        picker,
+        ft.IconButton(icon=AppIcon.ADD, tooltip=buttons["new"], on_click=new),
+        ft.Container(expand=True),
+        ft.TextButton(content=rules.page_rules_title(), icon=AppIcon.LIST_VIEW, on_click=lambda _e: open_page_rules(shell)),
+    ])
+    lines: list[ft.Control] = []
+    if current is not None:
+        _name, kind, used = rules.rule_lines(current, store.active_id)
+        lines.append(ft.Text("  ·  ".join(t for t in (kind, used) if t), max_lines=2,
+                             style=text_style(TYPE.meta, color=palette.on_surface_variant)))
+    return ft.Column(expand=True, spacing=Space.SM, controls=[
+        head, *lines, ft.Container(expand=True, content=RuleEditor(key=f"editor:{state.selected}")),
+    ])
 
 
 @ft.component
@@ -331,18 +403,9 @@ def RulesOverview():
     view = shell.state.layout
     intro = ft.Text(rules.intro_text(), style=text_style(TYPE.meta, color=palette.on_surface_variant))
     if view.two_pane:
-        body = ft.Column(expand=True, spacing=Space.MD, controls=[
-            intro, PageBindings(),
-            ft.Row(expand=True, spacing=Space.LG, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-                ft.Container(width=LIST_PANE, content=RuleList()),
-                ft.VerticalDivider(width=1),
-                ft.Container(expand=True, content=RuleEditor(key=f"editor:{store.state.selected}")),
-            ]),
-        ])
-        return PageFrame(body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL,
-                         **tool_frame(shell, routes.RULES, rules.page_title()))
+        return hub_frame(shell, "rules", RuleWorkspace(), title=rules.page_title())
     body = ft.Column(expand=True, spacing=Space.MD, controls=[intro, PageBindings(), RuleList()])
-    return PageFrame(body=body, **tool_frame(shell, routes.RULES, rules.page_title()))
+    return PageFrame(title=rules.page_title(), body=body)
 
 
 @ft.component
