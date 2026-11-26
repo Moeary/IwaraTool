@@ -18,7 +18,9 @@ from ...core.download.locations import FileLocation, resolve_record_location
 from ...i18n import tr
 
 DETAIL = "detail"
-PLAY = "play"
+PLAY = "play"  # the player chosen in Settings
+PLAY_BUILTIN = "play_builtin"  # a downloaded file in the app's own player, whatever the setting
+PLAY_EXTERNAL = "play_external"  # a downloaded file in the system (or custom) player
 OPEN_FOLDER = "open_folder"
 COPY_PATH = "copy_path"
 NAS_FOLDER = "nas_folder"
@@ -60,6 +62,31 @@ def play_label(location: FileLocation, *, can_stream: bool = True) -> str:
     if can_stream:
         return tr("Play online", "在线播放", "オンライン再生")
     return ""
+
+
+def play_builtin_label(*, default: bool = False) -> str:
+    label = tr("Play in the app", "在应用内播放", "アプリ内で再生")
+    return f"{label}{default_mark()}" if default else label
+
+
+def play_external_label(*, default: bool = False) -> str:
+    label = tr("Play in external player", "用外部播放器播放", "外部プレイヤーで再生")
+    return f"{label}{default_mark()}" if default else label
+
+
+def default_mark() -> str:
+    return tr(" (default)", "（默认）", "（既定）")
+
+
+def player_choices(location: FileLocation, *, external_default: bool) -> list[VideoAction]:
+    """Both ways to play a downloaded file, the default (Settings → player) first; empty without one."""
+    if not location.local_path:
+        return []
+    builtin = VideoAction(PLAY_BUILTIN, play_builtin_label(default=not external_default), GROUP_PLAY,
+                          location.playable_target)
+    external = VideoAction(PLAY_EXTERNAL, play_external_label(default=external_default), GROUP_PLAY,
+                           location.local_path)
+    return [external, builtin] if external_default else [builtin, external]
 
 
 def detail_label() -> str:
@@ -116,10 +143,13 @@ def video_actions(
     author: str = "",
     select: bool = False,
     open_folder: bool = True,
+    external_default: bool | None = None,
 ) -> list[VideoAction]:
     """The entries for one video, in menu order (``group`` marks the separators).
 
     ``open_folder`` is False where no file manager can be opened (phones).
+    ``external_default``: where Settings plays a downloaded file (None: no
+    choice offered); the other way is added after Play.
     """
 
     actions: list[VideoAction] = []
@@ -128,6 +158,8 @@ def video_actions(
     label = play_label(location, can_stream=can_stream)
     if label:
         actions.append(VideoAction(PLAY, label, GROUP_PLAY, location.playable_target))
+        if external_default is not None:
+            actions.extend(player_choices(location, external_default=external_default)[1:])
     if location.local_path:
         if open_folder:
             actions.append(VideoAction(OPEN_FOLDER, open_folder_label(), GROUP_PLAY))

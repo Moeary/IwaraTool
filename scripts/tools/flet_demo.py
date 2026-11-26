@@ -6,7 +6,7 @@ cancels one, the subscription, library and author routes get seeded records,
 the repair route gets a folder of badly named files (``IWARATOOL_DEMO_STEP``:
 ``options`` / ``preview`` scans / ``done`` also repairs), the tools route loads
 ``IWARATOOL_DEMO_VIDEO`` (``IWARATOOL_DEMO_TOOL=covers`` for the cover preview,
-``IWARATOOL_DEMO_STEP=run`` compresses it); the library route takes ``IWARATOOL_DEMO_STEP=viewer|tags|filters|play``; ``IWARATOOL_DEMO_LOGIN=1`` shows a signed-in account.  Nothing here is imported outside demo runs.
+``IWARATOOL_DEMO_STEP=run`` compresses it); the library route takes ``IWARATOOL_DEMO_STEP=viewer|tags|filters|play|choose``; ``IWARATOOL_DEMO_LOGIN=1`` shows a signed-in account.  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -74,6 +74,12 @@ async def play(shell, route: str) -> None:
                 store.state.sheet = "all"
             elif step == "viewer" and video_id:
                 store.view_cover(video_id)
+            elif step == "choose":
+                # Long-press on a downloaded record: in the app or in an external player.
+                from app.ui_flet.pages.library.record import long_press_record
+
+                found = next((r["video_id"] for r in store.visible if store.state_of(r)[1] == "ok"), "")
+                found and long_press_record(shell, found)
             elif step == "play" and video_id and os.environ.get("IWARATOOL_DEMO_PLAY"):
                 from app.core.playback import video_player
 

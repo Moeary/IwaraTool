@@ -36,5 +36,30 @@ class VideoActionListTests(unittest.TestCase):
         self.assertEqual(ids, [va.SELECT])
 
 
+class PlayerChoiceTests(unittest.TestCase):
+    """Long-press on a downloaded file: in the app or in an external player, the Settings default first."""
+
+    def test_choices_put_the_default_first(self):
+        location = FileLocation(file_path="/v/a.mp4", local_path="/v/a.mp4")
+        external = va.player_choices(location, external_default=True)
+        self.assertEqual([a.id for a in external], [va.PLAY_EXTERNAL, va.PLAY_BUILTIN])
+        self.assertIn(va.default_mark(), external[0].label)
+        self.assertNotIn(va.default_mark(), external[1].label)
+        self.assertEqual(external[0].value, "/v/a.mp4")
+        builtin = va.player_choices(location, external_default=False)
+        self.assertEqual([a.id for a in builtin], [va.PLAY_BUILTIN, va.PLAY_EXTERNAL])
+        self.assertEqual(va.player_choices(FileLocation(), external_default=True), [])
+
+    def test_menu_adds_the_other_way_after_play(self):
+        location = FileLocation(file_path="/v/a.mp4", local_path="/v/a.mp4")
+        ids = [a.id for a in va.video_actions(location, external_default=True)]
+        self.assertEqual(ids[ids.index(va.PLAY) + 1], va.PLAY_BUILTIN)
+        ids = [a.id for a in va.video_actions(location, external_default=False)]
+        self.assertEqual(ids[ids.index(va.PLAY) + 1], va.PLAY_EXTERNAL)
+        plain = [a.id for a in va.video_actions(location)]  # Classic: no choice
+        self.assertNotIn(va.PLAY_BUILTIN, plain)
+        self.assertNotIn(va.PLAY_EXTERNAL, plain)
+
+
 if __name__ == "__main__":
     unittest.main()

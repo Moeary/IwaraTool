@@ -33,6 +33,7 @@ from .record import (
     CoverViewer,
     RecordPanel,
     badge_for,
+    long_press_record,
     open_record,
     record_menu,
     remove_records,
@@ -131,7 +132,7 @@ def _list_row(shell, store: LibraryStore, record: dict, selecting: bool, selecte
         bgcolor=palette.primary_container if selected else None,
         padding=ft.Padding.symmetric(horizontal=Space.XS, vertical=Space.XXS),
         on_click=tap,
-        on_long_press=lambda _e: store.toggle(video_id),
+        on_long_press=lambda _e: long_press_record(shell, video_id),
         content=ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             Cover(card.cover_kind, card.cover_key, card.cover_url, THUMB_W, card.cover_local, icon=AppIcon.VIDEO),
             ft.Column(spacing=0, expand=True, alignment=ft.MainAxisAlignment.CENTER, controls=[
@@ -195,6 +196,7 @@ def _table_row(shell, store: LibraryStore, record: dict, index: int, columns: tu
         border_radius=Radius.CONTROL,
         bgcolor=palette.primary_container if focused else (palette.field if index % 2 else None),
         on_click=lambda _e: open_record(shell, video_id),
+        on_long_press=lambda _e: long_press_record(shell, video_id),
         content=ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             ft.Checkbox(value=selected, on_change=lambda _e: store.toggle(video_id)),
             ft.Container(width=76, tooltip=detail, content=badge or ft.Text(label, style=text_style(TYPE.meta))),

@@ -307,6 +307,24 @@ class Shell:
             language=self.state.language,
             user_font=str(app_config.ui_font_family or ""),
         )
+        self.sync_window_brightness()
+        self.page.update()
+
+    def sync_window_brightness(self) -> None:
+        """The native title bar and window frame follow the app's theme, not only the system's.
+
+        Without this the macOS title bar (and the Windows caption) stays light in
+        the app's dark mode and the other way round.  ``auto`` follows the
+        system, so it is set again when the system switches.
+        """
+        if not self.caps.window:
+            return
+        from .theme import resolve_mode
+
+        self.page.window.brightness = ft.Brightness.DARK if resolve_mode(self.page) == "dark" else ft.Brightness.LIGHT
+
+    def _on_platform_brightness(self, _e=None) -> None:
+        self.sync_window_brightness()
         self.page.update()
 
     def open_account(self) -> None:
@@ -324,6 +342,7 @@ class Shell:
     # ── events from the core ─────────────────────────────────────────────────
 
     def connect(self) -> None:
+        self.page.on_platform_brightness_change = self._on_platform_brightness
         self.events.on("language_changed", self._on_language)
         self.events.on("font_changed", lambda: self.apply_theme())
         self.events.on("content_rating_changed", self._on_rating_changed)

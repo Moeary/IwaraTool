@@ -56,6 +56,11 @@ class Capabilities:
         return self.desktop
 
     @property
+    def external_player(self) -> bool:
+        """A downloaded file can be handed to the system's player (long-press offers it)."""
+        return self.desktop
+
+    @property
     def keyboard_shortcuts(self) -> bool:
         return self.desktop
 

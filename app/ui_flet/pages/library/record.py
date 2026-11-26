@@ -49,7 +49,26 @@ def badge_for(store: LibraryStore, record: dict, page: ft.Page) -> ft.Control | 
 def record_menu(shell, store: LibraryStore) -> VideoMenu:
     return VideoMenu(shell, scope=SCOPE, download=False,
                      item_for=lambda card: lib.record_video(store.by_id.get(card.history_id, {})) if card.history_id in store.by_id else None,
-                     on_select=lambda card: store.toggle(card.history_id))
+                     on_select=lambda card: store.toggle(card.history_id),
+                     play_here=lambda card: play_record(shell, card.history_id))
+
+
+def play_record(shell, video_id: str) -> None:
+    """Play in the library's own player: the record opens (panel or page) already playing."""
+    shell.library.play(video_id)
+    open_record(shell, video_id)
+
+
+def long_press_record(shell, video_id: str) -> None:
+    """Rows: long-press offers the two ways to play a downloaded file; otherwise it selects."""
+    store = shell.library
+    record = store.by_id.get(video_id)
+
+    async def press() -> None:
+        if record is None or not await record_menu(shell, store).choose_player(store.card(record)):
+            store.toggle(video_id)
+
+    shell.page.run_task(press)
 
 
 def side_panel(shell) -> bool:
@@ -280,7 +299,8 @@ def RecordPanel(video_id: str, *, wide: bool = True):
     playable = key in ("ok", "remote")
 
     def run(action) -> None:
-        if action.id == va.PLAY and not (action.value and video_player.opens_externally(action.value)):
+        if action.id == va.PLAY_BUILTIN or (
+                action.id == va.PLAY and not (action.value and video_player.opens_externally(action.value))):
             store.play(video_id)  # the built-in player plays here, not on the post's page
             return
         page.run_task(menu.run, card, action)

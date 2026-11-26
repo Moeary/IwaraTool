@@ -37,6 +37,9 @@ class _LatestMenu:
     async def run(self, card, action):
         return await self._ref.current["menu"].run(card, action)
 
+    async def choose_player(self, card):
+        return await self._ref.current["menu"].choose_player(card)
+
 
 def cover_size_for(shell, scale: float = 1.0) -> float | None:
     """The shared cover width on the desktop; phones keep their adaptive columns."""

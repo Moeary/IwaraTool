@@ -117,9 +117,17 @@ def VideoCard(
         if actions:
             open_action_sheet(page, card.title, actions, pick)
 
+    async def press_menu() -> None:
+        if await menu.choose_player(card):  # a downloaded file: in the app or in an external player
+            return
+        if touch:
+            await action_sheet()
+        elif card.selectable and on_toggle:
+            on_toggle(card)
+
     def long_press(_e) -> None:
-        if menu is not None and touch and not selecting:
-            page.run_task(action_sheet)
+        if menu is not None and not selecting:
+            page.run_task(press_menu)
         elif card.selectable and on_toggle:
             on_toggle(card)
 

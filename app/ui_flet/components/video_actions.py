@@ -29,6 +29,8 @@ from ..tokens import TYPE, Space
 _ICONS = {
     va.DETAIL: AppIcon.OPEN_IN_NEW,
     va.PLAY: AppIcon.PLAY,
+    va.PLAY_BUILTIN: AppIcon.PLAY,
+    va.PLAY_EXTERNAL: AppIcon.OPEN_IN_NEW,
     va.OPEN_FOLDER: AppIcon.FOLDER_OPEN,
     va.COPY_PATH: AppIcon.COPY,
     va.NAS_FOLDER: AppIcon.FOLDER_OPEN,
@@ -52,10 +54,13 @@ class VideoMenu:
         item_for: Callable[[CardView], Any],
         on_select: Callable[[CardView], None] | None = None,
         download: bool = True,
+        play_here: Callable[[CardView], None] | None = None,
     ):
+        """``play_here``: play a downloaded file in this page's own player instead of on the post's page."""
         self.shell = shell
         self.scope = scope
         self.item_for = item_for
+        self.play_here = play_here
         self.on_select = on_select
         self.download = download  # False on the library: its records are downloaded already
 
@@ -85,20 +90,46 @@ class VideoMenu:
             author=video.author_username,
             select=touch and self.on_select is not None and card.selectable,
             open_folder=self.shell.caps.open_folder,
+            external_default=self._external_default(location),
         )
+
+    def _external_default(self, location) -> bool | None:
+        """Where Settings plays this downloaded file; None where no choice is offered."""
+        if not self.shell.caps.external_player or not location.local_path:
+            return None
+        return video_player.opens_externally(location.local_path)
+
+    async def choose_player(self, card: CardView) -> bool:
+        """Long-press on a downloaded file: in the app or in an external player (plus Select); False if no choice."""
+        if not self.shell.caps.external_player or not card.history_id or card.kind == KIND_IMAGE:
+            return False
+        location = await asyncio.to_thread(va.record_location, self.manager, card.history_id)
+        external = self._external_default(location)
+        if external is None:
+            return False
+        choices = va.player_choices(location, external_default=external)
+        if self.on_select is not None and card.selectable:
+            choices.append(va.VideoAction(va.SELECT, va.select_label(), va.GROUP_PAGE))
+        open_action_sheet(self.shell.page, card.title, choices, lambda action: self.shell.page.run_task(self.run, card, action))
+        return True
 
     async def run(self, card: CardView, action: va.VideoAction) -> None:
         shell, page = self.shell, self.shell.page
         video = self.item_for(card)
         kind = self._kind(card)
-        if action.id in (va.DETAIL, va.PLAY):
-            if action.id == va.PLAY and action.value and video_player.opens_externally(action.value):
-                ok, message = await asyncio.to_thread(video_player.open_local_video, action.value)
-                if not ok:
-                    notice(page, "error", va.cannot_open_title(), message)
-                return
+        if action.id == va.PLAY_EXTERNAL or (
+                action.id == va.PLAY and action.value and video_player.opens_externally(action.value)):
+            mode = video_player.external_mode() if action.id == va.PLAY_EXTERNAL else None
+            ok, message = await asyncio.to_thread(video_player.open_local_video, action.value, mode=mode)
+            if not ok:
+                notice(page, "error", va.cannot_open_title(), message)
+            return
+        if action.id in (va.PLAY, va.PLAY_BUILTIN) and self.play_here is not None and card.history_id:
+            self.play_here(card)
+            return
+        if action.id in (va.DETAIL, va.PLAY, va.PLAY_BUILTIN):
             shell.details.remember(video, card.history_id)
-            if action.id == va.PLAY:
+            if action.id in (va.PLAY, va.PLAY_BUILTIN):
                 shell.details.model(kind, card.history_id).state.playing = True
             shell.open(routes.route(routes.DETAIL, kind, card.history_id))
         elif action.id == va.OPEN_FOLDER:

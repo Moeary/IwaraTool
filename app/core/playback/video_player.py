@@ -30,6 +30,11 @@ def player_mode() -> str:
     return mode if mode in MODES else MODE_SYSTEM
 
 
+def external_mode() -> str:
+    """How "play in external player" opens a file: the custom command when set up, else the system player."""
+    return MODE_CUSTOM if player_mode() == MODE_CUSTOM else MODE_SYSTEM
+
+
 def split_command(command: str, *, windows: bool | None = None) -> list[str]:
     """Split a user-entered command line, honouring quotes."""
     windows = (os.name == "nt") if windows is None else windows
