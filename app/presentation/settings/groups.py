@@ -24,22 +24,30 @@ class Group:
 
 
 def groups() -> tuple[Group, ...]:
-    """Every group in order; built on demand so the texts follow the language."""
+    """Every group in order; built on demand so the texts follow the language.
+
+    Card keys are the shared ones, plus the new page's merged cards (``MERGED``).
+    """
     return (
         Group("appearance", tr("Appearance", "外观", "外観"),
-              tr("Theme, font and language", "主题、字体与语言", "テーマ・フォント・言語"),
-              ("appearance", "font", "language")),
+              tr("Theme, language and font", "主题、语言与字体", "テーマ・言語・フォント"),
+              ("look",)),
         Group("browsing", tr("Browsing", "浏览", "閲覧"),
               tr("Site, content rating, the Home rows, clicks on covers and playback",
                  "站点、内容分级、首页栏目、点击封面的动作与播放",
                  "サイト・コンテンツ区分・ホームの欄・カバーのクリック・再生"),
-              ("site", "rating", "home_layout", "card_clicks", "playback")),
+              ("source", "home_layout", "card_clicks", "playback")),
         Group("account", tr("Account and network", "账号与网络", "アカウントとネットワーク"),
               tr("Iwara sign-in, proxy and request pacing", "Iwara 登录、代理与请求节奏", "Iwara ログイン・プロキシ・リクエスト間隔"),
               ("account", "proxy", "request_policy")),
         Group("downloads", tr("Downloads", "下载", "ダウンロード"),
-              tr("Where files go, quality, concurrency and aria2", "保存位置、画质、并发与 aria2", "保存先・画質・同時実行・aria2"),
-              ("download_dir", "quality", "behavior", "concurrency", "download_policy", "aria2")),
+              tr("Quality, what a download saves, concurrency and aria2", "画质、下载内容、并发与 aria2",
+                 "画質・保存内容・同時実行・aria2"),
+              ("quality", "behavior", "concurrency", "download_policy", "aria2")),
+        Group("storage", tr("Storage", "存储", "ストレージ"),
+              tr("Download folder, data folder, caches, backup and logs", "下载目录、数据目录、缓存、备份与日志",
+                 "保存先・データフォルダー・キャッシュ・バックアップとログ"),
+              ("download_dir", "data_paths", "home_cache", "maintenance")),
         Group("search", tr("Search", "搜索", "検索"),
               tr("Search engine, history, limits and the tag dictionary", "搜索方式、历史、数量上限与标签词典",
                  "検索方式・履歴・上限・タグ辞書"),
@@ -47,31 +55,37 @@ def groups() -> tuple[Group, ...]:
         Group("subscriptions", tr("Subscriptions", "订阅", "購読"),
               tr("Automatic refresh and subscribe prompts", "自动刷新与订阅提示", "自動更新と購読の確認"),
               ("subscription_automation", "subscription_prompt")),
-        Group("system", tr("System and storage", "系统与存储", "システムとストレージ"),
-              tr("Window and startup, data folder, caches, FFmpeg, backup and logs",
-                 "窗口与启动、数据目录、缓存、FFmpeg、备份与日志",
-                 "ウィンドウと起動・データフォルダー・キャッシュ・FFmpeg・バックアップとログ"),
-              ("window", "data_paths", "home_cache", "cover_performance", "ffmpeg", "maintenance")),
+        Group("system", tr("System", "系统", "システム"),
+              tr("Window and startup, FFmpeg and how hard covers and refreshes work",
+                 "窗口与启动、FFmpeg、封面加载与刷新的并发",
+                 "ウィンドウと起動・FFmpeg・カバー読み込みと更新の同時実行"),
+              ("window", "ffmpeg", "cover_performance")),
         Group("shortcuts", tr("Keyboard shortcuts", "键盘快捷键", "キーボードショートカット"),
               tr("Shortcuts for every page and the app", "各页面与全局的快捷键", "各ページと全体のショートカット"),
               ("shortcuts",), desktop_only=True),
         Group("about", tr("About", "关于", "情報"),
               tr("Version, author, licence and updates", "版本、作者、许可与更新", "バージョン・作者・ライセンス・更新"),
-              ("about", "updates")),
+              ("about",)),
     )
+
+
+# The new page merges small related cards into one (no title repeated as the row below it).
+MERGED = {
+    "look": ("appearance", "language", "font"),
+    "source": ("site", "rating"),
+    "about": ("about", "updates"),
+}
+
+
+def shared_cards(group: Group) -> tuple[str, ...]:
+    """A group's cards as the shared (Classic) card keys, merged cards expanded."""
+    return tuple(card for key in group.cards for card in MERGED.get(key, (key,)))
 
 
 # Classic categories and card names → the group that holds them now.
 ALIASES = {
     "general": "appearance", "home": "browsing", "network": "account", "tools": "system",
-    **{card: g for g, cards in (
-        ("appearance", ("appearance", "font", "language")),
-        ("browsing", ("site", "rating", "home_layout", "card_clicks", "playback")),
-        ("account", ("proxy", "request_policy")),
-        ("downloads", ("download_dir", "quality", "behavior", "concurrency", "download_policy", "aria2")),
-        ("system", ("window", "data_paths", "home_cache", "cover_performance", "ffmpeg", "maintenance")),
-        ("about", ("updates",)),
-    ) for card in cards},
+    **{card: g.key for g in groups() for card in shared_cards(g) if card != g.key},
 }
 
 

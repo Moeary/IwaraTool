@@ -18,7 +18,7 @@ from ...tokens import TYPE, Radius, Space
 
 def card(page: ft.Page, title: str, rows: list[ft.Control | None], *, description: str = "") -> ft.Control:
     palette = palette_for(page)
-    head: list[ft.Control] = [ft.Text(title, style=text_style(TYPE.subtitle))]
+    head: list[ft.Control] = [ft.Text(title, style=text_style(TYPE.subtitle))] if title else []
     if description:
         head.append(ft.Text(description, style=text_style(TYPE.meta, color=palette.on_surface_variant)))
     return ft.Container(

@@ -30,7 +30,8 @@ ICONS = {
     "downloads": NavIcon.DOWNLOADS,
     "search": NavIcon.SEARCH,
     "subscriptions": NavIcon.SUBSCRIPTIONS,
-    "system": SettingsIcon.STORAGE,
+    "storage": SettingsIcon.STORAGE,
+    "system": SettingsIcon.SYSTEM,
     "shortcuts": SettingsIcon.KEYBOARD,
     "about": SettingsIcon.ABOUT,
 }

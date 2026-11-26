@@ -116,6 +116,55 @@ def LanguageCard():
 
 
 @ft.component
+def LookCard():
+    """Theme, language and font in one card (the group is already called Appearance)."""
+    shell = use_shell()
+    page = shell.page
+    tick, refresh = use_refresh()
+    compact = _compact(shell)
+    chosen = str(app_config.ui_font_family or "").strip()
+    stack = build_font_stack(current_platform(), shell.state.language, user_family=chosen)
+    themes = [("auto", stext("follow_system")), ("light", stext("light")), ("dark", stext("dark"))]
+    languages = [(code, preferences.language_label(code)) for code in preferences.LANGUAGES]
+
+    def set_family(value: str) -> None:
+        sv.set_font_family(value)
+        refresh()
+
+    return card(page, "", [
+        row(page, stext("theme"), dropdown(shell.state.theme_mode, themes, shell.set_theme_mode, width=200),
+            help=stext("light_and_dark_modes_share_one"), compact=compact),
+        ft.Divider(height=1),
+        row(page, stext("interface_language"), dropdown(shell.state.language, languages, shell.set_language, width=200),
+            help=stext("default_is_chinese_language_switch_is"), compact=compact),
+        ft.Divider(height=1),
+        row(page, stext("interface_font"), ft.Row(tight=True, spacing=Space.SM, controls=[
+            text_field(chosen, set_family, width=200, hint_text=stext("automatic_2"), key=f"font:{tick}"),
+            ft.TextButton(content=stext("automatic"), disabled=not chosen, on_click=lambda _e: set_family("")),
+        ]), help=stext("automatic_picks_the_system_ui_fonts"), compact=compact),
+        hint(page, stext("in_use_in_order") + " → ".join(stack)),
+    ])
+
+
+@ft.component
+def ContentSourceCard():
+    """Which site and which rating: what every list shows."""
+    shell = use_shell()
+    page = shell.page
+    texts = groups.about_texts()
+    compact = _compact(shell)
+    site_options = [(key, sites.SITES[key].label) for key in (sites.SITE_TV, sites.SITE_AI)]
+    rating_options = [(value, rating_label(value)) for value in RATINGS]
+    return card(page, "", [
+        row(page, stext("site"), dropdown(shell.state.site, site_options, shell.set_site, width=200),
+            help=stext("the_site_home_search_and_subscriptions"), compact=compact),
+        ft.Divider(height=1),
+        row(page, texts["rating_title"], dropdown(shell.state.rating, rating_options, shell.set_rating, width=200),
+            help=texts["rating_help"], compact=compact),
+    ])
+
+
+@ft.component
 def UpdatesCard():
     shell = use_shell()
     page = shell.page
@@ -234,7 +283,24 @@ def AboutCard():
     def link(label: str, url: str, icon) -> ft.Control:
         return ft.OutlinedButton(content=label, icon=icon, on_click=lambda _e: page.run_task(ft.UrlLauncher().launch_url, url))
 
+    _tick, refresh = use_refresh()
+
+    def toggle(value: bool) -> None:
+        app_config.update_check_enabled = value
+        sv.background_changed(shell.manager)
+        refresh()
+
+    def check(_e) -> None:
+        from ....core.background_services import background_service
+
+        background_service.check_updates_now()
+
     lines = [(texts["version"], __version__), *groups.about_lines()]
+    updates = [
+        ft.Divider(height=1),
+        switch_row(page, stext("github_release_updates"), app_config.update_check_enabled, toggle),
+        buttons(ft.OutlinedButton(content=stext("check_now"), icon=AppIcon.REFRESH, on_click=check)),
+    ]
     return card(page, texts["title"], [
         hint(page, texts["tagline"]),
         *[ft.Row(spacing=Space.LG, controls=[
@@ -246,6 +312,7 @@ def AboutCard():
             link(texts["releases"], groups.RELEASES_URL, AppIcon.NEW),
             link(texts["issues"], groups.REPOSITORY_URL + "/issues", AppIcon.ABOUT),
         ),
+        *updates,
     ])
 
 
@@ -1064,6 +1131,8 @@ CARDS = {
     "site": SiteCard,
     "account": AccountCard,
     "rating": RatingCard,
+    "look": LookCard,
+    "source": ContentSourceCard,
     "about": AboutCard,
     "proxy": ProxyCard,
     "download_dir": DownloadDirCard,
