@@ -15,9 +15,11 @@ from ..icons import AppIcon, NavIcon
 from ..stores.app_state import use_shell
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
+from .list_detail import ListDetail
 from .page_frame import PageFrame
 
 HUB_NAV_WIDTH = 248
+HUB_WIDTH_KEY = "flet_tools_list_width"
 ICONS = {
     "rules": NavIcon.RULES.rest,
     "repair": NavIcon.REPAIR.rest,
@@ -61,27 +63,27 @@ def ToolHubList(current: str, *, detailed: bool = False):
     return ft.ListView(expand=True, spacing=Space.XXS, controls=controls)
 
 
-def hub_frame(shell, current: str, body: ft.Control, *, title: str, actions: list[ft.Control] | None = None,
+def hub_frame(shell, current: str, body, *, title: str, actions: list[ft.Control] | None = None,
               max_width: float = layout.MAX_WIDTH_LIST_DETAIL) -> ft.Control:
-    """A tool page: beside the hub list on wide desktop windows, alone (with its own title) otherwise."""
-    if not (shell.caps.desktop and shell.state.layout.two_pane):
-        return PageFrame(title=title, body=body, actions=actions, max_width=max_width)
-    row = ft.Row(expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-        ft.Container(width=HUB_NAV_WIDTH, content=ToolHubList(current)),
-        ft.VerticalDivider(width=Space.XL, thickness=1),
-        ft.Container(expand=True, content=ft.Column(expand=True, spacing=Space.SM, controls=[
+    """A tool page: beside the hub list on wide desktop windows, alone (with its own title) otherwise.
+
+    ``body`` is a control, or ``body(width)`` building it for the width it gets.
+    """
+    view = shell.state.layout
+    build = body if callable(body) else (lambda _width: body)
+    if not (shell.caps.desktop and view.two_pane):
+        return PageFrame(title=title, body=build(view.body_width(max_width)), actions=actions, max_width=max_width)
+
+    def detail(width: float) -> ft.Control:
+        return ft.Column(expand=True, spacing=Space.SM, controls=[
             ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
                 ft.Text(title, style=text_style(TYPE.section_title_compact), expand=True,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 *(actions or []),
             ]),
-            ft.Container(expand=True, content=body),
-        ])),
-    ])
-    return PageFrame(title=hub.hub_title(), body=row, max_width=layout.MAX_WIDTH_LIST_DETAIL)
+            ft.Container(expand=True, content=build(width)),
+        ])
 
-
-def hub_pane_width(shell) -> float:
-    """The tool column's width beside the hub list."""
-    view = shell.state.layout
-    return max(320.0, view.body_width(layout.MAX_WIDTH_LIST_DETAIL) - HUB_NAV_WIDTH - Space.XL)
+    row = ListDetail(ToolHubList(current), detail, total_width=view.body_width(layout.MAX_WIDTH_GRID),
+                     store_key=HUB_WIDTH_KEY, default=HUB_NAV_WIDTH, key="tools-hub")
+    return PageFrame(title=hub.hub_title(), body=row, max_width=layout.MAX_WIDTH_GRID)

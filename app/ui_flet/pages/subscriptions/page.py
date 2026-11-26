@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import flet as ft
 
-from ....config import app_config
 from ....i18n import tr
 from ....presentation.subscription import text as sub_text
 from ....presentation.subscription.helpers import _source_url
@@ -17,7 +16,7 @@ from ....presentation.media import card_size
 from ....presentation.media.cards import CardView
 from ... import layout, routes
 from ...components.cover_size import CoverSizeSlider
-from ...components.split_handle import SplitHandle
+from ...components.list_detail import ListDetail
 from ...components.cover import Cover
 from ...components.download_sheet import open_download_sheet
 from ...components.page_frame import PageFrame
@@ -378,22 +377,6 @@ def _list_row(shell, source: dict, selected: bool) -> ft.Control:
     )
 
 
-def _clamp_list_width(width: float) -> float:
-    low, high = LIST_PANE_RANGE
-    return max(low, min(high, float(width)))
-
-
-def _saved_list_width() -> float:
-    try:
-        return _clamp_list_width(app_config.get_ui_value(LIST_PANE_KEY, LIST_PANE) or LIST_PANE)
-    except (TypeError, ValueError):
-        return LIST_PANE
-
-
-def _save_list_width(width: float) -> None:
-    app_config.set_ui_value(LIST_PANE_KEY, int(width))
-
-
 @ft.component
 def SubscriptionsOverview():
     shell = use_shell()
@@ -403,8 +386,6 @@ def SubscriptionsOverview():
     view = shell.state.layout
     compact = view.width_class == layout.WIDTH_COMPACT
     ft.use_effect(lambda: shell.page.run_task(store.load), [])
-    list_width, set_list_width = ft.use_state(lambda: _saved_list_width())
-    dragged = ft.use_ref(None)  # moves can arrive before the re-render: add them to the latest width
 
     menu = ft.PopupMenuButton(icon=AppIcon.MORE, tooltip=tr("More", "更多", "その他"), items=[
         ft.PopupMenuItem(content=sub_text.import_followed_text(), icon=AppIcon.AUTHORS,
@@ -429,31 +410,21 @@ def SubscriptionsOverview():
 
     if view.two_pane:
         selected = state.selected_source
-        body_width = view.body_width(layout.MAX_WIDTH_LIST_DETAIL)
-        # Keep at least half the body for the works however the divider was left.
-        width = min(list_width, max(LIST_PANE_RANGE[0], body_width / 2))
-        dragged.current = width
-
-        def drag(dx: float) -> None:
-            dragged.current = _clamp_list_width(dragged.current + dx)
-            set_list_width(dragged.current)
-
-        left = ft.Container(width=width, content=ft.Column(expand=True, spacing=Space.SM, controls=[
+        left = ft.Column(expand=True, spacing=Space.SM, controls=[
             _toolbar(shell),
             ft.ListView(expand=True, spacing=2, controls=[_list_row(shell, s, int(s.get("id", 0) or 0) == selected) for s in sources]),
-        ]))
-        # The right pane: the body less the list and the divider's grab area.
-        pane_width = body_width - width - Space.LG
-        right = ft.Container(expand=True, content=SourcePane(selected, pane_width, key=f"pane:{selected}") if selected else ft.Container())
+        ])
+
+        def pane(width: float) -> ft.Control:
+            return SourcePane(selected, width, key=f"pane:{selected}") if selected else ft.Container()
+
         body: ft.Control = ft.Column(expand=True, spacing=Space.SM, controls=[
             *top,
-            ft.Row(expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-                left,
-                SplitHandle(lambda dx: drag(dx), lambda: _save_list_width(dragged.current)),
-                right,
-            ]),
+            ft.Container(expand=True, content=ListDetail(
+                left, pane, total_width=view.body_width(layout.MAX_WIDTH_GRID), store_key=LIST_PANE_KEY,
+                default=LIST_PANE, low=LIST_PANE_RANGE[0], high=LIST_PANE_RANGE[1], key="subscriptions")),
         ])
-        return PageFrame(title=title, body=body, actions=[add, menu], max_width=layout.MAX_WIDTH_LIST_DETAIL)
+        return PageFrame(title=title, body=body, actions=[add, menu], max_width=layout.MAX_WIDTH_GRID)
 
     body = ft.Column(expand=True, spacing=Space.MD, controls=[
         *top, _toolbar(shell),

@@ -13,6 +13,8 @@ import flet as ft
 from ....config import app_config
 from ....presentation.settings import groups
 from ... import layout, routes
+from ...components.card_columns import card_columns
+from ...components.list_detail import ListDetail
 from ...components.page_frame import PageFrame
 from ...icons import NavIcon, SettingsIcon
 from ...stores.app_state import use_shell
@@ -22,6 +24,7 @@ from .cards import CARDS
 from .home_rows import HomeRowsPage
 
 NAV_WIDTH = 248
+LIST_WIDTH_KEY = "flet_settings_list_width"
 
 ICONS = {
     "appearance": SettingsIcon.APPEARANCE,
@@ -43,12 +46,13 @@ def cards_of(group: groups.Group, *, desktop: bool) -> tuple[str, ...]:
 
 
 @ft.component
-def GroupCards(key: str):
+def GroupCards(key: str, width: float):
     shell = use_shell()
     desktop = shell.state.layout.is_desktop
     group = groups.find(key, desktop=desktop) or groups.groups()[0]
     controls = [CARDS[name](key=f"card:{name}") for name in cards_of(group, desktop=desktop) if name in CARDS]
-    return ft.ListView(expand=True, spacing=Space.MD, padding=ft.Padding.only(bottom=Space.XL), controls=controls)
+    # Two columns when the pane is wide enough, so the right half is not left empty.
+    return card_columns(controls, width)
 
 
 @ft.component
@@ -106,20 +110,18 @@ def SettingsPage(destination: str, path: str):
     if not view.two_pane:
         if asked is None:
             return PageFrame(title=routes.label(routes.SETTINGS), body=GroupList("", pick), max_width=layout.MAX_WIDTH_FORM)
-        return PageFrame(title=asked.title, body=GroupCards(asked.key, key=f"cards:{asked.key}"),
-                         max_width=layout.MAX_WIDTH_FORM)
+        return PageFrame(title=asked.title, body=GroupCards(asked.key, view.body_width(layout.MAX_WIDTH_FORM),
+                                                            key=f"cards:{asked.key}"), max_width=layout.MAX_WIDTH_FORM)
     current = asked or groups.find(remembered, desktop=desktop) or groups.groups()[0]
     palette = palette_for(shell.page)
-    body = ft.Row(expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-        ft.Container(width=NAV_WIDTH, content=GroupList(current.key, pick)),
-        ft.VerticalDivider(width=Space.XL, thickness=1),
-        ft.Column(expand=True, spacing=Space.SM, controls=[
+
+    def detail(width: float) -> ft.Control:
+        return ft.Column(expand=True, spacing=Space.SM, controls=[
             ft.Text(current.title, style=text_style(TYPE.section_title_compact)),
             ft.Text(current.summary, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
-            ft.Container(expand=True, content=ft.Row(alignment=ft.MainAxisAlignment.START, controls=[
-                ft.Container(width=min(layout.MAX_WIDTH_FORM, max(320, view.content_width - NAV_WIDTH - Space.XXL * 2)),
-                             content=GroupCards(current.key, key=f"cards:{current.key}")),
-            ], vertical_alignment=ft.CrossAxisAlignment.STRETCH)),
-        ]),
-    ])
-    return PageFrame(title=routes.label(routes.SETTINGS), body=body, max_width=layout.MAX_WIDTH_LIST_DETAIL)
+            ft.Container(expand=True, content=GroupCards(current.key, width, key=f"cards:{current.key}")),
+        ])
+
+    body = ListDetail(GroupList(current.key, pick), detail, total_width=view.body_width(layout.MAX_WIDTH_GRID),
+                      store_key=LIST_WIDTH_KEY, default=NAV_WIDTH, key="settings-groups")
+    return PageFrame(title=routes.label(routes.SETTINGS), body=body, max_width=layout.MAX_WIDTH_GRID)

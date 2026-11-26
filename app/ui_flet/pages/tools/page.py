@@ -23,7 +23,8 @@ from ....presentation.tools import covers as cv
 from ....presentation.tools.texts import tool_text
 from ... import layout, routes
 from ...components.page_frame import PageFrame
-from ...components.tools_hub import ToolHubList, hub_frame, hub_pane_width
+from ...components.card_columns import column_count
+from ...components.tools_hub import ToolHubList, hub_frame
 from ...icons import AppIcon, NavIcon
 from ...stores.app_state import subscribe, use_shell
 from ...stores.tools import ToolsStore
@@ -31,12 +32,7 @@ from ...theme import palette_for, text_style
 from ...tokens import TYPE, Radius, Space
 from ..settings.rows import buttons, card, dropdown, hint, number_field, row, switch_row, use_refresh
 
-def pane_width(shell) -> float:
-    """The tool column's width: beside the tools list on wide windows, the page width otherwise."""
-    view = shell.state.layout
-    if view.two_pane:
-        return min(layout.MAX_WIDTH_FORM, hub_pane_width(shell))
-    return view.body_width(layout.MAX_WIDTH_FORM)
+
 
 
 def _role_color(palette, role: str):
@@ -99,7 +95,7 @@ def _source_row(page: ft.Page, value: str, on_load, *, disabled: bool = False, k
 
 
 @ft.component
-def CompressTool():
+def CompressTool(width: float):
     shell = use_shell()
     page = shell.page
     store: ToolsStore = shell.tools
@@ -208,6 +204,13 @@ def CompressTool():
             ft.Text(state.failure_log, style=text_style(TYPE.meta, family="monospace"), selectable=True)])) if state.failure_log else None,
     ])
     missing = FfmpegMissing() if state.ffmpeg_checked and not store.compress_ready else None
+    # Wide panes: the file and its verdict beside the output and the settings.
+    if column_count(width) == 2:
+        return ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.START, controls=[
+            ft.Column(expand=True, spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                      controls=[c for c in (missing, source, verdict_card, output) if c]),
+            ft.Column(expand=True, spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, controls=[options]),
+        ])
     return ft.Column(spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                      controls=[c for c in (missing, source, verdict_card, output, options) if c])
 
@@ -227,14 +230,17 @@ def _frame(data: bytes | None, width: float, crop: bool, palette, message: str =
 
 
 @ft.component
-def CoverTool():
+def CoverTool(width: float):
     shell = use_shell()
     page = shell.page
     store: ToolsStore = shell.tools
     state = store.state
     subscribe(state)
     palette = palette_for(page)
-    width = pane_width(shell) - Space.LG * 2
+    two = column_count(width) == 2
+    side = min(width * 0.34, 420) if two else width  # wide: the preview beside the grid
+    grid_width = (width - side - Space.MD if two else width) - Space.LG * 2
+    width = grid_width
     gap = Space.SM
     columns = cv.grid_columns(width, gap)
     store.grid_columns = columns  # arrow keys move by a row
@@ -291,7 +297,7 @@ def CoverTool():
 
     candidate = store.selected
     detail = card(page, cv.detail_title(candidate) if candidate else cv.preview_empty_text(), [
-        _frame(store.frames.get(state.selected), width, crop, palette, cv.preview_empty_text()) if candidate else None,
+        _frame(store.frames.get(state.selected), side - Space.LG * 2, crop, palette, cv.preview_empty_text()) if candidate else None,
         hint(page, cv.detail_text(candidate)) if candidate else None,
         buttons(
             ft.OutlinedButton(content=tool_text("save_frame"), icon=AppIcon.SAVE, disabled=state.saving or store.ffmpeg is None,
@@ -300,6 +306,12 @@ def CoverTool():
         ) if candidate else None,
     ])
     missing = FfmpegMissing() if state.ffmpeg_checked and store.ffmpeg is None else None
+    if two:
+        return ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.START, controls=[
+            ft.Container(width=side, content=ft.Column(spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                                       controls=[c for c in (missing, source, detail) if c])),
+            ft.Container(expand=True, content=grid),
+        ])
     return ft.Column(spacing=Space.MD, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                      controls=[c for c in (missing, source, grid, detail) if c])
 
@@ -325,11 +337,12 @@ def ToolsPage(destination: str, path: str):
         # Narrow windows: every tool as a list; each opens as its own page.
         return PageFrame(title=routes.label(routes.TOOLS), body=ToolHubList("", detailed=True), max_width=layout.MAX_WIDTH_FORM)
     current = asked or store.state.tool
-    body = ft.Column(expand=True, spacing=Space.SM, controls=[
-        ft.Text(infos[current].summary, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
-        ft.Container(expand=True, content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
-            ft.Container(width=pane_width(shell), content=ft.ListView(
-                expand=True, padding=ft.Padding.only(bottom=Space.XL), controls=[TOOLS[current](key=f"tool:{current}")])),
-        ])),
-    ])
+
+    def body(width: float) -> ft.Control:
+        return ft.Column(expand=True, spacing=Space.SM, controls=[
+            ft.Text(infos[current].summary, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
+            ft.ListView(expand=True, padding=ft.Padding.only(bottom=Space.XL),
+                        controls=[TOOLS[current](width, key=f"tool:{current}")]),
+        ])
+
     return hub_frame(shell, current, body, title=infos[current].title, max_width=layout.MAX_WIDTH_FORM)
