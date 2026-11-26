@@ -56,7 +56,7 @@ from app.version import __version__  # noqa: E402
 SMOKE_TEST = "--smoke-test" in sys.argv or os.environ.get("IWARATOOL_SMOKE_TEST") == "1"
 
 
-def write_smoke_report(page: ft.Page) -> None:
+def write_smoke_report(page: ft.Page, extra: dict | None = None) -> None:
     target = os.environ.get("IWARATOOL_SMOKE_REPORT")
     if not target:
         return
@@ -69,6 +69,7 @@ def write_smoke_report(page: ft.Page) -> None:
         "flet_storage": os.environ.get("FLET_APP_STORAGE_DATA", ""),
         "qt_modules": loaded_qt_modules(),
         "bootstrap": "prepared",
+        **(extra or {}),
     }
     Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -138,7 +139,12 @@ async def main(page: ft.Page) -> None:
     services = not (SMOKE_TEST or ARGS.shot) or ARGS.demo
     await start_app(page, services=services)
     if SMOKE_TEST:
-        write_smoke_report(page)
+        extra = None
+        if os.environ.get("IWARATOOL_SMOKE_DESKTOP") == "1" and shell.caps.desktop:
+            from app.ui_flet import desktop_check
+
+            extra = {"desktop": await desktop_check.run(page)}
+        write_smoke_report(page, extra)
         await shutdown(page)
         return
     await shell.refresh_badges()

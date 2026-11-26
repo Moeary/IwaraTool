@@ -182,6 +182,7 @@ def smoke(executable: Path, out: Path) -> None:
             os.environ,
             IWARATOOL_SMOKE_TEST="1",
             IWARATOOL_SMOKE_REPORT=str(report_path),
+            IWARATOOL_SMOKE_DESKTOP="1",  # close to tray / Dock, login item, notification (desktop_check.py)
             IWARATOOL_DATA_DIR=str(data_dir),
             IWARATOOL_DOWNLOAD_DIR=str(Path(tmp) / "downloads"),
         )
@@ -208,6 +209,9 @@ def smoke(executable: Path, out: Path) -> None:
     print("Smoke report:", json.dumps(report, ensure_ascii=False))
     if report.get("qt_modules"):
         raise SystemExit(f"smoke test: Qt modules loaded: {report['qt_modules']}")
+    desktop = report.get("desktop")
+    if desktop is not None and desktop.get("failures"):
+        raise SystemExit(f"smoke test: desktop check failed: {desktop['failures']}")
     if not report.get("packaged"):
         raise SystemExit("smoke test: the app does not know it is packaged (FLET_PLATFORM unset)")
     storage = Path(report.get("flet_storage", ""))
