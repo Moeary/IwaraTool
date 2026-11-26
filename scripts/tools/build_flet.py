@@ -4,6 +4,7 @@
     pixi run -e flet build-flet --label v1.3.0-alpha1    # name used in the artifact
     pixi run -e flet build-flet --no-smoke               # skip launching the result
     pixi run -e flet build-flet --platform apk           # Android (needs the Android SDK; CI builds it)
+    pixi run -e flet build-flet --install                # macOS: also replace the one test copy, /Applications/IwaraTool Flet.app
 
 Steps (docs/flet_ui_plan.md 2.5):
 
@@ -20,6 +21,10 @@ Steps (docs/flet_ui_plan.md 2.5):
    Desktop only: an APK needs a device or an emulator.
 6. Zip it as dist/IwaraTool-Flet-<Platform>-<arch>-<label>.zip (an APK is
    copied as dist/IwaraTool-Flet-Android-<label>.apk).
+7. macOS: forget the build's own bundles in Launch Services (so Spotlight, Launchpad
+   and "Open With" do not list a copy per build folder) and, with --install, replace
+   the single test copy at /Applications/IwaraTool Flet.app (the release IwaraTool.app
+   is left alone).
 """
 from __future__ import annotations
 
@@ -47,6 +52,8 @@ APP_PACKAGES = ("core", "presentation", "ui_flet", "data")
 FORBIDDEN = re.compile(r"(^|[/\\])(PySide6|shiboken6|qfluentwidgets|qframelesswindow)([/\\.]|$)|(^|[/\\])app[/\\]ui[/\\]")
 PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
 DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
+TEST_INSTALL = Path("/Applications/IwaraTool Flet.app")  # the one test copy on this Mac
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 SMOKE_TIMEOUT = 240  # start-up plus the desktop check (each of its steps is capped)
 
 
@@ -245,11 +252,30 @@ def package(target: str, out: Path, label: str) -> Path:
     return archive
 
 
+def forget_build_bundles(out: Path) -> None:
+    """Launch Services registers every .app a build writes; only the installed copy should be listed."""
+    bundles = [*out.glob("*.app"), *(STAGE / "build").rglob("Release/*.app")]
+    for bundle in bundles:
+        subprocess.run([LSREGISTER, "-u", str(bundle)], check=False, capture_output=True)
+
+
+def install(out: Path) -> None:
+    """Replace /Applications/IwaraTool Flet.app with this build (quits the running copy first)."""
+    app = sorted(out.glob("*.app"))[0]
+    subprocess.run(["pkill", "-f", f"{TEST_INSTALL}/Contents/MacOS/"], check=False)
+    if TEST_INSTALL.exists():
+        shutil.rmtree(TEST_INSTALL)
+    subprocess.run(["ditto", str(app), str(TEST_INSTALL)], check=True)
+    subprocess.run([LSREGISTER, "-f", str(TEST_INSTALL)], check=False, capture_output=True)
+    print(f"Installed: {TEST_INSTALL}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--platform", choices=sorted(PLATFORM_LABELS), default=host_platform())
     parser.add_argument("--label", help="version label in the artifact name (default: v<app version>)")
     parser.add_argument("--no-smoke", action="store_true", help="do not launch the built app")
+    parser.add_argument("--install", action="store_true", help=f"macOS: replace the test copy at {TEST_INSTALL}")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     if args.platform in DESKTOP_TARGETS and args.platform != host_platform():
@@ -262,6 +288,10 @@ def main() -> None:
     if not args.no_smoke and args.platform in DESKTOP_TARGETS:
         smoke(find_executable(args.platform, out), out)
     package(args.platform, out, args.label or f"v{version}")
+    if args.platform == "macos":
+        forget_build_bundles(out)
+        if args.install:
+            install(out)
 
 
 if __name__ == "__main__":

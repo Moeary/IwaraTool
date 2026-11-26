@@ -14,12 +14,14 @@ Nothing leaves the machine.
 """
 from __future__ import annotations
 
+import atexit
 import hashlib
 import io
 import json
 import math
 import os
 import random
+import shutil
 import tempfile
 import threading
 import time
@@ -437,6 +439,18 @@ def fake_session(*_args, **_kwargs) -> requests.Session:
 
 
 ROOT: Path | None = None  # the throw-away folder of the running demo
+STALE_ROOT_SECONDS = 6 * 3600
+
+
+def _remove_old_roots(base: Path) -> None:
+    """Earlier demos' folders (IwaraTool-xxxxxxxx with data/ inside) older than a few hours."""
+    cutoff = time.time() - STALE_ROOT_SECONDS
+    for folder in base.glob("IwaraTool-" + "?" * 8):
+        try:
+            if (folder / "data").is_dir() and folder.stat().st_mtime < cutoff:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def install(language: str = "en", theme: str = "light") -> Path:
@@ -445,7 +459,10 @@ def install(language: str = "en", theme: str = "light") -> Path:
     import cloudscraper
 
     # A short folder, since its path shows in the log, the history page and settings.
-    root = Path(tempfile.mkdtemp(prefix="IwaraTool-", dir=None if os.name == "nt" else "/tmp"))
+    base = None if os.name == "nt" else "/tmp"
+    _remove_old_roots(Path(base or tempfile.gettempdir()))
+    root = Path(tempfile.mkdtemp(prefix="IwaraTool-", dir=base))
+    atexit.register(shutil.rmtree, root, True)  # screenshot runs end with os._exit: _remove_old_roots catches those
     global ROOT
     ROOT = root
     data, downloads = root / "data", root / "Downloads"
@@ -496,6 +513,11 @@ def seed(root: Path, *, refresh: bool = True):
         file_path.write_bytes(b"\0" * 1024)
         thumb = folder / f"{file_path.stem}.jpg"
         thumb.write_bytes(artwork(f"/image/original/file-{post['id']}/thumbnail.jpg"))
+        if index % 2 == 0:  # an NFO beside every other copy: the library reads its tags, people and plot
+            genres = "".join(f"<genre>{tag['id']}</genre>" for tag in post["tags"]) + "<tag>favorite</tag>"
+            (folder / f"{file_path.stem}.nfo").write_text(
+                f"<movie><title>{post['title']}</title><plot>A demo description of {post['title']}.</plot>"
+                f"{genres}<director>{author}</director></movie>", encoding="utf-8")
         download_manager.history.upsert_downloaded({
             "video_id": post["id"], "title": post["title"], "author": author,
             "published_at": post["createdAt"], "likes": post["numLikes"], "views": post["numViews"],
