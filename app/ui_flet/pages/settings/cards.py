@@ -514,6 +514,15 @@ def ConcurrencyCard():
         row(page, stext("max_tasks_in_resolving_queued_downloading"), ft.Slider(
             min=low, max=high, divisions=high - low, value=app_config.max_concurrent, label="{value}", width=260,
             on_change_end=lambda e: (sv.set_max_concurrent(int(e.control.value)), refresh())), compact=_compact(shell)),
+        row(page, tr("Connections per file (built-in downloader)", "每个文件的连接数（内置下载器）",
+                     "ファイルごとの接続数（内蔵ダウンローダー）"),
+            dropdown(str(app_config.native_download_connections), [(str(n), str(n)) for n in (1, 2, 4, 8, 16)],
+                     lambda v: put("native_download_connections", int(v or 1)), width=120),
+            help=tr("Large files are fetched in that many parts at once and resume part by part. "
+                    "Not used while aria2 downloads.",
+                    "大文件分成这么多段同时下载，中断后按段续传。启用 aria2 时不使用。",
+                    "大きなファイルをこの数に分けて同時に取得し、中断後は部分ごとに再開します。aria2 使用中は無効です。"),
+            compact=_compact(shell)),
         row(page, stext("auto_cancel_idle_task_after_seconds"),
             number_field(app_config.task_stall_timeout_seconds, lambda t: (sv.set_stall_timeout(t), refresh()), key=f"stall:{tick}"),
             compact=_compact(shell)),

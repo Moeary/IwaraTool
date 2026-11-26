@@ -46,7 +46,8 @@ def _segments(selected: str, options: list[tuple[str, str, ft.IconData | None]],
     )])
 
 
-def panel_content(shell) -> ft.Control:
+def panel_content(shell, *, closable: bool = False) -> ft.Control:
+    """``closable``: a close button in the header (the phone sheet, which otherwise only closes by a swipe)."""
     state = shell.state
     logged_in = state.logged_in
     narrow = state.layout.width_class == layout.WIDTH_COMPACT  # icons would wrap the theme labels
@@ -81,8 +82,11 @@ def panel_content(shell) -> ft.Control:
                 icon=AppIcon.LOGIN if not logged_in else None,
                 on_click=lambda _e: shell.open(routes.route(routes.SETTINGS, "account")),
             ),
+            ft.IconButton(icon=AppIcon.CLOSE, tooltip=tr("Close", "关闭", "閉じる"),
+                          on_click=lambda _e: shell.close_account()) if closable else None,
         ],
     )
+    account.controls = [c for c in account.controls if c is not None]
     controls: list[ft.Control] = [
         account,
         ft.Divider(height=1),
@@ -144,9 +148,10 @@ def AccountPanelHost():
     state = shell.state
     dialog = None
     if state.account_open:
-        content = panel_content(shell)
+        sheet = state.layout.nav_mode == layout.NAV_BAR
+        content = panel_content(shell, closable=sheet)
         dismiss = lambda _e: shell.close_account()  # noqa: E731
-        if state.layout.nav_mode == layout.NAV_BAR:
+        if sheet:
             dialog = ft.BottomSheet(
                 show_drag_handle=True,
                 scrollable=True,

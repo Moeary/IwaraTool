@@ -36,7 +36,7 @@
 | 主题样张 | `pixi run -e flet theme-gallery` |
 | Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet`；macOS 加 `--install` 替换**唯一**的测试副本 `/Applications/IwaraTool Flet.app`（不要再把测试版复制到 `tmp/` 等别处，正式版 `/Applications/IwaraTool.app` 不动） |
 | 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
-| 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板；修复路由用 `IWARATOOL_DEMO_STEP=options|preview|done` 推进步骤；工具路由用 `IWARATOOL_DEMO_VIDEO=<视频>`（`IWARATOOL_DEMO_TOOL=covers` 封面预览，`IWARATOOL_DEMO_STEP=run` 开始压缩）；资料库路由用 `IWARATOOL_DEMO_STEP=viewer|tags|filters|play`（`play` 需配 `IWARATOOL_DEMO_PLAY`）；`--drawer` 打开手机导航抽屉 |
+| 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板；修复路由用 `IWARATOOL_DEMO_STEP=options|preview|done` 推进步骤；工具路由用 `IWARATOOL_DEMO_VIDEO=<视频>`（`IWARATOOL_DEMO_TOOL=covers` 封面预览，`IWARATOOL_DEMO_STEP=run` 开始压缩）；资料库路由用 `IWARATOOL_DEMO_STEP=viewer|tags|filters|play`（`play` 需配 `IWARATOOL_DEMO_PLAY`）；`--drawer` 打开手机导航抽屉；`IWARATOOL_DEMO_LOGIN=1` 以虚构账号（含头像）登录 |
 | 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
 | 按手机能力运行（隐藏修复 / 工具 / 文件夹等） | `start-flet --platform android`；`flet_viewports.py --platform android` |
 | 新旧界面性能对比（P9；需桌面会话，两边各开窗口 3 次） | `pixi run -e flet python scripts/tools/compare_frontends.py --out tmp/compare [--runs 3] [--records 10000]` |

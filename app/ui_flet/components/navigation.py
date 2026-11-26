@@ -118,7 +118,8 @@ def build_bar(shell) -> ft.NavigationBar:
     )
 
 
-ACCOUNT_HINT = ("Account and preferences", "账号与偏好", "アカウントと設定")
+def account_hint() -> str:
+    return tr("Account and preferences", "账号与偏好", "アカウントと設定")
 
 
 def account_avatar(shell, size: float) -> ft.Control:
@@ -147,7 +148,7 @@ def account_button(shell, *, size: float = Size.AVATAR) -> ft.Control:
         icon=account_avatar(shell, Size.ICON_LG * 1.4),
         width=size,
         height=size,
-        tooltip=tr(*ACCOUNT_HINT),
+        tooltip=account_hint(),
         on_click=lambda _e: shell.open_account(),
     )
 
@@ -163,7 +164,7 @@ def account_entry(shell, width: float | None = None, height: float | None = None
         height=height,
         padding=None if height else ft.Padding.symmetric(vertical=Space.SM),
         border_radius=Radius.FULL,
-        tooltip=tr(*ACCOUNT_HINT),
+        tooltip=account_hint(),
         on_click=lambda _e: shell.open_account(),
         content=ft.Row(spacing=Space.XS, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             ft.Container(width=Size.NAV_INDICATOR_WIDTH, height=Size.NAV_INDICATOR_HEIGHT, alignment=ft.Alignment.CENTER,

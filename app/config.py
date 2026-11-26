@@ -130,6 +130,9 @@ class AppConfig:
         "subscription_auto_enqueue_confirm": False,  # automation also waits for confirmation
         "global_speed_limit_enabled": False,
         "global_speed_limit_kib": 0,
+        # Built-in downloader connections per file (core/download/segmented.py); 1 keeps a single stream.
+        # Classic keeps 1; the Flet interface raises the default (AppConfig.use_defaults).
+        "native_download_connections": 1,
         "download_schedule_enabled": False,
         "download_schedule_start": "00:00",
         "download_schedule_end": "00:00",
@@ -599,6 +602,22 @@ class AppConfig:
     @global_speed_limit_kib.setter
     def global_speed_limit_kib(self, v: int):
         self._set("global_speed_limit_kib", max(0, min(10 * 1024 * 1024, int(v))))
+
+    @property
+    def native_download_connections(self) -> int:
+        return max(1, min(16, int(self._get("native_download_connections") or 1)))
+
+    @native_download_connections.setter
+    def native_download_connections(self, v: int):
+        self._set("native_download_connections", max(1, min(16, int(v))))
+
+    @classmethod
+    def use_defaults(cls, **values) -> None:
+        """An interface's own defaults for settings never saved (the Flet app's data folder is its own)."""
+        unknown = set(values) - set(cls._DEFAULTS)
+        if unknown:
+            raise KeyError(f"unknown settings: {sorted(unknown)}")
+        cls._DEFAULTS.update(values)
 
     download_schedule_enabled = _Setting()
 
