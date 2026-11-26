@@ -73,6 +73,26 @@ class SystemNoticesTests(unittest.TestCase):
         self.assertEqual((shown, system), ([("t", "m")], []))
 
 
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class ShowWindowTests(unittest.TestCase):
+    def test_show_returns_when_the_client_never_raises_the_window(self):
+        from app.ui_flet.platform import tray
+
+        async def never() -> None:
+            await asyncio.Event().wait()
+
+        window = SimpleNamespace(skip_task_bar=True, visible=False, minimized=True, to_front=never)
+        page = SimpleNamespace(window=window, update=lambda: None)
+        async def show() -> None:
+            await asyncio.wait_for(tray.TrayService(page).show_window(), 2)  # the service wants a running loop
+
+        with mock.patch.object(tray, "RAISE_TIMEOUT", 0.05):
+            asyncio.run(show())
+        self.assertTrue(window.visible)
+        self.assertFalse(window.minimized)
+        self.assertFalse(window.skip_task_bar)
+
+
 class TrayTests(unittest.TestCase):
     def test_not_started_off_windows(self):
         from app.ui_flet.platform import tray_windows

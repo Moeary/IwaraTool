@@ -21,6 +21,7 @@ from . import tray_windows
 logger = get_logger(__name__)
 
 ICON = Path(__file__).resolve().parents[2] / "icon.ico"
+RAISE_TIMEOUT = 3.0  # seconds to wait for the client to raise the window
 _TRAYS: dict[int, "TrayService"] = {}
 
 
@@ -101,7 +102,12 @@ class TrayService:
         window.visible = True
         window.minimized = False
         self.page.update()
-        await window.to_front()
+        # Raising is a nicety: some clients never answer it (a CI Mac without a display session),
+        # and quit() goes through here, so it must not block.
+        try:
+            await asyncio.wait_for(window.to_front(), RAISE_TIMEOUT)
+        except Exception as exc:  # TimeoutError included
+            logger.debug("Raising the window failed: %r", exc)
 
     async def quit(self) -> None:
         from ..lifecycle import shutdown
