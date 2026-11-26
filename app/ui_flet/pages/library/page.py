@@ -21,6 +21,7 @@ from ...components.video_grid import VideoGrid
 from ...icons import AppIcon, StateIcon
 from ...services.dialogs import confirm
 from ...services.notify import notice
+from ...services.save_file import save_made_file
 from ...stores.app_state import subscribe, use_shell
 from ...stores.library import VIEW_COVER, VIEW_LIST, LibraryStore
 from ...theme import palette_for, text_style
@@ -97,16 +98,15 @@ async def export_csv(shell) -> None:
     if not store.visible:
         notice(page, "warning", lib.nothing_to_export_text())
         return
-    path = await ft.FilePicker().save_file(dialog_title=lib.export_title(), file_name="history_export.csv",
-                                           initial_directory=app_config.app_data_dir, allowed_extensions=["csv"])
-    if not path:
-        return
     try:
-        count = await store.export(path)
-    except OSError as exc:
+        saved = await save_made_file(shell, store.export, dialog_title=lib.export_title(), file_name="history_export.csv",
+                                     extensions=["csv"], initial_directory=app_config.app_data_dir)
+    except (OSError, ValueError) as exc:
         notice(page, "error", lib.export_failed_title(), str(exc))
         return
-    notice(page, "success", *lib.exported_notice(count, path))
+    if saved:
+        path, count = saved
+        notice(page, "success", *lib.exported_notice(count, path))
 
 
 # ── list rows (phones) ───────────────────────────────────────────────────────

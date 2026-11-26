@@ -112,7 +112,7 @@ class TransferMixin(SegmentedTransferMixin):
         )
         self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
 
-    def _download_task_native(self, task_id: str, final_path: str, temp_path: str):
+    def _download_task_native(self, task_id: str, final_path: str, temp_path: str, connections: int | None = None):
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -120,7 +120,7 @@ class TransferMixin(SegmentedTransferMixin):
             return
 
         resp = None
-        connections = app_config.native_download_connections
+        connections = app_config.native_download_connections if connections is None else connections
         try:
             self._touch_task_activity(task_id)
             saved = self._saved_segments(task, temp_path) if connections > 1 else None

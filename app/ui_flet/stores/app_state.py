@@ -56,6 +56,11 @@ def register_shell(shell) -> None:
     _MOUNTED[:] = [shell]
 
 
+def mounted_shell():
+    """The window's shell outside a component (shutdown), None before ``app.mount``."""
+    return _MOUNTED[0] if _MOUNTED else None
+
+
 def use_shell():
     """The ``Shell`` of the window this component renders in (and subscribe to its state).
 

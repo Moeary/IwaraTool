@@ -7,6 +7,15 @@ from app import paths
 
 
 class PlatformPathTests(unittest.TestCase):
+    def setUp(self):
+        # The test packages point IWARATOOL_DATA_DIR at a temporary folder (data_isolation.py); these
+        # tests are about the locations without an override.
+        environ = mock.patch.dict(paths.os.environ)
+        environ.start()
+        self.addCleanup(environ.stop)
+        for name in ("IWARATOOL_DATA_DIR", "IWARATOOL_DOWNLOAD_DIR"):
+            paths.os.environ.pop(name, None)
+
     def test_macos_bundle_and_source_share_user_data_location(self):
         home = Path("test-home").resolve()
         with mock.patch.object(paths.sys, "platform", "darwin"), \

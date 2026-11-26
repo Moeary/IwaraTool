@@ -50,8 +50,9 @@ class _Resp:
 class _Server:
     """Serves ``data`` with Range support; ``broken_start`` makes the range starting there drop."""
 
-    def __init__(self, data, ranges=True, broken_start=None, fail_after=0):
+    def __init__(self, data, ranges=True, broken_start=None, fail_after=0, honour_ranges=True):
         self.data, self.ranges, self.broken_start, self.fail_after = data, ranges, broken_start, fail_after
+        self.honour_ranges = honour_ranges  # False: advertises ranges but always sends the whole file
         self.requests = []
         self._lock = threading.Lock()
 
@@ -61,7 +62,7 @@ class _Server:
             self.requests.append(headers.get("Range", ""))
         common = {"Accept-Ranges": "bytes"} if self.ranges else {}
         spec = headers.get("Range")
-        if not spec or not self.ranges:
+        if not spec or not self.ranges or not self.honour_ranges:
             return _Resp(200, {**common, "Content-Length": str(len(self.data))}, self.data)
         start, _, end = spec.removeprefix("bytes=").partition("-")
         start, end = int(start), int(end) if end else len(self.data) - 1
@@ -166,6 +167,29 @@ class SegmentedDownloadTests(unittest.TestCase):
         for spec in retry.requests:
             start = int(spec.removeprefix("bytes=").partition("-")[0])
             self.assertTrue(any(s.start + s.done == start and not s.finished for s in saved), spec)
+
+    def test_server_ignoring_ranges_falls_back_to_one_stream(self):
+        server = _Server(self.data, honour_ranges=False)
+        self.run_download(server)
+        self.assertEqual(self.failures, [])
+        self.assertEqual(self.completed, ["t"])
+        with open(self.final, "rb") as handle:
+            self.assertEqual(handle.read(), self.data)
+
+    def test_resume_against_a_changed_file_starts_over(self):
+        second = plan_segments(SIZE, 4)[1]
+        self.run_download(_Server(self.data, broken_start=second.start, fail_after=512 * 1024))
+        self.assertEqual(len(self.failures), 1)
+        bigger = self.data + b"more bytes at the end"
+        self.run_download(_Server(bigger))
+        self.assertEqual(self.completed, [])
+        self.assertEqual(len(self.failures), 2)
+        self.assertFalse(os.path.exists(self.temp))  # the old parts are gone; the next retry starts clean
+        self.assertEqual(read_resume_meta(self.temp), {})
+        self.run_download(_Server(bigger))
+        self.assertEqual(self.completed, ["t"])
+        with open(self.final, "rb") as handle:
+            self.assertEqual(handle.read(), bigger)
 
     def test_single_stream_partial_files_stay_single_stream(self):
         with open(self.temp, "wb") as handle:

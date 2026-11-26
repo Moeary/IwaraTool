@@ -50,7 +50,7 @@ async def import_classic(page: ft.Page, source: str = "") -> bool:
 
 async def offer_classic_import(page: ft.Page) -> None:
     """Once per data folder: Classic data was found, offer to bring it over."""
-    if app_config.get_ui_value(OFFERED_KEY, False) in (True, "true", "1"):
+    if app_config.get_ui_flag(OFFERED_KEY, False):
         return
     data_dir = app_config.app_data_dir
     source = await asyncio.to_thread(classic_import.classic_data_dir, own=data_dir)

@@ -72,7 +72,7 @@ class LibraryStore:
             view=_ui(_VIEW_KEY, VIEW_LIST, (VIEW_LIST, VIEW_COVER)),
             scope=_ui(_SCOPE_KEY, lib.SCOPE_ALL, lib.SCOPES),
             author_sort=_ui(_AUTHOR_SORT_KEY, lib.AUTHOR_SORT_COUNT, (lib.AUTHOR_SORT_COUNT, lib.AUTHOR_SORT_NAME)),
-            autoplay=bool(app_config.get_ui_value(_AUTOPLAY_KEY, True)),
+            autoplay=app_config.get_ui_flag(_AUTOPLAY_KEY, True),
         )
         self.records: list[dict[str, Any]] = []
         self.by_id: dict[str, dict[str, Any]] = {}
@@ -85,6 +85,7 @@ class LibraryStore:
         self.tag_list: list[tuple[str, int]] = []
         self._cards: dict[str, CardView] = {}
         self._pending: dict[str, dict[str, Any]] = {}  # removed, not deleted yet (undo)
+        self._play_order: list[str] = []  # the list as it was when playing started (see neighbour)
         self._pending_handle: asyncio.TimerHandle | None = None
         self._generation = 0
 
@@ -272,16 +273,29 @@ class LibraryStore:
     def neighbour(self, video_id: str, step: int) -> str:
         """The record ``step`` places away in the list as filtered and sorted now; "" past either end."""
         ids = [str(r.get("video_id", "") or "") for r in self.visible]
-        if video_id not in ids:
+        if video_id in ids:
+            index = ids.index(video_id) + step
+            return ids[index] if 0 <= index < len(ids) else ""
+        # Playing can take the record out of the list (the "unwatched" scope): walk on from where it
+        # was when playing started, to the nearest record still listed.
+        order, shown = self._play_order, set(ids)
+        if video_id not in order:
             return ""
-        index = ids.index(video_id) + step
-        return ids[index] if 0 <= index < len(ids) else ""
+        index = order.index(video_id) + step
+        while 0 <= index < len(order):
+            if order[index] in shown:
+                return order[index]
+            index += step
+        return ""
 
     def position(self, video_id: str) -> int:
         return next((i for i, r in enumerate(self.visible) if str(r.get("video_id", "") or "") == video_id), -1)
 
     def play(self, video_id: str) -> None:
         self.state.playing = video_id
+        ids = [str(r.get("video_id", "") or "") for r in self.visible]
+        if video_id in ids:
+            self._play_order = ids
         record = self.by_id.get(video_id) or {}
         if video_id and not str(record.get("watched_at", "") or ""):
             self.shell.page.run_task(asyncio.to_thread, self.manager.set_videos_watched, [video_id], True)

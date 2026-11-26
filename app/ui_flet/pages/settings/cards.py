@@ -32,6 +32,7 @@ from ....presentation.settings.texts import stext
 from ... import layout, routes
 from ...icons import AppIcon
 from ...services.classic_import import import_classic
+from ...services.save_file import save_made_file
 from ...services.dialogs import confirm
 from ...platform import tray
 from ...services.notify import notice
@@ -1013,18 +1014,17 @@ def MaintenanceCard():
     page = shell.page
 
     async def back_up() -> None:
-        path = await ft.FilePicker().save_file(dialog_title=stext("back_up_iwaratool_data"),
-                                               file_name=backup.default_backup_name(),
-                                               file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["zip"])
-        if not path:
-            return
         try:
-            stored = await asyncio.to_thread(backup.create_backup, app_config.app_data_dir, path)
+            saved = await save_made_file(
+                shell, lambda path: asyncio.to_thread(backup.create_backup, app_config.app_data_dir, path),
+                dialog_title=stext("back_up_iwaratool_data"), file_name=backup.default_backup_name(), extensions=["zip"])
         except Exception as exc:
             logger.exception("Backup failed")
             notice(page, "error", stext("failed"), str(exc), duration_ms=6000)
             return
-        notice(page, "success", stext("done"), sv.backup_saved_text(len(stored), path), duration_ms=6000)
+        if saved:
+            path, stored = saved
+            notice(page, "success", stext("done"), sv.backup_saved_text(len(stored), path), duration_ms=6000)
 
     async def restore() -> None:
         path = await _pick_file(stext("restore_iwaratool_data"), ["zip"])

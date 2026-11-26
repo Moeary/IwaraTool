@@ -247,7 +247,9 @@ def package(target: str, out: Path, label: str) -> Path:
         # ditto keeps the bundle's symlinks, permissions and signature intact
         subprocess.run(["ditto", "-c", "-k", "--keepParent", str(app), str(archive)], check=True)
     else:
-        shutil.make_archive(str(archive.with_suffix("")), "zip", root_dir=out.parent, base_dir=out.name)
+        # The program and its files at the top of the zip: unzipped into the folder of an older
+        # IwaraTool.exe it replaces that program and finds the ``data`` folder beside it.
+        shutil.make_archive(str(archive.with_suffix("")), "zip", root_dir=out)
     print(f"Artifact: {archive.relative_to(ROOT)} ({archive.stat().st_size / 1e6:.1f} MB)")
     return archive
 

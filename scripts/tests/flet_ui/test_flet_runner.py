@@ -84,5 +84,12 @@ class PrepareEnvironmentTests(unittest.TestCase):
         self.assertEqual(env["IWARATOOL_DATA_DIR"], "/mine")
 
 
+class EntryOrderTests(unittest.TestCase):
+    def test_staged_restore_is_applied_before_the_settings_are_read(self):
+        """Importing app.config reads config.ini; a restore applied after it would be written over."""
+        source = (Path(__file__).resolve().parents[3] / "main_flet.py").read_text(encoding="utf-8")
+        self.assertLess(source.index("bootstrap.restore_pending_backup()"), source.index("from app.config import"))
+
+
 if __name__ == "__main__":
     unittest.main()

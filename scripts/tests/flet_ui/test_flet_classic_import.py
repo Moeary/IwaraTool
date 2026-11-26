@@ -22,6 +22,9 @@ class _Config:
     def set_ui_value(self, key, value, *, sync=True):
         self.ui[key] = value
 
+    def get_ui_flag(self, key, default=False):
+        return str(self.ui.get(key, default)).lower() in ("true", "1", "yes")
+
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class OfferTests(unittest.TestCase):

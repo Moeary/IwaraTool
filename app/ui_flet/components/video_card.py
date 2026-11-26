@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING
 
 import flet as ft
 
+import asyncio
+import sys
+import time
+
+from ...presentation import click_actions
 from ...presentation.media.cards import KIND_AUTHOR, KIND_IMAGE, KIND_PLAYLIST, CardView
 from .. import layout
 from ..icons import AppIcon, StateIcon
@@ -23,6 +28,10 @@ from .status_badge import BadgeKind, status_badge
 
 if TYPE_CHECKING:
     from .video_actions import VideoMenu
+
+# Settings → "Clicking results" applies to these pages (the settings text names them); elsewhere a click opens.
+CLICK_SETTING_SCOPES = frozenset({"search", "subscription"})
+DOUBLE_CLICK_SECONDS = 0.35
 
 CARD_PADDING = Space.SM
 
@@ -96,9 +105,55 @@ def VideoCard(
             ),
         ))
 
+    latest = ft.use_ref(None)
+    latest.current = (card, on_open, on_toggle, menu)
+    clicks = ft.use_ref(None)  # (ClickDecider, [last click time, timer serial]) across renders
+
+    def perform(action: str, _target) -> None:
+        now_card, now_open, now_toggle, now_menu = latest.current
+        if action == click_actions.ACTION_SELECT:
+            if now_card.selectable and now_toggle:
+                now_toggle(now_card)
+        elif action == click_actions.ACTION_DETAIL:
+            now_open and now_open(now_card)
+        elif action == click_actions.ACTION_PLAY and now_menu is not None:
+            page.run_task(now_menu.play, now_card)
+
+    if clicks.current is None:
+        timing = [0.0, 0]
+
+        def start_timer() -> None:
+            timing[1] += 1
+            serial = timing[1]
+
+            async def fire() -> None:
+                await asyncio.sleep(DOUBLE_CLICK_SECONDS)
+                if timing[1] == serial:
+                    clicks.current[0].timer_fired()
+
+            page.run_task(fire)
+
+        def stop_timer() -> None:
+            timing[1] += 1
+
+        clicks.current = (click_actions.ClickDecider(perform, start_timer=start_timer, stop_timer=stop_timer), timing)
+
+    uses_setting = (not touch and menu is not None and menu.scope in CLICK_SETTING_SCOPES
+                    and card.kind not in (KIND_AUTHOR, KIND_PLAYLIST))
+
     def click(_e) -> None:
         if selecting and card.selectable:
             on_toggle and on_toggle(card)
+        elif uses_setting:
+            decider, timing = clicks.current
+            target = sys.intern(card.key)  # the same object for both clicks of a double click
+            now = time.monotonic()
+            if now - timing[0] <= DOUBLE_CLICK_SECONDS:
+                timing[0] = 0.0
+                decider.double_click(target)
+            else:
+                timing[0] = now
+                decider.click(target)
         elif on_open:
             on_open(card)
 

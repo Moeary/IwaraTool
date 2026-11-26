@@ -37,6 +37,13 @@ class _LatestMenu:
     async def run(self, card, action):
         return await self._ref.current["menu"].run(card, action)
 
+    @property
+    def scope(self) -> str:
+        return self._ref.current["menu"].scope
+
+    async def play(self, card):
+        return await self._ref.current["menu"].play(card)
+
     async def choose_player(self, card):
         return await self._ref.current["menu"].choose_player(card)
 

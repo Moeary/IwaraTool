@@ -40,13 +40,14 @@ if "--demo" in sys.argv:
     demo_fixture.install(language={"zh": "zh_CN", "ja": "ja_JP"}.get(_lang, "en_US"))
 
 from app import bootstrap  # noqa: E402
+
+# A restore staged in Settings must land before app.config opens any file: importing it reads config.ini.
+bootstrap.restore_pending_backup()
+
 from app.config import AppConfig  # noqa: E402
 
-# Defaults of this interface for settings never saved (Classic keeps its own; the data folders differ).
+# Defaults of this interface for settings never saved (Classic keeps its own default).
 AppConfig.use_defaults(native_download_connections=4)
-
-# A restore staged in Settings must land before app.config opens any file.
-bootstrap.restore_pending_backup()
 
 import flet as ft  # noqa: E402
 

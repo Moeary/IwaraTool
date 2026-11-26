@@ -43,6 +43,14 @@ class SegmentError(Exception):
     """A segment could not be fetched (after its retries)."""
 
 
+class RangeIgnored(SegmentError):
+    """The server answered a range request with the whole file: ranges cannot be used."""
+
+
+class ServerFileChanged(SegmentError):
+    """The server's file is no longer the one the saved segments came from."""
+
+
 @dataclass
 class Segment:
     start: int
@@ -141,17 +149,17 @@ class SegmentedTransferMixin:
 
         lock = threading.Lock()
         stop = threading.Event()
-        errors: list[str] = []
+        errors: list[Exception] = []
 
         def cancelled() -> bool:
             return stop.is_set() or self._is_cancel_requested(task_id)
 
         def run(segment: Segment) -> None:
             try:
-                self._fetch_segment(task, task_id, temp_path, segment, lock, cancelled)
+                self._fetch_segment(task, task_id, temp_path, segment, total, lock, cancelled)
             except Exception as exc:  # the first error stops the others; their bytes stay for the retry
                 with lock:
-                    errors.append(str(exc))
+                    errors.append(exc)
                 stop.set()
 
         pending = [s for s in segments if not s.finished]
@@ -184,11 +192,31 @@ class SegmentedTransferMixin:
 
         if self._cancel_if_requested(task_id):
             return  # the partial file and its map stay for a resume
-        if errors or not all(s.finished for s in segments):
+        if any(isinstance(e, RangeIgnored) for e in errors):
+            # Ranges were advertised but not honoured: start over over one connection.
+            signal_bus.log_message.emit(tr(
+                "  The server ignored range requests; downloading over one connection",
+                "  服务器未按分段返回数据，改用单连接下载",
+                "  サーバーが範囲指定に従わないため、1 本の接続でダウンロードします",
+            ))
+            self._discard_temp_file(temp_path)
+            self._download_task_native(task_id, final_path=final_path, temp_path=temp_path, connections=1)
+            return
+        changed = next((e for e in errors if isinstance(e, ServerFileChanged)), None)
+        if changed is not None:
+            self._discard_temp_file(temp_path)  # the saved parts belong to another file
             self._fail_task(task_id, tr(
-                f"Incomplete download ({errors[0] if errors else 'a connection stopped'}). Retry to resume.",
-                f"下载不完整（{errors[0] if errors else '有连接中断'}），重试可继续。",
-                f"ダウンロードが不完全です（{errors[0] if errors else '接続が途切れました'}）。再試行で再開できます。",
+                f"The file on the server changed ({changed}); the partial download was removed. Retry to download again.",
+                f"服务器上的文件已变化（{changed}），已清除未完成的部分；请重试以重新下载。",
+                f"サーバー上のファイルが変わりました（{changed}）。途中のデータを削除しました。再試行してください。",
+            ))
+            return
+        if errors or not all(s.finished for s in segments):
+            reason = str(errors[0]) if errors else ""
+            self._fail_task(task_id, tr(
+                f"Incomplete download ({reason or 'a connection stopped'}). Retry to resume.",
+                f"下载不完整（{reason or '有连接中断'}），重试可继续。",
+                f"ダウンロードが不完全です（{reason or '接続が途切れました'}）。再試行で再開できます。",
             ))
             return
         if not self._finalize_temp_file(task_id, temp_path=temp_path, final_path=final_path):
@@ -200,10 +228,11 @@ class SegmentedTransferMixin:
         ))
         self._complete_task(task_id)
 
-    def _fetch_segment(self, task, task_id: str, temp_path: str, segment: Segment, lock: threading.Lock,
-                       cancelled: Callable[[], bool]) -> None:
+    def _fetch_segment(self, task, task_id: str, temp_path: str, segment: Segment, total: int,
+                       lock: threading.Lock, cancelled: Callable[[], bool]) -> None:
         attempt = 0
-        with open(temp_path, "r+b") as handle:
+        # Unbuffered: a byte counts in ``segment.done`` (and so in the saved map) only once the OS has it.
+        with open(temp_path, "r+b", buffering=0) as handle:
             while not segment.finished and not cancelled():
                 start = segment.start + segment.done
                 headers = {"Range": f"bytes={start}-{segment.end}"}
@@ -213,11 +242,15 @@ class SegmentedTransferMixin:
                 try:
                     with self.api.scraper.get(task.download_url, headers=headers, stream=True, timeout=60,
                                               proxies=self._download_request_proxies()) as resp:
+                        if resp.status_code == 200:
+                            raise RangeIgnored("the server sent the whole file for a range request")
                         if resp.status_code != 206:
                             raise SegmentError(f"HTTP {resp.status_code} for a range request")
-                        got_start, _end, _total = parse_content_range(resp.headers.get("Content-Range"))
-                        if got_start is not None and got_start != start:
-                            raise SegmentError(f"range starts at {got_start}, asked for {start}")
+                        got_start, got_end, got_total = parse_content_range(resp.headers.get("Content-Range"))
+                        if got_total is not None and got_total != total:
+                            raise ServerFileChanged(f"the server's file is now {got_total} bytes, not {total}")
+                        if got_start != start or got_end is None or got_end > segment.end:
+                            raise SegmentError(f"asked for bytes {start}-{segment.end}, got {got_start}-{got_end}")
                         handle.seek(start)
                         for chunk in resp.iter_content(chunk_size=CHUNK_BYTES):
                             if cancelled():
@@ -229,7 +262,9 @@ class SegmentedTransferMixin:
                             if not self._rate_limiter.throttle(len(chunk), cancelled=cancelled,
                                                                on_wait=lambda: self._touch_task_activity(task_id)):
                                 return
-                            handle.write(chunk)
+                            view = memoryview(chunk)
+                            while view:  # a raw write may take only part of the chunk
+                                view = view[handle.write(view):]
                             with lock:
                                 segment.done += len(chunk)
                             self._touch_task_activity(task_id)

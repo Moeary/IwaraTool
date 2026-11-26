@@ -75,7 +75,7 @@
 - Row / Column 的 `controls` 里不能有 `None`（渲染成灰色错误块），条件控件先过滤。
 - `run()` 会切换工作目录：脚本里的输出路径一律先 `.resolve()` 成绝对路径，否则写文件失败后窗口不关、进程挂住。
 - 平台差异只问 `shell.caps`（`platform/capabilities.py`），不要在页面里比较平台名；新的桌面专属功能先在那里加能力项。手机的返回、暂停保存、剪贴板链接在 `lifecycle.py` / `Shell` 里，桌面不安装。
-- 测试不要给真正的 `app_config` 赋值（测试没有隔离数据目录，macOS 上会写进旧版的设置文件）；用 `mock.patch.object(模块, "app_config", 替身)`。
+- 测试包在导入时把 `IWARATOOL_DATA_DIR` 指向临时目录（`scripts/tests/data_isolation.py`，已显式设置时保留），不会碰真实的共用数据目录；仍不要给真正的 `app_config` 赋值，用 `mock.patch.object(模块, "app_config", 替身)`。
 
 ## 提交与 CI
 

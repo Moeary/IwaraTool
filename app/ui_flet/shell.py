@@ -122,7 +122,7 @@ class Shell:
     # ── layout ───────────────────────────────────────────────────────────────
 
     def _layout(self, width: float, height: float) -> layout.LayoutState:
-        extended = bool(app_config.get_ui_value(RAIL_EXTENDED_KEY, True))
+        extended = app_config.get_ui_flag(RAIL_EXTENDED_KEY, True)
         try:
             dragged = float(app_config.get_ui_value(RAIL_WIDTH_KEY, 0) or 0)
         except (TypeError, ValueError):
@@ -419,6 +419,7 @@ class Shell:
     def _on_site_changed(self, _key: str) -> None:
         self.state.site = preferences.current_site()
         self.page.run_task(self.search.rerun)
+        self.page.run_task(self.home.reload_all)  # the rows' cache keys include the site
         self._reload_subscriptions()
 
     def _on_history_changed(self, *_args) -> None:

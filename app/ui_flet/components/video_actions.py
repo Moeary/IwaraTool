@@ -99,6 +99,14 @@ class VideoMenu:
             return None
         return video_player.opens_externally(location.local_path)
 
+    async def play(self, card: CardView) -> None:
+        """The card's Play entry (Settings → click actions "play"); its detail page when it has none."""
+        play = next((a for a in await self.actions(card) if a.id == va.PLAY), None)
+        if play is not None:
+            await self.run(card, play)
+        elif card.history_id:
+            await self.run(card, va.VideoAction(va.DETAIL, va.detail_label(), va.GROUP_DETAIL))
+
     async def choose_player(self, card: CardView) -> bool:
         """Long-press on a downloaded file: in the app or in an external player (plus Select); False if no choice."""
         if not self.shell.caps.external_player or not card.history_id or card.kind == KIND_IMAGE:
@@ -123,6 +131,9 @@ class VideoMenu:
             ok, message = await asyncio.to_thread(video_player.open_local_video, action.value, mode=mode)
             if not ok:
                 notice(page, "error", va.cannot_open_title(), message)
+            elif card.history_id:
+                # Played, as when the app's own player plays it (the library's "unwatched" scope).
+                await asyncio.to_thread(self.manager.set_videos_watched, [card.history_id], True)
             return
         if action.id in (va.PLAY, va.PLAY_BUILTIN) and self.play_here is not None and card.history_id:
             self.play_here(card)

@@ -326,8 +326,20 @@ def Results():
             kind = "image" if card.kind == KIND_IMAGE else "video"
             shell.open(routes.route(routes.DETAIL, kind, card.history_id))
         else:
-            notice(shell.page, "info", tr("Still finding this video on Iwara…", "正在 Iwara 上查找这个视频…",
+            notice(shell.page, "info", tr("Finding this video on Iwara…", "正在 Iwara 上查找这个视频…",
                                           "Iwara で動画を探しています…"))
+            if getattr(item, "source_kind", "") == "oreno3d":
+                shell.page.run_task(resolve_and_open, item)
+
+    async def resolve_and_open(item) -> None:
+        """Oreno3D results that resolve on demand: find the Iwara video, then open it."""
+        history_id, error = await store.resolve_one(item)
+        if history_id:
+            shell.details.remember(item, history_id)
+            shell.open(routes.route(routes.DETAIL, "video", history_id))
+        else:
+            notice(shell.page, "warning", tr("Not found on Iwara", "未在 Iwara 上找到", "Iwara で見つかりません"),
+                   error)
 
     compact = shell.state.layout.width_class == layout.WIDTH_COMPACT
 

@@ -129,6 +129,19 @@ class LibraryBrowsingTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_next_still_found_after_playing_drops_the_record_from_the_list(self):
+        async def run():
+            store, _manager, _ui = self.make()
+            await store.load()
+            ids = [r["video_id"] for r in store.visible]
+            store.play(ids[1])
+            # The "unwatched" scope drops the record once it is marked watched.
+            store.visible = [r for r in store.visible if r["video_id"] != ids[1]]
+            self.assertEqual(store.neighbour(ids[1], 1), ids[2])
+            self.assertEqual(store.neighbour(ids[1], -1), ids[0])
+
+        asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()

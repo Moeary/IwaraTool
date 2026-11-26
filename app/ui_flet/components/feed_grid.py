@@ -60,7 +60,8 @@ def FeedGrid(section: FeedSection, tab_id: str, rating: str, scope: str):
             set_selected(frozenset())
         set_paging({"page": page, "more": result.has_more, "loading": False, "error": result.error})
 
-    ft.use_effect(lambda: shell.page.run_task(load, 0), [section.id, tab.id, tab.value, rating])
+    # From page 0 again for another site too: page N of iwara.ai must not be appended to iwara.tv's list.
+    ft.use_effect(lambda: shell.page.run_task(load, 0), [section.id, tab.id, tab.value, rating, shell.state.site])
 
     def toggle(card: CardView) -> None:
         if card.selectable:

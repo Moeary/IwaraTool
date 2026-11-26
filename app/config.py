@@ -329,6 +329,10 @@ class AppConfig:
         with self._lock:
             return self._qs.value(f"ui/{key}", default)
 
+    def get_ui_flag(self, key: str, default: bool = False) -> bool:
+        """A saved on/off value: the INI file gives back ``'false'`` / ``'true'``, which ``bool()`` reads as True."""
+        return self._coerce_bool(self.get_ui_value(key, default))
+
     def set_ui_value(self, key: str, value, *, sync: bool = True):
         with self._lock:
             full = f"ui/{key}"

@@ -86,6 +86,15 @@ async def shutdown(page: ft.Page) -> None:
     """Stop services and write settings, then close the window (desktop)."""
 
     tray.service(page).stop()
+    from .stores.app_state import mounted_shell
+
+    shell = mounted_shell()
+    if shell is not None:
+        try:
+            # Library removals still waiting for Undo were promised: write them before the process ends.
+            shell.library.flush()  # on the loop: it cancels the Undo timer (a loop handle); one short write
+        except Exception:
+            logger.exception("Writing pending library removals failed")
     try:
         await asyncio.to_thread(bootstrap.stop, wait=True)
     except Exception:  # never keep the window open because saving failed

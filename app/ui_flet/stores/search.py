@@ -364,6 +364,30 @@ class SearchStore:
             self.state.status = self.found_text()
             await self.refresh_statuses()
 
+    async def resolve_one(self, video) -> tuple[str, str]:
+        """Find one Oreno3D result on Iwara now (a click when results resolve on demand).
+
+        Returns ``(history_id, error)``: the Iwara ID to open, or why it could not be found.
+        """
+        events: list[dict[str, Any]] = []
+        resolver = OrenoLinkResolver(self.manager, self._generation, [video], concurrency=1, hydrate_metadata=True,
+                                     on_item=events.append)
+        try:
+            result = await asyncio.to_thread(resolver.run)
+        except Exception as exc:
+            logger.exception("Resolving an Oreno3D result failed")
+            return "", str(exc)
+        for event in events:
+            link = event.get("link")
+            if isinstance(link, dict):
+                apply_oreno_link(video, link)
+        self._rebuild_cards()
+        self.state.revision += 1
+        card = card_for(video)
+        history_id = card.history_id if card is not None else ""
+        errors = result.get("errors") or []
+        return history_id, "" if history_id else (str(errors[0]) if errors else "")
+
     def _on_resolve_progress(self, done: int, total: int, generation: int) -> None:
         if generation == self._generation and total and done < total:
             self.state.status = options.resolving_ids_text(done, total)
@@ -371,8 +395,10 @@ class SearchStore:
     def _on_link(self, event: dict[str, Any], generation: int) -> None:
         if generation != self._generation:
             return
-        key = f"video:{event.get('video_id') or ''}"
-        video = self.items.get(key)
+        # Looked up among all results, not the visible cards: an Oreno3D result whose stats are not known yet
+        # is hidden by a post filter (minimum likes …) until this link brings them.
+        video_id = str(event.get("video_id") or "")
+        video = next((v for v in self.results.videos if v.video_id == video_id), None) if video_id else None
         link = event.get("link")
         if video is None or not isinstance(link, dict) or not apply_oreno_link(video, link):
             return
