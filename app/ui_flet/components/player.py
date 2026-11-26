@@ -44,7 +44,7 @@ def release(url: str) -> None:
 
 
 @ft.component
-def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=None):
+def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=None, on_complete=None):
     shell = use_shell()
     palette = palette_for(shell.page)
     source, set_source = ft.use_state(lambda: {"url": "", "error": ""})
@@ -66,6 +66,16 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
         held.current = ""
 
     ft.use_effect(prepare, [video_id], cleanup=cleanup)
+
+    async def completed(e) -> None:
+        # The client reports changes of "completed" (also back to false when a new file starts): ask first.
+        try:
+            done = await e.control.is_completed()
+        except Exception:
+            done = False
+        if done and on_complete is not None:
+            on_complete()
+
     height = width * 9 / 16
     if source["error"]:
         content: ft.Control = ft.Column(
@@ -100,6 +110,7 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
             fill_color=palette.scrim,
             expand=True,
             on_error=lambda e: set_source({"url": "", "error": str(e.data or "")}),
+            on_complete=completed if on_complete is not None else None,
         )
     stack: list[ft.Control] = [ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=content)]
     if on_close is not None:

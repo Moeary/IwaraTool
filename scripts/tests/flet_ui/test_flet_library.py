@@ -20,8 +20,17 @@ class FakeManager:
             for i in range(5)
         ]
 
+        self.watched: list[tuple[list[str], bool]] = []
+
     def get_history_records(self):
         return [dict(r) for r in self.rows]
+
+    def get_history_tags(self):
+        return {"v1": ["mmd", "Dance"], "v3": ["dance"]}
+
+    def set_videos_watched(self, ids, watched=True):
+        self.watched.append((list(ids), watched))
+        return len(ids)
 
     def remove_history_records(self, ids):
         self.removed.append(list(ids))
@@ -90,6 +99,35 @@ class LibraryStoreTests(unittest.TestCase):
         store.toggle("v0")
         self.assertNotIn("v0", store.state.selected)
         self.assertEqual(len(store.shown()), 5)
+
+
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class LibraryBrowsingTests(unittest.TestCase):
+    make = LibraryStoreTests.make
+
+    def test_tags_filter_case_insensitively(self):
+        store, _manager, _ui = self.make()
+        asyncio.run(store.load())
+        self.assertEqual(store.tag_list[0], ("Dance", 2))
+        store.toggle_tag("DANCE")
+        self.assertEqual(sorted(r["video_id"] for r in store.visible), ["v1", "v3"])
+        store.toggle_tag("dance")  # the same tag, any spelling, turns it off
+        self.assertEqual(len(store.visible), 5)
+
+    def test_neighbours_follow_the_list_and_playing_marks_watched(self):
+        async def run():
+            store, manager, _ui = self.make()
+            await store.load()
+            ids = [r["video_id"] for r in store.visible]
+            self.assertEqual(store.neighbour(ids[0], 1), ids[1])
+            self.assertEqual(store.neighbour(ids[0], -1), "")
+            self.assertEqual(store.neighbour(ids[-1], 1), "")
+            store.play(ids[0])
+            await asyncio.sleep(0.05)
+            self.assertEqual(store.state.playing, ids[0])
+            self.assertEqual(manager.watched, [([ids[0]], True)])
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":

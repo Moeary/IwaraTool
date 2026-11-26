@@ -6,7 +6,7 @@ cancels one, the subscription, library and author routes get seeded records,
 the repair route gets a folder of badly named files (``IWARATOOL_DEMO_STEP``:
 ``options`` / ``preview`` scans / ``done`` also repairs), the tools route loads
 ``IWARATOOL_DEMO_VIDEO`` (``IWARATOOL_DEMO_TOOL=covers`` for the cover preview,
-``IWARATOOL_DEMO_STEP=run`` compresses it).  Nothing here is imported outside demo runs.
+``IWARATOOL_DEMO_STEP=run`` compresses it); the library route takes ``IWARATOOL_DEMO_STEP=viewer|tags|filters|play``.  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -54,6 +54,24 @@ async def play(shell, route: str) -> None:
         await asyncio.to_thread(demo_fixture.seed, demo_fixture.ROOT)
         await shell.subscriptions.load()
         await shell.subscriptions.reload_items()
+        step = os.environ.get("IWARATOOL_DEMO_STEP", "")
+        if destination == routes.LIBRARY and step:
+            # viewer: the full-size cover; tags: a tag chosen; play: IWARATOOL_DEMO_PLAY in the record's player.
+            store = shell.library
+            await store.load()
+            video_id = parsed.parts[0] if parsed.parts else (store.visible[0]["video_id"] if store.visible else "")
+            if step == "tags" and store.tag_list:
+                store.toggle_tag(store.tag_list[0][0])
+            elif step == "filters":
+                store.state.sheet = "all"
+            elif step == "viewer" and video_id:
+                store.view_cover(video_id)
+            elif step == "play" and video_id and os.environ.get("IWARATOOL_DEMO_PLAY"):
+                from app.core.playback import video_player
+
+                clip = os.path.abspath(os.environ["IWARATOOL_DEMO_PLAY"])
+                video_player.downloaded_copy = lambda *_args, **_kwargs: clip
+                store.play(video_id)
     elif destination == routes.DOWNLOADS:
         from app.core.download.manager import download_manager
 

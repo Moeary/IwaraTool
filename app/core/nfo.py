@@ -1,10 +1,11 @@
-"""Kodi/Jellyfin-compatible movie NFO generation helpers."""
+"""Kodi/Jellyfin-compatible movie NFO files: writing them for downloads, reading them back for the library."""
 from __future__ import annotations
 
 import json
 import os
 import re
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -231,3 +232,100 @@ def _thumbnail_ref(task: Any) -> str:
         if os.path.isfile(candidate):
             return os.path.basename(candidate)
     return ""
+
+
+# ── reading an NFO back (the library's tags, people and plot) ────────────────
+
+NFO_MAX_BYTES = 1_000_000  # a movie NFO is a few KB; anything bigger is not one
+
+
+@dataclass(frozen=True)
+class NfoInfo:
+    """What the library shows and filters by from a Kodi / Jellyfin movie NFO."""
+
+    title: str = ""
+    plot: str = ""
+    tags: tuple[str, ...] = ()  # <genre> and <tag>, first spelling kept
+    people: tuple[str, ...] = ()  # <actor><name>, <director>, <studio>, <author>
+    year: str = ""
+    rating: str = ""
+
+
+def nfo_path_for(video_path: str) -> str:
+    """The NFO beside a video: ``<stem>.nfo``, else the folder's ``movie.nfo``; "" when neither exists."""
+
+    if not video_path:
+        return ""
+    candidates = (os.path.splitext(video_path)[0] + ".nfo", os.path.join(os.path.dirname(video_path), "movie.nfo"))
+    return next((path for path in candidates if os.path.isfile(path)), "")
+
+
+def _unique(values) -> tuple[str, ...]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append(text)
+    return tuple(out)
+
+
+def parse_nfo_text(text: str) -> NfoInfo | None:
+    """``None`` when the text is not an NFO with a ``<movie>``-like root."""
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+    def first(*tags: str) -> str:
+        for tag in tags:
+            node = root.find(tag)
+            if node is not None and (node.text or "").strip():
+                return node.text.strip()
+        return ""
+
+    people = [node.findtext("name") for node in root.findall("actor")]
+    people += [node.text for tag in ("director", "studio", "author") for node in root.findall(tag)]
+    premiered = first("premiered", "releasedate")
+    return NfoInfo(
+        title=first("title", "originaltitle"),
+        plot=first("plot", "outline"),
+        tags=_unique(node.text for tag in ("genre", "tag") for node in root.findall(tag)),
+        people=_unique(people),
+        year=first("year") or premiered[:4],
+        rating=first("mpaa", "rating"),
+    )
+
+
+def read_nfo(path: str) -> NfoInfo | None:
+    try:
+        if os.path.getsize(path) > NFO_MAX_BYTES:
+            return None
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except OSError:
+        return None
+    return parse_nfo_text(data.decode("utf-8", errors="replace").lstrip("﻿"))
+
+
+_NFO_CACHE: dict[str, tuple[float, int, NfoInfo | None]] = {}
+
+
+def nfo_for_video(video_path: str) -> NfoInfo | None:
+    """The NFO next to ``video_path``, parsed once per change of the file (blocking: run off the UI loop)."""
+
+    path = nfo_path_for(video_path)
+    if not path:
+        return None
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    cached = _NFO_CACHE.get(path)
+    if cached and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+        return cached[2]
+    info = read_nfo(path)
+    _NFO_CACHE[path] = (stat.st_mtime, stat.st_size, info)
+    return info

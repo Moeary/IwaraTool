@@ -126,6 +126,7 @@ class LibraryCounts:
 
 
 StateOf = Callable[[dict[str, Any]], tuple[str, str, str]]
+TagsOf = Callable[[dict[str, Any]], tuple[str, ...]]
 
 
 def filter_records(
@@ -138,10 +139,17 @@ def filter_records(
     scope: str = SCOPE_ALL,
     author: str = "",
     cutoff: str | None = None,
+    tags: Iterable[str] = (),
+    tags_of: TagsOf | None = None,
 ) -> tuple[list[dict[str, Any]], LibraryCounts]:
-    """The records that pass the scope, state and text filters, plus the page's counts."""
+    """The records that pass the scope, state, tag and text filters, plus the page's counts.
+
+    ``tags`` must all be among the record's ``tags_of`` (NFO genres and tags, else the saved Iwara tags);
+    with the "all" field the text query matches a tag too.
+    """
 
     query = str(query or "").strip().lower()
+    wanted = {str(tag).casefold() for tag in tags if str(tag).strip()}
     cutoff = recent_cutoff() if cutoff is None else cutoff
     visible: list[dict[str, Any]] = []
     total = ok = moved = remote = unwatched = 0
@@ -163,7 +171,11 @@ def filter_records(
             continue
         if state_filter == STATE_MOVED and state_key != "moved":
             continue
-        if query and query not in record_search_text(record, field, (label, state_key, detail)):
+        own = tags_of(record) if tags_of is not None and (wanted or (query and field == 0)) else ()
+        if wanted and not wanted <= {tag.casefold() for tag in own}:
+            continue
+        if query and query not in record_search_text(record, field, (label, state_key, detail)) \
+                and not (field == 0 and any(query in tag.lower() for tag in own)):
             continue
         visible.append(record)
     return visible, LibraryCounts(total, len(visible), ok, moved, remote, unwatched)
@@ -542,3 +554,166 @@ def moved_ids(records: Iterable[dict[str, Any]], state_of: StateOf) -> list[str]
     return [str(r.get("video_id", "") or "") for r in records if state_of(r)[1] == "moved" and r.get("video_id")]
 
 
+
+
+# ── tags (NFO files and saved Iwara tags) ────────────────────────────────────
+
+
+def merge_tags(nfo_tags: Iterable[str], saved: Iterable[str]) -> tuple[str, ...]:
+    """The NFO's tags first (the user may have edited them), then the saved ones it lacks; case-insensitive."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for tag in (*nfo_tags, *saved):
+        text = str(tag or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append(text)
+    return tuple(out)
+
+
+def tag_counts(records: Iterable[dict[str, Any]], tags_of: TagsOf) -> list[tuple[str, int]]:
+    """Every tag with how many records carry it: most used first, then by name."""
+    counts: Counter = Counter()
+    spelling: dict[str, str] = {}
+    for record in records:
+        for tag in tags_of(record):
+            key = tag.casefold()
+            spelling.setdefault(key, tag)
+            counts[key] += 1
+    return sorted(((spelling[key], count) for key, count in counts.items()), key=lambda item: (-item[1], item[0].casefold()))
+
+
+def tags_title() -> str:
+    return tr("Tags", "标签", "タグ")
+
+
+def tags_hint() -> str:
+    return tr("From the NFO beside each video, else the tags saved with the download.",
+              "取自视频旁的 NFO 文件，没有时用下载时保存的标签。",
+              "各動画の NFO、無ければダウンロード時に保存したタグから。")
+
+
+def no_tags_text() -> str:
+    return tr("No tags yet: turn on NFO files in Settings > Downloads, or download again.",
+              "暂无标签：可在「设置 > 下载」开启 NFO，或重新下载。",
+              "タグがありません：設定 > ダウンロードで NFO を有効にしてください。")
+
+
+def filter_tags_placeholder() -> str:
+    return tr("Find a tag", "查找标签", "タグを検索")
+
+
+def clear_tags_text() -> str:
+    return tr("Clear tags", "清除标签", "タグを解除")
+
+
+def filters_title() -> str:
+    return tr("Filter and sort", "筛选与排序", "絞り込みと並び替え")
+
+
+def plot_label() -> str:
+    return tr("Description", "简介", "説明")
+
+
+def people_label() -> str:
+    return tr("People", "人物", "人物")
+
+
+# ── browsing and playing ─────────────────────────────────────────────────────
+
+
+def position_text(index: int, total: int) -> str:
+    return f"{index + 1} / {total}" if 0 <= index < total else ""
+
+
+def previous_text() -> str:
+    return tr("Previous", "上一个", "前へ")
+
+
+def next_text() -> str:
+    return tr("Next", "下一个", "次へ")
+
+
+def autoplay_text() -> str:
+    return tr("Play next automatically", "自动连播", "自動で次を再生")
+
+
+def enlarge_text() -> str:
+    return tr("View cover", "查看大图", "カバーを拡大")
+
+
+def play_here_text() -> str:
+    return tr("Play here", "在此播放", "ここで再生")
+
+
+def cannot_play_text() -> str:
+    return tr("No playable copy: the file was moved or is on an unreachable aria2 host.",
+              "没有可播放的副本：文件已移动，或位于无法访问的 aria2 主机。",
+              "再生できるファイルがありません（移動済み、または aria2 ホストに接続できません）。")
+
+
+# ── managing records ─────────────────────────────────────────────────────────
+
+
+def edit_details_texts() -> tuple[str, str]:
+    """(menu entry / dialog title, save button)."""
+    return tr("Edit details", "编辑信息", "情報を編集"), tr("Save", "保存", "保存")
+
+
+def edit_field_labels() -> dict[str, str]:
+    return {
+        "title": tr("Title", "标题", "タイトル"),
+        "author": tr("Author", "作者", "作者"),
+        "quality": tr("Quality", "画质", "画質"),
+        "published_at": tr("Published", "发布时间", "公開日"),
+    }
+
+
+def details_saved_text() -> str:
+    return tr("Details saved", "信息已保存", "情報を保存しました")
+
+
+def relocate_text() -> str:
+    return tr("Locate file…", "重新定位文件…", "ファイルの場所を指定…")
+
+
+def relocated_title() -> str:
+    return tr("File located", "已重新定位", "ファイルの場所を更新しました")
+
+
+def watched_texts(watched: bool) -> str:
+    return (tr("Mark as unwatched", "标记为未看", "未視聴にする") if watched
+            else tr("Mark as watched", "标记为已看", "視聴済みにする"))
+
+
+def marked_notice(count: int, watched: bool) -> str:
+    return (tr(f"{count} marked as watched", f"已将 {count} 项标记为已看", f"{count} 件を視聴済みにしました") if watched
+            else tr(f"{count} marked as unwatched", f"已将 {count} 项标记为未看", f"{count} 件を未視聴にしました"))
+
+
+def cancel_text() -> str:
+    return tr("Cancel", "取消", "キャンセル")
+
+
+def close_text() -> str:
+    return tr("Close", "关闭", "閉じる")
+
+
+def manage_text() -> str:
+    return tr("Manage record", "管理记录", "履歴を管理")
+
+
+def search_field_title() -> str:
+    return tr("Search in", "搜索范围", "検索対象")
+
+
+def state_title() -> str:
+    return tr("File state", "文件状态", "ファイルの状態")
+
+
+def sort_title() -> str:
+    return tr("Sort by", "排序方式", "並び替え")
+
+
+def sort_direction_text(descending: bool) -> str:
+    return tr("Descending", "降序", "降順") if descending else tr("Ascending", "升序", "昇順")

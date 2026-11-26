@@ -8,7 +8,6 @@ shared ``VideoGrid``.  Removing records can be undone from the notice.
 """
 from __future__ import annotations
 
-import os
 
 import flet as ft
 
@@ -18,30 +17,38 @@ from ....presentation.history import library as lib
 from ... import layout, routes
 from ...components.cover import Cover
 from ...components.page_frame import PageFrame
-from ...components.status_badge import BadgeKind, status_badge
-from ...components.video_actions import VideoMenu
 from ...components.video_grid import VideoGrid
 from ...icons import AppIcon, StateIcon
-from ...services.dialogs import confirm, prompt_text
+from ...services.dialogs import confirm
 from ...services.notify import notice
 from ...stores.app_state import subscribe, use_shell
 from ...stores.library import VIEW_COVER, VIEW_LIST, LibraryStore
 from ...theme import palette_for, text_style
 from ...tokens import TYPE, Radius, Size, Space
+from .filters import active_tag_row, filter_button, filter_sheet
+from .record import (
+    _BADGES,
+    SIDE_MIN_WIDTH,
+    SIDE_PANEL,
+    CoverViewer,
+    RecordPanel,
+    badge_for,
+    open_record,
+    record_menu,
+    remove_records,
+    toggle_watched,
+)
 
 SCOPE = "library"
 THUMB_W = 96
 ROW_H = 64
 TABLE_ROW_H = 44
 END_MARGIN = 600
-SIDE_PANEL = 360
-SIDE_MIN_WIDTH = 1180  # content width from which the record panel sits beside the table
 AUTHOR_PANE = 220
 # Table columns after the title: (key, width, right-aligned)
 COLUMNS = (("author", 140, False), ("quality", 80, False), ("published", 104, False),
            ("likes", 72, True), ("views", 80, True), ("downloaded", 150, False))
 
-_BADGES = {"moved": BadgeKind.MOVED, "remote": BadgeKind.REMOTE}
 TITLE_MIN = 240
 DROP_ORDER = ("quality", "published", "likes", "views", "author")  # first to go when the table is narrow
 FIXED_W = 40 + 76 + 2 * Space.SM  # checkbox, state, row padding
@@ -58,34 +65,7 @@ def table_columns(width: float) -> tuple:
     return tuple(columns)
 
 
-def _badge(store: LibraryStore, record: dict, page: ft.Page) -> ft.Control | None:
-    label, key, _detail = store.state_of(record)
-    kind = _BADGES.get(key)
-    return status_badge(kind, palette_for(page), text=label) if kind else None
-
-
-def _menu(shell, store: LibraryStore) -> VideoMenu:
-    return VideoMenu(shell, scope=SCOPE, download=False,
-                     item_for=lambda card: lib.record_video(store.by_id.get(card.history_id, {})) if card.history_id in store.by_id else None,
-                     on_select=lambda card: store.toggle(card.history_id))
-
-
-def open_record(shell, video_id: str) -> None:
-    store = shell.library
-    if shell.state.layout.content_width >= SIDE_MIN_WIDTH:
-        store.focus(video_id)
-    else:
-        shell.open(routes.route(routes.LIBRARY, video_id))
-
-
 # ── actions ──────────────────────────────────────────────────────────────────
-
-
-async def remove_records(shell, video_ids: list[str]) -> None:
-    """Undoable: no question first, the notice offers "Undo" (7.7)."""
-    shell.library.remove(video_ids)
-    if shell.state.path.startswith(routes.route(routes.LIBRARY) + "/"):
-        shell.back()
 
 
 async def clean_moved(shell, selected: bool = False) -> None:
@@ -110,21 +90,6 @@ async def clean_moved(shell, selected: bool = False) -> None:
                                else lib.synced_notice(result)))
 
 
-async def rename_record(shell, video_id: str) -> None:
-    store = shell.library
-    record = store.record(video_id) or {}
-    path = str(record.get("file_path", "") or "")
-    if not path or not os.path.isfile(path):
-        notice(shell.page, "error", lib.operation_failed_title(), lib.missing_file_text())
-        return
-    title, label, button = lib.rename_texts()
-    name = await prompt_text(shell.page, title, label, confirm_label=button, value=os.path.basename(path))
-    if not name or not name.strip():
-        return
-    ok, message = await store.rename(video_id, name)
-    notice(shell.page, "success" if ok else "error", lib.renamed_title() if ok else lib.operation_failed_title(), message)
-
-
 async def export_csv(shell) -> None:
     store = shell.library
     page = shell.page
@@ -143,73 +108,6 @@ async def export_csv(shell) -> None:
     notice(page, "success", *lib.exported_notice(count, path))
 
 
-# ── the record (side panel / its own page) ───────────────────────────────────
-
-
-@ft.component
-def RecordPanel(video_id: str, *, wide: bool = True):
-    shell = use_shell()
-    store = shell.library
-    subscribe(store.state)
-    page = shell.page
-    palette = palette_for(page)
-    actions, set_actions = ft.use_state(list)
-    record = store.record(video_id)
-    menu = _menu(shell, store)
-    card = store.card(record) if record else None
-
-    async def load_actions() -> None:
-        set_actions(await menu.actions(card) if card else [])
-
-    ft.use_effect(lambda: page.run_task(load_actions), [video_id, store.state.revision])
-    if record is None or card is None:
-        return ft.Container(expand=True, alignment=ft.Alignment.CENTER,
-                            content=ft.Text(lib.missing_record_text(), style=text_style(TYPE.body)))
-    label, key, detail = store.state_of(record)
-    width = SIDE_PANEL - 2 * Space.MD if wide else min(shell.state.layout.body_width(layout.MAX_WIDTH_FORM), 720)
-
-    def run(action) -> None:
-        page.run_task(menu.run, card, action)
-
-    def info(name: str, value: str) -> ft.Control | None:
-        if not value:
-            return None
-        return ft.Column(spacing=0, controls=[
-            ft.Text(name, style=text_style(TYPE.meta, color=palette.on_surface_variant)),
-            ft.Text(value, style=text_style(TYPE.body), selectable=True),
-        ])
-
-    labels = lib.column_labels()
-    rows = [info(labels["state"], f"{label} — {detail}"),
-            info(labels["author"], str(record.get("author", "") or "")),
-            info(labels["quality"], str(record.get("quality", "") or "")),
-            info(labels["published"], str(record.get("published_at", "") or "")[:10]),
-            info(f"{labels['views']} / {labels['likes']}", f"{lib.count_text(record.get('views'))} / {lib.count_text(record.get('likes'))}"),
-            info(labels["downloaded"], str(record.get("downloaded_at", "") or "")),
-            info(labels["path"], str(record.get("file_path", "") or record.get("remote_path", "") or "")),
-            info("ID", video_id)]
-    # Playing is what a downloaded record is for: first and filled; the rest keep the menu order.
-    ordered = sorted(actions, key=lambda action: action.id != "play")
-    buttons: list[ft.Control] = [
-        (ft.FilledButton if action.id == "play" else ft.OutlinedButton)(
-            content=action.label, on_click=lambda _e, action=action: run(action))
-        for action in ordered
-    ]
-    buttons.append(ft.OutlinedButton(content=lib.rename_texts()[2], icon=AppIcon.EDIT,
-                                     on_click=lambda _e: page.run_task(rename_record, shell, video_id)))
-    buttons.append(ft.OutlinedButton(content=lib.remove_button(), icon=AppIcon.DELETE,
-                                     on_click=lambda _e: page.run_task(remove_records, shell, [video_id])))
-    content = ft.Column(spacing=Space.MD, scroll=ft.ScrollMode.AUTO, expand=True, controls=[
-        Cover(card.cover_kind, card.cover_key, card.cover_url, width, card.cover_local, icon=AppIcon.VIDEO),
-        ft.Text(card.title, style=text_style(TYPE.section_title_compact), selectable=True),
-        ft.Row(wrap=True, spacing=Space.SM, run_spacing=Space.SM, controls=buttons),
-        *[row for row in rows if row is not None],
-    ])
-    if not wide:
-        return content
-    return ft.Container(width=SIDE_PANEL, padding=Space.MD, border_radius=Radius.CARD, bgcolor=palette.card, content=content)
-
-
 # ── list rows (phones) ───────────────────────────────────────────────────────
 
 
@@ -217,7 +115,7 @@ def _list_row(shell, store: LibraryStore, record: dict, selecting: bool, selecte
     page = shell.page
     video_id = str(record.get("video_id", "") or "")
     card = store.card(record)
-    badge = _badge(store, record, page)
+    badge = badge_for(store, record, page)
     trailing: list[ft.Control] = [badge] if badge else []
     if selecting:
         trailing.append(ft.Icon(StateIcon.SELECT.active if selected else StateIcon.SELECT.rest, size=Size.ICON_LG,
@@ -289,7 +187,7 @@ def _table_row(shell, store: LibraryStore, record: dict, index: int, columns: tu
         "views": lib.count_text(record.get("views")),
         "downloaded": str(record.get("downloaded_at", "") or "")[:16],
     }
-    badge = _badge(store, record, page)
+    badge = badge_for(store, record, page)
     return ft.Container(
         key=video_id,
         height=TABLE_ROW_H,
@@ -350,27 +248,28 @@ def _choice_menu(choices, current, on_pick, icon, tooltip: str = "") -> ft.Contr
     )
 
 
-def _toolbar(shell, store: LibraryStore, compact: bool) -> ft.Control:
+def _toolbar(shell, store: LibraryStore, compact: bool, open_filters) -> ft.Control:
     state = store.state
     search = ft.TextField(value=state.query, hint_text=lib.search_placeholder(), prefix_icon=AppIcon.SEARCH, dense=True,
                           expand=True, on_change=lambda e: store.set_query(e.control.value or ""))
-    field = _choice_menu(lib.search_field_choices(), lib.SEARCH_FIELDS[state.search_field], store.set_field, AppIcon.TUNE)
-    states = _choice_menu(lib.state_choices(), state.state_filter, store.set_state_filter, AppIcon.FILTER)
-    sort = ft.PopupMenuButton(icon=AppIcon.SORT, tooltip=tr("Sort", "排序", "並び替え"), items=[
-        ft.PopupMenuItem(content=text, checked=key == state.sort, on_click=lambda _e, key=key: store.set_sort(key))
-        for key, text in lib.sort_choices()
-    ])
     view = ft.IconButton(
         icon=AppIcon.GRID_VIEW if state.view == VIEW_LIST else AppIcon.LIST_VIEW,
         tooltip=dict(lib.view_choices())[VIEW_COVER if state.view == VIEW_LIST else VIEW_LIST],
         on_click=lambda _e: store.set_view(VIEW_COVER if state.view == VIEW_LIST else VIEW_LIST),
     )
     if compact:
-        return ft.Column(spacing=Space.XS, controls=[
-            ft.Row(controls=[search, view]),
-            ft.Row(spacing=0, controls=[field, states, sort]),
-        ])
-    return ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[search, field, states, sort, view])
+        # One row on phones: the search field, then field / state / sort / tags in one sheet.
+        return ft.Row(spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                      controls=[search, filter_button(store, lambda: open_filters(False)), view])
+    field = _choice_menu(lib.search_field_choices(), lib.SEARCH_FIELDS[state.search_field], store.set_field, AppIcon.TUNE)
+    states = _choice_menu(lib.state_choices(), state.state_filter, store.set_state_filter, AppIcon.FILTER)
+    sort = ft.PopupMenuButton(icon=AppIcon.SORT, tooltip=tr("Sort", "排序", "並び替え"), items=[
+        ft.PopupMenuItem(content=text, checked=key == state.sort, on_click=lambda _e, key=key: store.set_sort(key))
+        for key, text in lib.sort_choices()
+    ])
+    tags = filter_button(store, lambda: open_filters(True), tags_only=True)
+    return ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                  controls=[search, field, states, sort, tags, view])
 
 
 def _scopes(shell, store: LibraryStore, author_menu: bool) -> ft.Control:
@@ -434,6 +333,10 @@ def _selection_bar(shell, store: LibraryStore) -> ft.Control | None:
                              on_click=lambda _e: shell.page.run_task(remove_records, shell, list(state.selected))),
         *([ft.OutlinedButton(content=lib.clean_selected_texts(moved)[0] + f" ({moved})", icon=AppIcon.CLEAN,
                              on_click=lambda _e: shell.page.run_task(clean_moved, shell, True))] if moved else []),
+        ft.OutlinedButton(content=lib.watched_texts(False), icon=AppIcon.WATCHED,
+                          on_click=lambda _e: shell.page.run_task(toggle_watched, shell, list(state.selected), True)),
+        ft.TextButton(content=lib.watched_texts(True),
+                      on_click=lambda _e: shell.page.run_task(toggle_watched, shell, list(state.selected), False)),
         ft.TextButton(content=tr("Select all", "全选", "すべて選択"), icon=AppIcon.SELECT_ALL, on_click=lambda _e: store.select_all()),
         ft.TextButton(content=tr("Clear selection", "取消选择", "選択を解除"), icon=AppIcon.CLOSE,
                       on_click=lambda _e: store.clear_selection()),
@@ -454,6 +357,15 @@ def LibraryOverview():
     compact = view.width_class == layout.WIDTH_COMPACT
     palette = palette_for(shell.page)
     ft.use_effect(lambda: shell.page.run_task(store.load), [])
+    find, set_find = ft.use_state("")  # the sheet's tag search
+
+    def set_sheet(value: str) -> None:
+        state.sheet = value
+        if not value:
+            set_find("")
+
+    ft.use_dialog(filter_sheet(shell, lambda: set_sheet(""), find, set_find, tags_only=state.sheet == "tags")
+                  if state.sheet else None)
 
     menu = ft.PopupMenuButton(icon=AppIcon.MORE, tooltip=tr("More", "更多", "その他"), items=[
         ft.PopupMenuItem(content=lib.clean_moved_text(), icon=AppIcon.CLEAN, on_click=lambda _e: shell.page.run_task(clean_moved, shell)),
@@ -466,10 +378,14 @@ def LibraryOverview():
     author_pane = state.scope == lib.SCOPE_AUTHOR and view.two_pane
     selection = _selection_bar(shell, store)
     top: list[ft.Control] = [
-        ft.Text(lib.summary_text(store.counts), style=text_style(TYPE.meta, color=palette.on_surface_variant), max_lines=2),
-        _toolbar(shell, store, compact),
+        ft.Text(lib.summary_text(store.counts), style=text_style(TYPE.meta, color=palette.on_surface_variant),
+                max_lines=1 if compact else 2, overflow=ft.TextOverflow.ELLIPSIS),
+        _toolbar(shell, store, compact, lambda tags_only: set_sheet("tags" if tags_only else "all")),
         _scopes(shell, store, author_menu=not author_pane),
     ]
+    tag_row = active_tag_row(store)
+    if tag_row is not None:
+        top.append(tag_row)
     if selection is not None:
         top.append(selection)
 
@@ -501,7 +417,7 @@ def LibraryOverview():
             on_open=lambda card: open_record(shell, card.history_id),
             on_toggle=lambda card: store.toggle(card.history_id),
             on_end_reached=store.more if state.limit < len(store.visible) else None,
-            menu=_menu(shell, store),
+            menu=record_menu(shell, store),
             width=main_width,
         )
     elif compact:
@@ -529,7 +445,7 @@ def LibraryOverview():
     content = ft.Column(expand=True, spacing=Space.SM, controls=[
         *top, ft.Row(expand=True, spacing=Space.LG, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=row),
     ])
-    return PageFrame(title=title, body=content, actions=[refresh, menu])
+    return PageFrame(title=title, body=ft.Stack(expand=True, controls=[content, CoverViewer()]), actions=[refresh, menu])
 
 
 @ft.component
@@ -542,12 +458,14 @@ def RecordPage(video_id: str):
     title = str((record or {}).get("title", "") or routes.label(routes.LIBRARY))
     body = (RecordPanel(video_id, wide=False, key=f"record:{video_id}") if store.state.loaded
             else ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=ft.ProgressRing()))
-    return PageFrame(title=title, body=body, max_width=layout.MAX_WIDTH_FORM)
+    return PageFrame(title=title, body=ft.Stack(expand=True, controls=[body, CoverViewer()]), max_width=layout.MAX_WIDTH_FORM)
 
 
 @ft.component
 def LibraryPage(destination: str, path: str):
     shell = use_shell()
+    # Leaving the library stops its player (and closes the cover viewer) instead of resuming on return.
+    ft.use_effect(lambda: None, [], cleanup=lambda: (shell.library.stop(), shell.library.view_cover("")))
     route = routes.parse(path)
     if route.parts:
         video_id = route.parts[0]

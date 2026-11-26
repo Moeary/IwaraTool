@@ -504,3 +504,35 @@ class DownloadHistory:
                         "SELECT video_id FROM downloaded ORDER BY downloaded_at DESC"
                     ).fetchall()
                     return [r[0] for r in rows]
+
+    # Fields the library may correct by hand (its "Edit details"); paths change through update_file_paths.
+    EDITABLE_COLUMNS = ("title", "author", "quality", "published_at")
+
+    def update_details(self, video_id: str, fields: dict[str, Any]) -> bool:
+        """Set some of ``EDITABLE_COLUMNS`` on one row; False when nothing changed or the row is gone."""
+
+        video_id = str(video_id or "").strip()
+        values = {key: str(value or "").strip() for key, value in fields.items() if key in self.EDITABLE_COLUMNS}
+        if not video_id or not values:
+            return False
+        assignments = ", ".join(f"{key}=?" for key in values)
+        with self._lock:
+            self._ensure_db_ready()
+            with closing(_sqlite_connect(self._db_path)) as conn:
+                cursor = conn.execute(f"UPDATE downloaded SET {assignments} WHERE video_id=?", (*values.values(), video_id))
+                conn.commit()
+                changed = int(cursor.rowcount or 0) > 0
+        if changed:
+            signal_bus.history_changed.emit()
+        return changed
+
+    def tags_by_id(self) -> dict[str, list[str]]:
+        """Every row's saved Iwara tags (``tags_json``), without loading the heavy ``raw_json``."""
+
+        from .nfo import parse_tags
+
+        with self._lock:
+            self._ensure_db_ready()
+            with closing(_sqlite_connect(self._db_path)) as conn:
+                rows = conn.execute("SELECT video_id, tags_json FROM downloaded WHERE tags_json != ''").fetchall()
+        return {str(video_id): tags for video_id, tags_json in rows if (tags := parse_tags(str(tags_json or "")))}

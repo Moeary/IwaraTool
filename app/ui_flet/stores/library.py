@@ -14,6 +14,7 @@ from typing import Any
 import flet as ft
 
 from ...config import app_config
+from ...core.nfo import NfoInfo, nfo_for_video
 from ...logging_setup import get_logger
 from ...presentation.history import library as lib
 from ...presentation.media.cards import CardView
@@ -26,6 +27,7 @@ UNDO_SECONDS = 6.0
 _VIEW_KEY = "history_view_mode_v1"  # same keys as the old page (separate data folders)
 _SCOPE_KEY = "history_scope_v1"
 _AUTHOR_SORT_KEY = "history_author_sort_v1"
+_AUTOPLAY_KEY = "flet_library_autoplay"
 VIEW_LIST, VIEW_COVER = "list", "cover"
 
 
@@ -55,6 +57,11 @@ class LibraryState:
     selected: frozenset[str] = field(default_factory=frozenset)
     focused: str = ""  # the record in the side panel (wide windows)
     busy: bool = False
+    tags: frozenset[str] = field(default_factory=frozenset)  # every one must match
+    playing: str = ""  # the record playing in its panel / page (the library as a local player)
+    autoplay: bool = True  # when one ends, play the next one in the list
+    viewer: str = ""  # the record whose cover is shown full size
+    sheet: str = ""  # the filter sheet: "" closed, "all" (phones: every filter) or "tags"
 
 
 class LibraryStore:
@@ -65,6 +72,7 @@ class LibraryStore:
             view=_ui(_VIEW_KEY, VIEW_LIST, (VIEW_LIST, VIEW_COVER)),
             scope=_ui(_SCOPE_KEY, lib.SCOPE_ALL, lib.SCOPES),
             author_sort=_ui(_AUTHOR_SORT_KEY, lib.AUTHOR_SORT_COUNT, (lib.AUTHOR_SORT_COUNT, lib.AUTHOR_SORT_NAME)),
+            autoplay=bool(app_config.get_ui_value(_AUTOPLAY_KEY, True)),
         )
         self.records: list[dict[str, Any]] = []
         self.by_id: dict[str, dict[str, Any]] = {}
@@ -72,6 +80,9 @@ class LibraryStore:
         self.visible: list[dict[str, Any]] = []
         self.counts = lib.LibraryCounts()
         self.authors: list[tuple[str, int]] = []
+        self.tags: dict[str, tuple[str, ...]] = {}  # per record: NFO tags, then the saved Iwara ones
+        self.nfo: dict[str, NfoInfo] = {}
+        self.tag_list: list[tuple[str, int]] = []
         self._cards: dict[str, CardView] = {}
         self._pending: dict[str, dict[str, Any]] = {}  # removed, not deleted yet (undo)
         self._pending_handle: asyncio.TimerHandle | None = None
@@ -94,20 +105,38 @@ class LibraryStore:
 
         def read():
             records = self.manager.get_history_records()
-            return records, {str(r.get("video_id", "") or ""): lib.compute_record_state(r) for r in records}
+            states = {str(r.get("video_id", "") or ""): lib.compute_record_state(r) for r in records}
+            try:
+                saved = self.manager.get_history_tags()
+            except Exception:
+                logger.exception("Reading the saved tags failed")
+                saved = {}
+            infos: dict[str, NfoInfo] = {}
+            for record in records:
+                video_id = str(record.get("video_id", "") or "")
+                path = str(record.get("file_path", "") or "")
+                if path and states.get(video_id, ("", ""))[1] == "ok":
+                    info = nfo_for_video(path)
+                    if info is not None:
+                        infos[video_id] = info
+            tags = {video_id: merged for video_id in set(saved) | set(infos)
+                    if (merged := lib.merge_tags(infos[video_id].tags if video_id in infos else (), saved.get(video_id, ())))}
+            return records, states, tags, infos
 
         try:
-            records, states = await asyncio.to_thread(read)
+            records, states, tags, infos = await asyncio.to_thread(read)
         except Exception:
             logger.exception("Reading the download history failed")
-            records, states = [], {}
+            records, states, tags, infos = [], {}, {}, {}
         if generation != self._generation:
             return
         self.records = [r for r in records if str(r.get("video_id", "") or "") not in self._pending]
         self.by_id = {str(r.get("video_id", "") or ""): r for r in self.records if r.get("video_id")}
         self.states = states
+        self.tags, self.nfo = tags, infos
         self._cards = {}
         self._rebuild_authors()
+        self._rebuild_tags()
         state.loading = False
         state.loaded = True
         if state.focused and state.focused not in self.by_id:
@@ -121,11 +150,21 @@ class LibraryStore:
         if self.state.author and self.state.author not in dict(self.authors):
             self.state.author = ""
 
+    def _rebuild_tags(self) -> None:
+        self.tag_list = lib.tag_counts(self.records, self.tags_of)
+        known = {tag.casefold() for tag, _count in self.tag_list}
+        if any(tag.casefold() not in known for tag in self.state.tags):
+            self.state.tags = frozenset(tag for tag in self.state.tags if tag.casefold() in known)
+
+    def tags_of(self, record: dict[str, Any]) -> tuple[str, ...]:
+        return self.tags.get(str(record.get("video_id", "") or ""), ())
+
     def apply(self) -> None:
         state = self.state
         visible, self.counts = lib.filter_records(
             self.records, state_of=self.state_of, query=state.query, field=state.search_field,
             state_filter=state.state_filter, scope=state.scope, author=state.author,
+            tags=state.tags, tags_of=self.tags_of,
         )
         self.visible = lib.sort_records(visible, state.sort, state.reverse, state_of=self.state_of)
         state.selected = frozenset(i for i in state.selected if i in self.by_id)
@@ -151,7 +190,8 @@ class LibraryStore:
     @property
     def filtered(self) -> bool:
         state = self.state
-        return bool(state.query.strip()) or state.state_filter != lib.STATE_ALL or state.scope != lib.SCOPE_ALL
+        return (bool(state.query.strip()) or state.state_filter != lib.STATE_ALL or state.scope != lib.SCOPE_ALL
+                or bool(state.tags))
 
     # ── filters ──────────────────────────────────────────────────────────────
 
@@ -171,6 +211,20 @@ class LibraryStore:
         if scope in lib.SCOPES:
             self.state.scope = scope
             app_config.set_ui_value(_SCOPE_KEY, scope)
+            self.apply()
+
+    def toggle_tag(self, tag: str) -> None:
+        chosen = {t.casefold(): t for t in self.state.tags}
+        if tag.casefold() in chosen:
+            chosen.pop(tag.casefold())
+        else:
+            chosen[tag.casefold()] = tag
+        self.state.tags = frozenset(chosen.values())
+        self.apply()
+
+    def clear_tags(self) -> None:
+        if self.state.tags:
+            self.state.tags = frozenset()
             self.apply()
 
     def set_author(self, author: str) -> None:
@@ -212,6 +266,47 @@ class LibraryStore:
 
     def selected_moved(self) -> list[str]:
         return [i for i in self.state.selected if i in self.by_id and self.state_of(self.by_id[i])[1] == "moved"]
+
+    # ── browsing and playing ─────────────────────────────────────────────────
+
+    def neighbour(self, video_id: str, step: int) -> str:
+        """The record ``step`` places away in the list as filtered and sorted now; "" past either end."""
+        ids = [str(r.get("video_id", "") or "") for r in self.visible]
+        if video_id not in ids:
+            return ""
+        index = ids.index(video_id) + step
+        return ids[index] if 0 <= index < len(ids) else ""
+
+    def position(self, video_id: str) -> int:
+        return next((i for i, r in enumerate(self.visible) if str(r.get("video_id", "") or "") == video_id), -1)
+
+    def play(self, video_id: str) -> None:
+        self.state.playing = video_id
+        record = self.by_id.get(video_id) or {}
+        if video_id and not str(record.get("watched_at", "") or ""):
+            self.shell.page.run_task(asyncio.to_thread, self.manager.set_videos_watched, [video_id], True)
+
+    def stop(self) -> None:
+        self.state.playing = ""
+
+    def set_autoplay(self, value: bool) -> None:
+        self.state.autoplay = bool(value)
+        app_config.set_ui_value(_AUTOPLAY_KEY, self.state.autoplay)
+
+    def view_cover(self, video_id: str) -> None:
+        self.state.viewer = video_id
+
+    # ── managing records ─────────────────────────────────────────────────────
+
+    async def edit_details(self, video_id: str, fields: dict[str, str]) -> bool:
+        return bool(await asyncio.to_thread(self.manager.update_history_details, video_id, fields))
+
+    async def relocate(self, video_id: str, path: str) -> tuple[bool, str]:
+        ok, message = await asyncio.to_thread(self.manager.relocate_history_file, video_id, path)
+        return bool(ok), str(message or "")
+
+    async def set_watched(self, video_ids: list[str], watched: bool) -> int:
+        return int(await asyncio.to_thread(self.manager.set_videos_watched, list(video_ids), watched) or 0)
 
     # ── removing (undoable) ──────────────────────────────────────────────────
 

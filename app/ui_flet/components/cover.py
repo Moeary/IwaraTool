@@ -22,6 +22,8 @@ def Cover(
     round: bool = False,
     icon=AppIcon.VIDEO,
     radius: float = Radius.CHIP,
+    fit: ft.BoxFit = ft.BoxFit.COVER,  # CONTAIN shows the whole picture (the library's cover viewer)
+    placeholder=None,  # background behind the picture; the cover placeholder color by default
 ):
     shell = use_shell()
     path = use_cached_image(shell.images, kind, key, url, local)
@@ -45,7 +47,7 @@ def Cover(
             src=path,
             width=width,
             height=height,
-            fit=ft.BoxFit.COVER,
+            fit=fit,
             gapless_playback=True,
             fade_in_animation=Motion.COVER_FADE,
             cache_width=int(width * 2),  # decode at display size (HiDPI), not the original
@@ -60,6 +62,6 @@ def Cover(
         border_radius=radius,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         alignment=ft.Alignment.CENTER,
-        bgcolor=palette.cover_placeholder,
+        bgcolor=palette.cover_placeholder if placeholder is None else placeholder,
         content=content,
     )
