@@ -86,7 +86,12 @@ class TaskRulesMixin:
         if not root or not os.path.isdir(root):
             return ""
         wanted = video_id.lower()
-        for folder in sorted(self._temporary_output_dirs(root)):
+        base = os.path.abspath(root)
+        # The folder set is normcased for comparing (lower case on Windows): rebuild each under
+        # the real root so the path handed to the player keeps its case.
+        folders = [os.path.join(base, os.path.relpath(folder, os.path.normcase(base)))
+                   for folder in self._temporary_output_dirs(root)]
+        for folder in sorted(folders):
             if not os.path.isdir(folder):
                 continue
             for dirpath, _dirnames, filenames in os.walk(folder):
