@@ -1,28 +1,29 @@
-"""Phones: a modal navigation drawer (Material 3) beside the bottom bar.
+"""Phones and narrow windows: the desktop sidebar as a modal drawer beside the bottom bar.
 
-The bar holds the five primary destinations.  The drawer lists every
-destination plus the settings groups, so a setting is two taps away from any
-page.  It opens from the menu button in the page header (``PageFrame``) or a
-swipe from the left edge, and closes on the scrim, a swipe back to the left,
-Back, or any navigation.  It is drawn in the shell's stack rather than as
-``View.drawer``: the declarative root owns the view, and this keeps the drawer
-an ordinary component that follows ``state.drawer_open``.
+Laid out like the extended rail: "IwaraTool" and the content rating at the top,
+the five primary destinations, and pinned to the foot the same entries as the
+rail's foot (Tools and Settings; Rules and Settings on a phone, where Tools is
+desktop-only) above the account entry.  It opens from the menu button in the
+page header (``PageFrame``) or a swipe from the left edge, and closes on the
+scrim, a swipe back to the left, Back, or any navigation.  It is drawn in the
+shell's stack rather than as ``View.drawer``: the declarative root owns the
+view, and this keeps the drawer an ordinary component following
+``state.drawer_open``.
 """
 from __future__ import annotations
 
 import flet as ft
 
 from ...i18n import tr
-from ...presentation.settings import groups
 from .. import routes
 from ..icons import NavIcon
 from ..stores.app_state import use_shell
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
 from .cover import Cover
-from .navigation import DESTINATION_ICONS, SETTINGS_GROUP_ICONS, current_entry
+from .navigation import current_entry, nav_icon, rating_button
 
-MAX_WIDTH = 360  # Material's modal drawer is at most 360 dp, leaving 56 dp of scrim on a phone
+MAX_WIDTH = Size.NAV_RAIL_EXTENDED + Space.XXL  # about the desktop's extended rail, a little roomier for touch
 EDGE = Space.LG  # width of the left-edge strip a swipe opens the drawer from
 FLING = 300  # px/s: a slower drag counts by distance instead
 SCRIM_OPACITY = 0.32
@@ -32,89 +33,73 @@ def drawer_width(window_width: float) -> float:
     return max(0.0, min(MAX_WIDTH, window_width - 56))
 
 
-def _item(palette, icon, label: str, *, selected: bool, on_click) -> ft.Control:
+def _item(shell, palette, destination: str, *, selected: bool) -> ft.Control:
+    """As the extended rail draws an entry: the indicator pill around the icon, the label beside it."""
     color = palette.on_surface if selected else palette.on_surface_variant
+    pill = ft.Container(width=Size.NAV_INDICATOR_WIDTH, height=Size.NAV_INDICATOR_HEIGHT, border_radius=Radius.FULL,
+                        bgcolor=palette.primary_container if selected else None, alignment=ft.Alignment.CENTER,
+                        content=nav_icon(shell, destination, active=selected))
     return ft.Container(
         height=Size.NAV_DRAWER_ITEM,
         border_radius=Radius.FULL,
-        bgcolor=palette.primary_container if selected else None,
-        padding=ft.Padding.symmetric(horizontal=Space.LG),
-        on_click=on_click,
-        content=ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-            ft.Icon(icon, size=Size.ICON, color=color),
-            ft.Text(label, style=text_style(TYPE.label, color=color), expand=True, max_lines=1,
+        padding=ft.Padding.symmetric(horizontal=Space.XS),
+        on_click=lambda _e: shell.select_entry(destination),
+        content=ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+            pill,
+            ft.Text(routes.label(destination), style=text_style(TYPE.label, color=color), expand=True, max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS, weight=ft.FontWeight.W_700 if selected else None),
         ]),
     )
 
 
-def _heading(text: str, palette) -> ft.Control:
-    return ft.Container(padding=ft.Padding.only(left=Space.LG, top=Space.MD, bottom=Space.XS),
-                        content=ft.Text(text, style=text_style(TYPE.meta, color=palette.on_surface_variant)))
-
-
 def _account(shell, palette) -> ft.Control:
+    """The account entry at the very foot, as on the desktop rail; it opens the account panel."""
     state = shell.state
     logged_in = state.logged_in
     profile = state.profile if logged_in else {}
     avatar: ft.Control = (
-        Cover("avatar", profile["id"], profile.get("avatar_url", ""), Size.AVATAR, aspect=1, round=True,
+        Cover("avatar", profile["id"], profile.get("avatar_url", ""), Size.NAV_INDICATOR_HEIGHT, aspect=1, round=True,
               icon=NavIcon.ACCOUNT.active, key=f"drawer-avatar:{profile['id']}")
-        if profile.get("id") else ft.Icon(NavIcon.ACCOUNT.pick(logged_in), size=Size.AVATAR)
+        if profile.get("id") else ft.Icon(NavIcon.ACCOUNT.pick(logged_in), size=Size.ICON_NAV, color=palette.primary)
     )
     name = profile.get("name") or (tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"))
-    hint = tr("Account and preferences", "账号与偏好", "アカウントと設定")
 
     def open_account(_e) -> None:
         shell.close_drawer()
         shell.open_account()
 
     return ft.Container(
-        padding=ft.Padding.symmetric(horizontal=Space.LG, vertical=Space.MD), border_radius=Radius.CARD,
-        on_click=open_account, tooltip=hint,
-        content=ft.Row(spacing=Space.MD, controls=[
-            avatar,
-            ft.Column(spacing=0, expand=True, controls=[
-                ft.Text(name, style=text_style(TYPE.subtitle), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Text(hint, style=text_style(TYPE.meta, color=palette.on_surface_variant), max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS),
-            ]),
+        height=Size.NAV_DRAWER_ITEM, border_radius=Radius.FULL, padding=ft.Padding.symmetric(horizontal=Space.XS),
+        on_click=open_account, tooltip=tr("Account and preferences", "账号与偏好", "アカウントと設定"),
+        content=ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+            ft.Container(width=Size.NAV_INDICATOR_WIDTH, alignment=ft.Alignment.CENTER, content=avatar),
+            ft.Text(name, style=text_style(TYPE.label, color=palette.primary), expand=True, max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS),
         ]),
     )
 
 
 def drawer_content(shell) -> ft.Control:
     palette = palette_for(shell.page)
-    state = shell.state
-    desktop = state.layout.is_desktop
+    entries = routes.entries(desktop=shell.state.layout.is_desktop)
     current = current_entry(shell)
-
-    def go(destination: str):
-        return lambda _e: shell.select_entry(destination)
-
-    def setting(key: str):
-        def open_group(_e) -> None:
-            shell.close_drawer()
-            shell.open(routes.route(routes.SETTINGS, key))
-        return open_group
-
-    group_shown = routes.parse(state.path).parts[:1] if state.destination == routes.SETTINGS else ()
-    entries = routes.entries(desktop=desktop)
-    places = [_item(palette, DESTINATION_ICONS[d].pick(d == current), routes.label(d), selected=d == current,
-                    on_click=go(d)) for d in entries if d != routes.SETTINGS]
-    settings = [_item(palette, SETTINGS_GROUP_ICONS[g.key].pick(g.key in group_shown), g.title,
-                      selected=g.key in group_shown, on_click=setting(g.key))
-                for g in groups.visible(desktop=desktop) if g.key in SETTINGS_GROUP_ICONS]
-    return ft.ListView(
-        expand=True, spacing=Space.XXS, padding=ft.Padding.symmetric(horizontal=Space.MD, vertical=Space.MD),
-        controls=[
+    primary = [d for d in entries if d in routes.PRIMARY]
+    foot = [d for d in entries if d not in routes.PRIMARY]
+    header = ft.Container(
+        padding=ft.Padding.only(left=Space.SM, top=Space.SM, bottom=Space.SM),
+        content=ft.Row(spacing=Space.SM, controls=[ft.Text("IwaraTool", style=text_style(TYPE.subtitle)),
+                                                   rating_button(shell)]),
+    )
+    return ft.Container(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=Space.MD, vertical=Space.MD),
+        content=ft.Column(expand=True, spacing=Space.XXS, controls=[
+            header,
+            ft.ListView(expand=True, spacing=Space.XXS, controls=[
+                _item(shell, palette, d, selected=d == current) for d in primary]),
+            *[_item(shell, palette, d, selected=d == current) for d in foot],
             _account(shell, palette),
-            ft.Divider(height=Space.MD),
-            *places,
-            ft.Divider(height=Space.MD),
-            _heading(routes.label(routes.SETTINGS), palette),
-            *settings,
-        ],
+        ]),
     )
 
 

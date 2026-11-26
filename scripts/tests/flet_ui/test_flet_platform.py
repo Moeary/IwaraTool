@@ -187,7 +187,7 @@ class DrawerTests(unittest.TestCase):
     def test_drawer_leaves_a_strip_of_scrim(self):
         from app.ui_flet.components.nav_drawer import MAX_WIDTH, drawer_width
 
-        self.assertEqual(drawer_width(360), 304)
+        self.assertEqual(drawer_width(320), 264)  # 56 dp of scrim stays visible
         self.assertEqual(drawer_width(1000), MAX_WIDTH)
 
 

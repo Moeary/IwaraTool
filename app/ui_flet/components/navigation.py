@@ -73,7 +73,8 @@ def current_entry(shell) -> str:
     return routes.entry_for(shell.state.destination, desktop=shell.state.layout.is_desktop)
 
 
-def _icon(shell, destination: str, *, active: bool) -> ft.Control:
+def nav_icon(shell, destination: str, *, active: bool) -> ft.Control:
+    """A destination's icon with the downloads badge (rail, bar and the phone drawer)."""
     pair = DESTINATION_ICONS[destination]
     badge = None
     if destination == routes.DOWNLOADS:
@@ -108,8 +109,8 @@ def build_bar(shell) -> ft.NavigationBar:
         on_change=_select_handler(shell, items),
         destinations=[
             ft.NavigationBarDestination(
-                icon=_icon(shell, d, active=False),
-                selected_icon=_icon(shell, d, active=True),
+                icon=nav_icon(shell, d, active=False),
+                selected_icon=nav_icon(shell, d, active=True),
                 label=routes.short_label(d),
             )
             for d in items
@@ -150,7 +151,7 @@ def _foot_item(shell, destination: str, mode: str, *, selected: bool) -> ft.Cont
     """A rail-looking entry for the foot: the indicator pill, icon and label as the rail draws them."""
 
     palette = palette_for(shell.page)
-    icon = _icon(shell, destination, active=selected)
+    icon = nav_icon(shell, destination, active=selected)
     color = palette.on_surface if selected else palette.on_surface_variant
     label = ft.Text(routes.label(destination), style=text_style(TYPE.label, color=color),
                     weight=ft.FontWeight.W_700 if selected else None)
@@ -237,8 +238,8 @@ def build_rail(shell) -> ft.NavigationRail:
                             controls=[c for c in (expand, rating_button(shell)) if c is not None])
     destinations = [
         ft.NavigationRailDestination(
-            icon=_icon(shell, d, active=False),
-            selected_icon=_icon(shell, d, active=True),
+            icon=nav_icon(shell, d, active=False),
+            selected_icon=nav_icon(shell, d, active=True),
             label=routes.label(d),
         )
         for d in items
