@@ -10,6 +10,7 @@ Development options (docs/flet_ui_plan.md 9.2):
     --lang LANG        zh / en / ja (saved: point IWARATOOL_DATA_DIR elsewhere for checks)
     --shot FILE.png    save a screenshot after start-up and quit
     --account          open the account panel (for screenshots)
+    --drawer           open the phone navigation drawer (for screenshots)
     --demo             offline made-up Iwara in a throw-away data folder (scripts/tools/demo_fixture.py)
     --platform NAME    behave as android / ios (the phone build's pages and settings, 8.3)
     --bench MODE       with --demo: startup / library / downloads measurements for scripts/tools/compare_frontends.py
@@ -83,6 +84,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--lang", choices=("zh", "en", "ja"), default="")
     parser.add_argument("--shot", type=Path)
     parser.add_argument("--account", action="store_true")
+    parser.add_argument("--drawer", action="store_true")
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--platform", choices=("android", "ios", "macos", "windows", "linux"), default="")
     parser.add_argument("--bench", choices=("startup", "library", "downloads"), default="")
@@ -135,6 +137,8 @@ async def main(page: ft.Page) -> None:
             shell.open(ARGS.route)
     if ARGS.account:
         shell.open_account()
+    if ARGS.drawer:
+        shell.open_drawer()
     # The smoke test only prepares (no task resume, no timed network checks).
     services = not (SMOKE_TEST or ARGS.shot) or ARGS.demo
     await start_app(page, services=services)

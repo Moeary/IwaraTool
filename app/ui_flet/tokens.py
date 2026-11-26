@@ -177,6 +177,7 @@ class Size:
     NAV_BAR = 64
     NAV_INDICATOR_WIDTH = 56  # the rail's selection pill (Material 3)
     NAV_INDICATOR_HEIGHT = 32
+    NAV_DRAWER_ITEM = 56  # a navigation drawer row (Material 3)
     SETTINGS_LABEL = 96  # the label column of key-value rows (About)
     PROGRESS_BAR = 3  # the bar along the bottom of a downloading cover
     DIALOG_MAX_WIDTH = 560

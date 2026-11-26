@@ -39,6 +39,15 @@ def PageFrame(
                 on_click=lambda _e: shell.back(),
             )
         )
+    elif state.layout.nav_mode == layout.NAV_BAR:
+        # Phones: the drawer with every destination and the settings groups (components/nav_drawer.py).
+        leading.append(
+            ft.IconButton(
+                icon=AppIcon.MENU,
+                tooltip=tr("Menu", "菜单", "メニュー"),
+                on_click=lambda _e: shell.open_drawer(),
+            )
+        )
     trailing = list(actions or [])
     if state.layout.nav_mode == layout.NAV_BAR:
         trailing.append(account_button(shell))

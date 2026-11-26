@@ -15,8 +15,8 @@ from ....presentation.settings import groups
 from ... import layout, routes
 from ...components.card_columns import card_columns
 from ...components.list_detail import ListDetail
+from ...components.navigation import SETTINGS_GROUP_ICONS as ICONS
 from ...components.page_frame import PageFrame
-from ...icons import NavIcon, SettingsIcon
 from ...stores.app_state import use_shell
 from ...theme import palette_for, text_style
 from ...tokens import TYPE, Radius, Size, Space
@@ -26,18 +26,6 @@ from .home_rows import HomeRowsPage
 NAV_WIDTH = 248
 LIST_WIDTH_KEY = "flet_settings_list_width"
 
-ICONS = {
-    "appearance": SettingsIcon.APPEARANCE,
-    "browsing": SettingsIcon.BROWSING,
-    "account": NavIcon.ACCOUNT,
-    "downloads": NavIcon.DOWNLOADS,
-    "search": NavIcon.SEARCH,
-    "subscriptions": NavIcon.SUBSCRIPTIONS,
-    "storage": SettingsIcon.STORAGE,
-    "system": SettingsIcon.SYSTEM,
-    "shortcuts": SettingsIcon.KEYBOARD,
-    "about": SettingsIcon.ABOUT,
-}
 DESKTOP_CARDS = {"ffmpeg", "window"}  # cards that only mean something on the desktop
 
 

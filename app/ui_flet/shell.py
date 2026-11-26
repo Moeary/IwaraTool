@@ -185,6 +185,7 @@ class Shell:
         self.state.path = path
         self.state.can_back = self.navigator.can_go_back()
         self.state.account_open = False
+        self.state.drawer_open = False
 
     def select(self, destination: str) -> None:
         """A navigation item was clicked: switch, or return to the top when already there."""
@@ -231,6 +232,9 @@ class Shell:
     def back(self) -> bool:
         if self.state.account_open:
             self.state.account_open = False
+            return True
+        if self.state.drawer_open:
+            self.state.drawer_open = False
             return True
         if self.navigator.back():
             return True
@@ -310,6 +314,12 @@ class Shell:
 
     def close_account(self) -> None:
         self.state.account_open = False
+
+    def open_drawer(self) -> None:
+        self.state.drawer_open = True
+
+    def close_drawer(self) -> None:
+        self.state.drawer_open = False
 
     # ── events from the core ─────────────────────────────────────────────────
 

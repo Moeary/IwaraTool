@@ -29,6 +29,7 @@ class AppState:
     active_downloads: int = 0
     staged_downloads: int = 0
     account_open: bool = False
+    drawer_open: bool = False  # phones: the navigation drawer (components/nav_drawer.py)
     profile: dict = field(default_factory=dict)  # the signed-in account (core/account.current_profile)
     cover_size: int = 224  # the shared cover width (presentation/media/card_size.py)
 

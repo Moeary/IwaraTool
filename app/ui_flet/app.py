@@ -11,6 +11,7 @@ import flet as ft
 
 from . import layout, routes
 from .components.account_panel import AccountPanelHost
+from .components.nav_drawer import NavDrawerHost
 from .components.navigation import build_bar, build_rail
 from .components.split_handle import SplitHandle
 from .components.swipe_back import SwipeBack
@@ -62,7 +63,8 @@ def App(shell: Shell):
                 vertical_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[build_rail(shell), _rail_edge(shell), current],
             )
-        return ft.SafeArea(expand=True, content=ft.Stack(expand=True, controls=[content, AccountPanelHost()]))
+        drawer = [NavDrawerHost()] if mode == layout.NAV_BAR else []
+        return ft.SafeArea(expand=True, content=ft.Stack(expand=True, controls=[content, *drawer, AccountPanelHost()]))
 
     return ShellContext(shell, body)
 

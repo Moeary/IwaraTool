@@ -29,6 +29,7 @@ def main() -> int:
     parser.add_argument("--theme", choices=("auto", "light", "dark"), default="light")
     parser.add_argument("--lang", choices=("zh", "en", "ja"), default="zh")
     parser.add_argument("--account", action="store_true", help="open the account panel")
+    parser.add_argument("--drawer", action="store_true", help="open the phone navigation drawer")
     parser.add_argument("--demo", action="store_true", help="offline made-up data (demo_fixture)")
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before each screenshot")
     parser.add_argument("--only", default="", help="comma-separated sizes (default: all of 9.2)")
@@ -48,6 +49,8 @@ def main() -> int:
                 command += ["--route", args.route]
             if args.account:
                 command.append("--account")
+            if args.drawer:
+                command.append("--drawer")
             if args.demo:
                 command.append("--demo")
             if args.platform:

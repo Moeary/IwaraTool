@@ -30,6 +30,19 @@ DESTINATION_ICONS: dict[str, IconPair] = {
     routes.SETTINGS: NavIcon.SETTINGS,
 }
 
+SETTINGS_GROUP_ICONS: dict[str, IconPair] = {
+    "appearance": SettingsIcon.APPEARANCE,
+    "browsing": SettingsIcon.BROWSING,
+    "account": NavIcon.ACCOUNT,
+    "downloads": NavIcon.DOWNLOADS,
+    "search": NavIcon.SEARCH,
+    "subscriptions": NavIcon.SUBSCRIPTIONS,
+    "storage": SettingsIcon.STORAGE,
+    "system": SettingsIcon.SYSTEM,
+    "shortcuts": SettingsIcon.KEYBOARD,
+    "about": SettingsIcon.ABOUT,
+}
+
 
 def nav_items(shell) -> tuple[str, ...]:
     """Destinations the bar or the rail's upper group shows."""

@@ -148,7 +148,7 @@ class ShellBackTests(unittest.TestCase):
 
         switched = []
         navigator = SimpleNamespace(back=lambda: False, switch=switched.append)
-        state = SimpleNamespace(account_open=False, destination=destination)
+        state = SimpleNamespace(account_open=False, drawer_open=False, destination=destination)
         shell = SimpleNamespace(state=state, navigator=navigator, caps=capabilities(SimpleNamespace(platform=platform)),
                                 secondary_page=lambda: False)
         return shell, switched
@@ -163,6 +163,16 @@ class ShellBackTests(unittest.TestCase):
         shell, switched = self._shell("android", routes.HOME)
         self.assertFalse(Shell.back(shell))
 
+    def test_back_closes_the_drawer_first(self):
+        from app.ui_flet import routes
+        from app.ui_flet.shell import Shell
+
+        shell, switched = self._shell("android", routes.SEARCH)
+        shell.state.drawer_open = True
+        self.assertTrue(Shell.back(shell))
+        self.assertFalse(shell.state.drawer_open)
+        self.assertEqual(switched, [])
+
     def test_desktop_back_stops_at_the_destination_root(self):
         from app.ui_flet import routes
         from app.ui_flet.shell import Shell
@@ -170,6 +180,15 @@ class ShellBackTests(unittest.TestCase):
         shell, switched = self._shell("macos", routes.SEARCH)
         self.assertFalse(Shell.back(shell))
         self.assertEqual(switched, [])
+
+
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class DrawerTests(unittest.TestCase):
+    def test_drawer_leaves_a_strip_of_scrim(self):
+        from app.ui_flet.components.nav_drawer import MAX_WIDTH, drawer_width
+
+        self.assertEqual(drawer_width(360), 304)
+        self.assertEqual(drawer_width(1000), MAX_WIDTH)
 
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
