@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 HAS_FLET = importlib.util.find_spec("flet") is not None
@@ -69,6 +70,28 @@ class SelectEntryTests(unittest.TestCase):
         shell.open_tool("repair")
         select_entry(routes.RULES)
         self.assertEqual(calls, [("select", routes.RULES)])
+
+
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class RailDragTests(unittest.TestCase):
+    def test_drag_widens_then_collapses_and_saves(self):
+        from app.ui_flet import layout, shell as shell_module
+        from app.ui_flet.shell import Shell
+        from app.ui_flet.tokens import Size
+
+        saved = {}
+        config = SimpleNamespace(set_ui_value=lambda k, v: saved.__setitem__(k, v))
+        shell = SimpleNamespace(state=SimpleNamespace(layout=layout.LayoutState(1000, 800, "macos")), _rail_reach=None)
+        with unittest.mock.patch.object(shell_module, "app_config", config):
+            Shell.drag_rail(shell, 200)  # the labelled rail's width + 200
+            self.assertEqual(shell.state.layout.nav_mode, layout.NAV_RAIL_EXTENDED)
+            self.assertEqual(shell.state.layout.nav_width, Size.NAV_RAIL + 200)
+            Shell.drag_rail(shell, -200)  # back: the labelled rail
+            self.assertEqual(shell.state.layout.nav_mode, layout.NAV_RAIL)
+            Shell.end_rail_drag(shell)
+        self.assertFalse(saved[shell_module.RAIL_EXTENDED_KEY])
+        self.assertEqual(saved[shell_module.RAIL_WIDTH_KEY], Size.NAV_RAIL + 200)
+        self.assertIsNone(shell._rail_reach)
 
 
 if __name__ == "__main__":

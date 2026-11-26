@@ -40,6 +40,15 @@ class SizeClassTests(unittest.TestCase):
         self.assertEqual(LayoutState(400, 800, "android").content_width, 400)
         self.assertLess(LayoutState(1440, 900).content_width, 1440 - 200)
 
+    def test_dragged_rail_width(self):
+        dragged = LayoutState(1000, 800, "macos", rail_width_preference=300)
+        self.assertEqual(dragged.nav_mode, layout.NAV_RAIL_EXTENDED)  # stays wide on a 1000-wide window
+        self.assertEqual(dragged.nav_width, 300)
+        self.assertEqual(LayoutState(1000, 800, "macos").nav_mode, layout.NAV_RAIL)  # never dragged: as before
+        self.assertEqual(LayoutState(1440, 900, rail_width_preference=999).nav_width, layout.RAIL_WIDTH_RANGE[1])
+        self.assertEqual(dragged.content_width, 1000 - 300 - layout.RAIL_HANDLE)
+        self.assertEqual(LayoutState(1000, 800, "android").rail_handle, 1)  # tablets: a plain rule
+
     def test_two_panes_from_840_content_width(self):
         self.assertFalse(LayoutState(841, 673, "android").two_pane)  # the rail eats the width
         self.assertTrue(LayoutState(1280, 800).two_pane)

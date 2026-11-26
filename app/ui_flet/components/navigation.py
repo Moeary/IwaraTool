@@ -124,7 +124,7 @@ def _account_row(shell) -> ft.Control:
 
     logged_in = shell.state.logged_in
     return ft.Container(
-        width=Size.NAV_RAIL_EXTENDED - 2 * Space.MD,
+        width=shell.state.layout.nav_width - 2 * Space.MD,
         content=ft.TextButton(
             icon=NavIcon.ACCOUNT.pick(logged_in),
             content=tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"),
@@ -150,7 +150,7 @@ def _foot_item(shell, destination: str, mode: str, *, selected: bool) -> ft.Cont
     if mode == layout.NAV_RAIL_EXTENDED:
         # As the extended rail draws its own items: the pill around the icon only, the label beside it.
         return ft.Container(
-            width=Size.NAV_RAIL_EXTENDED - 2 * Space.MD,
+            width=shell.state.layout.nav_width - 2 * Space.MD,
             padding=ft.Padding.symmetric(vertical=Space.SM),
             on_click=select,
             content=ft.Row(spacing=Space.XS, controls=[pill, label]),
@@ -199,7 +199,7 @@ def build_rail(shell) -> ft.NavigationRail:
     leading = None
     if extended:
         leading = ft.Container(
-            width=Size.NAV_RAIL_EXTENDED - 2 * Space.MD,
+            width=shell.state.layout.nav_width - 2 * Space.MD,
             padding=ft.Padding.only(left=Space.SM, top=Space.SM, bottom=Space.SM),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -242,7 +242,7 @@ def build_rail(shell) -> ft.NavigationRail:
             ft.NavigationRailLabelType.NONE if mode == layout.NAV_RAIL_COLLAPSED else ft.NavigationRailLabelType.ALL
         ),
         min_width=Size.NAV_RAIL,
-        min_extended_width=Size.NAV_RAIL_EXTENDED,
+        min_extended_width=shell.state.layout.nav_width if extended else Size.NAV_RAIL_EXTENDED,
         group_alignment=-1.0,
         scrollable=True,
         leading=leading,

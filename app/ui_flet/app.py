@@ -12,6 +12,7 @@ import flet as ft
 from . import layout, routes
 from .components.account_panel import AccountPanelHost
 from .components.navigation import build_bar, build_rail
+from .components.split_handle import SplitHandle
 from .components.swipe_back import SwipeBack
 from .lifecycle import install_back_handler, install_pause_handler
 from .pages import page_for
@@ -33,6 +34,14 @@ def CurrentPage(shell: Shell):
     return ft.Container(expand=True, key=state.destination, content=page(state.destination, state.path))
 
 
+def _rail_edge(shell: Shell) -> ft.Control:
+    """Desktop: drag the rail's edge to widen or narrow it.  Elsewhere a plain rule."""
+    view = shell.state.layout
+    if view.rail_handle <= 1:
+        return ft.VerticalDivider(width=1)
+    return SplitHandle(shell.drag_rail, shell.end_rail_drag, width=view.rail_handle)
+
+
 @ft.component
 def App(shell: Shell):
     state = shell.state
@@ -50,7 +59,7 @@ def App(shell: Shell):
                 expand=True,
                 spacing=0,
                 vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[build_rail(shell), ft.VerticalDivider(width=1), current],
+                controls=[build_rail(shell), _rail_edge(shell), current],
             )
         return ft.SafeArea(expand=True, content=ft.Stack(expand=True, controls=[content, AccountPanelHost()]))
 

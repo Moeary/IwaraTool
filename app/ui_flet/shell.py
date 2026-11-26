@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable  # noqa: F401 - annotations
 
 import asyncio
+from dataclasses import replace
 
 import flet as ft
 
@@ -47,6 +48,7 @@ from .tokens import Size
 logger = get_logger(__name__)
 
 RAIL_EXTENDED_KEY = "flet_rail_extended"
+RAIL_WIDTH_KEY = "flet_rail_width"
 RESIZE_SETTLE = 0.016  # one frame: dragging the window edge does not rebuild on every pixel
 
 _NAV_SHORTCUTS = {
@@ -111,6 +113,7 @@ class Shell:
         self._resize_handle: asyncio.TimerHandle | None = None
         self._awake = False
         self._offered_clipboard = ""
+        self._rail_reach: float | None = None  # where a rail drag has got to (moves arrive faster than renders)
         self._last_tool = "rules"  # the Tools entry reopens the tool used last (presentation/tools/hub.py keys)
         self._pending_size: tuple[float, float] | None = None
 
@@ -118,7 +121,12 @@ class Shell:
 
     def _layout(self, width: float, height: float) -> layout.LayoutState:
         extended = bool(app_config.get_ui_value(RAIL_EXTENDED_KEY, True))
-        return layout.LayoutState(width, height, platform_name(self.page), rail_extended_preference=extended)
+        try:
+            dragged = float(app_config.get_ui_value(RAIL_WIDTH_KEY, 0) or 0)
+        except (TypeError, ValueError):
+            dragged = 0.0
+        return layout.LayoutState(width, height, platform_name(self.page), rail_extended_preference=extended,
+                                  rail_width_preference=layout.clamp_rail_width(dragged) if dragged else 0)
 
     def on_resize(self, event: ft.PageResizeEvent) -> None:
         self._pending_size = (event.width, event.height)
@@ -141,6 +149,25 @@ class Shell:
 
         state = self.state.layout
         set_frame(self.page, width=state.width, bottom_inset=Size.NAV_BAR if state.nav_mode == layout.NAV_BAR else 0)
+
+    def drag_rail(self, dx: float) -> None:
+        """The rail's edge moved: wider shows the wide rail at that width, narrow the labelled rail."""
+        state = self.state.layout
+        reach = (self._rail_reach if self._rail_reach is not None else state.nav_width) + dx
+        self._rail_reach = reach
+        if reach < layout.RAIL_COLLAPSE_BELOW:
+            changed = replace(state, rail_extended_preference=False)
+        else:
+            changed = replace(state, rail_extended_preference=True, rail_width_preference=layout.clamp_rail_width(reach))
+        if changed != state:
+            self.state.layout = changed
+
+    def end_rail_drag(self) -> None:
+        self._rail_reach = None
+        state = self.state.layout
+        app_config.set_ui_value(RAIL_EXTENDED_KEY, state.rail_extended_preference)
+        if state.rail_width_preference:
+            app_config.set_ui_value(RAIL_WIDTH_KEY, int(state.rail_width_preference))
 
     def toggle_rail(self) -> None:
         extended = not self.state.layout.rail_extended_preference

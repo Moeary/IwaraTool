@@ -43,6 +43,16 @@ LIST_DETAIL_MIN_WIDTH = 840  # two panes from here on
 # Rail rows (measured on the Flet 1.1 client): a destination with its label
 # under the icon, one with the label beside it, and what the rail needs besides
 # (leading control, group gap, account button at the bottom).
+RAIL_HANDLE = 8  # the rail's draggable edge (desktop)
+RAIL_WIDTH_RANGE = (200, 360)  # the wide rail's dragged width
+RAIL_COLLAPSE_BELOW = 150  # dragged narrower than this, the rail shows icons with labels under them
+
+
+def clamp_rail_width(width: float) -> float:
+    low, high = RAIL_WIDTH_RANGE
+    return max(low, min(high, float(width)))
+
+
 RAIL_ROW = {NAV_RAIL: 66, NAV_RAIL_EXTENDED: 48, NAV_RAIL_COLLAPSED: 56}
 RAIL_CHROME = {NAV_RAIL: 172, NAV_RAIL_EXTENDED: 176, NAV_RAIL_COLLAPSED: 172}  # incl. the rating button
 
@@ -86,6 +96,7 @@ class LayoutState:
     safe_insets: Insets = field(default_factory=Insets)
     keyboard_inset: float = 0
     rail_extended_preference: bool = True  # the user can collapse the wide rail; remembered
+    rail_width_preference: float = 0  # dragged width of the wide rail; 0 = never dragged (default width)
 
     @property
     def width_class(self) -> str:
@@ -126,7 +137,11 @@ class LayoutState:
             return NAV_RAIL_COLLAPSED
         if self.width_class == WIDTH_COMPACT:
             return NAV_BAR
-        if self.width_class in (WIDTH_LARGE, WIDTH_XLARGE) and self.rail_extended_preference:
+        if self.rail_extended_preference and (
+            self.width_class in (WIDTH_LARGE, WIDTH_XLARGE)
+            # A rail dragged wide stays wide on medium-large windows too.
+            or self.width_class == WIDTH_EXPANDED and self.rail_width_preference > 0
+        ):
             return NAV_RAIL_EXTENDED
         return NAV_RAIL
 
@@ -137,8 +152,15 @@ class LayoutState:
         if mode == NAV_BAR:
             return 0
         if mode == NAV_RAIL_EXTENDED:
-            return Size.NAV_RAIL_EXTENDED
+            return clamp_rail_width(self.rail_width_preference) if self.rail_width_preference else Size.NAV_RAIL_EXTENDED
         return Size.NAV_RAIL
+
+    @property
+    def rail_handle(self) -> float:
+        """The strip between the rail and the page: a draggable edge on the desktop, a rule elsewhere."""
+        if self.nav_mode == NAV_BAR:
+            return 0
+        return RAIL_HANDLE if self.is_desktop and self.nav_mode != NAV_RAIL_COLLAPSED else 1
 
     def rail_fits(self, count: int) -> bool:
         """Whether ``count`` destinations fit the rail's height without scrolling."""
@@ -150,7 +172,7 @@ class LayoutState:
 
     @property
     def content_width(self) -> float:
-        divider = 0 if self.nav_mode == NAV_BAR else 1
+        divider = self.rail_handle
         return max(0.0, self.width - self.nav_width - divider - self.safe_insets.left - self.safe_insets.right)
 
     @property
