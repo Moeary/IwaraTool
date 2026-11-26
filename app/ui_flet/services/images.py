@@ -21,6 +21,11 @@ from ...logging_setup import get_logger
 
 logger = get_logger(__name__)
 
+# Subscription works: list endpoints often return a stub without a cover URL;
+# the core then looks the video up (and remembers the URL), as the Classic list does.
+SUBSCRIPTION = "subscription"
+RESOLVES_WITHOUT_URL = frozenset({SUBSCRIPTION})
+
 
 class ImageService:
     def __init__(self, manager: Any, *, workers: int | None = None):
@@ -44,6 +49,8 @@ class ImageService:
             with self._clients_lock:
                 self._clients.append(client)
         try:
+            if kind == SUBSCRIPTION:
+                return self.manager.cache_subscription_thumbnail(key, url, api_client=client) or ""
             return self.manager.cache_search_image(kind, key, url, api_client=client) or ""
         except Exception:
             logger.debug("Image %s/%s could not be cached", kind, key, exc_info=True)
@@ -55,7 +62,7 @@ class ImageService:
         ident = (kind, key)
         if ident in self._paths:
             return self._paths[ident]
-        if not url:
+        if not url and kind not in RESOLVES_WITHOUT_URL:
             return ""
         pending = self._pending.get(ident)
         if pending is None:
@@ -88,7 +95,7 @@ def use_cached_image(service: ImageService, kind: str, key: str, url: str, local
     path, set_path = ft.use_state(initial)
 
     async def load() -> None:
-        if path or not url or not key:
+        if path or not key or not url and kind not in RESOLVES_WITHOUT_URL:
             return
         found = await service.get(kind, key, url)
         if found:

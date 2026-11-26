@@ -18,6 +18,7 @@ from ...core.search.models import SearchVideo
 from ...logging_setup import get_logger
 from ...presentation.media.cards import CardView, video_card
 from ...presentation.subscription import text as sub_text
+from ..services.images import SUBSCRIPTION
 from ...presentation.subscription.helpers import _source_search_text, _source_sort_key
 from ...presentation.subscription.item_queries import (
     downloadable_ids,
@@ -30,6 +31,14 @@ from ...presentation.subscription.item_queries import (
 from ...presentation.subscription.source_actions import add_source_from_text, remove_sources
 
 logger = get_logger(__name__)
+
+
+def subscription_card(video: SearchVideo) -> CardView:
+    """A work's card whose cover goes through the subscription cover cache, which finds the
+    covers list endpoints leave out (a video stub without a thumbnail URL)."""
+    card = video_card(video)
+    local = str((video.raw or {}).get("_thumbnail_path", "") or "")
+    return replace(card, cover_kind=SUBSCRIPTION, cover_key=video.video_id, cover_local=local or card.cover_local)
 
 RECENT_PER_SOURCE = 8
 
@@ -96,12 +105,9 @@ class SourceItems:
         cards, videos, states = [], {}, {}
         for item in self.visible:
             video = item_to_video(item, author_name=author)
-            card = video_card(video)
+            card = subscription_card(video)
             if card.key in videos:
                 continue
-            local = str((video.raw or {}).get("_thumbnail_path", "") or "")
-            if local:
-                card = replace(card, cover_local=local)
             videos[card.key] = video
             states[card.key] = item_state(item)
             cards.append(card)
@@ -196,7 +202,7 @@ class SubscriptionStore:
             cards, videos = [], {}
             for item in recent.get(source_id, []) or []:
                 video = item_to_video(item, author_name=author)
-                card = video_card(video)
+                card = subscription_card(video)
                 if card.key not in videos:
                     videos[card.key] = video
                     cards.append(card)
