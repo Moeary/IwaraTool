@@ -106,6 +106,16 @@ class ShellNavigator:
         target.path = route.path
         self._changed()
 
+    def show(self, path: str) -> None:
+        """Change the current destination's sub-route without a Back step (a list beside its detail)."""
+
+        route = routes.parse(path, fallback=self.current.name)
+        target = self.destinations.get(route.destination)
+        if target is None or target is not self.current or route.path == target.path:
+            return
+        target.path = route.path
+        self._changed()
+
     def back(self) -> bool:
         if self.history.back():
             self._changed()

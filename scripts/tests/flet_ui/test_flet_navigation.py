@@ -33,6 +33,15 @@ class ShellNavigatorTests(unittest.TestCase):
         self.assertTrue(self.nav.back())
         self.assertEqual(self.nav.path, "/search")
 
+    def test_show_changes_the_sub_route_without_a_step(self):
+        self.nav.switch(routes.SETTINGS)
+        self.nav.show("/settings/about")
+        self.assertEqual(self.nav.path, "/settings/about")
+        self.nav.show("/settings")
+        self.assertFalse(self.nav.can_go_back())
+        self.nav.show("/search")  # another destination: ignored
+        self.assertEqual(self.nav.path, "/settings")
+
     def test_deep_route_without_steps_goes_back_to_the_root(self):
         self.nav.destinations[routes.SETTINGS].path = "/settings/network"
         self.nav.switch(routes.SETTINGS)

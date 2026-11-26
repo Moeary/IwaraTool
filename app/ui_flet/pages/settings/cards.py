@@ -18,14 +18,16 @@ from ....core import site as sites
 from ....core.home.cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
 from ....core.home.feed import default_specs, load_specs, save_specs
 from ....core.playback import video_player
+from ....core.rating import RATINGS, rating_label
 from ....core.rules import rule_store
 from ....i18n import tr
+from ....version import __version__
 from ....logging_setup import get_logger, log_dir
 from ....presentation import preferences
 from ....presentation import shortcuts as keys
 from ....presentation.click_actions import ACTIONS as CLICK_ACTIONS, action_label
 from ....presentation.fonts import build_font_stack, current_platform
-from ....presentation.settings import values as sv
+from ....presentation.settings import groups, values as sv
 from ....presentation.settings.texts import stext
 from ... import layout, routes
 from ...icons import AppIcon
@@ -35,7 +37,7 @@ from ...platform import tray
 from ...services.notify import notice
 from ...stores.app_state import use_shell
 from ...theme import palette_for, text_style
-from ...tokens import TYPE, Space
+from ...tokens import TYPE, Size, Space
 from .rows import buttons, card, dropdown, hint, number_field, row, switch_row, text_field, use_refresh
 
 logger = get_logger(__name__)
@@ -207,6 +209,43 @@ def SiteCard():
     return card(page, stext("site"), [
         row(page, stext("site"), dropdown(shell.state.site, options, shell.set_site, width=200),
             help=stext("the_site_home_search_and_subscriptions"), compact=_compact(shell)),
+    ])
+
+
+@ft.component
+def RatingCard():
+    shell = use_shell()
+    page = shell.page
+    texts = groups.about_texts()
+    options = [(value, rating_label(value)) for value in RATINGS]
+    return card(page, texts["rating_title"], [
+        row(page, texts["rating_title"], dropdown(shell.state.rating, options, shell.set_rating, width=200),
+            help=texts["rating_help"], compact=_compact(shell)),
+    ])
+
+
+@ft.component
+def AboutCard():
+    shell = use_shell()
+    page = shell.page
+    palette = palette_for(page)
+    texts = groups.about_texts()
+
+    def link(label: str, url: str, icon) -> ft.Control:
+        return ft.OutlinedButton(content=label, icon=icon, on_click=lambda _e: page.run_task(ft.UrlLauncher().launch_url, url))
+
+    lines = [(texts["version"], __version__), *groups.about_lines()]
+    return card(page, texts["title"], [
+        hint(page, texts["tagline"]),
+        *[ft.Row(spacing=Space.LG, controls=[
+            ft.Container(width=Size.SETTINGS_LABEL, content=ft.Text(label, style=text_style(TYPE.body, color=palette.on_surface_variant))),
+            ft.Text(value, style=text_style(TYPE.body), selectable=True, expand=True),
+        ]) for label, value in lines],
+        buttons(
+            link(texts["repository"], groups.REPOSITORY_URL, AppIcon.BROWSER),
+            link(texts["releases"], groups.RELEASES_URL, AppIcon.NEW),
+            link(texts["issues"], groups.REPOSITORY_URL + "/issues", AppIcon.ABOUT),
+        ),
     ])
 
 
@@ -1024,6 +1063,8 @@ CARDS = {
     "home_cache": HomeCacheCard,
     "site": SiteCard,
     "account": AccountCard,
+    "rating": RatingCard,
+    "about": AboutCard,
     "proxy": ProxyCard,
     "download_dir": DownloadDirCard,
     "quality": QualityCard,

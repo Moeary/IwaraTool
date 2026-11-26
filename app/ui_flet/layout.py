@@ -44,7 +44,7 @@ LIST_DETAIL_MIN_WIDTH = 840  # two panes from here on
 # under the icon, one with the label beside it, and what the rail needs besides
 # (leading control, group gap, account button at the bottom).
 RAIL_ROW = {NAV_RAIL: 66, NAV_RAIL_EXTENDED: 48, NAV_RAIL_COLLAPSED: 56}
-RAIL_CHROME = {NAV_RAIL: 136, NAV_RAIL_EXTENDED: 176, NAV_RAIL_COLLAPSED: 136}
+RAIL_CHROME = {NAV_RAIL: 172, NAV_RAIL_EXTENDED: 176, NAV_RAIL_COLLAPSED: 172}  # incl. the rating button
 
 DESKTOP = frozenset({"windows", "macos", "linux"})
 MOBILE = MOBILE_PLATFORMS

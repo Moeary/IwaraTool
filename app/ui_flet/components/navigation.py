@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import flet as ft
 
+from ...core.rating import RATINGS, rating_label
 from ...i18n import tr
 from ...presentation.downloads.task_statuses import badge_text
+from ...presentation.settings import groups
 from .. import layout, routes
-from ..icons import IconPair, NavIcon, StateIcon
+from ..icons import IconPair, NavIcon, SettingsIcon, StateIcon
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
 
@@ -164,6 +166,30 @@ def _foot_item(shell, destination: str, mode: str, *, selected: bool) -> ft.Cont
     )
 
 
+def rating_button(shell) -> ft.Control:
+    """The content rating at the top of the rail (All / SFW / NSFW); a menu switches it."""
+
+    palette = palette_for(shell.page)
+    rating = shell.state.rating
+    filtered = rating != RATINGS[0]
+    color = palette.on_primary_container if filtered else palette.on_surface_variant
+    return ft.PopupMenuButton(
+        tooltip=groups.about_texts()["rating_title"],
+        content=ft.Container(
+            padding=ft.Padding.symmetric(horizontal=Space.SM, vertical=Space.XXS),
+            border_radius=Radius.FULL,
+            bgcolor=palette.primary_container if filtered else None,
+            border=None if filtered else ft.Border.all(1, palette.outline_variant),
+            content=ft.Row(tight=True, spacing=Space.XXS, controls=[
+                ft.Icon(SettingsIcon.RATING.pick(filtered), size=Size.ICON_SM, color=color),
+                ft.Text(rating_label(rating), style=text_style(TYPE.badge, color=color)),
+            ]),
+        ),
+        items=[ft.PopupMenuItem(content=rating_label(value), checked=value == rating,
+                                on_click=lambda _e, v=value: shell.set_rating(v)) for value in RATINGS],
+    )
+
+
 def build_rail(shell) -> ft.NavigationRail:
     state = shell.state.layout
     mode = state.nav_mode
@@ -178,7 +204,10 @@ def build_rail(shell) -> ft.NavigationRail:
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 controls=[
-                    ft.Text("IwaraTool", style=text_style(TYPE.subtitle)),
+                    ft.Row(tight=True, spacing=Space.SM, controls=[
+                        ft.Text("IwaraTool", style=text_style(TYPE.subtitle)),
+                        rating_button(shell),
+                    ]),
                     ft.IconButton(
                         icon=StateIcon.RAIL.active,
                         tooltip=tr("Collapse the sidebar", "收起侧栏", "サイドバーを折りたたむ"),
@@ -187,12 +216,14 @@ def build_rail(shell) -> ft.NavigationRail:
                 ],
             ),
         )
-    elif state.width_class in (layout.WIDTH_LARGE, layout.WIDTH_XLARGE):
-        leading = ft.IconButton(
+    else:
+        expand = ft.IconButton(
             icon=StateIcon.RAIL.rest,
             tooltip=tr("Expand the sidebar", "展开侧栏", "サイドバーを展開"),
             on_click=lambda _e: shell.toggle_rail(),
-        )
+        ) if state.width_class in (layout.WIDTH_LARGE, layout.WIDTH_XLARGE) else None
+        leading = ft.Column(tight=True, spacing=Space.XS, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[c for c in (expand, rating_button(shell)) if c is not None])
     destinations = [
         ft.NavigationRailDestination(
             icon=_icon(shell, d, active=False),

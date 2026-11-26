@@ -50,6 +50,17 @@ class NavIcon:
     ACCOUNT = IconPair(_I.ACCOUNT_CIRCLE_OUTLINED, _I.ACCOUNT_CIRCLE_ROUNDED)
 
 
+class SettingsIcon:
+    """Settings groups (presentation/settings/groups.py)."""
+
+    APPEARANCE = IconPair(_I.PALETTE_OUTLINED, _I.PALETTE_ROUNDED)
+    BROWSING = IconPair(_I.EXPLORE_OUTLINED, _I.EXPLORE_ROUNDED)
+    STORAGE = IconPair(_I.STORAGE_OUTLINED, _I.STORAGE_ROUNDED)
+    KEYBOARD = IconPair(_I.KEYBOARD_OUTLINED, _I.KEYBOARD_ROUNDED)
+    ABOUT = IconPair(_I.INFO_OUTLINED, _I.INFO_ROUNDED)
+    RATING = IconPair(_I.SHIELD_OUTLINED, _I.SHIELD_ROUNDED)  # the content-rating button
+
+
 class StateIcon:
     """Toggles whose icon fills in while they are on."""
 
