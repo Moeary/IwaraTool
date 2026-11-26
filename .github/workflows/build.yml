@@ -261,10 +261,19 @@ jobs:
         include:
           - label: phone
             profile: pixel_6
+            setup: ""
+          - label: phone-21x9
+            profile: pixel_6
+            setup: size:1080x2520
           - label: foldable
             profile: pixel_fold
+            setup: ""
+          - label: foldable-folded
+            profile: pixel_fold
+            setup: fold
           - label: tablet
             profile: pixel_tablet
+            setup: ""
 
     steps:
       - name: Checkout
@@ -291,7 +300,7 @@ jobs:
           profile: ${{ matrix.profile }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash scripts/tools/android_smoke.sh "$(ls apk/*.apk | head -1)" emulator-out ${{ matrix.label }}
+          script: bash scripts/tools/android_smoke.sh "$(ls apk/*.apk | head -1)" emulator-out ${{ matrix.label }} "${{ matrix.setup }}"
 
       - name: Upload screenshots and logs
         if: always()

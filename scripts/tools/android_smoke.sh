@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install the Flet APK on the running emulator, start it, and check it stays up
 # without a Python traceback (docs/flet_ui_plan.md P8). Used by build.yml.
-#   android_smoke.sh <apk> <out-dir> <label>
+#   android_smoke.sh <apk> <out-dir> <label> [setup]
+# setup: "size:WxH" overrides the screen (e.g. a 21:9 phone), "fold" closes a foldable
+# so the app runs on the outer screen.
 set -uo pipefail
 
 # Write on the device and pull: on multi-display devices (foldables) screencap prints a
@@ -9,8 +11,15 @@ set -uo pipefail
 shot() {
     adb shell screencap -p /data/local/tmp/smoke.png >/dev/null 2>&1
     adb pull /data/local/tmp/smoke.png "$1" >/dev/null
+    # Folded: also every display by id, since the first one may be the (off) inner screen.
+    if [ "$setup" = "fold" ]; then
+        for id in $(adb shell dumpsys SurfaceFlinger --display-id | grep -oE "^Display [0-9]+" | cut -d" " -f2); do
+            adb shell screencap -d "$id" -p /data/local/tmp/smoke.png >/dev/null 2>&1
+            adb pull /data/local/tmp/smoke.png "${1%.png}-display-$id.png" >/dev/null
+        done
+    fi
 }
-apk="$1"; out="$2"; label="$3"
+apk="$1"; out="$2"; label="$3"; setup="${4:-}"
 mkdir -p "$out"
 aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
 package=$("$aapt2" dump packagename "$apk")
@@ -22,9 +31,13 @@ adb shell input keyevent 82 || true   # unlock
 # swallows the back key below: hide error dialogs and close any that are already open.
 adb shell settings put global hide_error_dialogs 1 || true
 close_dialogs() { adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true; }
+case "$setup" in
+  size:*) adb shell wm size "${setup#size:}" ;;
+  fold) adb emu fold || adb shell cmd device_state state 0; sleep 3 ;;
+esac
 adb install -r -g "$apk" || exit 1
 adb logcat -c
-adb shell wm size > "$out/$label-size.txt"
+{ adb shell wm size; adb shell cmd device_state print-state 2>/dev/null || true; } > "$out/$label-size.txt"
 adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 >/dev/null
 status=0
 for second in $(seq 1 90); do
