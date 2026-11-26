@@ -242,7 +242,7 @@ TEXTS: dict[str, tuple[str, str, str]] = {
     'choose_classic_folder': ('Choose the Classic IwaraTool folder (or its data folder)', '选择经典版 IwaraTool 所在的文件夹（或其中的 data 文件夹）', 'Classic 版 IwaraTool のフォルダー（またはその data フォルダー）を選択'),
     'no_iwaratool_data_in_folder': ('No IwaraTool data (config.ini) in that folder or its data folder.', '该文件夹及其 data 子文件夹中没有 IwaraTool 数据（config.ini）。', 'そのフォルダーと data フォルダーに IwaraTool のデータ（config.ini）がありません。'),
     'classic_data_found': ('Data from the Classic build found', '发现经典版的数据', 'Classic 版のデータが見つかりました'),
-    'import_classic_offer': ('Bring over settings, history, queue, rules and subscriptions? Also in Settings → Backup.', '要导入设置、历史、队列、规则和订阅吗？之后也可在“设置 → 备份”中导入。', '設定・履歴・キュー・ルール・購読を取り込みますか？「設定 → バックアップ」からも取り込めます。'),
+    'import_classic_offer': ('Bring over settings, history, queue, rules and subscriptions? Also later in Settings → System & Maintenance → Backup & Logs.', '要导入设置、历史、队列、规则和订阅吗？之后也可在“设置 → 系统与维护 → 备份与日志”中导入。', '設定・履歴・キュー・ルール・購読を取り込みますか？あとから「設定 → システムと保守 → バックアップとログ」でも取り込めます。'),
     'import': ('Import', '导入', '取り込む'),
     'settings_history_subscriptions_and_rules_will': ('Settings, history, subscriptions and rules will be replaced after the next start.', '设置、历史、订阅和规则将在下次启动时被替换。', '設定・履歴・購読・ルールは次回起動時に置き換えられます。'),
     'done': ('Done', '完成', '完了'),

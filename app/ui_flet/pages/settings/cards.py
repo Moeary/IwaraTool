@@ -935,7 +935,7 @@ def MaintenanceCard():
         buttons(
             ft.OutlinedButton(content=stext("back_up"), icon=AppIcon.SAVE, on_click=lambda _e: page.run_task(back_up)),
             ft.OutlinedButton(content=stext("restore"), icon=AppIcon.HISTORY, on_click=lambda _e: page.run_task(restore)),
-            ft.OutlinedButton(content=stext("import_from_classic"), icon=AppIcon.HISTORY,
+            ft.OutlinedButton(content=stext("import_from_classic"), icon=AppIcon.LOGIN,
                               on_click=lambda _e: page.run_task(import_classic, page))
             if shell.caps.desktop else None,
             ft.TextButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs))

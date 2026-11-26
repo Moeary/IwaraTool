@@ -3,7 +3,7 @@ authors = ["Moeary"]
 channels = ["conda-forge"]
 name = "IwaraTool"
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
-version = "1.2.3"
+version = "1.3.0"
 
 # 两套界面共用的核心依赖（同一份版本范围）。界面相关的依赖与 Python 版本分别放在
 # 下面的 qt / flet feature 里。两个环境暂不共用 solve-group：Flet 打包只支持

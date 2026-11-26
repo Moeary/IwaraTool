@@ -122,5 +122,6 @@ afterwards `app/ui/` and the porting rules go.  Prepared on this branch:
   on Windows / Linux), and a desktop start offers it once when Classic data is found.
   Credentials are not copied (log in again), as with any backup.
 
-Still open before tagging: the real-device round (P8), clicking through tray and log-in by hand,
-bumping `app/version.py` to 1.3.0 and writing `docs/releases/v1.3.0.md`.
+Version 1.3.0 and `docs/releases/v1.3.0.md` are prepared.  Still open before tagging: the
+real-device round (P8) and clicking through tray and log-in by hand (the maintainer is doing
+both); fold any fixes and findings into the release notes.
