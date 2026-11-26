@@ -51,15 +51,22 @@ def tab_label(tab: str) -> str:
 def LinkBar():
     shell = use_shell()
     drafts = shell.drafts
+    compact = shell.state.layout.width_class == layout.WIDTH_COMPACT
+    # One line however narrow: paste sits inside the field, the hint is cut rather than wrapped,
+    # and phones get the icon-only download button (the field used to wrap its hint over three lines).
+    hint = (tr("Paste video, author or playlist links", "粘贴作品、作者或列表链接", "動画・作者・リストのリンク") if compact
+            else tr("Paste one or more video, author or playlist links", "粘贴一个或多个作品、作者或播放列表链接",
+                    "動画・作者・プレイリストのリンクを貼り付け（複数可）"))
     field = ft.TextField(
         value=drafts.get("download_links", ""),
-        hint_text=tr("Paste one or more video, author or playlist links", "粘贴一个或多个作品、作者或播放列表链接",
-                     "動画・作者・プレイリストのリンクを貼り付け（複数可）"),
+        hint_text=hint,
+        hint_max_lines=1,
         multiline=True,
         min_lines=1,
         max_lines=4,
         expand=True,
         dense=True,
+        suffix_icon=ft.IconButton(icon=AppIcon.PASTE, tooltip=tr("Paste", "粘贴", "貼り付け"), on_click=lambda e: e.page.run_task(paste, e)),
         on_change=lambda e: drafts.__setitem__("download_links", e.control.value or ""),
     )
 
@@ -94,11 +101,11 @@ def LinkBar():
 
     return ft.Row(
         spacing=Space.SM,
-        vertical_alignment=ft.CrossAxisAlignment.START,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
             field,
-            ft.IconButton(icon=AppIcon.PASTE, tooltip=tr("Paste", "粘贴", "貼り付け"), on_click=paste),
-            ft.FilledButton(content=tr("Download", "下载", "ダウンロード"), icon=AppIcon.DOWNLOAD, on_click=submit),
+            ft.FilledIconButton(icon=AppIcon.DOWNLOAD, tooltip=tr("Download", "下载", "ダウンロード"), on_click=submit)
+            if compact else ft.FilledButton(content=tr("Download", "下载", "ダウンロード"), icon=AppIcon.DOWNLOAD, on_click=submit),
         ],
     )
 
