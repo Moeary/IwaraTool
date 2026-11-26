@@ -10,6 +10,7 @@ from typing import Any
 from ..config import app_config
 from ..signal_bus import signal_bus
 from .download.locations import STORAGE_REMOTE, normalize_storage
+from .db.migrate import ensure_current
 from .sqlite_utils import connect as _sqlite_connect
 
 
@@ -70,29 +71,7 @@ class DownloadHistory:
 
     def _init_db(self):
         with closing(_sqlite_connect(self._db_path)) as conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS downloaded ("
-                "video_id TEXT PRIMARY KEY, "
-                "title TEXT DEFAULT '', "
-                "author TEXT DEFAULT '', "
-                "published_at TEXT DEFAULT '', "
-                "likes INTEGER DEFAULT 0, "
-                "views INTEGER DEFAULT 0, "
-                "slug TEXT DEFAULT '', "
-                "rating TEXT DEFAULT '', "
-                "duration INTEGER DEFAULT 0, "
-                "comments INTEGER DEFAULT 0, "
-                "tags_json TEXT DEFAULT '', "
-                "raw_json TEXT DEFAULT '', "
-                "source_url TEXT DEFAULT '', "
-                "file_path TEXT DEFAULT '', "
-                "thumbnail_path TEXT DEFAULT '', "
-                "quality TEXT DEFAULT '', "
-                "downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-                ")"
-            )
-            self._ensure_columns(conn)
-            conn.commit()
+            ensure_current(conn, self._db_path)  # db/migrate.py: numbered schema steps
 
     def _ensure_db_ready(self):
         """Ensure table exists even if history.db was deleted during runtime."""
@@ -101,35 +80,6 @@ class DownloadHistory:
     @staticmethod
     def _is_missing_table_error(exc: sqlite3.OperationalError) -> bool:
         return "no such table" in str(exc).lower()
-
-    @staticmethod
-    def _ensure_columns(conn: sqlite3.Connection):
-        rows = conn.execute("PRAGMA table_info(downloaded)").fetchall()
-        existing = {r[1] for r in rows}
-        required: dict[str, str] = {
-            "title": "TEXT DEFAULT ''",
-            "author": "TEXT DEFAULT ''",
-            "published_at": "TEXT DEFAULT ''",
-            "likes": "INTEGER DEFAULT 0",
-            "views": "INTEGER DEFAULT 0",
-            "slug": "TEXT DEFAULT ''",
-            "rating": "TEXT DEFAULT ''",
-            "duration": "INTEGER DEFAULT 0",
-            "comments": "INTEGER DEFAULT 0",
-            "tags_json": "TEXT DEFAULT ''",
-            "raw_json": "TEXT DEFAULT ''",
-            "source_url": "TEXT DEFAULT ''",
-            "file_path": "TEXT DEFAULT ''",
-            "thumbnail_path": "TEXT DEFAULT ''",
-            "quality": "TEXT DEFAULT ''",
-            "watched_at": "TEXT DEFAULT ''",  # last time the file was played; '' = never
-            # 'local' (file_path on this machine) or 'remote' (remote_path on the aria2 host)
-            "storage": "TEXT DEFAULT 'local'",
-            "remote_path": "TEXT DEFAULT ''",
-        }
-        for col, ddl in required.items():
-            if col not in existing:
-                conn.execute(f"ALTER TABLE downloaded ADD COLUMN {col} {ddl}")
 
     def is_downloaded(self, video_id: str) -> bool:
         with self._lock:
