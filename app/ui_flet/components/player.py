@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 def resolve_source(manager, video_id: str, site: str) -> tuple[str, bool]:
     """``(url or path, is_proxy_entry)``; blocking (history lookup, signing the file URL)."""
 
-    local = video_player.playable_video_target(video_id, manager.history)
+    local = video_player.downloaded_copy(video_id, manager)
     if local:
         return local, False
     with sites.site_scope(site):

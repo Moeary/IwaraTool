@@ -29,6 +29,7 @@ from ...components.video_card import VideoCard, text_height
 from ...components.video_grid import cover_size_for
 from ...icons import AppIcon, StateIcon
 from ...services.notify import notice
+from ...services.images import SUBSCRIPTION
 from ...stores.app_state import subscribe, use_shell
 from ...stores.detail import DetailModel
 from ...theme import palette_for, text_style
@@ -85,7 +86,9 @@ def _stage(shell, model: DetailModel, width: float, playing: bool, set_playing) 
         return InlinePlayer(video.video_id, video.title, model.site, width, on_close=lambda: set_playing(False),
                             key=f"player:{video.video_id}")
     overlays: list[ft.Control] = [
-        Cover("video", model.item_id, video.thumbnail_url if video else "", width, radius=Radius.CARD),
+        # No cover URL (opened from a library record whose post did not load): the cover cache finds it by id.
+        Cover("video" if video and video.thumbnail_url else SUBSCRIPTION, model.item_id,
+              video.thumbnail_url if video else "", width, radius=Radius.CARD),
     ]
     if model.can_play:
         overlays.append(ft.Container(
@@ -118,7 +121,7 @@ async def _play(shell, model: DetailModel, set_playing) -> None:
         return
     mode = video_player.player_mode()
     if mode != video_player.MODE_BUILTIN:
-        target = await asyncio.to_thread(video_player.playable_video_target, video.video_id, shell.home.manager.history)
+        target = await asyncio.to_thread(video_player.downloaded_copy, video.video_id, shell.home.manager)
         if target and video_player.opens_externally(target, mode):
             ok, message = await asyncio.to_thread(video_player.open_local_video, target, mode=mode)
             if not ok:
@@ -341,6 +344,7 @@ def DetailBody(model: DetailModel):
     main_width = available - SIDE_WIDTH - Space.XL if side else available
 
     async def start() -> None:
+        await model.check_local()
         await model.start(shell.details.previews.get(model.item_id))
 
     def leave() -> None:

@@ -85,6 +85,15 @@ def playable_video_target(video_id: str, history=None) -> str:
     return video_location(video_id, history).stream_url
 
 
+def downloaded_copy(video_id: str, manager) -> str:
+    """``playable_video_target``, else a finished temporary copy (search / detail downloads keep no history row)."""
+    target = playable_video_target(video_id, manager.history)
+    if target:
+        return target
+    find = getattr(manager, "temporary_copy_path", None)
+    return find(video_id) if callable(find) else ""
+
+
 def opens_externally(target: str, mode: str | None = None) -> bool:
     """True when ``target`` goes to an external player; False means the built-in window plays it.
 

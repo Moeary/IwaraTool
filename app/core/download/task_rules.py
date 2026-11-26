@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from typing import Any
 
+from ...config import app_config
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..models import DownloadTask, TaskStatus
@@ -59,6 +62,44 @@ class TaskRulesMixin:
         """
 
         return task.status == TaskStatus.COMPLETED and not self._task_rule_payload(task)["record_to_history"]
+
+    def temporary_copy_path(self, video_id: str) -> str:
+        """The file of ``video_id``'s finished temporary copy on this machine, or ``""``.
+
+        Such a copy has no history row, so this is how a page finds it to play.
+        """
+
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return ""
+        with self._lock:
+            task = self._tasks.get(self._task_id_by_video_id.get(video_id.lower(), ""))
+        if task is not None and self.is_temporary_copy(task):
+            path = str(task.file_path or "")
+            if path and os.path.isfile(path):
+                return path
+        # Finished tasks are not kept across restarts: look in the temporary folders by id.
+        return self._find_in_temporary_folders(video_id)
+
+    def _find_in_temporary_folders(self, video_id: str) -> str:
+        root = app_config.download_dir
+        if not root or not os.path.isdir(root):
+            return ""
+        wanted = video_id.lower()
+        for folder in sorted(self._temporary_output_dirs(root)):
+            if not os.path.isdir(folder):
+                continue
+            for dirpath, _dirnames, filenames in os.walk(folder):
+                for name in filenames:
+                    stem, ext = os.path.splitext(name)
+                    if ext.lower() != ".mp4":
+                        continue
+                    if wanted in (token.lower() for token in re.findall(r"[A-Za-z0-9_-]{8,}", stem)) or \
+                            stem.lower().endswith("_" + wanted):
+                        full = os.path.join(dirpath, name)
+                        if os.path.getsize(full) > 0:
+                            return full
+        return ""
 
     def _release_temporary_copies(self, video_ids) -> list[str]:
         """Forget finished temporary tasks of these videos; returns the removed task ids."""

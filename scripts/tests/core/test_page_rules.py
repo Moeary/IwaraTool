@@ -134,5 +134,32 @@ class TemporaryDownloadTests(_IsolatedRules):
         self.assertTrue(self.manager.is_temporary_copy(task))
 
 
+    def test_a_finished_temporary_copy_can_be_played(self):
+        from app.core.playback import video_player
+
+        task = self._completed("tempVideo04", self.temp_payload)
+        self.assertEqual(self.manager.temporary_copy_path("tempVideo04"), "")  # no file yet
+        os.makedirs(os.path.dirname(task.file_path), exist_ok=True)
+        with open(task.file_path, "wb") as stream:
+            stream.write(b"x")
+        self.assertEqual(self.manager.temporary_copy_path("TEMPVIDEO04"), task.file_path)
+        with patch.object(video_player, "playable_video_target", return_value=""):
+            self.assertEqual(video_player.downloaded_copy("tempVideo04", self.manager), task.file_path)
+        kept = self._completed("keptVideo05", json.dumps(default_rule_payload()))
+        os.makedirs(os.path.dirname(kept.file_path), exist_ok=True)
+        open(kept.file_path, "wb").close()
+        self.assertEqual(self.manager.temporary_copy_path("keptVideo05"), "")  # history answers for those
+
+    def test_a_temporary_copy_is_found_on_disk_after_a_restart(self):
+        root = os.path.join(self.root, "dl")
+        folder = os.path.join(root, "temp_video")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "【Title】 with spaces_tempVideo06.mp4")
+        with open(path, "wb") as stream:
+            stream.write(b"x")
+        with patch.object(AppConfig, "download_dir", root):  # no task in memory
+            self.assertEqual(self.manager.temporary_copy_path("tempVideo06"), path)
+            self.assertEqual(self.manager.temporary_copy_path("otherVideo7"), "")
+
 if __name__ == "__main__":
     unittest.main()

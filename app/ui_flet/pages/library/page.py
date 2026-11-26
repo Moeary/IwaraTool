@@ -200,7 +200,7 @@ def RecordPanel(video_id: str, *, wide: bool = True):
     buttons.append(ft.OutlinedButton(content=lib.remove_button(), icon=AppIcon.DELETE,
                                      on_click=lambda _e: page.run_task(remove_records, shell, [video_id])))
     content = ft.Column(spacing=Space.MD, scroll=ft.ScrollMode.AUTO, expand=True, controls=[
-        Cover("video", card.cover_key, card.cover_url, width, card.cover_local, icon=AppIcon.VIDEO),
+        Cover(card.cover_kind, card.cover_key, card.cover_url, width, card.cover_local, icon=AppIcon.VIDEO),
         ft.Text(card.title, style=text_style(TYPE.section_title_compact), selectable=True),
         ft.Row(wrap=True, spacing=Space.SM, run_spacing=Space.SM, controls=buttons),
         *[row for row in rows if row is not None],
@@ -235,7 +235,7 @@ def _list_row(shell, store: LibraryStore, record: dict, selecting: bool, selecte
         on_click=tap,
         on_long_press=lambda _e: store.toggle(video_id),
         content=ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-            Cover("video", card.cover_key, card.cover_url, THUMB_W, card.cover_local, icon=AppIcon.VIDEO),
+            Cover(card.cover_kind, card.cover_key, card.cover_url, THUMB_W, card.cover_local, icon=AppIcon.VIDEO),
             ft.Column(spacing=0, expand=True, alignment=ft.MainAxisAlignment.CENTER, controls=[
                 ft.Text(card.title, style=text_style(TYPE.label), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(lib.record_line(record), style=text_style(TYPE.meta, color=palette.on_surface_variant),

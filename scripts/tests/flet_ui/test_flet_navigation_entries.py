@@ -95,6 +95,7 @@ class SecondaryPageTests(unittest.TestCase):
         self.assertFalse(shell.secondary_page())
 
 
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class RailDragTests(unittest.TestCase):
     def test_drag_widens_then_collapses_and_saves(self):
         from app.ui_flet import layout, shell as shell_module

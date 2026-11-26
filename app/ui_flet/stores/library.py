@@ -8,7 +8,7 @@ work on the in-memory list.  Removing records is undoable for a few seconds
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import flet as ft
@@ -17,6 +17,7 @@ from ...config import app_config
 from ...logging_setup import get_logger
 from ...presentation.history import library as lib
 from ...presentation.media.cards import CardView
+from ..services.images import SUBSCRIPTION
 
 logger = get_logger(__name__)
 
@@ -142,7 +143,9 @@ class LibraryStore:
         video_id = str(record.get("video_id", "") or "")
         card = self._cards.get(video_id)
         if card is None:
-            card = self._cards[video_id] = lib.record_card(record)
+            # Records rarely keep a cover URL: as in Classic, the subscription cover cache
+            # looks the work up by id, and its copy is reused next time.
+            card = self._cards[video_id] = replace(lib.record_card(record), cover_kind=SUBSCRIPTION, cover_key=video_id)
         return card
 
     @property

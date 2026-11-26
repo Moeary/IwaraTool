@@ -16,6 +16,7 @@ import flet as ft
 
 from ...core import site as sites
 from ...core.home.loading import call_with_client, load_comments, load_detail
+from ...core.playback import video_player
 from ...core.search.models import SearchVideo
 from ...core.search.normalize import normalize_image, normalize_video
 from ...logging_setup import get_logger
@@ -39,6 +40,7 @@ class DetailViewState:
     liked: bool = False
     like_busy: bool = False
     playing: bool = False  # the cover turned into the player (reset on leaving the page)
+    local: str = ""  # the downloaded copy (file, or its NAS URL): plays even when the post cannot load
     author: detail_info.AuthorInfo | None = None
     related: list[CardView] = field(default_factory=list)
     comments: list[CommentView] = field(default_factory=list)
@@ -71,7 +73,18 @@ class DetailModel:
     @property
     def can_play(self) -> bool:
         video = self.state.video
-        return self.kind == "video" and video is not None and video.downloadable
+        if self.kind != "video" or video is None:
+            return False
+        return video.downloadable or bool(self.state.local)
+
+    async def check_local(self) -> None:
+        """Look for a downloaded copy (each visit: it may have just finished downloading)."""
+        if self.kind != "video":
+            return
+        try:
+            self.state.local = await asyncio.to_thread(video_player.downloaded_copy, self.item_id, self.store.manager)
+        except Exception:
+            logger.debug("Looking for a downloaded copy failed", exc_info=True)
 
     def meta_text(self) -> str:
         return detail_info.meta_text(self.state.video, self.kind) if self.state.video else ""

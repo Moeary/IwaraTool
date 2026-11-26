@@ -25,8 +25,9 @@ async def play(shell, route: str) -> None:
         # Play a local clip as the "downloaded copy" (the demo CDN serves no video).
         from app.core.playback import video_player
 
-        clip = os.path.abspath(os.environ["IWARATOOL_DEMO_PLAY"])
-        video_player.playable_video_target = lambda *_args, **_kwargs: clip
+        clip = os.environ["IWARATOOL_DEMO_PLAY"]
+        clip = clip if video_player.is_url(clip) else os.path.abspath(clip)  # a NAS http URL stays a URL
+        video_player.downloaded_copy = lambda *_args, **_kwargs: clip
         model = shell.details.model(*parsed.parts[:2])
         for _ in range(50):
             if model.can_play:
