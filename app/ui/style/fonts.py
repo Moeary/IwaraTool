@@ -9,45 +9,24 @@ families behind it.
 
 from __future__ import annotations
 
-import sys
-from collections.abc import Callable, Iterable
-
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from ...config import app_config
 from ...i18n import current_language
 from ...logging_setup import get_logger
+# The platform tables and the stack order live in a module without Qt, shared
+# with the Flet interface; re-exported here for existing callers and tests.
+from ...presentation.fonts import (  # noqa: F401
+    _MONO_FONTS,
+    _PLATFORM_FONTS,
+    AUTO_FONT,
+    _unique,
+    build_font_stack,
+    current_platform,
+)
 
 _log = get_logger(__name__)
-
-AUTO_FONT = ""  # ``ui_font_family`` value meaning "follow the platform"
-
-# Per platform: Latin UI font, then Simplified Chinese and Japanese UI fonts.
-# The system UI font Qt reports is put in front of the Latin list at runtime.
-_PLATFORM_FONTS: dict[str, dict[str, tuple[str, ...]]] = {
-    "windows": {
-        "latin": ("Segoe UI",),
-        "zh": ("Microsoft YaHei UI", "Microsoft YaHei", "SimHei"),
-        "ja": ("Yu Gothic UI", "Meiryo UI", "Meiryo", "MS UI Gothic"),
-    },
-    "macos": {
-        "latin": ("Helvetica Neue",),
-        "zh": ("PingFang SC", "Hiragino Sans GB", "Heiti SC"),
-        "ja": ("Hiragino Sans", "Hiragino Kaku Gothic ProN", "Osaka"),
-    },
-    "linux": {
-        "latin": ("Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"),
-        "zh": ("Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback"),
-        "ja": ("Noto Sans CJK JP", "Source Han Sans JP", "IPAPGothic", "TakaoPGothic"),
-    },
-}
-
-_MONO_FONTS: dict[str, tuple[str, ...]] = {
-    "windows": ("Cascadia Mono", "Consolas", "Courier New"),
-    "macos": ("SF Mono", "Menlo", "Monaco", "Courier New"),
-    "linux": ("DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", "Monospace"),
-}
 
 # Families worth offering in the picker: they cover text the app shows.
 _TEXT_SYSTEMS = (
@@ -56,58 +35,6 @@ _TEXT_SYSTEMS = (
     QFontDatabase.WritingSystem.TraditionalChinese,
     QFontDatabase.WritingSystem.Japanese,
 )
-
-
-def current_platform() -> str:
-    if sys.platform == "win32":
-        return "windows"
-    if sys.platform == "darwin":
-        return "macos"
-    return "linux"
-
-
-def build_font_stack(
-    platform: str,
-    language: str,
-    *,
-    user_family: str = AUTO_FONT,
-    system_family: str = "",
-    available: Callable[[str], bool] = lambda _name: True,
-) -> list[str]:
-    """Ordered font families for the interface.
-
-    ``language`` decides which CJK fonts come first: Japanese text drawn with
-    a Chinese font shows Chinese glyph shapes for shared kanji, and the other
-    way round.  Families that are not installed are left out, so Qt never
-    has to search for them (macOS logs "missing font family" and spends
-    time populating aliases when it does).
-    """
-
-    fonts = _PLATFORM_FONTS.get(platform, _PLATFORM_FONTS["linux"])
-    cjk = ("ja", "zh") if language == "ja" else ("zh", "ja")
-    candidates: list[str] = []
-    if user_family and available(user_family):
-        candidates.append(user_family)
-    if system_family:
-        candidates.append(system_family)  # what Qt itself uses by default
-    # One font per group: the first installed one.  Later candidates only
-    # stand in for a missing first choice; the system fallback covers the rest.
-    for key in ("latin", *cjk):
-        found = next((name for name in fonts[key] if available(name)), "")
-        if found:
-            candidates.append(found)
-    return _unique(candidates)
-
-
-def _unique(names: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result = []
-    for name in names:
-        key = name.casefold()
-        if name and key not in seen:
-            seen.add(key)
-            result.append(name)
-    return result
 
 
 def system_ui_family() -> str:

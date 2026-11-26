@@ -6,7 +6,12 @@ from typing import Any
 
 from ...core.search.models import SearchAuthor, SearchVideo
 from ...i18n import tr
-from .result_authors import _author_source_info, _author_subscription_target
+from ...presentation.search.result_authors import (
+    _author_source_info,
+    author_navigation_target,
+    single_author_target,
+    unidentified_author_message,
+)
 from ..window.back_stack import record_navigation
 from ..common.worker_lifecycle import on_finished
 from .author_workers import SearchAuthorProfileWorker
@@ -21,14 +26,7 @@ class SearchAuthorNavigationMixin:
     ) -> tuple[str, str, str, str] | None:
         """Return one author target when the current selection is unambiguous."""
 
-        targets: dict[str, tuple[str, str, str, str]] = {}
-        for value in values if values is not None else self._selected_data():
-            if value.get("kind") not in {"video", "author"}:
-                continue
-            target = self._author_navigation_target(value.get("data"))
-            if target:
-                targets.setdefault(target[0].casefold(), target)
-        return next(iter(targets.values())) if len(targets) == 1 else None
+        return single_author_target(values if values is not None else self._selected_data())
 
     @staticmethod
     def _author_navigation_target(
@@ -36,36 +34,7 @@ class SearchAuthorNavigationMixin:
     ) -> tuple[str, str, str, str] | None:
         """Use verified bridge metadata and distinguish card keys from user IDs."""
 
-        raw = value.raw if isinstance(value, (SearchAuthor, SearchVideo)) and isinstance(value.raw, dict) else {}
-        if isinstance(value, SearchVideo) and (
-            value.source_kind == "oreno3d" or raw.get("oreno3d_url")
-        ):
-            mapped = raw.get("oreno_iwara_author")
-            has_mapping = isinstance(mapped, dict) and bool(
-                mapped.get("username") or mapped.get("slug") or mapped.get("profile_url")
-            )
-            if not has_mapping and raw.get("_iwara_metadata_loaded") is not True:
-                return None
-            if not has_mapping:
-                user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
-                author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
-                if not any(
-                    str(candidate.get(key) or "").strip()
-                    for candidate in (user, author, raw)
-                    for key in ("username", "slug", "handle", "author_username")
-                ):
-                    return None
-        target = _author_subscription_target(value)
-        if target and isinstance(value, SearchAuthor):
-            raw_user = raw.get("user") if isinstance(raw.get("user"), dict) else raw
-            real_id = str(raw_user.get("id") or raw_user.get("userId") or raw_user.get("user_id") or "").strip()
-            if real_id:
-                target = (target[0], target[1], real_id, target[3])
-            elif target[2].casefold() == target[0].casefold():
-                # normalize_author uses username as a stable card key when
-                # a compact result lacks user.id; resolve the profile first.
-                target = (target[0], target[1], "", target[3])
-        return target
+        return author_navigation_target(value)
 
     def _clear_author_navigation(self):
         """Exit author browsing and invalidate pending navigation requests."""
@@ -150,21 +119,7 @@ class SearchAuthorNavigationMixin:
             source_url, source_origin = _author_source_info(video)
             self._run_author_action(target, action, source_url=source_url, source_origin=source_origin)
             return
-        source_url, _source_origin = _author_source_info(video)
-        message = tr(
-            "Could not identify an Iwara account for this author.",
-            "无法确定该作者的 Iwara 账号。",
-            "この作者のIwaraアカウントを特定できません。",
-        )
-        if source_url:
-            message += tr(
-                " You can still use ‘Open author page in browser’ to browse the Oreno3D source.",
-                " 仍可使用右键菜单“在浏览器打开作者页”浏览 Oreno3D 来源。",
-                " 右クリックメニューの「作者ページをブラウザーで開く」からOreno3Dの元ページを閲覧できます。",
-            )
-        reason = str(video.raw.get("oreno3d_author_error") or "")
-        if reason:
-            message += f"\n{reason}"
+        message = unidentified_author_message(video)
         self._status_label.setText(message)
         self._show_warning(message)
 

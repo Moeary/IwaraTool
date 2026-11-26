@@ -7,7 +7,7 @@ from qfluentwidgets import FluentIcon, PrimaryPushButton, TitleLabel
 
 from ...config import app_config
 from ...core.download.manager import download_manager
-from ...i18n import tr
+from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 from .home_cards import HomeSettingsCards
 from .sections import SettingsSections
@@ -56,7 +56,7 @@ class SettingsInterface(
 
         # Startup auth: prefer cached token for faster boot; fallback to credential login.
         if download_manager.restore_cached_login():
-            self._set_logged_in_ui(True, tr("✓ Signed in", "✓ 已登录", "✓ ログイン済み"))
+            self._set_logged_in_ui(True, stext("signed_in"))
             signal_bus.login_state_changed.emit(True)
         elif app_config.auth_enabled and app_config.username and app_config.password:
             self.ensure_built()  # the silent login reads the saved credentials from the form
@@ -103,7 +103,7 @@ class SettingsInterface(
         layout.setContentsMargins(*PAGE_MARGINS)
         layout.setSpacing(16)
 
-        layout.addWidget(TitleLabel(tr("Settings", "应用设置", "設定"), self))
+        layout.addWidget(TitleLabel(stext("settings"), self))
         self._settings_board = SettingsSections(self)
         layout.addWidget(self._settings_board, 1)
         self._build_appearance_card()
@@ -136,7 +136,7 @@ class SettingsInterface(
 
         # ── Save button ───────────────────────────────────────────────────────
         # Kept under the category list so it is reachable from every page.
-        save_btn = PrimaryPushButton(tr("Save All Settings", "保存所有设置", "すべて保存"), self, FluentIcon.SAVE)
+        save_btn = PrimaryPushButton(stext("save_all_settings"), self, FluentIcon.SAVE)
         save_btn.clicked.connect(self._save_settings)
         self._settings_board.nav_column.addWidget(save_btn)
 

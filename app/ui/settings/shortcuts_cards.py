@@ -16,25 +16,14 @@ from qfluentwidgets import (
 )
 
 from ..shortcuts import catalog as shortcut_defs
-from ...i18n import tr
-from ...signal_bus import signal_bus
+from ...presentation import shortcuts as presentation_shortcuts
+from ...presentation.settings.texts import stext
 from ..shortcuts.registry import sequence_from_event
 
 CARD_PREFIX = "shortcuts_"
 GENERAL_CARD = "shortcuts_general"
 # Display order of the per-area cards.
-SCOPE_ORDER = (
-    shortcut_defs.SCOPE_GLOBAL,
-    shortcut_defs.SCOPE_HOME,
-    shortcut_defs.SCOPE_DOWNLOAD,
-    shortcut_defs.SCOPE_SEARCH,
-    shortcut_defs.SCOPE_SUBSCRIPTIONS,
-    shortcut_defs.SCOPE_HISTORY,
-    shortcut_defs.SCOPE_REPAIR,
-    shortcut_defs.SCOPE_RULES,
-    shortcut_defs.SCOPE_SETTINGS,
-    shortcut_defs.SCOPE_PLAYER,
-)
+SCOPE_ORDER = presentation_shortcuts.SCOPE_ORDER
 
 
 def shortcut_card_keys() -> tuple[str, ...]:
@@ -59,7 +48,7 @@ class ShortcutCaptureButton(PushButton):
 
     def _refresh_text(self) -> None:
         if self._capturing:
-            self.setText(tr("Press the new keys…", "请按下新的快捷键…", "新しいキーを押してください…"))
+            self.setText(stext("press_the_new_keys"))
         elif self._sequence:
             from PySide6.QtGui import QKeySequence
 
@@ -69,7 +58,7 @@ class ShortcutCaptureButton(PushButton):
                 )
             )
         else:
-            self.setText(tr("Unassigned", "未设置", "未設定"))
+            self.setText(stext("unassigned"))
 
     def _start_capture(self) -> None:
         self._capturing = True
@@ -128,18 +117,14 @@ class ShortcutSettingsCards:
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
-        layout.addWidget(SubtitleLabel(tr("Keyboard Shortcuts", "键盘快捷键", "キーボードショートカット"), card))
+        layout.addWidget(SubtitleLabel(stext("keyboard_shortcuts"), card))
         layout.addWidget(
             BodyLabel(
-                tr(
-                    "Click a key to record a new one: Esc cancels, Backspace clears it. A shortcut only works in its own area unless it is under \"Anywhere in the app\"; the same key may be reused across different pages.",
-                    "点击按键后按下新的组合键即可修改：Esc 取消，Backspace 清除。快捷键只在所属页面生效（“全局”分组除外），不同页面之间可以使用相同按键。",
-                    "キーをクリックして新しい組み合わせを押すと変更できます（Esc で取消、Backspace で解除）。「グローバル」以外は各ページ内でのみ有効で、ページが違えば同じキーを使えます。",
-                ),
+                stext("click_a_key_to_record_a"),
                 card,
             )
         )
-        reset_all = PushButton(tr("Reset all to defaults", "全部恢复默认", "すべて初期値に戻す"), card, FluentIcon.SYNC)
+        reset_all = PushButton(stext("reset_all_to_defaults"), card, FluentIcon.SYNC)
         reset_all.clicked.connect(self._reset_all)
         layout.addWidget(reset_all, alignment=Qt.AlignmentFlag.AlignLeft)
         board.add_card(GENERAL_CARD, card)
@@ -160,7 +145,7 @@ class ShortcutSettingsCards:
             button = ShortcutCaptureButton(card)
             button.sequenceChosen.connect(lambda seq, action_id=action.id: self._on_chosen(action_id, seq))
             reset = ToolButton(FluentIcon.SYNC, card)
-            reset.setToolTip(tr("Restore the default", "恢复默认", "初期値に戻す"))
+            reset.setToolTip(stext("restore_the_default"))
             reset.clicked.connect(lambda _checked=False, action_id=action.id: self._on_reset(action_id))
             row.addWidget(button)
             row.addWidget(reset)
@@ -176,10 +161,9 @@ class ShortcutSettingsCards:
 
     def _changed(self) -> None:
         self.load()
-        signal_bus.shortcuts_changed.emit()
 
     def _on_chosen(self, action_id: str, sequence: str) -> None:
-        conflict = shortcut_defs.set_key(action_id, sequence)
+        conflict = presentation_shortcuts.choose_key(action_id, sequence)
         if conflict is not None:
             self._warn_conflict(conflict)
             self.load()
@@ -187,25 +171,21 @@ class ShortcutSettingsCards:
         self._changed()
 
     def _on_reset(self, action_id: str) -> None:
-        conflict = shortcut_defs.reset_key(action_id)
+        conflict = presentation_shortcuts.restore_key(action_id)
         if conflict is not None:
             self._warn_conflict(conflict)
             return
         self._changed()
 
     def _reset_all(self) -> None:
-        shortcut_defs.reset_all()
+        presentation_shortcuts.restore_all()
         self._changed()
 
     def _warn_conflict(self, other: shortcut_defs.ShortcutAction) -> None:
-        titles = shortcut_defs.scope_titles()
+        title, content = presentation_shortcuts.conflict_text(other)
         InfoBar.warning(
-            title=tr("Shortcut already in use", "快捷键已被占用", "ショートカットは使用中です"),
-            content=tr(
-                f"“{other.label}” ({titles.get(other.scope, other.scope)}) uses it. Unassign or change that one first.",
-                f"“{other.label}”（{titles.get(other.scope, other.scope)}）正在使用。请先清除或修改它。",
-                f"「{other.label}」（{titles.get(other.scope, other.scope)}）が使用しています。先にそちらを解除・変更してください。",
-            ),
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

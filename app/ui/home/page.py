@@ -25,7 +25,7 @@ from ...core.search.normalize import avatar_url
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .workers import CoverFetcher
-from ..media.detail_state import DetailState
+from ...presentation.media.detail_state import DetailState
 from ..media.detail_view import DetailView
 from ..window.back_stack import navigate_back, record_navigation, restore_scroll
 from .browse_view import BrowseState, BrowseView

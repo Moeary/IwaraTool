@@ -23,7 +23,8 @@ from qfluentwidgets import (
 from ...config import app_config
 from ...core.home.cache import DEFAULT_CACHE_MINUTES, HOME_CACHE_MINUTES_KEY, shared_cache
 from ...core.home.feed import default_specs, load_specs, save_specs
-from ...i18n import tr
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from ...signal_bus import signal_bus
 from ..home.layout_dialog import HomeLayoutDialog
 from ..style.theme import set_secondary_text
@@ -55,22 +56,17 @@ class HomeSettingsCards:
         card = board.create_card("home_layout")
         layout = self._card_layout(
             card,
-            tr("Home rows", "首页栏目", "ホームの欄"),
-            tr(
-                "Rows can be the newest uploads, your subscription feed, hot lists, or any tag, "
-                "keyword or author search from the Search page.",
-                "栏目可以是最新上传、账号订阅流、热门榜单，或搜索页里能搜到的任何标签、关键词、作者。",
-                "欄には、新着・購読フィード・人気リスト、または検索ページで使えるタグ/キーワード/作者を指定できます。",
-            ),
+            stext("home_rows"),
+            stext("rows_can_be_the_newest_uploads"),
         )
         self._summary = CaptionLabel("", card)
         self._summary.setWordWrap(True)
         set_secondary_text(self._summary)
         layout.addWidget(self._summary)
         row = QHBoxLayout()
-        edit = PrimaryPushButton(tr("Customize rows…", "自定义栏目…", "欄をカスタマイズ…"), card, FluentIcon.EDIT)
+        edit = PrimaryPushButton(stext("customize_rows"), card, FluentIcon.EDIT)
         edit.clicked.connect(lambda: HomeLayoutDialog.edit(self._owner.window()))
-        reset = PushButton(tr("Reset to default", "恢复默认", "初期設定に戻す"), card)
+        reset = PushButton(stext("reset_to_default"), card)
         reset.clicked.connect(self._reset_layout)
         row.addWidget(edit)
         row.addWidget(reset)
@@ -82,21 +78,12 @@ class HomeSettingsCards:
         card = board.create_card("home_cache")
         layout = self._card_layout(
             card,
-            tr("Home cache", "首页缓存", "ホームのキャッシュ"),
-            tr(
-                "Rows are kept on disk and shown instantly. A row only asks the site again once it is "
-                "older than this, and the cards change only if its posts did.",
-                "各栏目缓存在本地并即时显示；只有超过下面的时长才会重新向网站检查，且仅在内容有变化时才更新卡片。",
-                "各欄はディスクに保存されすぐ表示されます。下の時間を過ぎたときだけサイトに再確認し、内容が変わった場合のみ更新します。",
-            ),
+            stext("home_cache"),
+            stext("rows_are_kept_on_disk_and"),
         )
         row = QHBoxLayout()
         row.addWidget(BodyLabel(
-            tr(
-                "Re-check a row after (minutes, 0 = only when I refresh)",
-                "多少分钟后重新检查（0 = 仅手动刷新）",
-                "再確認までの分数（0 = 手動のみ）",
-            ),
+            stext("re_check_a_row_after_minutes"),
             card,
         ))
         row.addStretch(1)
@@ -107,7 +94,7 @@ class HomeSettingsCards:
         row.addWidget(self._minutes)
         layout.addLayout(row)
         clear_row = QHBoxLayout()
-        clear = PushButton(tr("Clear Home cache", "清除首页缓存", "ホームのキャッシュを消去"), card, FluentIcon.DELETE)
+        clear = PushButton(stext("clear_home_cache"), card, FluentIcon.DELETE)
         clear.clicked.connect(self._clear_cache)
         clear_row.addWidget(clear)
         clear_row.addStretch(1)
@@ -130,7 +117,7 @@ class HomeSettingsCards:
         shown = [spec.display_title() for spec in load_specs() if spec.enabled]
         try:
             self._summary.setText(
-                tr("Showing: ", "当前显示：", "表示中: ") + (" · ".join(shown) if shown else tr("nothing", "无", "なし"))
+                stext("showing") + (" · ".join(shown) if shown else stext("nothing"))
             )
         except RuntimeError:
             # The settings page is gone (window closed); stop listening.
@@ -146,8 +133,8 @@ class HomeSettingsCards:
     def _reset_layout(self):
         if show_fluent_confirmation(
             self._owner.window(),
-            tr("Reset Home", "恢复默认首页", "ホームを初期化"),
-            tr("Replace your Home rows with the default ones?", "用默认栏目替换当前首页栏目？", "ホームの欄を初期の欄に置き換えますか？"),
+            stext("reset_home"),
+            stext("replace_your_home_rows_with_the"),
         ):
             save_specs(default_specs())
             signal_bus.home_layout_changed.emit()
@@ -156,8 +143,8 @@ class HomeSettingsCards:
         removed = shared_cache().clear()
         signal_bus.home_layout_changed.emit()  # rows reload from the site
         InfoBar.success(
-            title=tr("Home cache cleared", "首页缓存已清除", "ホームのキャッシュを消去しました"),
-            content=tr(f"{removed} cached row(s) removed", f"已移除 {removed} 条缓存", f"{removed} 件を削除しました"),
+            title=stext("home_cache_cleared"),
+            content=setting_values.home_cache_cleared_text(removed),
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500,
             parent=self._owner.window(),
         )

@@ -6,8 +6,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 
 from qfluentwidgets import LineEdit
 
-from ...core.oreno3d.search_query import apply_tag_suggestion, tag_suggestion_query
-from ...core.tag_dictionary import complete_tag_query, tag_query_fragment
+from ...presentation.search import tag_completion
 from .page_dependencies import download_manager
 
 
@@ -22,15 +21,8 @@ class SearchTagSuggestionsMixin:
         if str(self._scope_combo.currentData() or "videos") != "tags":
             self._tag_popup.hide()
             return
-        query = (
-            tag_query_fragment(text)
-            if str(self._source_combo.currentData() or "oreno3d") == "iwara"
-            else tag_suggestion_query(text)
-        )
-        if not query:
-            self._tag_popup.hide()
-            return
-        suggestions = download_manager.get_search_tag_suggestions(query, limit=12)
+        source = str(self._source_combo.currentData() or "oreno3d")
+        suggestions = tag_completion.suggestions_for(download_manager, text, scope="tags", source=source)
         if not suggestions:
             self._tag_popup.hide()
             return
@@ -50,12 +42,8 @@ class SearchTagSuggestionsMixin:
             return
         if self._tag_popup is not None:
             self._tag_popup.hide()
-        complete = (
-            complete_tag_query
-            if str(self._source_combo.currentData() or "oreno3d") == "iwara"
-            else apply_tag_suggestion
-        )
-        edit.setText(complete(edit.text(), key))
+        source = str(self._source_combo.currentData() or "oreno3d")
+        edit.setText(tag_completion.complete(edit.text(), key, source))
         edit.setFocus(Qt.FocusReason.OtherFocusReason)
         edit.setCursorPosition(len(edit.text()))
         QTimer.singleShot(0, self, lambda edit=edit: self._restore_tag_edit_focus(edit))

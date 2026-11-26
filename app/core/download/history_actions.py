@@ -41,6 +41,27 @@ class HistoryActionsMixin:
     def get_history_records(self) -> list[dict[str, Any]]:
         return self.history.list_records()
 
+    def get_history_tags(self) -> dict[str, list[str]]:
+        return self.history.tags_by_id()
+
+    def update_history_details(self, video_id: str, fields: dict[str, Any]) -> bool:
+        return self.history.update_details(video_id, fields)
+
+    def relocate_history_file(self, video_id: str, path: str) -> tuple[bool, str]:
+        """Point a record at the file where it is now (a copy moved by hand); its thumbnail is looked up beside it."""
+        record = self.history.get_record(video_id)
+        if not record:
+            return False, tr("History record does not exist", "历史记录不存在", "履歴が存在しません")
+        if not path or not os.path.isfile(path):
+            return False, tr("File does not exist", "文件不存在", "ファイルが存在しません")
+        stem = os.path.splitext(path)[0]
+        thumbnail = next((stem + ext for ext in (".jpg", ".jpeg", ".png", ".webp") if os.path.isfile(stem + ext)), "")
+        old_thumbnail = str(record.get("thumbnail_path", "") or "")
+        if not thumbnail and old_thumbnail and os.path.isfile(old_thumbnail):
+            thumbnail = old_thumbnail
+        self.history.update_file_paths(video_id, file_path=os.path.abspath(path), thumbnail_path=thumbnail)
+        return True, os.path.abspath(path)
+
     def sync_history_with_download_folder(self) -> dict[str, int]:
         return self.history.sync_with_download_folder(app_config.download_dir)
 

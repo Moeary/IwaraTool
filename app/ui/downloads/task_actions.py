@@ -13,8 +13,8 @@ from ...core.models import TaskStatus
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from .page_dependencies import download_manager
-from .task_statuses import _ACTIVE_STATUSES
-from .task_text import _task_url
+from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES
+from ...presentation.downloads.task_text import _task_url
 
 
 class TaskActionsMixin:

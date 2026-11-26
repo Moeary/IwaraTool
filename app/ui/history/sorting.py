@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
 
-from .record_state import _video_url
+from ...presentation.history import library
 
 
 class HistorySortingMixin:
@@ -21,12 +21,7 @@ class HistorySortingMixin:
             self._sort_reverse = not self._sort_reverse
         else:
             self._sort_column = column
-            self._sort_reverse = column in (
-                self._COL_PUBLISHED,
-                self._COL_LIKES,
-                self._COL_VIEWS,
-                self._COL_DOWNLOADED,
-            )
+            self._sort_reverse = self._column_key(column) in library.DESCENDING_FIRST
         self._restore_sort_indicator()
         self._apply_filters()
 
@@ -51,40 +46,14 @@ class HistorySortingMixin:
             self._COL_SOURCE_URL,
         }
 
+    def _column_key(self, column: int) -> str:
+        """The shared sort key (``library.SORT_COLUMNS``) of a table column."""
+        return library.SORT_COLUMNS[column] if 0 <= column < len(library.SORT_COLUMNS) else "downloaded"
+
+    def _column_of(self, key: str) -> int:
+        return library.SORT_COLUMNS.index(key)
+
     def _sort_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        def text(value: Any) -> str:
-            return str(value or "").lower()
-
-        def number(value: Any) -> int:
-            try:
-                return int(value or 0)
-            except Exception:
-                return 0
-
-        def key(record: dict[str, Any]):
-            state, state_key, _ = self._record_state(record)
-            if self._sort_column == self._COL_STATE:
-                return (0 if state_key == "ok" else 1, text(state))
-            if self._sort_column == self._COL_TITLE:
-                return text(record.get("title") or record.get("video_id"))
-            if self._sort_column == self._COL_AUTHOR:
-                return text(record.get("author"))
-            if self._sort_column == self._COL_QUALITY:
-                return text(record.get("quality"))
-            if self._sort_column == self._COL_PUBLISHED:
-                return text(record.get("published_at"))
-            if self._sort_column == self._COL_LIKES:
-                return number(record.get("likes"))
-            if self._sort_column == self._COL_VIEWS:
-                return number(record.get("views"))
-            if self._sort_column == self._COL_DOWNLOADED:
-                return text(record.get("downloaded_at"))
-            if self._sort_column == self._COL_ID:
-                return text(record.get("video_id"))
-            if self._sort_column == self._COL_PATH:
-                return text(record.get("file_path"))
-            if self._sort_column == self._COL_SOURCE_URL:
-                return text(record.get("source_url") or _video_url(record.get("video_id", "")))
-            return text(record.get("downloaded_at"))
-
-        return sorted(records, key=key, reverse=self._sort_reverse)
+        return library.sort_records(
+            records, self._column_key(self._sort_column), self._sort_reverse, state_of=self._record_state,
+        )

@@ -30,6 +30,11 @@ def player_mode() -> str:
     return mode if mode in MODES else MODE_SYSTEM
 
 
+def external_mode() -> str:
+    """How "play in external player" opens a file: the custom command when set up, else the system player."""
+    return MODE_CUSTOM if player_mode() == MODE_CUSTOM else MODE_SYSTEM
+
+
 def split_command(command: str, *, windows: bool | None = None) -> list[str]:
     """Split a user-entered command line, honouring quotes."""
     windows = (os.name == "nt") if windows is None else windows
@@ -83,6 +88,15 @@ def playable_video_target(video_id: str, history=None) -> str:
     if local or not str(app_config.aria2_remote_http_base or "").strip():
         return local
     return video_location(video_id, history).stream_url
+
+
+def downloaded_copy(video_id: str, manager) -> str:
+    """``playable_video_target``, else a finished temporary copy (search / detail downloads keep no history row)."""
+    target = playable_video_target(video_id, manager.history)
+    if target:
+        return target
+    find = getattr(manager, "temporary_copy_path", None)
+    return find(video_id) if callable(find) else ""
 
 
 def opens_externally(target: str, mode: str | None = None) -> bool:

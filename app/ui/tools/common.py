@@ -13,34 +13,16 @@ from qfluentwidgets import BodyLabel, CardWidget, FluentIcon, LineEdit, PushButt
 
 from ...config import app_config
 from ...core.tools.ffmpeg import FfmpegError, FfmpegInfo, locate
-from ...i18n import tr
+from ...presentation.tools import common as tools_common
+from ...presentation.tools.common import VIDEO_EXTENSIONS, format_bytes, format_clock  # noqa: F401 (re-exported)
 from ..style.theme import CARD_MARGINS, set_secondary_text
 from ..common.worker_lifecycle import ManagedThread
 
-VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".flv", ".wmv", ".ts", ".mpg", ".mpeg")
 
 
 def video_file_filter() -> str:
     patterns = " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS)
-    return f"{tr('Videos', '视频', '動画')} ({patterns});;{tr('All files', '所有文件', 'すべてのファイル')} (*)"
-
-
-def format_bytes(size: float) -> str:
-    """Decimal units, the way Iwara's upload limit is stated."""
-
-    size = float(size or 0)
-    for unit in ("B", "KB", "MB"):
-        if size < 1000:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1000
-    return f"{size:.2f} GB"
-
-
-def format_clock(seconds: float) -> str:
-    seconds = max(0, int(round(seconds)))
-    hours, rest = divmod(seconds, 3600)
-    minutes, secs = divmod(rest, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+    return f"{tools_common.videos_label()} ({patterns});;{tools_common.all_files_label()} (*)"
 
 
 # ── ffmpeg lookup ────────────────────────────────────────────────────────────
@@ -135,31 +117,21 @@ class FfmpegMissingCard(CardWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*CARD_MARGINS)
         layout.setSpacing(8)
-        layout.addWidget(SubtitleLabel(tr("ffmpeg not found", "未找到 ffmpeg", "ffmpeg が見つかりません"), self))
+        layout.addWidget(SubtitleLabel(tools_common.ffmpeg_missing_title(), self))
         self._detail = BodyLabel("", self)
         self._detail.setWordWrap(True)
         set_secondary_text(self._detail)
         layout.addWidget(self._detail)
         row = QHBoxLayout()
-        button = PushButton(tr("Choose in Settings", "前往设置选择", "設定で選択"), self, FluentIcon.SETTING)
+        button = PushButton(tools_common.open_settings_text(), self, FluentIcon.SETTING)
         button.clicked.connect(self.open_settings.emit)
         row.addWidget(button)
         row.addStretch()
         layout.addLayout(row)
         self.set_error("")
 
-    def set_error(self, error: str):
-        text = tr(
-            "This tool runs the ffmpeg program. Install it (macOS: brew install ffmpeg; Windows: winget install ffmpeg) "
-            "or choose ffmpeg / ffmpeg.exe under Settings → Tools.",
-            "此工具需要调用 ffmpeg 程序。请先安装（macOS：brew install ffmpeg；Windows：winget install ffmpeg），"
-            "或在“设置 → 工具”中选择 ffmpeg / ffmpeg.exe 的位置。",
-            "このツールは ffmpeg を使います。インストールするか（macOS: brew install ffmpeg / Windows: winget install ffmpeg）、"
-            "設定 → ツールで ffmpeg / ffmpeg.exe を選択してください。",
-        )
-        if error and error != "ffmpeg was not found":
-            text += "\n" + error
-        self._detail.setText(text)
+    def set_error(self, error: str, *, no_h264: bool = False):
+        self._detail.setText(tools_common.ffmpeg_missing_text(error, no_h264=no_h264))
 
 
 # ── Inputs and layout ────────────────────────────────────────────────────────

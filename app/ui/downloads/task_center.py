@@ -49,7 +49,7 @@ from .task_menu import TaskMenuMixin
 from .task_rows import TaskRowsMixin
 from .task_sorting import TaskSortingMixin
 from .task_staging import STATE_FILTER_STAGED, TaskStagingMixin
-from .task_text import TaskTextMixin
+from ...presentation.downloads.task_text import TaskTextMixin
 
 
 class TaskCenterInterface(

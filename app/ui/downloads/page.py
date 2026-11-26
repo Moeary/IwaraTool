@@ -40,7 +40,8 @@ from .download_options import DownloadOptionsMixin
 from .link_tools import DownloadLinkToolsMixin
 from .staging_panel import StagingPanel
 from .log_panel import DownloadLogMixin
-from .submitted_urls import split_submitted_urls
+from ...presentation.downloads.submitted_urls import split_submitted_urls
+from ...presentation.downloads import submission
 from .subscription_prompt import DownloadSubscriptionPromptMixin
 
 
@@ -274,7 +275,7 @@ class DownloadInterface(
         if not urls:
             InfoBar.warning(
                 title=tr("Notice", "提示", "お知らせ"),
-                content=tr("Please input a valid URL first", "请先输入有效的 URL", "先に有効な URL を入力してください"),
+                content=submission.no_links_message(),
                 orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -283,32 +284,18 @@ class DownloadInterface(
             )
             return
         rule_id = self._rule_picker.selected_rule_id()
-        if len(urls) == 1 and download_manager.listing_kind(urls[0]):
+        if submission.needs_listing_preview(download_manager, urls):
             # An author / playlist: show what it holds before queueing anything.
             self._start_listing_preview(urls[0], rule_id)
             return
-        payload = self._rule_picker.selected_payload()
-        mark_only = payload["mark_submitted_as_downloaded"] or not payload["download_video_file"]
+        mark_only = submission.is_mark_only(self._rule_picker.selected_payload())
         for url in urls:
             self._maybe_add_download_source_to_subscription(url)
-            if mark_only:
-                download_manager.add_url_mark_downloaded(url, rule_id=rule_id)
-            else:
-                download_manager.add_url(url, rule_id=rule_id)
+            submission.queue_links(download_manager, [url], rule_id=rule_id, mark_only=mark_only)
         self._url_edit.clear()
-        prefix = (
-            tr("Submitted for marking: ", "已提交标记：", "マーク処理へ送信: ")
-            if mark_only
-            else tr("Submitted for parsing: ", "已提交解析：", "解析キューに送信: ")
-        )
-        if len(urls) == 1:
-            url = urls[0]
-            content = prefix + f"{url[:70]}{'…' if len(url) > 70 else ''}"
-        else:
-            content = prefix + tr(f"{len(urls)} links", f"{len(urls)} 条链接", f"{len(urls)} 件のリンク")
         InfoBar.success(
-            title=tr("Submitted", "已提交", "送信しました"),
-            content=content,
+            title=submission.submitted_title(),
+            content=submission.submitted_text(urls, mark_only=mark_only),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

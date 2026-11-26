@@ -23,12 +23,25 @@ from qfluentwidgets import (
 )
 
 from ...config import app_config
-from ...i18n import tr
+from ...presentation.settings import catalog
 from .shortcuts_cards import shortcut_card_keys
 from ..style.theme import set_secondary_text
 
 
 SettingsCategory = tuple[str, FluentIcon, str, str, tuple[str, ...]]
+
+
+_ICONS = {
+    "general": FluentIcon.SETTING,
+    "home": FluentIcon.HOME,
+    "network": FluentIcon.GLOBE,
+    "downloads": FluentIcon.DOWNLOAD,
+    "search": FluentIcon.SEARCH,
+    "subscriptions": FluentIcon.SYNC,
+    "tools": FluentIcon.APPLICATION,
+    "system": FluentIcon.DEVELOPER_TOOLS,
+    "shortcuts": FluentIcon.COMMAND_PROMPT,
+}
 
 
 def settings_categories() -> tuple[SettingsCategory, ...]:
@@ -37,122 +50,22 @@ def settings_categories() -> tuple[SettingsCategory, ...]:
     Built on demand so the labels follow the language chosen at startup.
     """
 
-    return _app_categories() + _feature_categories()
-
-
-def _app_categories() -> tuple[SettingsCategory, ...]:
-    return (
+    return tuple(
         (
-            "general",
-            FluentIcon.SETTING,
-            tr("General", "通用", "一般"),
-            tr(
-                "Appearance, font, language, updates and where local data is stored.",
-                "外观、字体、语言、更新检查与本地数据位置。",
-                "外観、フォント、言語、更新確認、ローカルデータの保存先。",
-            ),
-            ("appearance", "font", "language", "updates", "data_paths"),
-        ),
-        (
-            "home",
-            FluentIcon.HOME,
-            tr("Home", "首页", "ホーム"),
-            tr(
-                "Choose which rows the Home page shows and how often they re-check the site.",
-                "选择首页显示哪些栏目，以及各栏目多久向网站重新检查一次。",
-                "ホームに表示する欄と、サイトを再確認する間隔を設定します。",
-            ),
-            ("home_layout", "home_cache"),
-        ),
-        (
-            "network",
-            FluentIcon.GLOBE,
-            tr("Account & Network", "账号与网络", "アカウントとネットワーク"),
-            tr(
-                "The iwara site to browse, Iwara sign-in and the proxies used for API requests and downloads.",
-                "浏览的 iwara 站点、Iwara 账号登录，以及 API 请求与下载使用的代理。",
-                "表示する iwara サイト、Iwaraへのログイン、API・ダウンロードに使うプロキシ。",
-            ),
-            ("site", "account", "proxy"),
-        ),
-        (
-            "downloads",
-            FluentIcon.DOWNLOAD,
-            tr("Downloads", "下载", "ダウンロード"),
-            tr(
-                "Save location, quality, concurrency, speed and schedule, and aria2.",
-                "保存位置、画质、并发、限速与分时，以及 aria2。",
-                "保存先、画質、同時実行数、速度と時間帯、aria2。",
-            ),
-            ("download_dir", "quality", "behavior", "concurrency", "download_policy", "aria2"),
-        ),
-    )
-
-
-def _feature_categories() -> tuple[SettingsCategory, ...]:
-    return (
-        (
-            "search",
-            FluentIcon.SEARCH,
-            tr("Search", "搜索", "検索"),
-            tr(
-                "Search history, download limits, tag dictionary and Oreno3D resolution.",
-                "搜索历史、搜索下载上限、标签词典与 Oreno3D 解析。",
-                "検索履歴、ダウンロード上限、タグ辞書、Oreno3D の解決。",
-            ),
-            ("search_engine", "search_history", "search_limit", "search_bridge"),
-        ),
-        (
-            "subscriptions",
-            FluentIcon.SYNC,
-            tr("Subscriptions & Refresh", "订阅与刷新", "購読と更新"),
-            tr(
-                "Automatic subscription refresh, subscribe prompts and cover loading.",
-                "订阅自动刷新、下载时的订阅提示与封面加载性能。",
-                "購読の自動更新、ダウンロード時の購読確認、カバー読み込み性能。",
-            ),
-            ("subscription_automation", "subscription_prompt", "cover_performance"),
-        ),
-        (
-            "tools",
-            FluentIcon.APPLICATION,
-            tr("Tools", "工具", "ツール"),
-            tr(
-                "The ffmpeg program used by upload compression and cover preview.",
-                "上传压缩与封面预览使用的 ffmpeg 程序。",
-                "アップロード用圧縮とカバーのプレビューが使う ffmpeg。",
-            ),
-            ("ffmpeg",),
-        ),
-        (
-            "system",
-            FluentIcon.DEVELOPER_TOOLS,
-            tr("System & Maintenance", "系统与维护", "システムと保守"),
-            tr(
-                "Tray and startup behaviour, video playback, request pacing, backups and logs.",
-                "托盘与开机启动、视频播放、请求节奏、备份与日志。",
-                "トレイと起動、動画再生、リクエスト間隔、バックアップとログ。",
-            ),
-            ("window", "card_clicks", "playback", "request_policy", "maintenance"),
-        ),
-        (
-            "shortcuts",
-            FluentIcon.COMMAND_PROMPT,
-            tr("Keyboard Shortcuts", "键盘快捷键", "キーボードショートカット"),
-            tr(
-                "Shortcuts for every page and the video player; click one to rebind it.",
-                "各页面与视频播放窗口的快捷键，点击即可重新设置。",
-                "各ページと動画プレーヤーのショートカット。クリックして変更できます。",
-            ),
-            shortcut_card_keys(),
-        ),
+            c.key,
+            _ICONS[c.key],
+            c.title,
+            c.summary,
+            shortcut_card_keys() if c.key == "shortcuts" else c.cards,
+        )
+        for c in catalog.CATEGORIES
     )
 
 
 class SettingsSections(QWidget):
     """Category navigation on the left, one scrollable card page per category."""
 
-    _CATEGORY_KEY = "settings_category_v1"
+    _CATEGORY_KEY = catalog.CATEGORY_KEY
     _NAV_WIDTH = 216
 
     def __init__(self, parent: QWidget | None = None):

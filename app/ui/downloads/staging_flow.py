@@ -19,32 +19,15 @@ from qfluentwidgets import InfoBar, InfoBarPosition, PushButton
 from ...config import app_config
 from ...core.rules import active_rule_id
 from ...core.search.models import SearchVideo
-from ...i18n import tr
+from ...presentation.downloads.staging import (  # noqa: F401 - video_payload re-exported
+    checking_text,
+    review_label,
+    stage,
+    staging_notice,
+    video_payload,
+)
 from ..common.worker_lifecycle import ManagedThread, on_finished, stop_qthreads
 from .page_dependencies import download_manager
-
-
-def video_payload(video: SearchVideo, video_id: str = "") -> dict[str, Any]:
-    """An API-shaped dict for the pre-check (rule checks, file-name example)."""
-
-    video_id = video_id or video.download_video_id or video.video_id
-    raw = video.raw if isinstance(video.raw, dict) else {}
-    if video.source_kind == "iwara" and str(raw.get("id", "") or "") == video_id:
-        return raw
-    return {
-        "id": video_id,
-        "title": video.title,
-        "numLikes": video.likes,
-        "numViews": video.views,
-        "numComments": video.comments,
-        "createdAt": video.published_at,
-        "tags": list(video.tags),
-        "slug": video.slug,
-        "rating": video.rating,
-        "user": {"username": video.author_username, "name": video.author_name},
-        # Likes / views / tags of another site say nothing about the Iwara rule.
-        "_stats_known": video.source_kind == "iwara",
-    }
 
 
 def go_to_workbench(host: QWidget):
@@ -65,10 +48,7 @@ class StageWorker(ManagedThread):
         self._direct_single = direct_single
 
     def run(self):
-        try:
-            result = download_manager.stage_preview(self._job(), direct_single=self._direct_single)
-        except Exception as exc:  # a failed lookup must still end the busy state
-            result = {"error": str(exc), "staged": 0}
+        result = stage(download_manager, self._job, direct_single=self._direct_single)
         if not self.isInterruptionRequested():
             self.result_ready.emit(result)
 
@@ -98,13 +78,10 @@ class StagingFlow(QObject):
 
         if self._worker is not None:
             return False
+        title, default_text = checking_text()
         self._info_bar = InfoBar.info(
-            title=tr("Checking", "正在预解析", "確認中"),
-            content=busy_text or tr(
-                "Checking what is already here and what the rule keeps…",
-                "正在核对已有项、站点可用性与下载规则…",
-                "保存済み・利用可否・ルールを確認しています…",
-            ),
+            title=title,
+            content=busy_text or default_text,
             orient=Qt.Orientation.Horizontal,
             isClosable=False,
             position=InfoBarPosition.TOP,
@@ -136,30 +113,11 @@ class StagingFlow(QObject):
 
     def _on_ready(self, result: dict[str, Any]):
         self._close_info_bar()
-        if result.get("error"):
-            self._notice(InfoBar.error, tr("Failed", "失败", "失敗"), str(result["error"]))
-            return
-        if result.get("direct"):
-            text = (tr("Marked as downloaded", "已标记为已下载", "保存済みにしました") if result.get("marked")
-                    else tr("Download started", "已开始下载", "ダウンロードを開始しました"))
-            self._notice(InfoBar.success, text, tr("One video, so it did not wait for confirmation.",
-                                                   "单个可下载视频，未进入待确认。", "1 本のため確認を省略しました。"))
-            return
-        self.staged.emit(result)
-        if not result.get("staged"):
-            self._notice(InfoBar.warning, tr("Nothing new", "没有新内容", "新しい項目なし"),
-                         tr("These videos are already in the task list.", "这些作品已在任务列表中。", "既にタスク一覧にあります。"))
-            return
-        self._notice(
-            InfoBar.success,
-            tr(f"{result['staged']} waiting for confirmation", f"已加入待确认 {result['staged']} 个", f"確認待ちに {result['staged']} 件"),
-            tr(
-                f"Ready {result.get('ready', 0)} · skipped {result.get('skip', 0)} · cannot download {result.get('unavailable', 0)}",
-                f"可下载 {result.get('ready', 0)} · 跳过 {result.get('skip', 0)} · 不能下 {result.get('unavailable', 0)}",
-                f"保存可 {result.get('ready', 0)}・スキップ {result.get('skip', 0)}・不可 {result.get('unavailable', 0)}",
-            ),
-            review=True,
-        )
+        notice = staging_notice(result)
+        if not result.get("error") and not result.get("direct"):
+            self.staged.emit(result)
+        # The notice kinds ("info", "success", "warning", "error") are InfoBar's method names.
+        self._notice(getattr(InfoBar, notice.kind), notice.title, notice.content, review=notice.review)
 
     def _notice(self, kind, title: str, content: str, *, review: bool = False):
         bar = kind(
@@ -167,7 +125,7 @@ class StagingFlow(QObject):
             position=InfoBarPosition.TOP, duration=6000 if review else 3500, parent=self._host,
         )
         if review and getattr(self._host.window(), "_download_page", None) is not self._host:
-            button = PushButton(tr("Review", "去确认", "確認する"), bar)
+            button = PushButton(review_label(), bar)
             button.clicked.connect(lambda: (go_to_workbench(self._host), bar.close()))
             bar.addWidget(button)
 

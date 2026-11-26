@@ -2,6 +2,12 @@ name: Build Desktop Binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Which interface to build (a tag builds and releases only Flet)
+        type: choice
+        options: [legacy, flet, all]
+        default: flet
   push:
     tags:
       - 'v*'
@@ -10,7 +16,9 @@ permissions:
   contents: write
 
 jobs:
+  # PySide6 ("Classic"): on demand only; from v1.3.0 releases ship the Flet build alone.
   build:
+    if: github.event_name == 'workflow_dispatch' && inputs.target != 'flet'
     strategy:
       fail-fast: false
       matrix:
@@ -148,20 +156,181 @@ jobs:
             dist/*
           if-no-files-found: error
 
+  # Flet interface: the main desktop build from v1.3.0 (docs/verification/flet/P9).
+  # Built for tags and on demand; artifacts are flet-*, renamed by the release job.
+  build-flet:
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          locked: true
+          environments: flet
+
+      - name: Run Flet tests
+        run: pixi run -e flet test-flet
+
+      # Flet's Flutter plugins (connectivity_plus 7.3+) use macOS 26 SDK APIs
+      # such as NWPath.isUltraConstrained; the runner's default Xcode 16 lacks them.
+      - name: Select the newest Xcode
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ls -d /Applications/Xcode_*.app
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -E '/Xcode_[0-9]+(\.[0-9]+)*\.app$' | sort -V | tail -1)
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          # Read the whole output first: piping xcodebuild into head makes it
+          # die of a broken pipe, which pipefail turns into a failed step.
+          version=$(xcodebuild -version)
+          echo "$version"
+          major=$(sed -nE '1s/^Xcode ([0-9]+).*/\1/p' <<<"$version")
+          if [ "$major" -lt 26 ]; then echo "::error::Flet's macOS build needs Xcode 26 or newer, the runner has $major"; exit 1; fi
+
+      # Stages a clean copy, runs flet build, audits for Qt/app/ui, launches the
+      # result in smoke-test mode and zips it into dist/.
+      - name: Build, audit and smoke-test
+        shell: bash
+        run: pixi run -e flet build-flet --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flet-${{ runner.os }}-${{ runner.arch }}
+          path: dist/IwaraTool-Flet-*.zip
+          if-no-files-found: error
+
+  # Android APK of the Flet interface (docs/flet_ui_plan.md 8). The Ubuntu image
+  # ships the Android SDK; flet build installs Flutter. No smoke test: an APK
+  # needs a device, so real-device checks stay manual.
+  build-flet-android:
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          locked: true
+          environments: flet
+
+      - name: Run Flet tests
+        run: pixi run -e flet test-flet
+
+      - name: Build and audit the APK
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          pixi run -e flet build-flet --platform apk --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flet-Android
+          path: dist/IwaraTool-Flet-Android*.apk
+          if-no-files-found: error
+
+  # Start the APK on emulators shaped like a phone, a foldable and a tablet:
+  # it must keep running for 90 s with no Python traceback; screenshots are kept.
+  # Real devices stay a manual check (docs/flet_ui_plan.md P8).
+  android-emulator:
+    needs: build-flet-android
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: phone
+            profile: pixel_6
+            setup: ""
+          - label: phone-21x9
+            profile: pixel_6
+            setup: size:1080x2520
+          - label: foldable
+            profile: pixel_fold
+            setup: ""
+          - label: foldable-folded
+            profile: pixel_fold
+            setup: fold
+          - label: tablet
+            profile: pixel_tablet
+            setup: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: flet-Android
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/tools/android_smoke.sh "$(ls apk/*.apk | head -1)" emulator-out ${{ matrix.label }} "${{ matrix.setup }}"
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-${{ matrix.label }}
+          path: emulator-out/
+          if-no-files-found: warn
+
+  # From v1.3.0 a release holds only the Flet builds, named IwaraTool-*.
+  # The APK ships only if it started on every emulator.
   release:
-    needs: build
+    needs: [build-flet, build-flet-android, android-emulator]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download release artifacts
+      - name: Download Flet artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: IwaraTool-*
+          pattern: flet-*
           merge-multiple: true
           path: dist
+
+      - name: Name the builds (IwaraTool-Flet-* -> IwaraTool-*)
+        shell: bash
+        run: bash scripts/tools/release_names.sh dist
 
       - name: Select release notes
         shell: bash

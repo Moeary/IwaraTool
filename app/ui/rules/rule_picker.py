@@ -15,11 +15,11 @@ from ...core.rules import (
     normalize_rule_payload,
     page_rule_choice,
     rule_store,
-    set_page_rule_choice,
 )
 from ...i18n import tr
 from ...signal_bus import signal_bus
-from .rule_text import _rule_display_name, _rule_summary, page_scope_name
+from ...presentation import rule_editing
+from ...presentation.rules import _rule_display_name, _rule_summary, page_scope_name, rule_choices
 
 
 class RulePicker(QWidget):
@@ -66,18 +66,10 @@ class RulePicker(QWidget):
         self._syncing = True
         self.combo.blockSignals(True)
         self.combo.clear()
-        default_rule = self._find(active_rule_id()) or (self._rules_cache[0] if self._rules_cache else {})
-        labels = [tr(
-            f"Follow default · {_rule_display_name(default_rule)}",
-            f"跟随默认 · {_rule_display_name(default_rule)}",
-            f"既定に従う · {_rule_display_name(default_rule)}",
-        )]
-        self.combo.addItem(labels[0], userData=PAGE_RULE_FOLLOW_DEFAULT)
-        for rule in self._rules_cache:
-            suffix = tr(" · built in", " · 内置", " · 内蔵") if rule.get("builtin") else ""
-            label = _rule_display_name(rule) + suffix
+        labels = []
+        for value, label in rule_choices(self._rules_cache, active_rule_id()):
             labels.append(label)
-            self.combo.addItem(label, userData=rule["id"])
+            self.combo.addItem(label, userData=value)
         self._model.setStringList(labels)
         if not self._select_choice(choice):
             self.combo.setCurrentIndex(0)  # its rule was deleted: follow the default
@@ -112,8 +104,7 @@ class RulePicker(QWidget):
         if self._syncing:
             return
         choice = str(self.combo.currentData() or PAGE_RULE_FOLLOW_DEFAULT)
-        set_page_rule_choice(self.scope, choice)
-        signal_bus.page_rule_changed.emit(self.scope, choice)
+        rule_editing.choose_page_rule(self.scope, choice)
         rule = self.selected_rule()
         if rule is None:
             return

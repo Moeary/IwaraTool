@@ -11,7 +11,7 @@ from ...i18n import tr
 from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 from ...signal_bus import signal_bus
 from .page_dependencies import download_manager
-from .record_state import _video_url
+from ...presentation.history.record_state import _video_url
 
 
 class HistorySelectionMixin:

@@ -13,7 +13,7 @@ from ...i18n import tr
 from ...signal_bus import signal_bus
 from ...config import app_config
 from ...core.download.manager import download_manager
-from .notification_dispatcher import PreparedTaskNotifications, prepare_task_notifications
+from ...presentation.notifications import PreparedTaskNotifications, notification_message, prepare_task_notifications
 
 
 class WindowNotificationsMixin:
@@ -114,45 +114,9 @@ class WindowNotificationsMixin:
             self._notification_bridge.prepared.emit(prepared)
 
     def _present_task_notifications(self, prepared: PreparedTaskNotifications):
-        completed = prepared.completed_titles
-        failed = prepared.failed_messages
-        if not completed and not failed:
-            return
-
-        if len(completed) == 1 and not failed:
-            self._show_desktop_notification(
-                tr("Download completed", "下载完成", "ダウンロード完了"),
-                completed[0],
-            )
-            return
-        if len(failed) == 1 and not completed:
-            self._show_desktop_notification(
-                tr("Download failed", "下载失败", "ダウンロード失敗"),
-                failed[0],
-            )
-            return
-
-        parts: list[str] = []
-        if completed:
-            parts.append(
-                tr(
-                    f"{len(completed)} downloads completed",
-                    f"{len(completed)} 个下载已完成",
-                    f"{len(completed)} 件のダウンロードが完了",
-                )
-            )
-        if failed:
-            parts.append(
-                tr(
-                    f"{len(failed)} downloads failed",
-                    f"{len(failed)} 个下载失败",
-                    f"{len(failed)} 件のダウンロードに失敗",
-                )
-            )
-        self._show_desktop_notification(
-            tr("Download updates", "下载任务更新", "ダウンロード更新"),
-            "；".join(parts),
-        )
+        message = notification_message(prepared)
+        if message is not None:
+            self._show_desktop_notification(*message)
 
     def _shutdown_task_notification_worker(self):
         self._task_notification_timer.stop()

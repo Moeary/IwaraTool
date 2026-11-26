@@ -11,7 +11,7 @@ from ...core.search.normalize import normalize_author
 from ...i18n import tr
 from ..common.worker_lifecycle import ManagedThread
 from .page_dependencies import download_manager
-from .result_authors import _extract_iwara_video_id
+from ...presentation.search.result_authors import _extract_iwara_video_id
 
 
 class SearchIwaraAuthorWorker(ManagedThread):

@@ -12,6 +12,13 @@ _UUID_RE = re.compile(
 from .models import IWARA_NATIVE_SEARCH_SORTS, IWARA_NATIVE_SEARCH_TYPES, SearchFilters
 
 
+def video_reference(value: str) -> str:
+    """The video ID in any ``.../video/<id>`` link (either Iwara site), else ``""``."""
+
+    match = re.search(r"/video/([^/?#]+)", str(value or ""))
+    return match.group(1) if match else ""
+
+
 def playlist_reference(value: str) -> str:
     """Return a playlist ID for a playlist URL or bare UUID, else ``""``.
 

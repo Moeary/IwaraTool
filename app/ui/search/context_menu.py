@@ -9,7 +9,7 @@ from ...i18n import tr
 from ..media.video_menu import add_detail_action, add_link_actions, add_play_actions, add_section
 from .download_status import iwara_history_id
 from .page_dependencies import download_manager
-from .result_authors import _author_source_info, _oreno3d_video_url
+from ...presentation.search.result_authors import _author_source_info, _oreno3d_video_url
 
 
 def _separate(menu: RoundMenu):

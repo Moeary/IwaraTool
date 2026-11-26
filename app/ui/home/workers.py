@@ -1,72 +1,31 @@
 """Background workers for the Home page: feeds, detail pages and covers.
 
-Every worker talks to the API through its own client (``create_worker_api_client``)
-so the independent sections of the page load concurrently instead of queueing
-behind the shared, lock-guarded session.
+The loading itself lives in ``app.core.home.loading`` (each call opens its own
+API client, so the sections of the page load concurrently); these workers only
+move it off the GUI thread and turn the results into signals.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
-from ...core.home.feed import MODE_AUTHOR, MODE_BROWSE, MODE_KEYWORD, MODE_TAGS
+from ...core.home.feed import MODE_BROWSE
 from ...core.download.manager import download_manager
-from ...core.rating import filter_by_rating
-from ...core.search.models import SearchVideo
-from ...core.search.normalize import normalize_image, normalize_video
+from ...core.home.loading import (  # noqa: F401 - re-exported; tests clear _AUTHOR_IDS here
+    _AUTHOR_IDS,
+    FeedResult,
+    author_user_id,
+    call_with_client,
+    item_kind,
+    items_from_rows,
+    load_comments,
+    load_detail,
+    load_feed_page,
+    normalize_items,
+)
 from ..search.image_worker import SearchImageWorker
 from ..common.worker_lifecycle import ManagedThread, stop_qthreads
-
-
-@dataclass(slots=True)
-class FeedResult:
-    token: int
-    items: list[SearchVideo] = field(default_factory=list)
-    rows: list[dict] = field(default_factory=list)  # raw API rows, kept for the cache
-    total: int | None = None
-    has_more: bool = False
-    page: int = 0
-    error: str = ""
-
-
-def normalize_items(kind: str, rows: list[dict]) -> list[SearchVideo]:
-    """Cards for API rows; old imported image posts with no files left are dropped.
-
-    Their cover is the site's grey "broken file" placeholder and the post has
-    nothing to show, which is common in the all-time popular lists.
-    """
-
-    if kind == "image":
-        rows = [row for row in rows if int(row.get("numImages") or 0) > 0]
-    normalize = normalize_image if kind == "image" else normalize_video
-    return [item for item in map(normalize, rows) if item is not None]
-
-
-def items_from_rows(kind: str, rows: list[dict], mode: str = MODE_BROWSE, rating: str = "") -> list[SearchVideo]:
-    """Cards for cached or fresh rows; text search results are rated locally."""
-
-    items = normalize_items(kind, rows)
-    if mode == MODE_KEYWORD:
-        items = filter_by_rating(items, rating)  # /search ignores the rating parameter
-    return items
-
-
-_AUTHOR_IDS: dict[str, str] = {}  # lower-case username -> user id, for this session
-
-
-def author_user_id(username: str, client) -> tuple[str, str]:
-    """``(user id, error)`` for an author's username, remembered per session."""
-
-    key = str(username or "").strip().lstrip("@").casefold()
-    if key in _AUTHOR_IDS:
-        return _AUTHOR_IDS[key], ""
-    user_id, error = client.get_user_id(key)
-    if user_id:
-        _AUTHOR_IDS[key] = user_id
-        return user_id, ""
-    return "", error or "author not found"
 
 
 class FeedWorker(ManagedThread):
@@ -88,7 +47,7 @@ class FeedWorker(ManagedThread):
     ):
         super().__init__()
         self.token = token
-        self.kind = "image" if kind == "image" else "video"
+        self.kind = item_kind(kind)
         self.params = dict(params)
         self.page = max(0, int(page))
         self.limit = int(limit)
@@ -96,39 +55,11 @@ class FeedWorker(ManagedThread):
         self.value = value
         self.rating = rating
 
-    def _fetch(self, client):
-        params = dict(self.params)
-        if self.mode == MODE_TAGS:
-            tags = download_manager.tag_dictionary.resolve_query(params.get("tags", ""))
-            if not tags:
-                return [], None, False, "no tags"
-            params["tags"] = ",".join(tags)
-        elif self.mode == MODE_KEYWORD:
-            return client.search_page(
-                "images" if self.kind == "image" else "videos", params, page=self.page, limit=self.limit,
-            )
-        elif self.mode == MODE_AUTHOR:
-            user_id, error = author_user_id(self.value, client)
-            if not user_id:
-                return [], None, False, error
-            params["user"] = user_id
-        return download_manager.get_home_page(
-            self.kind, params, page=self.page, limit=self.limit, api_client=client,
-        )
-
     def run(self):
-        client = None
-        result = FeedResult(token=self.token, page=self.page)
-        try:
-            client = download_manager.create_worker_api_client()
-            rows, total, has_more, error = self._fetch(client)
-            result.rows = list(rows) if not error else []
-            result.items = items_from_rows(self.kind, rows, self.mode, self.rating)
-            result.total, result.has_more, result.error = total, has_more, error
-        except Exception as exc:
-            result.error = str(exc)
-        finally:
-            download_manager.close_worker_api_client(client)
+        result = load_feed_page(
+            download_manager, self.kind, self.params, self.page, self.limit,
+            mode=self.mode, value=self.value, rating=self.rating, token=self.token,
+        )
         if not self.isInterruptionRequested():
             self.result_ready.emit(result)
 
@@ -143,36 +74,19 @@ class DetailWorker(ManagedThread):
     def __init__(self, token: int, kind: str, item_id: str):
         super().__init__()
         self.token = token
-        self.kind = "image" if kind == "image" else "video"
+        self.kind = item_kind(kind)
         self.item_id = item_id
 
     def run(self):
-        client = None
-        try:
-            client = download_manager.create_worker_api_client()
-            if self.kind == "image":
-                info, error = download_manager.get_image_info(self.item_id, api_client=client)
-            else:
-                info, error = client.get_video_info(self.item_id)
-            if self.isInterruptionRequested():
-                return
-            self.info_ready.emit(self.token, info, error)
-            if info is None:
-                return
-            rows, _err = download_manager.get_related_items(self.kind, self.item_id, api_client=client)
-            if self.isInterruptionRequested():
-                return
-            self.related_ready.emit(self.token, normalize_items(self.kind, rows))
-            comments, total, comment_error = download_manager.get_item_comments(
-                self.kind, self.item_id, page=0, api_client=client,
-            )
-            if not self.isInterruptionRequested():
-                self.comments_ready.emit(self.token, comments, total, comment_error)
-        except Exception as exc:
-            if not self.isInterruptionRequested():
-                self.info_ready.emit(self.token, None, str(exc))
-        finally:
-            download_manager.close_worker_api_client(client)
+        load_detail(
+            download_manager,
+            self.kind,
+            self.item_id,
+            on_info=lambda info, error: self.info_ready.emit(self.token, info, error),
+            on_related=lambda items: self.related_ready.emit(self.token, items),
+            on_comments=lambda rows, total, error: self.comments_ready.emit(self.token, rows, total, error),
+            should_stop=self.isInterruptionRequested,
+        )
 
 
 class CommentsWorker(ManagedThread):
@@ -183,25 +97,15 @@ class CommentsWorker(ManagedThread):
     def __init__(self, token: int, kind: str, item_id: str, *, page: int = 0, parent: str = ""):
         super().__init__()
         self.token = token
-        self.kind = "image" if kind == "image" else "video"
+        self.kind = item_kind(kind)
         self.item_id = item_id
         self.page = page
         self.parent_id = parent
 
     def run(self):
-        client = None
-        rows: list[dict] = []
-        total: int | None = None
-        error = ""
-        try:
-            client = download_manager.create_worker_api_client()
-            rows, total, error = download_manager.get_item_comments(
-                self.kind, self.item_id, page=self.page, parent=self.parent_id, api_client=client,
-            )
-        except Exception as exc:
-            error = str(exc)
-        finally:
-            download_manager.close_worker_api_client(client)
+        rows, total, error = load_comments(
+            download_manager, self.kind, self.item_id, page=self.page, parent=self.parent_id,
+        )
         if not self.isInterruptionRequested():
             self.comments_ready.emit(self.token, rows, total, error, self.parent_id, self.page)
 
@@ -221,16 +125,7 @@ class ApiCallWorker(ManagedThread):
         self._call = call
 
     def run(self):
-        client = None
-        result: Any = None
-        error = ""
-        try:
-            client = download_manager.create_worker_api_client()
-            result = self._call(client)
-        except Exception as exc:
-            error = str(exc)
-        finally:
-            download_manager.close_worker_api_client(client)
+        result, error = call_with_client(download_manager, self._call)
         if not self.isInterruptionRequested():
             self.done.emit(result, error)
 

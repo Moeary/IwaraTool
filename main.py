@@ -75,20 +75,16 @@ if __name__ == "__main__" and "--smoke-test" in sys.argv:
     smoke_test()
     raise SystemExit(0)
 
-from app.core.backup import apply_pending_restore
-from app.paths import app_data_dir
+from app import bootstrap
 
 # A restore staged from the settings page must land before any database or
 # settings file is opened, which happens as soon as app.config is imported.
-apply_pending_restore(str(app_data_dir()))
+bootstrap.restore_pending_backup()
 
 from app.config import app_config  # noqa: E402
 from app.logging_setup import get_logger, setup_logging
 from app.qt_runtime import install_console_interrupt
 from app.signal_bus import signal_bus
-from app.core.download.manager import download_manager
-from app.core.background_services import background_service
-from app.core.rules import ensure_temporary_rule
 from app.ui.style.fonts import apply_app_font
 from app.ui.main_window import MainWindow
 from app.ui.common import mask_dialogs
@@ -97,7 +93,6 @@ from app.ui.style.theme import apply_theme_mode
 
 def main():
     setup_logging()
-    get_logger(__name__).info("IwaraTool starting")
     # Mirror the in-app log panel into data/logs so packaged builds stay debuggable.
     ui_logger = get_logger("ui")
     signal_bus.log_message.connect(lambda message: ui_logger.info("%s", message))
@@ -124,20 +119,13 @@ def main():
     # Apply the saved theme mode; "auto" follows the system dark/light mode.
     apply_theme_mode(app_config.theme_mode)
 
-    # Apply proxy config on startup
-    download_manager.apply_config()
-
-    # Restore cached token first for faster startup auth.
-    download_manager.restore_cached_login()
-
-    # Search / detail downloads default to this rule (own folder, no history).
-    ensure_temporary_rule()
+    # Proxy, cached login and the temporary rule; services start once the
+    # window exists.
+    bootstrap.prepare(frontend="pyside6")
 
     window = MainWindow()
-    download_manager.start()
-    background_service.start()
-    app.aboutToQuit.connect(lambda: background_service.stop(wait=False))
-    app.aboutToQuit.connect(lambda: download_manager.shutdown(wait=False))
+    bootstrap.start_services()
+    app.aboutToQuit.connect(lambda: bootstrap.stop(wait=False))
     if icon_path.exists():
         window.setWindowIcon(QIcon(str(icon_path)))
     window.show()

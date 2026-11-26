@@ -24,7 +24,7 @@ from .helpers import (
 )
 from ..media.pixmaps import read_pixmap
 from .components import SubscriptionAvatarWorker, _SOURCE_SORT_FIELDS
-from .item_queries import is_feed_source
+from ...presentation.subscription.item_queries import is_feed_source
 from ..style.theme import qcolor
 from .page_dependencies import download_manager
 

@@ -26,8 +26,10 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
+from ...presentation.author import page as author_page
+from ...presentation.author.page import author_section
 from ...config import app_config
-from ...core.home.feed import MODE_AUTHOR, FeedSection, FeedTab
+from ...core.home.feed import FeedSection
 from ...core.rating import RATING_ALL, UI_RATING_KEY, normalize_rating
 from ...core.rules import page_rule_id
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchVideo
@@ -84,10 +86,10 @@ class AuthorView(QWidget):
         names.addWidget(self._name)
         names.addWidget(self._handle)
         head.addLayout(names, 1)
-        search_btn = PushButton(tr("Open in Search", "在搜索页打开", "検索ページで開く"), self, FluentIcon.SEARCH)
+        search_btn = PushButton(author_page.open_in_search_text(), self, FluentIcon.SEARCH)
         search_btn.clicked.connect(self._open_in_search)
         head.addWidget(search_btn)
-        site_btn = PushButton(tr("Open on Iwara", "在 Iwara 打开", "Iwaraで開く"), self, FluentIcon.GLOBE)
+        site_btn = PushButton(author_page.open_on_site_text(), self, FluentIcon.GLOBE)
         site_btn.clicked.connect(self._open_on_site)
         head.addWidget(site_btn)
         root.addLayout(head)
@@ -117,15 +119,7 @@ class AuthorView(QWidget):
         self._browse.open(self._section(), "videos", rating)
 
     def _section(self) -> FeedSection:
-        username, name = self._username, self._target[1]
-        return FeedSection(
-            "author",
-            name or username,
-            (
-                FeedTab("videos", tr("Videos", "视频", "動画"), "video", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
-                FeedTab("images", tr("Images", "图片", "画像"), "image", (("sort", "date"),), mode=MODE_AUTHOR, value=username),
-            ),
-        )
+        return author_section(self._username, self._target[1])
 
     def view_state(self) -> AuthorViewState:
         return AuthorViewState(self._target, self._browse.view_state())
@@ -187,9 +181,10 @@ class AuthorView(QWidget):
     def _queue(self, videos: list, rule_id: str = ""):
         ids = queueable_ids([v for v in videos if isinstance(v, SearchVideo)])
         if not ids:
+            title, content = author_page.nothing_to_download_notice()
             InfoBar.warning(
-                title=tr("Nothing to download", "没有可下载的内容", "ダウンロード対象がありません"),
-                content=tr("Image posts and embedded videos cannot be queued.", "图片作品和外站嵌入视频无法加入下载队列。", "画像投稿と埋め込み動画はキューに追加できません。"),
+                title=title,
+                content=content,
                 orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
             )
             return

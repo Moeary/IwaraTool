@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QHBoxLayout, QListWidgetItem, QSizePolicy, QStacke
 from qfluentwidgets import FluentIcon, ListWidget, TitleLabel
 
 from ...config import app_config
-from ...i18n import tr
+from ...presentation.tools.texts import tool_text
+from ...presentation.tools import common as tools_common
 from ..style.theme import PAGE_MARGINS, PAGE_SPACING
 from .common import ffmpeg_state
 
@@ -40,30 +41,9 @@ def _cover_tool(parent: QWidget) -> QWidget:
 def tool_entries() -> tuple[ToolEntry, ...]:
     """Every tool, in list order; built on demand so labels follow the language."""
 
-    return (
-        ToolEntry(
-            "compress",
-            FluentIcon.VIDEO,
-            tr("Upload Compressor", "上传压缩", "アップロード用圧縮"),
-            tr(
-                "Fit a video under Iwara's 300 / 600 MB limit as H.264 + AAC MP4, at least 720p.",
-                "把视频压到 Iwara 的 300 / 600MB 上限以内：H.264 + AAC、MP4，不低于 720p。",
-                "Iwara の 300 / 600 MB 上限に収まるよう H.264 + AAC の MP4（720p 以上）に変換します。",
-            ),
-            _compress_tool,
-        ),
-        ToolEntry(
-            "covers",
-            FluentIcon.PHOTO,
-            tr("Cover Preview", "封面预览", "カバーのプレビュー"),
-            tr(
-                "See the 16 screenshots Iwara will offer as the cover before uploading.",
-                "上传前预览 Iwara 会给出的 16 张封面截图。",
-                "アップロード前に Iwara が提示する 16 枚のカバー候補を確認します。",
-            ),
-            _cover_tool,
-        ),
-    )
+    icons = {"compress": FluentIcon.VIDEO, "covers": FluentIcon.PHOTO}
+    factories = {"compress": _compress_tool, "covers": _cover_tool}
+    return tuple(ToolEntry(t.key, icons[t.key], t.title, t.summary, factories[t.key]) for t in tools_common.tools())
 
 
 class ToolsInterface(QWidget):
@@ -71,7 +51,7 @@ class ToolsInterface(QWidget):
 
     open_settings_requested = Signal(str)  # settings category
 
-    _TOOL_KEY = "tools_current_v1"
+    _TOOL_KEY = tools_common.TOOL_KEY
     _NAV_WIDTH = 216
 
     def __init__(self, parent: QWidget | None = None):
@@ -84,7 +64,7 @@ class ToolsInterface(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(PAGE_SPACING)
-        root.addWidget(TitleLabel(tr("Tools", "工具", "ツール"), self))
+        root.addWidget(TitleLabel(tool_text("tools"), self))
 
         row = QHBoxLayout()
         row.setSpacing(20)

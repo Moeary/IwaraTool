@@ -301,15 +301,22 @@ class IniSettingsStore:
 _open_stores: "weakref.WeakSet[IniSettingsStore]" = weakref.WeakSet()
 
 
-@atexit.register
-def _flush_open_stores() -> None:
-    """Write what ``sync=False`` left pending, as QSettings does on destruction."""
+def sync_all_open_stores() -> None:
+    """Write what ``sync=False`` left pending in every open store, as QSettings does on destruction.
+
+    ``app.bootstrap.stop()`` calls this on purpose; the ``atexit`` hook only
+    covers exits that never reach it.
+    """
 
     for store in list(_open_stores):
         try:
             store.sync()
         except Exception:
             pass
+
+
+atexit.register(sync_all_open_stores)
+_flush_open_stores = sync_all_open_stores  # the old private name
 
 
 def open_settings(path: str):

@@ -17,9 +17,9 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ...config import app_config
 from ...i18n import current_language, tr
-from ...signal_bus import signal_bus
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from ..style.fonts import (
     AUTO_FONT,
     build_font_stack,
@@ -61,14 +61,10 @@ class FontPickerDialog(MessageBoxBase):
     def __init__(self, parent, families: list[str], current: str):
         super().__init__(parent)
         self.viewLayout.addWidget(
-            SubtitleLabel(tr("Interface font", "界面字体", "表示フォント"), self)
+            SubtitleLabel(stext("interface_font"), self)
         )
         hint = CaptionLabel(
-            tr(
-                "Characters the font lacks (such as Chinese or Japanese) are filled in by the platform fonts.",
-                "所选字体缺少的字符（例如中文、日文）会由平台字体自动补齐。",
-                "フォントに無い文字（中国語・日本語など）はプラットフォームのフォントで補われます。",
-            ),
+            stext("characters_the_font_lacks_such_as"),
             self,
         )
         hint.setWordWrap(True)
@@ -76,14 +72,14 @@ class FontPickerDialog(MessageBoxBase):
         self.viewLayout.addWidget(hint)
 
         self._search = SearchLineEdit(self)
-        self._search.setPlaceholderText(tr("Search fonts", "搜索字体", "フォントを検索"))
+        self._search.setPlaceholderText(stext("search_fonts"))
         self._search.textChanged.connect(self._filter)
         self.viewLayout.addWidget(self._search)
 
         self._list = ListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setMinimumHeight(320)
-        auto = QListWidgetItem(tr("Automatic (follow the platform)", "自动（跟随平台）", "自動（プラットフォームに合わせる）"))
+        auto = QListWidgetItem(stext("automatic_follow_the_platform"))
         auto.setData(Qt.ItemDataRole.UserRole, AUTO_FONT)
         self._list.addItem(auto)
         for family in families:
@@ -100,8 +96,8 @@ class FontPickerDialog(MessageBoxBase):
         self._preview.setMinimumHeight(40)
         self.viewLayout.addWidget(self._preview)
 
-        self.yesButton.setText(tr("Use this font", "使用此字体", "このフォントを使う"))
-        self.cancelButton.setText(tr("Cancel", "取消", "キャンセル"))
+        self.yesButton.setText(stext("use_this_font"))
+        self.cancelButton.setText(stext("cancel"))
         self.widget.setMinimumWidth(520)
         self._select(current)
 
@@ -138,32 +134,23 @@ class SettingsFontCardsMixin:
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
-        layout.addWidget(SubtitleLabel(tr("Font", "字体", "フォント"), card))
+        layout.addWidget(SubtitleLabel(stext("font"), card))
         intro = BodyLabel(
-            tr(
-                "Automatic picks the system UI fonts for this platform and interface language. "
-                "A chosen font leads; characters it lacks fall back to the platform and system fonts. "
-                "The window reloads to apply a change.",
-                "自动：按当前平台与界面语言选用系统界面字体。也可指定字体，指定的字体缺少的字符"
-                "会回退到平台字体与系统默认字体。更改后窗口会重新载入以生效。",
-                "自動ではプラットフォームと表示言語に合ったシステムの UI フォントを使います。"
-                "フォントを指定した場合、無い文字はプラットフォームとシステムのフォントで補います。"
-                "変更するとウィンドウを再読み込みします。",
-            ),
+            stext("automatic_picks_the_system_ui_fonts"),
             card,
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
         row = QHBoxLayout()
-        row.addWidget(BodyLabel(tr("Interface font", "界面字体", "表示フォント"), card))
+        row.addWidget(BodyLabel(stext("interface_font"), card))
         row.addStretch()
         self._font_current_label = BodyLabel(card)
         row.addWidget(self._font_current_label)
-        choose = PushButton(tr("Choose font…", "选择字体…", "フォントを選ぶ…"), card, FluentIcon.FONT)
+        choose = PushButton(stext("choose_font"), card, FluentIcon.FONT)
         choose.clicked.connect(self._choose_ui_font)
         row.addWidget(choose)
-        self._font_reset_button = PushButton(tr("Automatic", "恢复自动", "自動に戻す"), card)
+        self._font_reset_button = PushButton(stext("automatic"), card)
         self._font_reset_button.clicked.connect(lambda: self._set_ui_font(AUTO_FONT))
         row.addWidget(self._font_reset_button)
         layout.addLayout(row)
@@ -182,7 +169,7 @@ class SettingsFontCardsMixin:
         chosen = user_font_family()
         families = interface_font_families()
         if not chosen:
-            current = tr("Automatic", "自动", "自動")
+            current = stext("automatic_2")
         elif font_available(chosen):
             current = chosen
         else:
@@ -195,7 +182,7 @@ class SettingsFontCardsMixin:
         self._font_reset_button.setEnabled(bool(chosen))
         self._font_preview_label.setFont(_stack_font(families, 13))
         self._font_stack_label.setText(
-            tr("In use, in order: ", "生效顺序：", "使用順：") + " → ".join(families)
+            stext("in_use_in_order") + " → ".join(families)
         )
 
     def _choose_ui_font(self):
@@ -204,8 +191,4 @@ class SettingsFontCardsMixin:
             self._set_ui_font(dialog.selected_family)
 
     def _set_ui_font(self, family: str):
-        family = (family or AUTO_FONT).strip()
-        if family == user_font_family():
-            return
-        app_config.ui_font_family = family
-        signal_bus.font_changed.emit()  # the window applies it and rebuilds
+        setting_values.set_font_family(family)  # the window applies it and rebuilds

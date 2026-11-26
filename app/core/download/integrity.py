@@ -79,6 +79,7 @@ def incomplete_reason(
 RESUME_META_SUFFIX = ".resume.json"
 BACKEND_NATIVE = "native"
 BACKEND_ARIA2 = "aria2"
+BACKEND_SEGMENTED = "native-segmented"  # several connections; the record holds each segment's progress
 
 
 def resume_meta_path(temp_path: str) -> str:
@@ -98,15 +99,19 @@ def read_resume_meta(temp_path: str) -> dict[str, Any]:
         total = int(data.get("total", 0) or 0)
     except (TypeError, ValueError, OverflowError):
         return {}
-    return {
+    meta = {
         "source": str(data.get("source", "") or ""),
         "total": max(0, total),
         "backend": str(data.get("backend", "") or ""),
     }
+    if isinstance(data.get("segments"), list):
+        meta["segments"] = data["segments"]  # checked by segmented.segments_from_meta
+    return meta
 
 
-def write_resume_meta(temp_path: str, source: str, total: int, backend: str = BACKEND_NATIVE) -> None:
-    """Atomically record what the partial file holds."""
+def write_resume_meta(temp_path: str, source: str, total: int, backend: str = BACKEND_NATIVE,
+                      segments: list[list[int]] | None = None) -> None:
+    """Atomically record what the partial file holds (and, segmented, how far each segment got)."""
     target = resume_meta_path(temp_path)
     tmp = ""
     try:
@@ -114,7 +119,10 @@ def write_resume_meta(temp_path: str, source: str, total: int, backend: str = BA
         # already be close to the file-name length limit.
         fd, tmp = tempfile.mkstemp(prefix=".resume-", suffix=".tmp", dir=os.path.dirname(target) or None)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump({"source": source, "total": int(total), "backend": backend}, stream)
+            record: dict[str, Any] = {"source": source, "total": int(total), "backend": backend}
+            if segments is not None:
+                record["segments"] = segments
+            json.dump(record, stream)
         os.replace(tmp, target)
     except OSError:
         if tmp:
@@ -147,7 +155,7 @@ def partial_file_reusable(temp_path: str, source: str, backend: str) -> bool:
     if not meta or not source or meta.get("backend") != backend or meta.get("source") != source:
         return False
     has_control_file = os.path.exists(f"{temp_path}.aria2")
-    if backend == BACKEND_NATIVE:
+    if backend in (BACKEND_NATIVE, BACKEND_SEGMENTED):
         return not has_control_file  # aria2 writes segments with holes; only aria2 can continue it
     return has_control_file  # without aria2's control file the segment map is lost
 

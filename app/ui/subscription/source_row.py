@@ -17,15 +17,15 @@ from qfluentwidgets import (
     ToolButton,
 )
 
+from ...presentation.subscription import text as sub_text
 from ...core.search.models import SearchVideo
-from ...i18n import tr
 from ..common.chrome import StatusChip
 from ..common.click_dispatch import ACTION_DETAIL, ACTION_PLAY, ClickDispatcher, play_in_window
 from ..media.card import MediaCard
-from .helpers import _date_only, _source_origin_label, _source_type_label
+from .helpers import _source_origin_label
 from ..style.theme import set_secondary_text
 from .cover_loader import load_pixmap
-from .item_queries import item_to_video
+from ...presentation.subscription.item_queries import item_to_video
 
 
 class TileStrip(QWidget):
@@ -135,15 +135,15 @@ class SourceRow(CardWidget):
 
         new_count = int(source.get("new_count", 0) or 0)
         if new_count:
-            head.addWidget(StatusChip(tr(f"{new_count} new", f"{new_count} 个新增", f"新着 {new_count}"), "accent", self))
+            head.addWidget(StatusChip(sub_text.new_count_text(new_count), "accent", self))
         if not enabled:
-            head.addWidget(StatusChip(tr("Paused", "已停用", "停止中"), "warning", self))
+            head.addWidget(StatusChip(sub_text.paused_text(), "warning", self))
 
         refresh = ToolButton(FluentIcon.SYNC, self)
-        refresh.setToolTip(tr("Refresh this source", "刷新此订阅源", "この購読元を更新"))
+        refresh.setToolTip(sub_text.refresh_source_tooltip())
         refresh.clicked.connect(lambda: self.refresh_requested.emit(self.source_id))
         head.addWidget(refresh)
-        open_btn = PushButton(tr("View all", "查看全部", "すべて表示"), self, FluentIcon.VIEW)
+        open_btn = PushButton(sub_text.view_all_text(), self, FluentIcon.VIEW)
         open_btn.clicked.connect(lambda: self.open_requested.emit(self.source_id))
         head.addWidget(open_btn)
         more = ToolButton(FluentIcon.MORE, self)
@@ -156,13 +156,7 @@ class SourceRow(CardWidget):
         names.setSpacing(2)
         name = SubtitleLabel(title, self)
         names.addWidget(name)
-        key = str(source.get("source_key", "") or "")
-        kind = _source_type_label(str(source.get("source_type", "") or ""))
-        sub = f"@{key}" if is_author else key
-        sub = f"{sub}  ·  {kind}" if sub else kind
-        if not enabled:
-            sub += "  ·  " + tr("Paused", "已停用", "停止中")
-        sub_label = CaptionLabel(sub, self)
+        sub_label = CaptionLabel(sub_text.source_subtitle(source), self)
         set_secondary_text(sub_label)
         sub_label.setToolTip(_source_origin_label(source))
         names.addWidget(sub_label)
@@ -180,31 +174,13 @@ class SourceRow(CardWidget):
             self.strip.video_context.connect(self.video_context)
             root.addWidget(self.strip)
         else:
-            empty = CaptionLabel(
-                tr("No videos yet — refresh this source.", "还没有视频，刷新一下订阅源吧。", "動画はまだありません。更新してください。"),
-                self,
-            )
+            empty = CaptionLabel(sub_text.empty_source_text(), self)
             set_secondary_text(empty)
             root.addWidget(empty)
 
     @staticmethod
     def _stats_text(source: dict[str, Any]) -> str:
-        parts = [
-            tr(
-                f"{int(source.get('item_count', 0) or 0)} videos",
-                f"共 {int(source.get('item_count', 0) or 0)} 个视频",
-                f"{int(source.get('item_count', 0) or 0)} 本",
-            ),
-            tr(
-                f"{int(source.get('undownloaded_count', 0) or 0)} not downloaded",
-                f"{int(source.get('undownloaded_count', 0) or 0)} 个未下载",
-                f"未保存 {int(source.get('undownloaded_count', 0) or 0)}",
-            ),
-        ]
-        checked = _date_only(str(source.get("last_checked_at", "") or ""))
-        if checked:
-            parts.append(tr(f"checked {checked}", f"刷新于 {checked}", f"{checked} 更新"))
-        return "  ·  ".join(parts)
+        return sub_text.source_stats_text(source)
 
     def set_avatar(self, path: str):
         pixmap = load_pixmap(path, 160)

@@ -22,13 +22,14 @@ from .integrity import (
     write_resume_meta,
 )
 from .locations import STORAGE_REMOTE
+from .segmented import SegmentedTransferMixin, use_segments
 from .speed_format import _fmt_bytes, _fmt_speed
 
 
 logger = get_logger(__name__)
 
 
-class TransferMixin:
+class TransferMixin(SegmentedTransferMixin):
     """Transfer a resolved task's file with the built-in downloader (or hand it to aria2)."""
 
     def _download_task(self, task_id: str):
@@ -111,7 +112,7 @@ class TransferMixin:
         )
         self._download_task_native(task_id, final_path=final_path, temp_path=temp_path)
 
-    def _download_task_native(self, task_id: str, final_path: str, temp_path: str):
+    def _download_task_native(self, task_id: str, final_path: str, temp_path: str, connections: int | None = None):
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -119,8 +120,14 @@ class TransferMixin:
             return
 
         resp = None
+        connections = app_config.native_download_connections if connections is None else connections
         try:
             self._touch_task_activity(task_id)
+            saved = self._saved_segments(task, temp_path) if connections > 1 else None
+            if saved:
+                total, segments = saved
+                self._download_segmented(task, task_id, temp_path, final_path, total, segments)
+                return
             resp, existing_size = self._open_download_response(task, task_id, temp_path)
             self._touch_task_activity(task_id)
             if self._cancel_if_requested(task_id):
@@ -129,6 +136,13 @@ class TransferMixin:
                 f"  HTTP {resp.status_code}  Content-Length: {resp.headers.get('Content-Length', '?')}"
             )
             if not self._accept_download_response(task_id, resp, existing_size, temp_path, final_path):
+                return
+            total = int(resp.headers.get("Content-Length", 0) or 0)
+            if resp.status_code == 200 and use_segments(total, resp.headers, connections):
+                resp.close()  # this stream only told us the size; each segment opens its own
+                resp = None
+                self._discard_temp_file(temp_path)
+                self._download_segmented(task, task_id, temp_path, final_path, total, connections=connections)
                 return
             total, existing_size = self._start_progress(task, task_id, resp, existing_size)
             downloaded = self._stream_to_temp(task, task_id, resp, temp_path, existing_size, total)

@@ -12,7 +12,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...core.search.models import SearchVideo
 from ...core.search.normalize import normalize_video
 from ...i18n import tr
-from .result_authors import (
+from ...presentation.search.result_authors import (
     _author_source_info,
     _author_subscription_target,
     _extract_iwara_video_id,

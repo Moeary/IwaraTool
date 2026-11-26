@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 
 from qfluentwidgets import InfoBarPosition, ProgressBar
 
+from ...presentation.subscription import text as sub_text
 from ...i18n import tr
 from .components import SubscriptionRefreshWorker, SubscriptionThumbnailWorker
 from .page_dependencies import InfoBar, download_manager, signal_bus
@@ -156,13 +157,10 @@ class SubscriptionRefreshingMixin:
                 button.setEnabled(enabled)
 
     def _on_refresh_progress(self, progress: dict):
-        total = max(1, int(progress.get("total", 1) or 1))
-        index = max(1, min(total, int(progress.get("index", 1) or 1)))
-        started = str(progress.get("stage", "") or "") == "started"
-        title = str(progress.get("title", "") or "")
+        completed, total, content = sub_text.refresh_progress(progress)
         if self._refresh_info_bar is None:
             self._refresh_info_bar = InfoBar.info(
-                title=tr("Refreshing Subscriptions", "正在刷新订阅", "購読を更新中"),
+                title=sub_text.refreshing_title(),
                 content="",
                 orient=Qt.Orientation.Horizontal,
                 isClosable=False,
@@ -175,15 +173,9 @@ class SubscriptionRefreshingMixin:
             self._refresh_progress.setRange(0, total)
             self._refresh_info_bar.addWidget(self._refresh_progress)
 
-        completed = index - 1 if started else index
         if self._refresh_progress:
             self._refresh_progress.setRange(0, total)
             self._refresh_progress.setValue(completed)
-        content = tr(
-            f"{index}/{total} · {'Refreshing' if started else 'Finished'} {title}",
-            f"{index}/{total} · {'正在刷新' if started else '已完成'} {title}",
-            f"{index}/{total} · {'更新中' if started else '完了'} {title}",
-        )
         self._refresh_info_bar.content = content
         self._refresh_info_bar.contentLabel.setText(content)
         self._refresh_info_bar.adjustSize()
@@ -199,36 +191,15 @@ class SubscriptionRefreshingMixin:
         self._clear_refresh_progress()
         self._set_refresh_actions_enabled(True)
         self._refresh_sources_keep_current_items()
-        errors = summary.get("errors") or []
-        if errors:
-            first = errors[0]
-            InfoBar.warning(
-                title=tr("Refresh Finished With Errors", "刷新完成但有错误", "一部更新失敗"),
-                content=str(first.get("error", ""))[:180],
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-                parent=self,
-            )
-        else:
-            InfoBar.success(
-                title=tr("Refresh Finished", "刷新完成", "更新完了"),
-                content=tr(
-                    f"New {summary.get('new', 0)}, downloaded locally {summary.get('downloaded', 0)}, unavailable {summary.get('unavailable', 0)}, total {summary.get('total', 0)}",
-                    f"新增 {summary.get('new', 0)}，本地已下载 {summary.get('downloaded', 0)}，不可下载 {summary.get('unavailable', 0)}，累计 {summary.get('total', 0)}",
-                    f"新規 {summary.get('new', 0)}、保存済み {summary.get('downloaded', 0)}、保存不可 {summary.get('unavailable', 0)}、合計 {summary.get('total', 0)}",
-                ),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=4000,
-                parent=self,
-            )
-        signal_bus.log_message.emit(
-            tr(
-                f"[Subscriptions] refresh done: new={summary.get('new', 0)}, downloaded={summary.get('downloaded', 0)}, unavailable={summary.get('unavailable', 0)}, total={summary.get('total', 0)}",
-                f"[订阅] 刷新完成: 新增={summary.get('new', 0)}, 已下载={summary.get('downloaded', 0)}, 不可下载={summary.get('unavailable', 0)}, 总计={summary.get('total', 0)}",
-                f"[購読] 更新完了: 新規={summary.get('new', 0)}, 保存済み={summary.get('downloaded', 0)}, 保存不可={summary.get('unavailable', 0)}, 合計={summary.get('total', 0)}",
-            )
+        kind, title, content = sub_text.refresh_finished(summary)
+        show = InfoBar.warning if kind == "warning" else InfoBar.success
+        show(
+            title=title,
+            content=content,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=5000 if kind == "warning" else 4000,
+            parent=self,
         )
+        signal_bus.log_message.emit(sub_text.refresh_log_line(summary))

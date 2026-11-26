@@ -19,7 +19,7 @@ from ..media.card_size import saved_card_width
 from ..search.grid_style import _search_grid_style
 from ..style.theme import qcolor
 from .page_dependencies import download_manager
-from .record_state import _date_only
+from ...presentation.history.record_state import _date_only
 
 
 MODE_GRID = "grid"  # compact tiles with title, author, date and watch state

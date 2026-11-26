@@ -11,7 +11,7 @@ from ...config import app_config
 from ...core.search.models import SearchAuthor, SearchFilters, SearchPlaylist, SearchVideo
 from ..window.back_stack import has_focus_within, restore_scroll
 
-from .keyword_language import is_chinese_keyword
+from ...presentation.search.keyword_language import is_chinese_keyword
 
 
 @dataclass

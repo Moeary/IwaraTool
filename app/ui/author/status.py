@@ -13,43 +13,13 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon, InfoBar, InfoBarPosition, PrimaryPushButton, PushButton
 
 from ...core.download.manager import download_manager
-from ...i18n import tr
+from ...presentation.author import status as author_text
+from ...presentation.author.status import clean_username, local_chip_state, web_chip_state  # noqa: F401  (re-exported)
 from ...signal_bus import signal_bus
 from ..common.chrome import StatusChip
 from ..home.workers import ApiCallWorker, stop_workers
 from ..common.flow_layout import ResponsiveFlowLayout
 from ..common.fluent_dialogs import show_fluent_confirmation
-
-
-def clean_username(value: str) -> str:
-    return str(value or "").strip().lstrip("@").strip("/ ")
-
-
-def local_chip_state(source: dict[str, Any] | None) -> tuple[str, str]:
-    """``(text, tone)`` for whether the author is in this app's subscriptions."""
-
-    if source:
-        if not int(source.get("enabled", 1) or 0):
-            return tr("Subscribed here (paused)", "已在程序内订阅（已停用）", "アプリで購読中（停止）"), "warning"
-        return tr("Subscribed in this app", "已在程序内订阅", "アプリで購読中"), "success"
-    return tr("Not subscribed in this app", "未在程序内订阅", "アプリでは未購読"), "neutral"
-
-
-def web_chip_state(state: str, following: bool = False) -> tuple[str, str]:
-    """``(text, tone)`` for the Iwara-account follow state.
-
-    ``state`` is one of ``signed_out`` / ``loading`` / ``ready`` / ``error``.
-    """
-
-    if state == "signed_out":
-        return tr("Iwara: not signed in", "Iwara：未登录", "Iwara: 未ログイン"), "neutral"
-    if state == "loading":
-        return tr("Checking Iwara…", "正在查询 Iwara…", "Iwaraを確認中…"), "neutral"
-    if state == "error":
-        return tr("Iwara follow status unavailable", "无法获取 Iwara 关注状态", "Iwaraのフォロー状態を取得できません"), "warning"
-    if following:
-        return tr("Followed on Iwara", "已在 Iwara 关注", "Iwaraでフォロー中"), "accent"
-    return tr("Not followed on Iwara", "未在 Iwara 关注", "Iwaraでは未フォロー"), "neutral"
 
 
 class AuthorStatusBar(QWidget):
@@ -77,11 +47,11 @@ class AuthorStatusBar(QWidget):
         self.web_chip = StatusChip(parent=self)
         flow.addWidget(self.local_chip)
         flow.addWidget(self.web_chip)
-        self.subscribe_btn = PrimaryPushButton(tr("Subscribe in app", "在程序内订阅", "アプリで購読"), self, FluentIcon.PEOPLE)
+        self.subscribe_btn = PrimaryPushButton(author_text.subscribe_button_text(False), self, FluentIcon.PEOPLE)
         self.subscribe_btn.clicked.connect(self._on_subscribe_clicked)
-        self.follow_btn = PushButton(tr("Follow on Iwara", "在 Iwara 关注", "Iwaraでフォロー"), self, FluentIcon.HEART)
+        self.follow_btn = PushButton(author_text.follow_button_text(False), self, FluentIcon.HEART)
         self.follow_btn.clicked.connect(self._toggle_follow)
-        self.open_btn = PushButton(tr("Open subscription", "打开订阅", "購読を開く"), self, FluentIcon.VIEW)
+        self.open_btn = PushButton(author_text.open_subscription_text(), self, FluentIcon.VIEW)
         self.open_btn.clicked.connect(self._open_subscription)
         for button in (self.subscribe_btn, self.follow_btn, self.open_btn):
             flow.addWidget(button)
@@ -146,11 +116,10 @@ class AuthorStatusBar(QWidget):
     def _on_profile(self, token: int, result: Any, error: str):
         if token != self._token:
             return
-        data, api_error = result if isinstance(result, tuple) and len(result) == 2 else (None, error)
-        user = data.get("user") if isinstance(data, dict) else None
-        if not isinstance(user, dict):
+        user, problem = author_text.profile_follow(result, error)
+        if user is None:
             self._web_state = "error"
-            self.web_chip.setToolTip(str(api_error or error))
+            self.web_chip.setToolTip(problem)
             self._sync()
             return
         self._web_state = "ready"
@@ -167,18 +136,18 @@ class AuthorStatusBar(QWidget):
         self.web_chip.set_state(text, tone)
         subscribed = self._source is not None
         self.subscribe_btn.setText(
-            tr("Remove app subscription", "取消程序内订阅", "アプリの購読を解除") if subscribed else tr("Subscribe in app", "在程序内订阅", "アプリで購読")
+            author_text.subscribe_button_text(subscribed)
         )
         self.subscribe_btn.setIcon(FluentIcon.REMOVE if subscribed else FluentIcon.PEOPLE)
         self.subscribe_btn.setEnabled(bool(self._username))
         usable = self._web_state in {"ready"} and bool(self._user_id)
         self.follow_btn.setEnabled(usable)
         self.follow_btn.setText(
-            tr("Unfollow on Iwara", "取消 Iwara 关注", "Iwaraのフォロー解除") if self._following else tr("Follow on Iwara", "在 Iwara 关注", "Iwaraでフォロー")
+            author_text.follow_button_text(self._following)
         )
         self.follow_btn.setToolTip(
             "" if usable or self._web_state == "loading"
-            else tr("Sign in to Iwara in Settings to follow on the website.", "在设置中登录 Iwara 后才能在网站上关注。", "設定でIwaraにログインするとサイト上でフォローできます。")
+            else author_text.follow_unavailable_tooltip()
         )
         self.open_btn.setVisible(self._show_open and subscribed)
 
@@ -193,35 +162,23 @@ class AuthorStatusBar(QWidget):
                 self._username, title=self._name, remote_id=self._user_id, avatar_url=self._avatar,
             ) or 0)
         except Exception as exc:
-            self._toast(False, tr("Subscription failed", "订阅失败", "購読に失敗"), str(exc))
+            self._toast(False, author_text.subscribe_failed_title(), str(exc))
             return
         if source_id:
             signal_bus.subscription_source_added.emit(source_id)
             self.refresh_local()
-            self._toast(
-                True, tr("Author added", "作者已加入订阅", "作者を購読に追加しました"),
-                tr(f"@{self._username} is now in your local subscriptions", f"@{self._username} 已加入本地订阅", f"@{self._username} をローカル購読に追加しました"),
-            )
+            self._toast(True, *author_text.subscribed_notice(self._username))
 
     def _unsubscribe(self):
         source_id = self.source_id
         if not source_id:
             return
-        if not show_fluent_confirmation(
-            self.window(),
-            tr("Remove subscription", "取消订阅", "購読を解除"),
-            tr(
-                f"Remove @{self._username} from this app's subscriptions and delete its cached video list? "
-                "Your Iwara follow is not affected.",
-                f"确定把 @{self._username} 从程序内订阅中移除，并删除其缓存视频列表吗？不会影响你在 Iwara 上的关注。",
-                f"@{self._username} をアプリの購読から外し、保存済み動画一覧を削除しますか？Iwaraのフォローには影響しません。",
-            ),
-        ):
+        if not show_fluent_confirmation(self.window(), *author_text.unsubscribe_confirmation(self._username)):
             return
         try:
             download_manager.remove_subscription_source(source_id)
         except Exception as exc:
-            self._toast(False, tr("Could not remove", "无法移除", "解除できません"), str(exc))
+            self._toast(False, author_text.remove_failed_title(), str(exc))
             return
         signal_bus.subscription_sources_changed.emit()
         self.refresh_local()
@@ -255,11 +212,11 @@ class AuthorStatusBar(QWidget):
                 self._following = wanted
             self._toast(
                 True,
-                tr("Followed on Iwara", "已在 Iwara 关注", "Iwaraでフォローしました") if wanted else tr("Unfollowed on Iwara", "已取消 Iwara 关注", "Iwaraのフォローを解除しました"),
+                author_text.follow_done_title(wanted),
                 f"@{username}",
             )
         else:
-            self._toast(False, tr("Could not change the follow", "无法更改关注状态", "フォローを変更できません"), str(message or error))
+            self._toast(False, author_text.follow_failed_title(), str(message or error))
         if current:
             self._sync()
 

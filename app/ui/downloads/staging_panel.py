@@ -34,7 +34,8 @@ from ...core.rules import rule_store
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..common.fluent_dialogs import show_fluent_confirmation
-from ..rules.rule_text import _rule_display_name
+from ...presentation.downloads.staging import confirmed_text, example_path, example_text
+from ...presentation.rules import _rule_display_name
 from ..style.theme import qcolor, set_secondary_text
 from .page_dependencies import download_manager
 
@@ -238,12 +239,12 @@ class StagingPanel(QWidget):
     def _show_example(self):
         example = download_manager.staged_example(self._batch_id())
         if not example:
-            self._example.set_full_text(tr("Nothing here would download yet.", "这里还没有将要下载的作品。", "保存予定の動画はまだありません。"))
+            self._example.set_full_text(example_text(example))
             return
-        full = os.path.join(app_config.download_dir, example["relative_path"])
+        full = example_path(example)
         title = example["title"]
         self._example.set_full_text(
-            tr(f"e.g. {title} → {full}", f"示例：{title} → {full}", f"例: {title} → {full}"),
+            example_text(example),
             tr(f"Random example\n{title}\nSaved in: {os.path.dirname(full)}\nNamed: {os.path.basename(full)}",
                f"随机示例\n{title}\n保存到：{os.path.dirname(full)}\n重命名为：{os.path.basename(full)}",
                f"ランダムな例\n{title}\n保存先: {os.path.dirname(full)}\nファイル名: {os.path.basename(full)}"),
@@ -264,13 +265,9 @@ class StagingPanel(QWidget):
 
     def _confirm(self):
         result = download_manager.confirm_staged(batch_id=self._batch_id())
-        message = tr(
-            f"Queued {result['queued']}, marked {result['marked']}; {result['dropped']} skipped rows cleared",
-            f"已加入队列 {result['queued']} 个，标记 {result['marked']} 个；清除跳过/不能下的 {result['dropped']} 行",
-            f"キュー {result['queued']} 件、記録 {result['marked']} 件。スキップ等 {result['dropped']} 行を削除",
-        )
+        title, message = confirmed_text(result)
         InfoBar.success(
-            title=tr("Confirmed", "已确认", "確認しました"), content=message,
+            title=title, content=message,
             orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=3500, parent=self.window(),
         )
 

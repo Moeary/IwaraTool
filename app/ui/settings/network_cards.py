@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import Qt, QTimer
@@ -22,7 +21,8 @@ from qfluentwidgets import (
 )
 
 from ...config import DEFAULT_PROXY_URL, app_config
-from ...i18n import tr
+from ...presentation.settings import values as setting_values
+from ...presentation.settings.texts import stext
 from .page_dependencies import download_manager
 
 _ARIA2_TEST_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="iwara-aria2-test")
@@ -37,23 +37,16 @@ class SettingsNetworkCardsMixin:
         proxy_layout.setContentsMargins(20, 16, 20, 16)
         proxy_layout.setSpacing(10)
 
-        proxy_layout.addWidget(SubtitleLabel(tr("Proxy", "代理设置", "プロキシ"), proxy_card))
+        proxy_layout.addWidget(SubtitleLabel(stext("proxy"), proxy_card))
         proxy_layout.addWidget(
             BodyLabel(
-                tr(
-                    "API proxy is used for login, URL parsing, subscriptions and metadata. While it is off, requests follow the system proxy / TUN. "
-                    "If neither is on, enable it and enter your local proxy port (Clash Verge Rev uses 7897, older CFW setups 7890).",
-                    "API 代理用于登录、链接解析、订阅和元数据请求。关闭时请求跟随系统代理 / TUN；两者都未开启时，请启用并填写本机代理端口"
-                    "（Clash Verge Rev 默认 7897，旧版 CFW 常用 7890）。",
-                    "API プロキシはログイン、URL 解析、購読、メタデータ取得に使います。無効の間はシステムプロキシ / TUN に従います。"
-                    "どちらも無効な場合は有効にしてローカルのプロキシポートを入力してください（Clash Verge Rev は 7897、旧 CFW は 7890）。",
-                ),
+                stext("api_proxy_is_used_for_login"),
                 proxy_card,
             )
         )
 
         api_proxy_header = QHBoxLayout()
-        api_proxy_header.addWidget(BodyLabel(tr("Login / parsing proxy", "登录/解析代理", "ログイン/解析プロキシ"), proxy_card))
+        api_proxy_header.addWidget(BodyLabel(stext("login_parsing_proxy"), proxy_card))
         api_proxy_header.addStretch()
         self._api_proxy_switch = SwitchButton(proxy_card)
         self._api_proxy_switch.checkedChanged.connect(self._on_api_proxy_toggle)
@@ -70,7 +63,7 @@ class SettingsNetworkCardsMixin:
         proxy_layout.addWidget(self._api_proxy_widget)
 
         download_proxy_header = QHBoxLayout()
-        download_proxy_header.addWidget(BodyLabel(tr("Video download proxy", "视频下载代理", "動画ダウンロードプロキシ"), proxy_card))
+        download_proxy_header.addWidget(BodyLabel(stext("video_download_proxy"), proxy_card))
         download_proxy_header.addStretch()
         self._download_proxy_switch = SwitchButton(proxy_card)
         self._download_proxy_switch.checkedChanged.connect(self._on_download_proxy_toggle)
@@ -79,11 +72,7 @@ class SettingsNetworkCardsMixin:
 
         proxy_layout.addWidget(
             BodyLabel(
-                tr(
-                    "Only affects large file downloads and aria2 all-proxy; thumbnails and metadata still follow the API proxy.",
-                    "仅影响大文件下载和 aria2 all-proxy；封面、头像和元数据仍跟随 API 代理。",
-                    "大きなファイルのダウンロードと aria2 all-proxy のみに影響します。サムネイル、アバター、メタデータは API プロキシに従います。",
-                ),
+                stext("only_affects_large_file_downloads_and"),
                 proxy_card,
             )
         )
@@ -97,7 +86,7 @@ class SettingsNetworkCardsMixin:
         download_proxy_inner.addWidget(self._download_proxy_edit, stretch=1)
         proxy_layout.addWidget(self._download_proxy_widget)
 
-        apply_proxy_btn = PrimaryPushButton(tr("Apply", "应用", "適用"), proxy_card)
+        apply_proxy_btn = PrimaryPushButton(stext("apply"), proxy_card)
         apply_proxy_btn.setFixedWidth(80)
         apply_proxy_btn.clicked.connect(self._apply_proxy)
 
@@ -123,11 +112,7 @@ class SettingsNetworkCardsMixin:
 
         aria2_layout.addWidget(
             BodyLabel(
-                tr(
-                    "When enabled, downloads are delegated to aria2 RPC",
-                    "启用后下载任务交由 aria2 RPC 代理处理",
-                    "有効時、ダウンロードは aria2 RPC に委譲されます",
-                ),
+                stext("when_enabled_downloads_are_delegated_to"),
                 aria2_card,
             )
         )
@@ -142,7 +127,7 @@ class SettingsNetworkCardsMixin:
         aria2_inner.addWidget(self._aria2_url_edit)
 
         self._aria2_token_edit = PasswordLineEdit(self._aria2_widget)
-        self._aria2_token_edit.setPlaceholderText(tr("RPC token, optional", "RPC token，可留空", "RPC token、任意"))
+        self._aria2_token_edit.setPlaceholderText(stext("rpc_token_optional"))
         aria2_inner.addWidget(self._aria2_token_edit)
         self._build_aria2_remote_section(aria2_inner)
 
@@ -154,11 +139,7 @@ class SettingsNetworkCardsMixin:
 
         parent = self._aria2_widget
         header = QHBoxLayout()
-        header.addWidget(BodyLabel(tr(
-            "aria2 runs on another device (NAS / server)",
-            "aria2 运行在其他设备上（NAS / 服务器）",
-            "aria2 は別のデバイスで動作（NAS / サーバー）",
-        ), parent))
+        header.addWidget(BodyLabel(stext("aria2_runs_on_another_device_nas"), parent))
         header.addStretch()
         self._aria2_remote_switch = SwitchButton(parent)
         self._aria2_remote_switch.checkedChanged.connect(self._on_aria2_remote_toggle)
@@ -169,44 +150,25 @@ class SettingsNetworkCardsMixin:
         inner = QVBoxLayout(self._aria2_remote_widget)
         inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(6)
-        hint = CaptionLabel(tr(
-            "Videos are saved by aria2 on that device, not in the local download folder. History marks them as \"On NAS\" instead of local. "
-            "Covers are cached on this machine; NFO and covers go next to the video only when the folder is mounted here.",
-            "视频由该设备上的 aria2 直接保存，不会写入本机下载目录；历史记录会标为「远端」而不是本地。"
-            "封面缓存在本机；只有填写了本机挂载路径时，NFO 与封面才会写到视频旁边。",
-            "動画はそのデバイスの aria2 が保存し、ローカルの保存先には書き込みません。履歴では「リモート」と表示されます。"
-            "カバーはこの PC にキャッシュし、NFO とカバーはマウント先がある場合のみ動画の隣に保存します。",
-        ), self._aria2_remote_widget)
+        hint = CaptionLabel(stext("videos_are_saved_by_aria2_on"), self._aria2_remote_widget)
         hint.setWordWrap(True)
         inner.addWidget(hint)
 
         self._aria2_remote_dir_edit = LineEdit(self._aria2_remote_widget)
-        self._aria2_remote_dir_edit.setPlaceholderText(tr(
-            "Download folder on the aria2 device, e.g. /volume1/iwara (required)",
-            "aria2 设备上的下载目录，如 /volume1/iwara（必填）",
-            "aria2 デバイス上の保存先（例: /volume1/iwara、必須）",
-        ))
+        self._aria2_remote_dir_edit.setPlaceholderText(stext("download_folder_on_the_aria2_device"))
         inner.addWidget(self._aria2_remote_dir_edit)
 
         self._aria2_remote_mount_edit = LineEdit(self._aria2_remote_widget)
-        self._aria2_remote_mount_edit.setPlaceholderText(tr(
-            "Same folder mounted on this machine (SMB / NFS), e.g. /Volumes/iwara or Z:\\iwara (optional)",
-            "该目录在本机的挂载路径（SMB / NFS），如 /Volumes/iwara 或 Z:\\iwara（可选）",
-            "このフォルダーのローカルマウント先（SMB / NFS、例: /Volumes/iwara や Z:\\iwara、任意）",
-        ))
+        self._aria2_remote_mount_edit.setPlaceholderText(stext("same_folder_mounted_on_this_machine"))
         inner.addWidget(self._aria2_remote_mount_edit)
 
         self._aria2_remote_http_edit = LineEdit(self._aria2_remote_widget)
-        self._aria2_remote_http_edit.setPlaceholderText(tr(
-            "HTTP address serving that folder, for streaming, e.g. http://nas:8080/iwara (optional)",
-            "提供该目录访问的 HTTP 地址，用于串流播放，如 http://nas:8080/iwara（可选）",
-            "このフォルダーを配信する HTTP アドレス（ストリーミング用、例: http://nas:8080/iwara、任意）",
-        ))
+        self._aria2_remote_http_edit.setPlaceholderText(stext("http_address_serving_that_folder_for"))
         inner.addWidget(self._aria2_remote_http_edit)
 
         test_row = QHBoxLayout()
         test_row.addStretch()
-        self._aria2_test_btn = PushButton(tr("Test connection", "测试连接", "接続テスト"), self._aria2_remote_widget)
+        self._aria2_test_btn = PushButton(stext("test_connection"), self._aria2_remote_widget)
         self._aria2_test_btn.clicked.connect(self._test_aria2_connection)
         test_row.addWidget(self._aria2_test_btn)
         inner.addLayout(test_row)
@@ -217,13 +179,15 @@ class SettingsNetworkCardsMixin:
         self._aria2_remote_widget.setVisible(checked)
 
     def _save_aria2_settings(self):
-        app_config.aria2_rpc_enabled = self._aria2_switch.isChecked()
-        app_config.aria2_rpc_url = self._aria2_url_edit.text().strip()
-        app_config.aria2_rpc_token = self._aria2_token_edit.text().strip()
-        app_config.aria2_remote_enabled = self._aria2_remote_switch.isChecked()
-        app_config.aria2_remote_dir = self._aria2_remote_dir_edit.text()
-        app_config.aria2_remote_mount_dir = self._aria2_remote_mount_edit.text()
-        app_config.aria2_remote_http_base = self._aria2_remote_http_edit.text()
+        setting_values.save_aria2(
+            enabled=self._aria2_switch.isChecked(),
+            url=self._aria2_url_edit.text(),
+            token=self._aria2_token_edit.text(),
+            remote=self._aria2_remote_switch.isChecked(),
+            remote_dir=self._aria2_remote_dir_edit.text(),
+            mount_dir=self._aria2_remote_mount_edit.text(),
+            http_base=self._aria2_remote_http_edit.text(),
+        )
 
     def _test_aria2_connection(self):
         """Ask aria2 for its version off the GUI thread, then report what is set up."""
@@ -249,49 +213,17 @@ class SettingsNetworkCardsMixin:
         timer.start(100)
 
     def _report_aria2_test(self, data, error: str):
-        if not data:
-            InfoBar.error(
-                title=tr("aria2 not reachable", "无法连接 aria2", "aria2 に接続できません"),
-                content=str(error or ""),
-                orient=Qt.Orientation.Horizontal, isClosable=True,
-                position=InfoBarPosition.TOP, duration=5000, parent=self,
-            )
-            return
-        version = str((data.get("result") or {}).get("version", "") or "?")
-        notes = [tr(f"aria2 {version} is reachable.", f"已连接 aria2 {version}。", f"aria2 {version} に接続しました。")]
-        if app_config.aria2_remote_enabled:
-            if not app_config.aria2_remote_dir:
-                notes.append(tr(
-                    "Fill in the download folder on the aria2 device.",
-                    "请填写 aria2 设备上的下载目录。",
-                    "aria2 デバイス上の保存先を入力してください。",
-                ))
-            mount = app_config.aria2_remote_mount_dir
-            if mount and not os.path.isdir(mount):
-                notes.append(tr(
-                    f"The local mount folder is not reachable now: {mount}",
-                    f"本机挂载路径当前不可访问：{mount}",
-                    f"マウント先に現在アクセスできません: {mount}",
-                ))
-            elif not mount and not app_config.aria2_remote_http_base:
-                notes.append(tr(
-                    "Without a mount folder or HTTP address, NAS copies cannot be played or opened here.",
-                    "未填写挂载路径或 HTTP 地址时，本机无法播放或打开远端文件。",
-                    "マウント先か HTTP アドレスがないと、リモートのファイルはここで再生できません。",
-                ))
-        InfoBar.success(
-            title=tr("Connection OK", "连接成功", "接続成功"),
-            content=" ".join(notes),
+        ok, title, content = setting_values.aria2_test_report(data, error)
+        (InfoBar.success if ok else InfoBar.error)(
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal, isClosable=True,
-            position=InfoBarPosition.TOP, duration=6000, parent=self,
+            position=InfoBarPosition.TOP, duration=6000 if ok else 5000, parent=self,
         )
 
     def _on_api_proxy_toggle(self, checked: bool):
-        app_config.api_proxy_enabled = checked
         self._api_proxy_widget.setVisible(checked)
-        download_manager.apply_config()
-        if not checked:
-            download_manager.api.set_proxy("")
+        setting_values.set_api_proxy_enabled(checked, download_manager)
 
     def _on_api_proxy_url_changed(self, text: str):
         app_config.api_proxy_url = text
@@ -308,22 +240,18 @@ class SettingsNetworkCardsMixin:
         self._aria2_widget.setVisible(checked)
 
     def _apply_proxy(self):
-        app_config.api_proxy_enabled = self._api_proxy_switch.isChecked()
-        app_config.api_proxy_url = self._api_proxy_edit.text().strip() or DEFAULT_PROXY_URL
-        app_config.download_proxy_enabled = self._download_proxy_switch.isChecked()
-        app_config.download_proxy_url = self._download_proxy_edit.text().strip() or DEFAULT_PROXY_URL
+        title, content = setting_values.apply_proxies(
+            download_manager,
+            api_enabled=self._api_proxy_switch.isChecked(),
+            api_url=self._api_proxy_edit.text(),
+            download_enabled=self._download_proxy_switch.isChecked(),
+            download_url=self._download_proxy_edit.text(),
+        )
         self._api_proxy_edit.setText(app_config.api_proxy_url)
         self._download_proxy_edit.setText(app_config.download_proxy_url)
-        download_manager.apply_config()
-        api_state = tr("On", "开", "オン") if app_config.api_proxy_enabled else tr("Off", "关", "オフ")
-        download_state = tr("On", "开", "オン") if app_config.download_proxy_enabled else tr("Off", "关", "オフ")
         InfoBar.success(
-            title=tr("Proxy Applied", "代理已应用", "プロキシを適用しました"),
-            content=tr(
-                f"API: {api_state} {app_config.api_proxy_url}; Download: {download_state} {app_config.download_proxy_url}",
-                f"API：{api_state} {app_config.api_proxy_url}；下载：{download_state} {app_config.download_proxy_url}",
-                f"API: {api_state} {app_config.api_proxy_url}; ダウンロード: {download_state} {app_config.download_proxy_url}",
-            ),
+            title=title,
+            content=content,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

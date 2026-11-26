@@ -10,8 +10,8 @@ from qfluentwidgets import FluentIcon
 
 from ...core.models import DownloadTask, TaskStatus, status_label
 from ...i18n import tr
-from .task_statuses import _ACTIVE_STATUSES, _DEFAULT_STATUS_PRIORITY
-from .task_text import _task_url
+from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES, _DEFAULT_STATUS_PRIORITY
+from ...presentation.downloads.task_text import _task_url
 
 
 class TaskSortingMixin:

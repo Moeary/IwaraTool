@@ -9,13 +9,10 @@ from PySide6.QtCore import QThread, QTimer
 from ...config import app_config
 from ...core.search.models import SearchFilters, SearchPageResult
 from ...core.rating import api_rating
-from ...i18n import tr
-from .worker_limits import (
-    DEFAULT_COVER_DOWNLOAD_CONCURRENCY as _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-    DEFAULT_SEARCH_RESOLUTION_CONCURRENCY as _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-    MAX_COVER_DOWNLOAD_CONCURRENCY as _MAX_COVER_DOWNLOAD_CONCURRENCY,
-    MAX_SEARCH_RESOLUTION_CONCURRENCY as _MAX_SEARCH_RESOLUTION_CONCURRENCY,
-)
+from ...core.search.limits import configured_cover_concurrency, configured_resolution_concurrency, resolution_mode
+from ...presentation.search import options as search_options
+from ...presentation.search.request import PROBLEM_WARNING, merge_page, request_problem
+from ...presentation.search.request import page_size as search_page_size
 from .search_worker import SearchWorker
 from ..common.worker_lifecycle import on_finished, stop_qthreads
 
@@ -25,39 +22,15 @@ class SearchExecutionMixin:
 
     @staticmethod
     def _search_resolution_mode() -> str:
-        mode = str(
-            app_config.get_ui_value("search_iwara_resolution_mode_v1", "eager")
-            or "eager"
-        ).strip().lower()
-        return mode if mode in {"eager", "on_demand"} else "eager"
+        return resolution_mode()
 
     @staticmethod
     def _search_resolution_concurrency() -> int:
-        try:
-            value = int(
-                app_config.get_ui_value(
-                    "search_iwara_resolution_workers_v1",
-                    _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY,
-                )
-                or _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY
-            )
-        except (TypeError, ValueError):
-            value = _DEFAULT_SEARCH_RESOLUTION_CONCURRENCY
-        return max(1, min(_MAX_SEARCH_RESOLUTION_CONCURRENCY, value))
+        return configured_resolution_concurrency()
 
     @staticmethod
     def _cover_download_concurrency() -> int:
-        try:
-            value = int(
-                app_config.get_ui_value(
-                    "cover_download_workers_v1",
-                    _DEFAULT_COVER_DOWNLOAD_CONCURRENCY,
-                )
-                or _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
-            )
-        except (TypeError, ValueError):
-            value = _DEFAULT_COVER_DOWNLOAD_CONCURRENCY
-        return max(1, min(_MAX_COVER_DOWNLOAD_CONCURRENCY, value))
+        return configured_cover_concurrency()
 
     def _on_login_state_changed(self, *_args):
         self._account_epoch += 1
@@ -100,11 +73,7 @@ class SearchExecutionMixin:
 
     @staticmethod
     def _page_size(iwara: bool, rating: str, keyword: str) -> int:
-        if rating and keyword:
-            # /search ignores the rating, so the page is filtered locally;
-            # ask for the largest page so a filtered page is not nearly empty.
-            return 100
-        return 32 if iwara else 36
+        return search_page_size(iwara, rating, keyword)
 
     def _rerated_filters(self, filters: SearchFilters) -> SearchFilters:
         """The same Iwara query under the current global content rating."""
@@ -126,23 +95,10 @@ class SearchExecutionMixin:
             return
         scope = str(self._scope_combo.currentData() or "videos")
         source = str(self._source_combo.currentData() or "oreno3d")
-        if scope in {"images", "authors", "playlists"} and source == "oreno3d":
-            self._show_warning(
-                tr(
-                    "Oreno3D online search currently returns video cards. Switch to Iwara live API for image, author or playlist results.",
-                    "Oreno3D 在线搜索当前返回视频卡片；图片、作者或播放列表结果请切换到 Iwara 实时 API。",
-                    "Oreno3Dオンライン検索は現在動画カードを返します。画像・作者・プレイリストはIwaraライブAPIへ切り替えてください。",
-                )
-            )
-            return
-        if scope == "authors" and not filters.keyword:
-            self._show_error(tr("Enter an author name first", "请先输入作者名称", "作者名を入力してください"))
-            return
-        if scope == "tags" and not filters.keyword:
-            self._show_error(tr("Enter at least one tag", "请至少输入一个标签", "タグを1つ以上入力してください"))
-            return
-        if scope == "playlists" and not filters.keyword:
-            self._show_error(tr("Enter playlist keywords, an ID or a URL", "请输入播放列表关键词、ID 或链接", "プレイリストのキーワード、ID、URLを入力してください"))
+        problem = request_problem(scope, source, filters.keyword)
+        if problem is not None:
+            level, message = problem
+            (self._show_warning if level == PROBLEM_WARNING else self._show_error)(message)
             return
 
         if record_history:
@@ -221,25 +177,7 @@ class SearchExecutionMixin:
         worker = self.sender()
         if not isinstance(worker, SearchWorker) or worker.generation != self._generation:
             return
-        if worker.replace_results:
-            self._all_videos.clear()
-            self._all_authors.clear()
-            self._all_playlists.clear()
-        existing_playlist_ids = {item.playlist_id for item in self._all_playlists}
-        for playlist in result.playlists:
-            if playlist.playlist_id not in existing_playlist_ids:
-                self._all_playlists.append(playlist)
-                existing_playlist_ids.add(playlist.playlist_id)
-        existing_video_ids = {video.video_id for video in self._all_videos}
-        for video in result.videos:
-            if video.video_id not in existing_video_ids:
-                self._all_videos.append(video)
-                existing_video_ids.add(video.video_id)
-        existing_author_ids = {author.author_id for author in self._all_authors}
-        for author in result.authors:
-            if author.author_id not in existing_author_ids:
-                self._all_authors.append(author)
-                existing_author_ids.add(author.author_id)
+        merge_page(self._all_videos, self._all_authors, self._all_playlists, result, replace=worker.replace_results)
         self._total = result.total
         self._current_page = max(0, int(result.current_page or 0))
         self._last_page = result.last_page
@@ -277,39 +215,21 @@ class SearchExecutionMixin:
         self._next_page_btn.setEnabled(not loading and has_next)
         self._update_page_controls()
         if loading:
-            self._status_label.setText(tr("Searching…", "搜索中…", "検索中…"))
+            self._status_label.setText(search_options.searching_text())
 
     def _update_status(self, result: SearchPageResult | None = None):
         if result is not None:
             self._search_error = result.error
         if self._search_error:
-            self._status_label.setText(tr(
-                f"Search failed: {self._search_error}",
-                f"搜索失败：{self._search_error}",
-                f"検索失敗: {self._search_error}",
-            ))
+            self._status_label.setText(search_options.failed_text(self._search_error))
             return
         scope = result.scope if result is not None else str(self._scope_combo.currentData() or "videos")
-        total = f" / {self._total}" if self._total is not None else ""
-        if scope == "authors":
-            count = len(self._all_authors)
-            self._status_label.setText(
-                tr(f"Found {count} author(s){total}", f"找到 {count} 位作者{total}", f"作者 {count} 件{total}")
-            )
-        elif self._all_playlists:
-            count = len(self._all_playlists)
-            self._status_label.setText(
-                tr(f"Found {count} playlist(s){total}", f"找到 {count} 个播放列表{total}", f"プレイリスト {count} 件{total}")
-            )
-        elif scope == "images":
-            count = len(self._all_videos)
-            self._status_label.setText(
-                tr(f"Found {count} image post(s){total}", f"找到 {count} 个图片作品{total}", f"画像 {count} 件{total}")
-                + self._post_filter_status_suffix()
-            )
-        else:
-            count = len(self._all_videos)
-            self._status_label.setText(
-                tr(f"Found {count} video(s){total}", f"找到 {count} 个视频{total}", f"動画 {count} 件{total}")
-                + self._post_filter_status_suffix()
-            )
+        shown = len(self._visible_videos()) if self._post_filter_applies() else None
+        self._status_label.setText(search_options.found_text(
+            scope,
+            videos=len(self._all_videos),
+            authors=len(self._all_authors),
+            playlists=len(self._all_playlists),
+            total=self._total,
+            shown=shown,
+        ))

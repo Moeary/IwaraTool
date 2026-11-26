@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...i18n import tr
+from ...presentation.media.comments import comments_hint, comments_title, more_comments_available
 from ..home.workers import CommentsWorker
 from .comment_widget import CommentWidget
 
@@ -37,14 +37,9 @@ class DetailCommentsMixin:
             self._comments_box.addWidget(widget)
             self._comment_count += 1
         if self._comment_total is not None:
-            self._comments_title.setText(tr(f"Comments ({self._comment_total})", f"评论（{self._comment_total}）", f"コメント（{self._comment_total}）"))
-        if error:
-            self._comments_hint.setText(error)
-        elif not self._comment_count:
-            self._comments_hint.setText(tr("No comments yet", "暂无评论", "コメントはまだありません"))
-        else:
-            self._comments_hint.setText("")
-        more = self._comment_total is not None and self._comment_count < self._comment_total and bool(rows)
+            self._comments_title.setText(comments_title(self._comment_total))
+        self._comments_hint.setText(comments_hint(error, self._comment_count))
+        more = more_comments_available(self._comment_total, self._comment_count, rows)
         self._more_comments_btn.setVisible(more)
         self._more_comments_btn.setEnabled(True)
 

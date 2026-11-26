@@ -7,10 +7,10 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, StrongBodyLabel
 
 from ...core.rules import PAGE_RULE_SCOPES
-from ...i18n import tr
+from ...presentation import rule_editing
 from ..style.theme import set_secondary_text
 from .rule_picker import RulePicker
-from .rule_text import page_scope_name
+from ...presentation.rules import page_scope_name
 
 
 class PageRuleBindings(CardWidget):
@@ -27,12 +27,8 @@ class PageRuleBindings(CardWidget):
         layout.setSpacing(8)
         header = QHBoxLayout()
         header.setSpacing(12)
-        header.addWidget(StrongBodyLabel(tr("Rule per page", "各页面使用的规则", "ページごとのルール"), self))
-        hint = BodyLabel(tr(
-            "Downloads started on a page use its rule; \"Follow default\" uses the rule marked ●.",
-            "从哪个页面发起下载就用哪个页面的规则；“跟随默认”即使用带 ● 的默认规则。",
-            "各ページから始めたダウンロードはそのページのルールを使います。「既定に従う」は ● のルールです。",
-        ), self)
+        header.addWidget(StrongBodyLabel(rule_editing.page_rules_title(), self))
+        hint = BodyLabel(rule_editing.page_rules_hint(), self)
         hint.setWordWrap(True)
         set_secondary_text(hint)
         header.addWidget(hint, 1)

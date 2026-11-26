@@ -9,7 +9,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .item_queries import item_state
+from ...presentation.subscription.item_queries import item_state
 from .source_row import SourceRow
 
 

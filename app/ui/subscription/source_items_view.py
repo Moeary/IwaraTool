@@ -24,6 +24,7 @@ from qfluentwidgets import (
     ToolButton,
 )
 
+from ...presentation.subscription import text as sub_text
 from ...core.search.models import SearchVideo
 from ...i18n import tr
 from ..author.status import AuthorStatusBar
@@ -37,7 +38,7 @@ from .helpers import _source_type_label
 from ..style.theme import PAGE_SPACING, set_secondary_text
 from ..common.flow_layout import ResponsiveFlowLayout
 from .cover_loader import CoverLoader, load_pixmap
-from .item_queries import downloadable_ids, filter_items, item_state, item_to_video, sort_items
+from ...presentation.subscription.item_queries import downloadable_ids, filter_items, item_state, item_to_video, sort_items
 
 
 GRID_PAGE_SIZE = 60
@@ -131,33 +132,20 @@ class SourceItemsView(QWidget):
     def _build_filters(self) -> ResponsiveFlowLayout:
         filters = ResponsiveFlowLayout(spacing=8)
         self._search = SearchLineEdit(self)
-        self._search.setPlaceholderText(tr("Search titles…", "搜索标题…", "タイトルを検索…"))
+        self._search.setPlaceholderText(sub_text.title_search_placeholder())
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(220)
         self._search.textChanged.connect(lambda _t: self._filter_timer.start())
         filters.addWidget(self._search)
         self._state_combo = ComboBox(self)
-        for key, label in (
-            ("all", tr("All", "全部", "すべて")),
-            ("ready", tr("Downloadable", "可下载", "保存可能")),
-            ("new", tr("New", "新增", "新規")),
-            ("downloaded", tr("Downloaded", "已下载", "保存済み")),
-            ("moved", tr("Moved", "已移走", "移動済み")),
-            ("queued", tr("Queued", "已入队", "キュー内")),
-            ("unavailable", tr("Unavailable", "不可下载", "保存不可")),
-        ):
+        for key, label in sub_text.state_filter_choices():
             self._state_combo.addItem(label)
             self._state_combo.setItemData(self._state_combo.count() - 1, key)
         self._state_combo.setFixedWidth(124)
         self._state_combo.currentIndexChanged.connect(lambda _i: self._apply(reset_page=True))
         filters.addWidget(self._state_combo)
         self._sort_combo = ComboBox(self)
-        for key, label in (
-            ("date_desc", tr("Newest first", "时间倒序", "新しい順")),
-            ("date_asc", tr("Oldest first", "时间升序", "古い順")),
-            ("new_first", tr("New first", "新增优先", "新規優先")),
-            ("title", tr("Title A-Z", "标题 A-Z", "タイトル A-Z")),
-        ):
+        for key, label in sub_text.item_sort_choices():
             self._sort_combo.addItem(label)
             self._sort_combo.setItemData(self._sort_combo.count() - 1, key)
         self._sort_combo.setFixedWidth(124)

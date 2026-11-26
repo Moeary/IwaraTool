@@ -22,7 +22,7 @@ from .detail_actions import DetailActionsMixin
 from .detail_comments import DetailCommentsMixin
 from .detail_content import DetailContentMixin
 from .detail_layout import DetailLayoutMixin
-from .detail_metrics import SIDE_MIN_PAGE_WIDTH
+from ...presentation.media.detail_metrics import SIDE_MIN_PAGE_WIDTH
 
 
 class DetailView(

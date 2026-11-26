@@ -185,34 +185,6 @@ class Tour:
 # ── data the pages start with ───────────────────────────────────────────────
 
 
-def seed(root: Path):
-    """History records with files on disk, and subscriptions filled by a (fake) refresh."""
-
-    from app.core.download.manager import download_manager
-
-    downloads = root / "Downloads"
-    for index in range(30, 52):
-        post = demo_fixture.video(index)
-        author = post["user"]["username"]
-        folder = downloads / author
-        folder.mkdir(parents=True, exist_ok=True)
-        file_path = folder / f"{post['createdAt'][:10]}_{post['title']}_{post['id']}.mp4"
-        file_path.write_bytes(b"\0" * 1024)
-        thumb = folder / f"{file_path.stem}.jpg"
-        thumb.write_bytes(demo_fixture.artwork(f"/image/original/file-{post['id']}/thumbnail.jpg"))
-        download_manager.history.upsert_downloaded({
-            "video_id": post["id"], "title": post["title"], "author": author,
-            "published_at": post["createdAt"], "likes": post["numLikes"], "views": post["numViews"],
-            "duration": post["file"]["duration"], "comments": post["numComments"], "rating": "general",
-            "tags_json": json.dumps([tag["id"] for tag in post["tags"]]), "raw_json": json.dumps(post),
-            "source_url": f"https://www.iwara.tv/video/{post['id']}", "file_path": str(file_path),
-            "thumbnail_path": str(thumb), "quality": "Source",
-        })
-    for username, name in demo_fixture.AUTHORS[:6]:
-        download_manager.add_author_subscription(username, title=name, remote_id=f"user-{username}")
-    download_manager.refresh_all_subscriptions()
-
-
 # ── the tour ────────────────────────────────────────────────────────────────
 
 
@@ -353,7 +325,7 @@ def main():
     download_manager.restore_cached_login()
     ensure_temporary_rule()
     print(f"Demo data in {root}")
-    seed(root)
+    demo_fixture.seed(root)
 
     window = MainWindow()
     download_manager.start()

@@ -29,17 +29,7 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
-from ...core.rules import (
-    BUILTIN_DEFAULT_RULE_ID,
-    PAGE_RULE_SCOPES,
-    active_rule_id,
-    apply_rule_payload,
-    current_rule_payload,
-    default_rule_payload,
-    page_rule_id,
-    rule_store,
-    set_active_rule_id,
-)
+from ...core.rules import BUILTIN_DEFAULT_RULE_ID, active_rule_id
 from ...i18n import tr
 from ...signal_bus import signal_bus
 from ..style.theme import (
@@ -51,9 +41,10 @@ from ..style.theme import (
     set_secondary_text,
 )
 from ..common.fluent_dialogs import show_fluent_confirmation
+from ...presentation import rule_editing
 from .page_bindings import PageRuleBindings
 from .rule_form import RuleFormWidget
-from .rule_text import DRAFT_RULE_ID, _rule_display_name, _rule_summary, page_scope_name
+from ...presentation.rules import DRAFT_RULE_ID, _rule_display_name, _rule_summary
 
 
 class RulesInterface(QWidget):
@@ -74,12 +65,8 @@ class RulesInterface(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(*PAGE_MARGINS)
         root.setSpacing(PAGE_SPACING)
-        root.addWidget(TitleLabel(tr("Download Rules", "下载规则", "ダウンロードルール"), self))
-        intro = BodyLabel(tr(
-            "One rule combines filters, naming and download behavior. Each page downloads with its own rule; the rule marked ● is the default.",
-            "一个规则统一保存筛选、命名和下载行为；每个页面可以使用各自的规则，带 ● 的是默认规则。",
-            "フィルター、命名、保存動作を一つにまとめます。ページごとに別のルールを使え、● が既定ルールです。",
-        ), self)
+        root.addWidget(TitleLabel(rule_editing.page_title(), self))
+        intro = BodyLabel(rule_editing.intro_text(), self)
         intro.setWordWrap(True)
         set_secondary_text(intro)
         root.addWidget(intro)
@@ -120,9 +107,9 @@ class RulesInterface(QWidget):
         left_layout.addWidget(self._list, 1)
         actions = QGridLayout()
         actions.setHorizontalSpacing(8)
-        self._new_btn = PrimaryPushButton(tr("New", "新建", "新規"), left, FluentIcon.ADD)
-        self._duplicate_btn = PushButton(tr("Duplicate", "复制", "複製"), left, FluentIcon.COPY)
-        self._delete_btn = PushButton(tr("Delete", "删除", "削除"), left, FluentIcon.DELETE)
+        self._new_btn = PrimaryPushButton(rule_editing.button_texts()["new"], left, FluentIcon.ADD)
+        self._duplicate_btn = PushButton(rule_editing.button_texts()["duplicate"], left, FluentIcon.COPY)
+        self._delete_btn = PushButton(rule_editing.button_texts()["delete"], left, FluentIcon.DELETE)
         self._new_btn.clicked.connect(self._new_rule)
         self._duplicate_btn.clicked.connect(self._duplicate_rule)
         self._delete_btn.clicked.connect(self._delete_rule)
@@ -155,8 +142,8 @@ class RulesInterface(QWidget):
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
         bottom.addStretch()
-        self._apply_btn = PushButton(tr("Set as default", "设为当前默认", "既定に設定"), right, FluentIcon.ACCEPT)
-        self._save_btn = PrimaryPushButton(tr("Save rule", "保存规则", "ルールを保存"), right, FluentIcon.SAVE)
+        self._apply_btn = PushButton(rule_editing.button_texts()["default"], right, FluentIcon.ACCEPT)
+        self._save_btn = PrimaryPushButton(rule_editing.button_texts()["save"], right, FluentIcon.SAVE)
         self._apply_btn.clicked.connect(self._apply_current)
         self._save_btn.clicked.connect(self._save_rule)
         bottom.addWidget(self._apply_btn)
@@ -178,23 +165,16 @@ class RulesInterface(QWidget):
         )
 
     def _reload_list(self, select_id: str | None = None):
-        saved_rules = rule_store.list_available()
-        self._rules_cache = list(saved_rules)
-        if self._draft_rule:
-            self._rules_cache.insert(1 if self._rules_cache else 0, self._draft_rule)
+        self._rules_cache = rule_editing.list_rules(self._draft_rule)
         active_id = active_rule_id()
         self._list.blockSignals(True)
         self._list.clear()
         for rule in self._rules_cache:
-            active_mark = "● " if rule["id"] == active_id else "  "
-            if rule["id"] == DRAFT_RULE_ID:
-                kind = tr("Unsaved draft", "未保存草稿", "未保存の下書き")
-            else:
-                kind = tr("Built-in default", "内置默认", "内蔵の既定") if rule.get("builtin") else tr("Saved rule", "已保存规则", "保存済み")
-            lines = [f"{active_mark}{_rule_display_name(rule)}", f"{kind} · {_rule_summary(rule['payload'])}"]
-            used_by = [page_scope_name(scope) for scope in PAGE_RULE_SCOPES if page_rule_id(scope) == rule["id"]]
-            if used_by:
-                lines.append(tr("Used by: ", "用于：", "使用先：") + tr(", ", "、", "、").join(used_by))
+            name_line, kind_line, used_line = rule_editing.rule_lines(rule, active_id)
+            lines = [name_line if name_line.startswith("● ") else f"  {name_line}", kind_line]
+            used_by = bool(used_line)
+            if used_line:
+                lines.append(used_line)
             item = QListWidgetItem("\n".join(lines))
             item.setData(Qt.ItemDataRole.UserRole, rule["id"])
             item.setSizeHint(QSize(0, 72 + (20 if used_by else 0)))
@@ -244,7 +224,7 @@ class RulesInterface(QWidget):
         self._selected_id = rule_id
         builtin = bool(rule.get("builtin"))
         self._form.set_builtin_mode(builtin)
-        name = tr("Default Download (built in)", "默认下载（内置）", "既定ダウンロード（内蔵）") if builtin else rule["name"]
+        name = rule_editing.display_name(rule)
         self._form.name_edit.setText(name)
         self._form.load_payload(rule["payload"])
         self._save_btn.setEnabled(not builtin)
@@ -254,24 +234,17 @@ class RulesInterface(QWidget):
     def _on_form_name_changed(self, name: str):
         if self._selected_id != DRAFT_RULE_ID or not self._draft_rule:
             return
-        display_name = name.strip() or tr("New Rule", "新规则", "新規ルール")
+        display_name = name.strip() or rule_editing.new_rule_name()
         self._draft_rule["name"] = display_name
         for index in range(self._list.count()):
             item = self._list.item(index)
             if item.data(Qt.ItemDataRole.UserRole) == DRAFT_RULE_ID:
-                item.setText(f"  {display_name}\n{tr('Unsaved draft', '未保存草稿', '未保存の下書き')} · {_rule_summary(self._draft_rule['payload'])}")
+                item.setText(f"  {display_name}\n{rule_editing.rule_kind(self._draft_rule)} · {_rule_summary(self._draft_rule['payload'])}")
                 break
         self._paint_list_items()
 
     def _new_rule(self):
-        self._draft_rule = {
-            "id": DRAFT_RULE_ID,
-            "name": tr("New Rule", "新规则", "新規ルール"),
-            "created_at": "",
-            "updated_at": "",
-            "builtin": False,
-            "payload": current_rule_payload(),
-        }
+        self._draft_rule = rule_editing.new_draft()
         self._selected_id = DRAFT_RULE_ID
         self._form.set_builtin_mode(False)
         self._form.name_edit.setText(self._draft_rule["name"])
@@ -287,22 +260,7 @@ class RulesInterface(QWidget):
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        base = (
-            self._form.name_edit.text()
-            .replace("（内置）", "")
-            .replace("（内蔵）", "")
-            .replace(" (built in)", "")
-            .strip()
-        )
-        self._draft_rule = {
-            "id": DRAFT_RULE_ID,
-            "name": (base or tr("New Rule", "新规则", "新規ルール"))
-            + tr(" copy", " 副本", " コピー"),
-            "created_at": "",
-            "updated_at": "",
-            "builtin": False,
-            "payload": payload,
-        }
+        self._draft_rule = rule_editing.duplicate_draft(self._form.name_edit.text(), payload)
         self._selected_id = DRAFT_RULE_ID
         self._form.set_builtin_mode(False)
         self._form.name_edit.setText(self._draft_rule["name"])
@@ -314,20 +272,14 @@ class RulesInterface(QWidget):
     def _save_rule(self):
         try:
             payload = self._form.payload()
-            old_id = self._selected_id if self._selected_id != DRAFT_RULE_ID else ""
-            rule = rule_store.save(self._form.name_edit.text(), payload, old_id or None)
+            rule = rule_editing.save_rule(self._form.name_edit.text(), payload, self._selected_id)
         except ValueError as exc:
             self._show_error(str(exc))
             return
         self._draft_rule = None
         self._selected_id = rule["id"]
-        if active_rule_id() == old_id:
-            apply_rule_payload(rule["payload"])
-            signal_bus.download_options_changed.emit()
-            signal_bus.active_rule_changed.emit(rule["id"])
-        signal_bus.rules_changed.emit()
         self._reload_list(rule["id"])
-        InfoBar.success(title=tr("Rule saved", "规则已保存", "ルールを保存しました"), content=_rule_display_name(rule), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
+        InfoBar.success(title=rule_editing.saved_title(), content=_rule_display_name(rule), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
 
     def _delete_rule(self):
         if self._selected_id == DRAFT_RULE_ID:
@@ -337,49 +289,35 @@ class RulesInterface(QWidget):
             return
         if not self._selected_id or self._selected_id == BUILTIN_DEFAULT_RULE_ID:
             return
+        title, question = rule_editing.delete_confirmation()
         if not show_fluent_confirmation(
-            self,
-            tr("Delete rule", "删除规则", "ルールを削除"),
-            tr("Delete the selected rule?", "确定删除当前规则？", "選択したルールを削除しますか？"),
-            yes_text=tr("Delete", "删除", "削除"),
-            no_text=tr("Cancel", "取消", "キャンセル"),
+            self, title, question, yes_text=rule_editing.button_texts()["delete"], no_text=tr("Cancel", "取消", "キャンセル"),
         ):
             return
         deleted_active = active_rule_id() == self._selected_id
-        if rule_store.delete(self._selected_id):
+        if rule_editing.delete_rule(self._selected_id):
             self._selected_id = BUILTIN_DEFAULT_RULE_ID if deleted_active else ""
-            if deleted_active:
-                set_active_rule_id(BUILTIN_DEFAULT_RULE_ID)
-                apply_rule_payload(default_rule_payload())
-                signal_bus.active_rule_changed.emit(BUILTIN_DEFAULT_RULE_ID)
-                signal_bus.download_options_changed.emit()
-            signal_bus.rules_changed.emit()
             self._reload_list(self._selected_id or None)
 
     def _apply_current(self):
-        if self._selected_id == DRAFT_RULE_ID:
-            InfoBar.warning(title=tr("Save first", "请先保存规则", "先に保存してください"), content=tr("Save the new rule before making it default.", "新规则保存后才能设为默认。", "新規ルールは保存後に既定へ設定できます。"), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2200, parent=self)
-            return
-        if not self._selected_id:
-            InfoBar.warning(title=tr("Save first", "请先保存规则", "先に保存してください"), content=tr("Save the new rule before making it default.", "新规则保存后才能设为默认。", "新規ルールは保存後に既定へ設定できます。"), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2200, parent=self)
+        if self._selected_id == DRAFT_RULE_ID or not self._selected_id:
+            title, content = rule_editing.save_first_notice()
+            InfoBar.warning(title=title, content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2200, parent=self)
             return
         try:
             payload = self._form.payload()
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        apply_rule_payload(payload)
-        set_active_rule_id(self._selected_id)
-        signal_bus.download_options_changed.emit()
-        signal_bus.active_rule_changed.emit(self._selected_id)
+        rule_editing.make_default(self._selected_id, payload)
         self._reload_list(self._selected_id)
-        InfoBar.success(title=tr("Default rule updated", "默认规则已更新", "既定ルールを更新しました"), content=self._form.name_edit.text(), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
+        InfoBar.success(title=rule_editing.default_updated_title(), content=self._form.name_edit.text(), orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=1800, parent=self)
 
     def _on_active_rule_changed(self, rule_id: str):
         self._reload_list(self._selected_id or rule_id)
 
     def _show_error(self, content: str):
-        InfoBar.error(title=tr("Invalid rule", "规则无效", "ルールが無効"), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
+        InfoBar.error(title=rule_editing.invalid_title(), content=content, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
 
     def draft_state(self) -> dict[str, Any]:
         return {

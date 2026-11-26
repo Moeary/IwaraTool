@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QTableWidgetItem
 
 from ...core.search.models import IWARA_IMAGE_SOURCE_KIND, SearchAuthor, SearchPlaylist, SearchVideo
 from ...i18n import tr
-from .result_authors import (
+from ...presentation.search.result_authors import (
     _author_source_info,
     _author_subscription_target,
     _extract_iwara_video_id,
