@@ -12,6 +12,7 @@ import flet as ft
 from . import layout, routes
 from .components.account_panel import AccountPanelHost
 from .components.navigation import build_bar, build_rail
+from .components.swipe_back import SwipeBack
 from .lifecycle import install_back_handler, install_pause_handler
 from .pages import page_for
 from .shell import Shell
@@ -40,6 +41,8 @@ def App(shell: Shell):
     def body() -> ft.Control:
         mode = state.layout.nav_mode
         current = CurrentPage(shell)
+        if shell.caps.desktop:
+            current = SwipeBack(current, shell.back)  # two fingers to the right on the trackpad
         if mode == layout.NAV_BAR:
             content = ft.Column(expand=True, spacing=0, controls=[current, build_bar(shell)])
         else:

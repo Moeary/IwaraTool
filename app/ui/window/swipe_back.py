@@ -12,8 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QAbstractScrollArea, QAbstractSlider, QWidget
 
-
-SWIPE_DISTANCE = 120  # logical pixels of finger travel
+from ...presentation.swipe_back import SWIPE_DISTANCE, SwipeDistance
 
 
 def scrolls_sideways(widget: QWidget | None) -> bool:
@@ -34,14 +33,12 @@ class SwipeBackTracker:
     """Feed it the window's wheel events; ``feed`` is True once per back swipe."""
 
     def __init__(self, distance: int = SWIPE_DISTANCE):
-        self._distance = distance
+        self._travel = SwipeDistance(distance)
         self._reset(active=False)
 
     def _reset(self, *, active: bool):
         self._active = active
-        self._fired = False
-        self._dx = 0.0
-        self._dy = 0.0
+        self._travel.begin()
 
     def feed(self, event: QWheelEvent, widget: QWidget | None) -> bool:
         phase = event.phase()
@@ -53,7 +50,7 @@ class SwipeBackTracker:
         if phase in (Qt.ScrollPhase.ScrollEnd, Qt.ScrollPhase.ScrollMomentum):
             self._active = phase == Qt.ScrollPhase.ScrollMomentum and self._active
             return False
-        if not self._active or self._fired:
+        if not self._active:
             return False
         delta = event.pixelDelta()
         if delta.isNull():
@@ -61,9 +58,4 @@ class SwipeBackTracker:
         # The finger's own direction: with natural scrolling the deltas follow
         # the fingers (and ``inverted()`` is set); otherwise they are reversed.
         sign = 1 if event.inverted() else -1
-        self._dx += sign * delta.x()
-        self._dy += abs(delta.y())
-        if self._dx >= self._distance and self._dx > 2 * self._dy:
-            self._fired = True
-            return True
-        return False
+        return self._travel.move(sign * delta.x(), delta.y())
