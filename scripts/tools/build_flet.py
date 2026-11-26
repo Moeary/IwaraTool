@@ -210,6 +210,8 @@ def smoke(executable: Path, out: Path) -> None:
     if report.get("qt_modules"):
         raise SystemExit(f"smoke test: Qt modules loaded: {report['qt_modules']}")
     desktop = report.get("desktop")
+    if desktop is not None and str(desktop.get("window_check", "")).startswith("inconclusive"):
+        print(f"WARNING: close-to-tray / Dock not verified on this machine ({desktop['window_check']})")
     if desktop is not None and desktop.get("failures"):
         raise SystemExit(f"smoke test: desktop check failed: {desktop['failures']}")
     if not report.get("packaged"):

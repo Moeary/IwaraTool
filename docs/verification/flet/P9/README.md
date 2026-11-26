@@ -95,10 +95,15 @@ against PySide6's single longer wait when opening the view.
 
 Before the switch is made in a release (the maintainer's call, since it changes what users download):
 
-1. Try the packaged Windows and macOS builds by hand: tray icon menu, close to tray / Dock,
-   launch at login after a real log-out, a system notification for a finished download.
-   The code paths are unit-tested and the tray icon is added on the Windows CI runner, but
-   none of this has been clicked through on a real desktop.
+1. Packaged desktop builds: every `build_flet.py` run now checks, inside the packaged app
+   (`app/ui_flet/desktop_check.py`), that a close request with "keep running" on hides the
+   window to the tray (Windows) or minimizes it to the Dock (macOS) and that it comes back,
+   that the Windows tray icon runs, that the launch-at-login entry for the packaged
+   executable is written, read back and removed, and that a system notification is accepted.
+   Passed: Windows on the CI runner (hidden to the tray and shown again), macOS packaged on
+   the M5 (minimized to the Dock and restored).  The CI Mac's client reports no window events,
+   so there the window part is marked inconclusive (login item and notification pass).
+   Still by hand: clicking the real close button and tray menu, and a real log-out / log-in.
 2. Android: the APK starts on phone, foldable and tablet emulators in CI (`android-emulator`
    job; its first run caught a start-up crash, since fixed) and the back key leaves the app
    from the home page; the P8 real-device round (browse → download → play on each device class) is still open.

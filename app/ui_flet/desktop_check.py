@@ -74,11 +74,17 @@ async def _window(page: ft.Page, report: dict) -> None:
     report["step"] = "show"
     await asyncio.wait_for(service.show_window(), STEP)
     report["after_show"] = await _wait_for(events, SHOWN, start)
-    if not report["after_close"] and not report["after_show"]:
+    report["window_events"] = [e.value for e in events]
+    if not [e for e in events if e != ft.WindowEventType.CLOSE]:
+        # No native event at all, not even the start-up resize: a client without a window session
+        # (the CI Mac).  Nothing to judge by; say so instead of passing or failing.
+        report["window_check"] = "inconclusive: this client reports no window events"
+    elif not report["after_close"] and not report["after_show"]:
         report["failures"].append("closing with keep-running on did not hide or minimize the window")
     elif not report["after_show"]:
         report["failures"].append("the window did not come back")
-    report["window_events"] = [e.value for e in events]
+    else:
+        report["window_check"] = "passed"
     report["step"] = "done"
     service.stop()
     page.window.on_event = handler
