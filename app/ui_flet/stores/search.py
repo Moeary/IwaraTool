@@ -226,7 +226,7 @@ class SearchStore:
         state.status = options.searching_text()
         try:
             result: SearchPageResult = await asyncio.to_thread(
-                run_search, filters, scope, page, source=source, client=self.manager, should_stop=token.cancelled
+                run_search, filters, scope, page, source=source, client=self.manager, should_stop=lambda: token.cancelled
             )
         except Exception as exc:
             logger.exception("Search failed")
@@ -332,7 +332,7 @@ class SearchStore:
             hydrate_metadata=True,
             on_item=on_item,
             on_progress=on_progress,
-            should_stop=token.cancelled,
+            should_stop=lambda: token.cancelled,
         )
         try:
             await asyncio.to_thread(resolver.run)

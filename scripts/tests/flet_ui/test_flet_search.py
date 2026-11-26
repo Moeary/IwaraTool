@@ -83,6 +83,25 @@ class SearchStoreTests(unittest.TestCase):
         self.assertFalse(store.state.has_next)
         self.assertIn("8", store.state.status)
 
+    def test_the_search_can_ask_whether_to_stop(self):
+        # The rating scan calls should_stop() between pages; a bool there failed every such search.
+        async def body():
+            store, _page = self.make()
+            answers = []
+
+            def asks(filters, scope, page, *, should_stop, **_kwargs):
+                answers.append(should_stop())
+                return SearchPageResult(scope="videos", videos=videos(0, 2))
+
+            with mock.patch("app.ui_flet.stores.search.run_search", side_effect=asks), \
+                 mock.patch("app.ui_flet.stores.search.record_search", return_value=[]):
+                await store.search()
+            return store, answers
+
+        store, answers = self.run_async(body)
+        self.assertEqual(answers, [False])
+        self.assertEqual(len(store.cards), 2)
+
     def test_a_result_from_a_superseded_search_is_dropped(self):
         async def body():
             store, _page = self.make()
