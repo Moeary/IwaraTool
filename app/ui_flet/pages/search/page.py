@@ -103,7 +103,10 @@ def QueryBar():
         expand=True,
         on_change=lambda e: store.set_keyword(e.control.value or ""),
         on_submit=submit,
+        # Compact, so the field keeps its height when the clear button appears (a full 48 px button grew it).
         suffix=ft.IconButton(icon=AppIcon.CLEAR, icon_size=Size.ICON, tooltip=tr("Clear", "清除", "クリア"),
+                             padding=0, visual_density=ft.VisualDensity.COMPACT,
+                             size_constraints=ft.BoxConstraints(max_width=Size.AVATAR_SM, max_height=Size.AVATAR_SM),
                              on_click=lambda _e: store.set_keyword("")) if state.keyword else None,
     )
     button = (
@@ -114,8 +117,10 @@ def QueryBar():
                              disabled=state.loading)
     )
     bar = ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[source, field, button])
+    # Always the same Column: returning the bar alone without suggestions swapped the root control when
+    # suggestions arrived, which rebuilt the field and dropped the focus after each typed character.
     if not state.suggestions:
-        return bar
+        return ft.Column(spacing=Space.SM, controls=[bar])
     suggestions = ft.Row(
         scroll=ft.ScrollMode.AUTO,
         spacing=Space.SM,
@@ -359,6 +364,12 @@ def _history_menu(shell) -> ft.Control:
 def SearchPage(destination: str, path: str):
     shell = use_shell()
     subscribe(shell.search.state)
+
+    def first_visit() -> None:
+        if not shell.search.state.searched:
+            shell.search.auto_search()  # opening the page shows results, as the classic page does
+
+    ft.use_effect(first_visit, [])
     short = shell.state.layout.height_class == layout.HEIGHT_COMPACT
     # Landscape phones: chips and the result line share a row so the grid keeps some height.
     controls = [QueryBar(), ScopeChips(trailing=StatusRow(inline=True)) if short else ScopeChips()]

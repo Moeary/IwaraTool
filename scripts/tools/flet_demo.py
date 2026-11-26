@@ -37,6 +37,8 @@ async def play(shell, route: str) -> None:
     if destination == routes.SEARCH:
         store = shell.search
         store.set_source("iwara")
+        if os.environ.get("IWARATOOL_DEMO_KEYWORD"):
+            store.set_keyword(os.environ["IWARATOOL_DEMO_KEYWORD"])
         await store.search(record=False)
         if os.environ.get("IWARATOOL_DEMO_MENU") and store.cards:
             # Show the action sheet of the first result (what a long press opens on a phone).

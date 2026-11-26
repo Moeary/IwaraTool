@@ -37,6 +37,17 @@ class CardTests(unittest.TestCase):
         self.assertFalse(card.selectable)
 
 
+class _ReadOnlyConfig:
+    """Reads the real settings, but auto search is the test's own switch (nothing is written)."""
+
+    def __init__(self, real):
+        self._real = real
+        self.search_auto_search_enabled = False
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
 class _Page:
     def __init__(self):
         self.tasks = []
@@ -49,6 +60,15 @@ class _Page:
 class SearchStoreTests(unittest.TestCase):
     def run_async(self, body):
         return asyncio.run(body())
+
+    def setUp(self):
+        # Auto search off unless a test turns it on (a stand-in, never the real settings).
+        from app.ui_flet.stores import search as module
+
+        self.config = _ReadOnlyConfig(module.app_config)
+        patcher = mock.patch.object(module, "app_config", self.config)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def make(self):
         from app.ui_flet.stores.search import SearchStore
@@ -82,6 +102,37 @@ class SearchStoreTests(unittest.TestCase):
         self.assertEqual(len(store.cards), 8)
         self.assertFalse(store.state.has_next)
         self.assertIn("8", store.state.status)
+
+    def test_auto_search_on_open_and_on_changes(self):
+        async def body():
+            store, page = self.make()
+            self.config.search_auto_search_enabled = True
+            calls = []
+
+            def record(filters, scope, page_no, **_kwargs):
+                calls.append((scope, filters.sort))
+                return SearchPageResult(scope=scope, videos=videos(0, 1))
+
+            with mock.patch("app.ui_flet.stores.search.run_search", side_effect=record), \
+                 mock.patch("app.ui_flet.stores.search.record_search", return_value=[]) as recorded:
+                store.auto_search()  # opening the page
+                await asyncio.gather(*page.tasks)
+                store.set_sort("likes")
+                await asyncio.gather(*page.tasks)
+                store.set_scope("authors")  # needs a keyword: no search
+                await asyncio.gather(*page.tasks)
+            return calls, recorded.call_count
+
+        calls, recorded = self.run_async(body)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][1], "likes")
+        self.assertEqual(recorded, 0)  # empty keyword: not in the history
+
+    def test_no_auto_search_when_turned_off(self):
+        store, page = self.make()
+        store.auto_search()
+        store.set_sort("likes")
+        self.assertEqual(page.tasks, [])
 
     def test_the_search_can_ask_whether_to_stop(self):
         # The rating scan calls should_stop() between pages; a bool there failed every such search.

@@ -29,6 +29,8 @@ from ...presentation.search.download_status import SearchDownloadStatus, query_d
 from ...presentation.search.history_entries import read_search_history, record_search
 from ...presentation.search.request import PROBLEM_WARNING, ResultSet, page_size, request_problem
 
+AUTO_SEARCH_NEEDS_KEYWORD = frozenset({"authors", "tags", "playlists"})
+
 logger = get_logger(__name__)
 
 
@@ -121,15 +123,35 @@ class SearchStore:
         if self.state.scope not in options.supported_scopes(source):
             self.state.scope = "videos"
         self._fix_sort()
+        self.auto_search()
 
     def set_scope(self, scope: str) -> None:
         self.state.scope = scope if scope in options.supported_scopes(self.state.source) else "videos"
         self._fix_sort()
         self._schedule_suggestions()
+        self.auto_search()
 
     def set_sort(self, sort: str) -> None:
         self.state.sort = sort
         self._fix_sort()
+        self.auto_search()
+
+    def auto_search(self) -> None:
+        """Search at once, as the classic page does, when "auto search" is on (Settings → Search).
+
+        Opening the page and changing the source, scope or sort start it; authors,
+        tags and playlists wait for a keyword.  Empty-keyword searches stay out of
+        the history.
+        """
+        if not app_config.search_auto_search_enabled:
+            return
+        keyword = self.state.keyword.strip()
+        if self.state.scope in AUTO_SEARCH_NEEDS_KEYWORD and not keyword:
+            return
+        self.shell.page.run_task(self._auto_search, bool(keyword))
+
+    async def _auto_search(self, record: bool) -> None:
+        await self.search(record=record)
 
     def sort_choices(self) -> list[tuple[str, str]]:
         return options.sort_choices(self.state.source, self.state.scope, self.state.keyword)
