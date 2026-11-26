@@ -14,14 +14,11 @@ from __future__ import annotations
 
 import flet as ft
 
-from ...i18n import tr
 from .. import routes
-from ..icons import NavIcon
 from ..stores.app_state import use_shell
 from ..theme import palette_for, text_style
 from ..tokens import TYPE, Radius, Size, Space
-from .cover import Cover
-from .navigation import current_entry, nav_icon, rating_button
+from .navigation import account_entry, current_entry, nav_icon, rating_button
 
 MAX_WIDTH = Size.NAV_RAIL_EXTENDED + Space.XXL  # about the desktop's extended rail, a little roomier for touch
 EDGE = Space.LG  # width of the left-edge strip a swipe opens the drawer from
@@ -42,39 +39,11 @@ def _item(shell, palette, destination: str, *, selected: bool) -> ft.Control:
     return ft.Container(
         height=Size.NAV_DRAWER_ITEM,
         border_radius=Radius.FULL,
-        padding=ft.Padding.symmetric(horizontal=Space.XS),
         on_click=lambda _e: shell.select_entry(destination),
-        content=ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+        content=ft.Row(spacing=Space.XS, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             pill,
             ft.Text(routes.label(destination), style=text_style(TYPE.label, color=color), expand=True, max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS, weight=ft.FontWeight.W_700 if selected else None),
-        ]),
-    )
-
-
-def _account(shell, palette) -> ft.Control:
-    """The account entry at the very foot, as on the desktop rail; it opens the account panel."""
-    state = shell.state
-    logged_in = state.logged_in
-    profile = state.profile if logged_in else {}
-    avatar: ft.Control = (
-        Cover("avatar", profile["id"], profile.get("avatar_url", ""), Size.NAV_INDICATOR_HEIGHT, aspect=1, round=True,
-              icon=NavIcon.ACCOUNT.active, key=f"drawer-avatar:{profile['id']}")
-        if profile.get("id") else ft.Icon(NavIcon.ACCOUNT.pick(logged_in), size=Size.ICON_NAV, color=palette.primary)
-    )
-    name = profile.get("name") or (tr("Signed in", "已登录", "ログイン済み") if logged_in else tr("Not signed in", "未登录", "未ログイン"))
-
-    def open_account(_e) -> None:
-        shell.close_drawer()
-        shell.open_account()
-
-    return ft.Container(
-        height=Size.NAV_DRAWER_ITEM, border_radius=Radius.FULL, padding=ft.Padding.symmetric(horizontal=Space.XS),
-        on_click=open_account, tooltip=tr("Account and preferences", "账号与偏好", "アカウントと設定"),
-        content=ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-            ft.Container(width=Size.NAV_INDICATOR_WIDTH, alignment=ft.Alignment.CENTER, content=avatar),
-            ft.Text(name, style=text_style(TYPE.label, color=palette.primary), expand=True, max_lines=1,
-                    overflow=ft.TextOverflow.ELLIPSIS),
         ]),
     )
 
@@ -98,7 +67,7 @@ def drawer_content(shell) -> ft.Control:
             ft.ListView(expand=True, spacing=Space.XXS, controls=[
                 _item(shell, palette, d, selected=d == current) for d in primary]),
             *[_item(shell, palette, d, selected=d == current) for d in foot],
-            _account(shell, palette),
+            account_entry(shell, height=Size.NAV_DRAWER_ITEM),
         ]),
     )
 

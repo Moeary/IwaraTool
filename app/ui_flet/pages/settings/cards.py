@@ -219,7 +219,7 @@ def HomeLayoutCard():
         buttons(
             ft.FilledButton(content=stext("customize_rows"), icon=AppIcon.EDIT,
                             on_click=lambda _e: shell.open(routes.route(routes.SETTINGS, "home", "rows"))),
-            ft.TextButton(content=stext("reset_to_default"), on_click=lambda _e: page.run_task(reset)),
+            ft.OutlinedButton(content=stext("reset_to_default"), on_click=lambda _e: page.run_task(reset)),
         ),
     ], description=stext("rows_can_be_the_newest_uploads"))
 
@@ -454,9 +454,9 @@ def DownloadDirCard():
         ft.Row(controls=[text_field(folder, set_folder, error=error, key=f"dir:{tick}")]),
         buttons(
             ft.OutlinedButton(content=stext("browse"), icon=AppIcon.FOLDER, on_click=lambda _e: page.run_task(browse)),
-            ft.TextButton(content=stext("open_download_folder"), icon=AppIcon.FOLDER_OPEN,
+            ft.OutlinedButton(content=stext("open_download_folder"), icon=AppIcon.FOLDER_OPEN,
                           on_click=lambda _e: page.run_task(_open_folder, folder)) if shell.caps.open_folder else None,
-            ft.TextButton(content=stext("clean_temp"), icon=AppIcon.CLEAN, on_click=lambda _e: page.run_task(clean)),
+            ft.OutlinedButton(content=stext("clean_temp"), icon=AppIcon.CLEAN, on_click=lambda _e: page.run_task(clean)),
         ),
         hint(page, stext("clean_stale_temp_files_in_download")),
     ], description=stext("video_files_are_saved_here_and"))
@@ -859,7 +859,7 @@ def FfmpegCard():
         ft.Row(controls=[text_field(app_config.ffmpeg_path, set_path, hint_text=stext("detect_automatically"), key=f"ff:{tick}")]),
         buttons(
             ft.OutlinedButton(content=stext("browse"), icon=AppIcon.FOLDER, on_click=lambda _e: page.run_task(browse)),
-            ft.TextButton(content=stext("check"), icon=AppIcon.REFRESH, on_click=lambda _e: page.run_task(check)),
+            ft.OutlinedButton(content=stext("check"), icon=AppIcon.REFRESH, on_click=lambda _e: page.run_task(check)),
         ),
         ft.Text(status, style=text_style(TYPE.label, color=color)),
         hint(page, details) if details else None,
@@ -1044,7 +1044,7 @@ def MaintenanceCard():
             ft.OutlinedButton(content=stext("import_from_classic"), icon=AppIcon.LOGIN,
                               on_click=lambda _e: page.run_task(import_classic, page))
             if shell.caps.desktop else None,
-            ft.TextButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs))
+            ft.OutlinedButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs))
             if shell.caps.open_folder else None,
         ),
     ], description=stext("backups_include_settings_history_subscriptions_r"))

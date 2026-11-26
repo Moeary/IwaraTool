@@ -118,32 +118,59 @@ def build_bar(shell) -> ft.NavigationBar:
     )
 
 
+ACCOUNT_HINT = ("Account and preferences", "账号与偏好", "アカウントと設定")
+
+
+def account_avatar(shell, size: float) -> ft.Control:
+    """The signed-in account's avatar (fetched once per sign-in), else the account icon; rail, drawer and header."""
+    from .cover import Cover
+
+    state = shell.state
+    if state.logged_in and not state.profile:
+        shell.page.run_task(shell.load_profile)  # no-op once asked; shown when it lands
+    profile = state.profile if state.logged_in else {}
+    if profile.get("id"):
+        return Cover("avatar", profile["id"], profile.get("avatar_url", ""), size, aspect=1, round=True,
+                     icon=NavIcon.ACCOUNT.active, key=f"avatar:{profile['id']}:{size}")
+    return ft.Icon(NavIcon.ACCOUNT.pick(state.logged_in), size=Size.ICON_NAV)
+
+
+def account_name(shell) -> str:
+    state = shell.state
+    if not state.logged_in:
+        return tr("Not signed in", "未登录", "未ログイン")
+    return state.profile.get("name") or tr("Signed in", "已登录", "ログイン済み")
+
+
 def account_button(shell, *, size: float = Size.AVATAR) -> ft.Control:
-    logged_in = shell.state.logged_in
     return ft.IconButton(
-        icon=NavIcon.ACCOUNT.pick(logged_in),
-        icon_size=Size.ICON_LG,
+        icon=account_avatar(shell, Size.ICON_LG * 1.4),
         width=size,
         height=size,
-        tooltip=tr("Account and preferences", "账号与偏好", "アカウントと設定"),
+        tooltip=tr(*ACCOUNT_HINT),
         on_click=lambda _e: shell.open_account(),
     )
 
 
-def _account_row(shell) -> ft.Control:
-    """The extended rail's account entry: icon plus the sign-in state, full width."""
-
-    logged_in = shell.state.logged_in
+def account_entry(shell, width: float | None = None, height: float | None = None) -> ft.Control:
+    """The account as the extended rail and the drawer draw an entry: the avatar where the other entries
+    have their indicator pill (so it lines up under Settings), the name beside it."""
+    palette = palette_for(shell.page)
+    # Avatars at about the indicator's height (Cover makes a round picture 0.72 of the side given).
+    avatar = account_avatar(shell, Size.NAV_INDICATOR_HEIGHT / 0.72)
     return ft.Container(
-        width=shell.state.layout.nav_width - 2 * Space.MD,
-        content=ft.TextButton(
-            icon=NavIcon.ACCOUNT.pick(logged_in),
-            content=(shell.state.profile.get("name") or tr("Signed in", "已登录", "ログイン済み")) if logged_in
-            else tr("Not signed in", "未登录", "未ログイン"),
-            tooltip=tr("Account and preferences", "账号与偏好", "アカウントと設定"),
-            style=ft.ButtonStyle(alignment=ft.Alignment.CENTER_LEFT, padding=ft.Padding.symmetric(horizontal=Space.LG, vertical=Space.MD)),
-            on_click=lambda _e: shell.open_account(),
-        ),
+        width=width,
+        height=height,
+        padding=None if height else ft.Padding.symmetric(vertical=Space.SM),
+        border_radius=Radius.FULL,
+        tooltip=tr(*ACCOUNT_HINT),
+        on_click=lambda _e: shell.open_account(),
+        content=ft.Row(spacing=Space.XS, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+            ft.Container(width=Size.NAV_INDICATOR_WIDTH, height=Size.NAV_INDICATOR_HEIGHT, alignment=ft.Alignment.CENTER,
+                         content=avatar),
+            ft.Text(account_name(shell), style=text_style(TYPE.label, color=palette.primary), expand=True, max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS),
+        ]),
     )
 
 
@@ -264,7 +291,8 @@ def build_rail(shell) -> ft.NavigationRail:
                 tight=True,
                 spacing=Space.XS,
                 horizontal_alignment=ft.CrossAxisAlignment.START if extended else ft.CrossAxisAlignment.CENTER,
-                controls=[*foot, _account_row(shell) if extended else account_button(shell)],
+                controls=[*foot, account_entry(shell, shell.state.layout.nav_width - 2 * Space.MD) if extended
+                          else account_button(shell)],
             ),
         ),
         pin_trailing_to_bottom=True,

@@ -193,7 +193,8 @@ def api_answer(method: str, url: str, headers) -> tuple[int, object]:
     if path.startswith("/user/") and path.endswith("/followers"):
         return 200, _page([], query)
     if path in ("/user", "/user/me"):
-        return 200, {"user": {"id": "user-demo", "username": "demo_user", "name": "Demo User", "premium": False}}
+        return 200, {"user": {"id": "user-demo", "username": "demo_user", "name": "Demo User", "premium": False,
+                              "avatar": {"id": "avatar-demo_user", "name": "avatar.png", "mime": "image/png"}}}
     if path == "/playlists":
         return 200, _page([], query)
     if path.startswith("/playlist/"):

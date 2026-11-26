@@ -30,3 +30,17 @@ class LayoutHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class ButtonRowTests(unittest.TestCase):
+    def test_buttons_share_balanced_lines(self):
+        from app.ui_flet.components.button_row import lines_of, per_line
+
+        self.assertEqual(per_line(1000, 1), 1)
+        self.assertEqual(per_line(0, 4), 2)  # before the row has measured itself
+        self.assertEqual(per_line(400, 3), 2)  # two fit: a pair, then the third on its own
+        self.assertEqual(per_line(500, 4), 2)  # three fit: two lines of two, not three and one
+        self.assertEqual(per_line(700, 4), 4)
+        self.assertEqual(per_line(120, 2), 1)
+        self.assertEqual(lines_of([1, 2, 3], 2), [[1, 2], [3]])

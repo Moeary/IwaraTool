@@ -6,7 +6,7 @@ cancels one, the subscription, library and author routes get seeded records,
 the repair route gets a folder of badly named files (``IWARATOOL_DEMO_STEP``:
 ``options`` / ``preview`` scans / ``done`` also repairs), the tools route loads
 ``IWARATOOL_DEMO_VIDEO`` (``IWARATOOL_DEMO_TOOL=covers`` for the cover preview,
-``IWARATOOL_DEMO_STEP=run`` compresses it); the library route takes ``IWARATOOL_DEMO_STEP=viewer|tags|filters|play``.  Nothing here is imported outside demo runs.
+``IWARATOOL_DEMO_STEP=run`` compresses it); the library route takes ``IWARATOOL_DEMO_STEP=viewer|tags|filters|play``; ``IWARATOOL_DEMO_LOGIN=1`` shows a signed-in account.  Nothing here is imported outside demo runs.
 """
 from __future__ import annotations
 
@@ -21,6 +21,14 @@ async def play(shell, route: str) -> None:
 
     parsed = routes.parse(route or "/")
     destination = parsed.destination
+    if os.environ.get("IWARATOOL_DEMO_LOGIN"):
+        from app.core.search.normalize import avatar_url
+
+        user = {"id": "user-demo", "username": "demo_user", "name": "Demo User",
+                "avatar": {"id": "avatar-demo_user", "name": "avatar.png", "mime": "image/png"}}
+        shell.state.logged_in = True  # the made-up account (avatar, name) for the rail, drawer and panel
+        shell.state.profile = {"id": user["id"], "name": user["name"], "username": user["username"],
+                               "avatar_url": avatar_url(user)}
     if destination == routes.DETAIL and os.environ.get("IWARATOOL_DEMO_PLAY"):
         # Play a local clip as the "downloaded copy" (the demo CDN serves no video).
         from app.core.playback import video_player

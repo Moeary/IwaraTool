@@ -36,12 +36,14 @@ def _segments(selected: str, options: list[tuple[str, str, ft.IconData | None]],
         if values:
             on_select(values[0])
 
-    return ft.SegmentedButton(
+    # Expanded in a row: the segments share the panel's full width instead of hugging the left.
+    return ft.Row(spacing=0, controls=[ft.SegmentedButton(
         selected=[selected],
         show_selected_icon=False,
         on_change=changed,
+        expand=True,
         segments=[ft.Segment(value=value, label=label, icon=icon) for value, label, icon in options],
-    )
+    )])
 
 
 def panel_content(shell) -> ft.Control:

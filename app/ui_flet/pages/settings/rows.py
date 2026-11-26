@@ -12,6 +12,8 @@ from typing import Any
 
 import flet as ft
 
+from ...components.button_row import fill_row
+
 from ...theme import palette_for, text_style
 from ...tokens import TYPE, Radius, Space
 
@@ -40,6 +42,10 @@ def row(page: ft.Page, label: str, control: ft.Control, *, help: str = "", compa
         texts.append(hint(page, help))
     left = ft.Column(spacing=Space.XXS, expand=not compact, controls=texts)
     if compact:
+        # Stacked on phones: the control spans the card like the text above it, not a fixed width on the left.
+        if isinstance(control, (ft.Dropdown, ft.TextField)):
+            control.width, control.expand = None, True
+            control = ft.Row(spacing=0, controls=[control])
         return ft.Column(spacing=Space.SM, controls=[left, control])
     return ft.Row(spacing=Space.LG, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[left, control])
 
@@ -88,7 +94,8 @@ def number_field(value: int, on_commit: Callable[[str], None], *, width: float =
 
 
 def buttons(*controls: ft.Control | None) -> ft.Control:
-    return ft.Row(wrap=True, spacing=Space.SM, run_spacing=Space.SM, controls=[c for c in controls if c is not None])
+    """The card's actions over the full width (components/button_row.py)."""
+    return fill_row(*controls)
 
 
 def use_refresh() -> tuple[int, Callable[..., None]]:
