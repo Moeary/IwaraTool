@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from ..presentation.media import card_size
 from .platform.capabilities import MOBILE_PLATFORMS
 from .tokens import Size
 
@@ -180,7 +181,7 @@ _GRID = {
     WIDTH_XLARGE: (20, 220, 4, 8),
 }
 DENSITY_SCALE = {"compact": 0.85, "standard": 1.0, "large": 1.4}
-COVER_SIZE_RANGE = (160, 420)  # desktop slider (min card width)
+COVER_SIZE_RANGE = (card_size.CARD_WIDTH_MIN, card_size.CARD_WIDTH_MAX)  # desktop slider (min card width)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +211,7 @@ def grid_metrics(
     if cover_size is not None:
         low, high = COVER_SIZE_RANGE
         min_card = min(max(float(cover_size), low), high)
+        min_cols, max_cols = 1, 12  # the slider decides, as in the Classic grids
     else:
         min_card *= DENSITY_SCALE.get(density, 1.0)
     if size_class == WIDTH_COMPACT and density == "large" and cover_size is None:

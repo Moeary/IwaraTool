@@ -26,6 +26,7 @@ from ...components.page_frame import PageFrame
 from ...components.player import InlinePlayer
 from ...components.video_actions import VideoMenu
 from ...components.video_card import VideoCard, text_height
+from ...components.video_grid import cover_size_for
 from ...icons import AppIcon, StateIcon
 from ...services.notify import notice
 from ...stores.app_state import subscribe, use_shell
@@ -272,7 +273,7 @@ def _related(shell, model: DetailModel, width: float, *, side: bool) -> ft.Contr
     title = ft.Text(tr("Related", "相关作品", "関連作品"), style=text_style(TYPE.section_title_compact))
     if side:
         return ft.Column(spacing=Space.SM, controls=[title, *[RelatedRow(item, model, key=item.key) for item in cards]])
-    metrics = layout.grid_metrics(width, view.width_class, text_height=text_height())
+    metrics = layout.grid_metrics(width, view.width_class, text_height=text_height(), cover_size=cover_size_for(shell))
     rows = [
         ft.Row(spacing=metrics.gap, vertical_alignment=ft.CrossAxisAlignment.START,
                controls=[card(item, metrics.tile_width) for item in cards[start:start + metrics.columns]])

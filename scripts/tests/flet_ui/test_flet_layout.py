@@ -82,8 +82,9 @@ class GridTests(unittest.TestCase):
     def test_cover_slider_overrides_density_and_is_clamped(self):
         small = grid_metrics(1400, "large", text_height=60, cover_size=100)
         big = grid_metrics(1400, "large", text_height=60, cover_size=1000)
-        self.assertEqual(small.columns, grid_metrics(1400, "large", text_height=60, cover_size=160).columns)
-        self.assertEqual(big.columns, 4)  # at least min_cols
+        self.assertEqual(small.columns, grid_metrics(1400, "large", text_height=60, cover_size=140).columns)
+        self.assertEqual(big.columns, grid_metrics(1400, "large", text_height=60, cover_size=440).columns)
+        self.assertEqual(big.columns, 3)  # the slider decides, not the size class's minimum
 
 
 if __name__ == "__main__":

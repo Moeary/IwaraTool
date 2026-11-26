@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import flet as ft
 
+from ....config import app_config
 from ....core import site as sites
 from ....i18n import tr
 from ....presentation.subscription import text as sub_text
 from ....presentation.subscription.helpers import _source_url
+from ....presentation.media import card_size
 from ....presentation.media.cards import CardView
 from ... import layout, routes
-from ...components.author_status import AuthorStatus
+from ...components.cover_size import CoverSizeSlider
+from ...components.split_handle import SplitHandle
 from ...components.cover import Cover
 from ...components.download_sheet import open_download_sheet
 from ...components.page_frame import PageFrame
@@ -32,7 +35,9 @@ from ...tokens import TYPE, Radius, Size, Space
 
 SCOPE = "subscription"
 SHELF_CARD = 168
-LIST_PANE = 320
+LIST_PANE = 320  # the sources list's default width; the divider drags it
+LIST_PANE_RANGE = (240, 520)
+LIST_PANE_KEY = "flet_subscriptions_list_width"
 AVATAR = 44
 
 _BADGES = {
@@ -89,16 +94,20 @@ async def _delete(shell, source_ids: list[int]) -> None:
             shell.back()
 
 
-def _source_menu(shell, source: dict) -> ft.Control:
+def _source_menu(shell, source: dict, works: list[ft.PopupMenuItem] | None = None) -> ft.Control:
+    """The one "more" menu of a source: ``works`` (the shown works' actions) first, then the source's."""
     store = shell.subscriptions
     source_id = int(source.get("id", 0) or 0)
     enabled = sub_text.source_enabled(source)
     url = _source_url(source)
-    items = [
-        ft.PopupMenuItem(content=sub_text.refresh_source_tooltip(), icon=AppIcon.REFRESH,
-                         on_click=lambda _e: shell.page.run_task(store.refresh, [source_id], ignore_disabled=True)),
+    items = [*works, ft.PopupMenuItem()] if works else [
         ft.PopupMenuItem(content=sub_text.mark_seen_text(), icon=AppIcon.CHECK,
                          on_click=lambda _e: shell.page.run_task(store.mark_source_seen, source_id)),
+    ]
+    items = [
+        *items,
+        ft.PopupMenuItem(content=sub_text.refresh_source_tooltip(), icon=AppIcon.REFRESH, disabled=store.state.refreshing,
+                         on_click=lambda _e: shell.page.run_task(store.refresh, [source_id], ignore_disabled=True)),
         ft.PopupMenuItem(content=sub_text.pause_text(enabled), icon=AppIcon.PAUSE if enabled else AppIcon.PLAY,
                          on_click=lambda _e: shell.page.run_task(store.set_enabled, source_id, not enabled)),
     ]
@@ -208,27 +217,6 @@ def SourcePane(source_id: int, width: float | None = None, show_title: bool = Tr
                             content=ft.ProgressRing() if store.state.loading or not store.state.loaded
                             else ft.Text(sub_text.no_sources_text(), style=text_style(TYPE.body)))
 
-    head_controls: list[ft.Control] = [
-        ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-            _avatar(source, AVATAR),
-            ft.Column(spacing=0, expand=True, controls=[
-                ft.Row(spacing=Space.SM, controls=[
-                    *([ft.Text(sub_text.source_title(source), style=text_style(TYPE.section_title_compact), max_lines=1,
-                               overflow=ft.TextOverflow.ELLIPSIS)] if show_title else []),
-                    *_chips(shell, source),
-                ]),
-                ft.Text(sub_text.source_stats_text(source), style=text_style(TYPE.meta, color=palette.on_surface_variant),
-                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-            ]),
-            ft.IconButton(icon=AppIcon.REFRESH, tooltip=sub_text.refresh_source_tooltip(), disabled=store.state.refreshing,
-                          on_click=lambda _e: shell.page.run_task(store.refresh, [source_id], ignore_disabled=True)),
-            _source_menu(shell, source),
-        ]),
-    ]
-    if sub_text.source_is_author(source):
-        head_controls.append(AuthorStatus(str(source.get("source_key", "") or ""), sub_text.source_title(source),
-                                          str(source.get("remote_id", "") or ""), str(source.get("avatar_url", "") or ""),
-                                          show_open=False, key=f"status:{source_id}"))
     search = ft.TextField(
         value=state.query, hint_text=sub_text.title_search_placeholder(), prefix_icon=AppIcon.SEARCH, dense=True,
         expand=True, on_change=lambda e: model.set_query(e.control.value or ""),
@@ -236,6 +224,7 @@ def SourcePane(source_id: int, width: float | None = None, show_title: bool = Tr
     menus = [
         _choice_menu(sub_text.state_filter_choices(), state.mode, model.set_mode, AppIcon.FILTER),
         _choice_menu(sub_text.item_sort_choices(), state.sort, model.set_sort, AppIcon.SORT),
+        *([] if compact else [CoverSizeSlider()]),
     ]
     # A TextField cannot sit in a wrapping row (unbounded width): phones get two rows instead.
     filters: ft.Control = (
@@ -258,7 +247,7 @@ def SourcePane(source_id: int, width: float | None = None, show_title: bool = Tr
                             else tr(f"Download ({count})", f"下载（{count}）", f"ダウンロード（{count}）"),
                             summary=sub_text.source_title(source), on_confirm=confirmed)
 
-    more = ft.PopupMenuButton(icon=AppIcon.MORE_HORIZ, tooltip=tr("More", "更多", "その他"), items=[
+    works = [
         ft.PopupMenuItem(content=sub_text.download_new_text(new_count), icon=AppIcon.NEW, disabled=new_count == 0,
                          on_click=lambda _e: queue(True)),
         ft.PopupMenuItem(content=tr("Select all", "全选", "すべて選択"), icon=AppIcon.SELECT_ALL, on_click=lambda _e: model.select_all()),
@@ -268,17 +257,31 @@ def SourcePane(source_id: int, width: float | None = None, show_title: bool = Tr
                          on_click=lambda _e: shell.page.run_task(store.mark_moved, model)),
         ft.PopupMenuItem(content=sub_text.restore_moved_text(), icon=AppIcon.UNDO, disabled=not state.selected,
                          on_click=lambda _e: shell.page.run_task(store.restore_moved, model)),
+    ]
+    download = ft.FilledTonalButton(
+        content=(tr(f"Download selected ({download_count})", f"下载选中（{download_count}）", f"選択を保存（{download_count}）")
+                 if state.selected else tr(f"Download shown ({download_count})", f"下载当前（{download_count}）", f"表示中を保存（{download_count}）")),
+        icon=AppIcon.DOWNLOAD, disabled=download_count == 0, on_click=lambda _e: queue(False),
+    )
+    clear = [ft.IconButton(icon=AppIcon.CLOSE, tooltip=tr("Clear selection", "取消选择", "選択を解除"),
+                           on_click=lambda _e: model.clear_selection())] if state.selected else []
+    # One header row: who, how many, the download button and one menu (maintainer, 2026-11-26: fewer buttons).
+    head = ft.Row(spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+        _avatar(source, AVATAR),
+        ft.Column(spacing=0, expand=True, controls=[
+            ft.Row(spacing=Space.SM, controls=[
+                *([ft.Text(sub_text.source_title(source), style=text_style(TYPE.section_title_compact), max_lines=1,
+                           overflow=ft.TextOverflow.ELLIPSIS)] if show_title else []),
+                *_chips(shell, source),
+            ]),
+            ft.Text(sub_text.source_stats_text(source), style=text_style(TYPE.meta, color=palette.on_surface_variant),
+                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+        ]),
+        *([] if compact else [download]),
+        *clear,
+        _source_menu(shell, source, works),
     ])
-    actions = ft.Row(spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-        ft.FilledTonalButton(
-            content=(tr(f"Download selected ({download_count})", f"下载选中（{download_count}）", f"選択を保存（{download_count}）")
-                     if state.selected else tr(f"Download shown ({download_count})", f"下载当前（{download_count}）", f"表示中を保存（{download_count}）")),
-            icon=AppIcon.DOWNLOAD, disabled=download_count == 0, on_click=lambda _e: queue(False),
-        ),
-        *([ft.TextButton(content=tr("Clear selection", "取消选择", "選択を解除"), icon=AppIcon.CLOSE,
-                         on_click=lambda _e: model.clear_selection())] if state.selected else []),
-        more,
-    ])
+    head_controls: list[ft.Control] = [head, filters, *([download] if compact else [])]
     if state.loading and not model.cards:
         body: ft.Control = ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=ft.ProgressRing())
     elif not model.cards:
@@ -294,8 +297,9 @@ def SourcePane(source_id: int, width: float | None = None, show_title: bool = Tr
             on_toggle=model.toggle,
             menu=VideoMenu(shell, scope=SCOPE, item_for=lambda c: model.videos.get(c.key), on_select=model.toggle),
             width=width,
+            cover_scale=card_size.PANE_SCALE,
         )
-    return ft.Column(expand=True, spacing=Space.SM, controls=[*head_controls, filters, actions, body])
+    return ft.Column(expand=True, spacing=Space.SM, controls=[*head_controls, body])
 
 
 # ── the page ─────────────────────────────────────────────────────────────────
@@ -375,6 +379,22 @@ def _list_row(shell, source: dict, selected: bool) -> ft.Control:
     )
 
 
+def _clamp_list_width(width: float) -> float:
+    low, high = LIST_PANE_RANGE
+    return max(low, min(high, float(width)))
+
+
+def _saved_list_width() -> float:
+    try:
+        return _clamp_list_width(app_config.get_ui_value(LIST_PANE_KEY, LIST_PANE) or LIST_PANE)
+    except (TypeError, ValueError):
+        return LIST_PANE
+
+
+def _save_list_width(width: float) -> None:
+    app_config.set_ui_value(LIST_PANE_KEY, int(width))
+
+
 @ft.component
 def SubscriptionsOverview():
     shell = use_shell()
@@ -384,6 +404,8 @@ def SubscriptionsOverview():
     view = shell.state.layout
     compact = view.width_class == layout.WIDTH_COMPACT
     ft.use_effect(lambda: shell.page.run_task(store.load), [])
+    list_width, set_list_width = ft.use_state(lambda: _saved_list_width())
+    dragged = ft.use_ref(None)  # moves can arrive before the re-render: add them to the latest width
 
     menu = ft.PopupMenuButton(icon=AppIcon.MORE, tooltip=tr("More", "更多", "その他"), items=[
         ft.PopupMenuItem(content=sub_text.import_followed_text(), icon=AppIcon.AUTHORS,
@@ -408,17 +430,29 @@ def SubscriptionsOverview():
 
     if view.two_pane:
         selected = state.selected_source
-        left = ft.Container(width=LIST_PANE, content=ft.Column(expand=True, spacing=Space.SM, controls=[
+        body_width = view.body_width(layout.MAX_WIDTH_LIST_DETAIL)
+        # Keep at least half the body for the works however the divider was left.
+        width = min(list_width, max(LIST_PANE_RANGE[0], body_width / 2))
+        dragged.current = width
+
+        def drag(dx: float) -> None:
+            dragged.current = _clamp_list_width(dragged.current + dx)
+            set_list_width(dragged.current)
+
+        left = ft.Container(width=width, content=ft.Column(expand=True, spacing=Space.SM, controls=[
             _toolbar(shell),
             ft.ListView(expand=True, spacing=2, controls=[_list_row(shell, s, int(s.get("id", 0) or 0) == selected) for s in sources]),
         ]))
-        # The right pane: the body less the list, the divider and the gaps between them.
-        pane_width = view.body_width(layout.MAX_WIDTH_LIST_DETAIL) - LIST_PANE - 1 - 2 * Space.LG
+        # The right pane: the body less the list and the divider's grab area.
+        pane_width = body_width - width - Space.LG
         right = ft.Container(expand=True, content=SourcePane(selected, pane_width, key=f"pane:{selected}") if selected else ft.Container())
         body: ft.Control = ft.Column(expand=True, spacing=Space.SM, controls=[
             *top,
-            ft.Row(expand=True, spacing=Space.LG, vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-                   controls=[left, ft.VerticalDivider(width=1), right]),
+            ft.Row(expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
+                left,
+                SplitHandle(lambda dx: drag(dx), lambda: _save_list_width(dragged.current)),
+                right,
+            ]),
         ])
         return PageFrame(title=title, body=body, actions=[add, menu], max_width=layout.MAX_WIDTH_LIST_DETAIL)
 

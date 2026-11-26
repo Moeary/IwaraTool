@@ -17,6 +17,7 @@ from ....presentation.search.history_entries import search_history_label
 from ... import layout, routes
 from ...components.download_sheet import open_download_sheet
 from ...components.filter_sheet import open_filter_sheet
+from ...components.cover_size import CoverSizeSlider
 from ...components.page_frame import PageFrame
 from ...components.status_badge import BadgeKind
 from ...components.video_actions import VideoMenu
@@ -182,6 +183,7 @@ def ScopeChips(trailing: ft.Control | None = None):
             on_click=lambda _e: open_filter_sheet(shell, store.state.post_filter, store.set_post_filter),
         )
     )
+    chips.append(CoverSizeSlider())
     row = ft.Row(spacing=Space.SM, scroll=ft.ScrollMode.AUTO, controls=chips)
     if trailing is None:
         return row

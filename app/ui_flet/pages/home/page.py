@@ -15,9 +15,11 @@ from ....presentation.media.cards import CardView
 from ... import layout, routes
 from ...components.download_sheet import open_download_sheet
 from ...components.feed_grid import FeedGrid
+from ...components.cover_size import CoverSizeSlider
 from ...components.page_frame import PageFrame
 from ...components.video_actions import VideoMenu
 from ...components.video_card import VideoCard, text_height
+from ...components.video_grid import cover_size_for
 from ...icons import AppIcon, StateIcon
 from ...stores.app_state import subscribe, use_shell
 from ...stores.home import HomeRow
@@ -174,7 +176,8 @@ def HomeRowView(row: HomeRow):
             controls=[card(item, SHELF_CARD) for item in state.cards],
         )
     else:
-        metrics = layout.grid_metrics(view.body_width(), view.width_class, text_height=text_height())
+        metrics = layout.grid_metrics(view.body_width(), view.width_class, text_height=text_height(),
+                                      cover_size=cover_size_for(shell))
         shown = state.cards[: metrics.columns * 2]
         body = ft.Column(spacing=metrics.gap, controls=[
             ft.Row(spacing=metrics.gap, vertical_alignment=ft.CrossAxisAlignment.START,
@@ -218,7 +221,7 @@ def HomeFeed():
         padding=ft.Padding.only(bottom=Space.XL),
         controls=[HomeRowView(row, key=row.section.id) for row in store.rows],
     )
-    return PageFrame(title=routes.label(routes.HOME), body=body, actions=[menu])
+    return PageFrame(title=routes.label(routes.HOME), body=body, actions=[CoverSizeSlider(), menu])
 
 
 @ft.component
@@ -229,7 +232,8 @@ def HomeBrowse(section_id: str, tab_id: str):
     row = shell.home.row(section_id)
     if row is None:
         return PageFrame(title=routes.label(routes.HOME), body=ft.Container())
-    return PageFrame(title=row.section.title, body=FeedGrid(row.section, tab_id, row.feed.rating, SCOPE))
+    return PageFrame(title=row.section.title, body=FeedGrid(row.section, tab_id, row.feed.rating, SCOPE),
+                     actions=[CoverSizeSlider()])
 
 
 @ft.component

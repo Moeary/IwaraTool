@@ -38,6 +38,11 @@ class _LatestMenu:
         return await self._ref.current["menu"].run(card, action)
 
 
+def cover_size_for(shell, scale: float = 1.0) -> float | None:
+    """The shared cover width on the desktop; phones keep their adaptive columns."""
+    return shell.state.cover_size * scale if shell.caps.desktop else None
+
+
 @ft.component
 def VideoGrid(
     cards: list[CardView],
@@ -51,12 +56,13 @@ def VideoGrid(
     max_width: float = layout.MAX_WIDTH_GRID,
     menu=None,
     width: float | None = None,
+    cover_scale: float = 1.0,  # card_size.PANE_SCALE in a list-detail pane
 ):
     shell = use_shell()
     state = shell.state.layout
     # ``width``: the grid sits in a pane narrower than the page body (list-detail).
     body = state.body_width(max_width) if width is None else min(width, state.body_width(max_width))
-    metrics = layout.grid_metrics(body, state.width_class, text_height=text_height())
+    metrics = layout.grid_metrics(body, state.width_class, text_height=text_height(), cover_size=cover_size_for(shell, cover_scale))
     asked_at, set_asked_at = ft.use_state(-1)
     badges = badges or {}
     latest = ft.use_ref(None)

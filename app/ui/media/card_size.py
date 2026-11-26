@@ -8,39 +8,27 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget
 from qfluentwidgets import FluentIcon, IconWidget, Slider
 
 from ...config import app_config
-from ...i18n import tr
 from ...signal_bus import signal_bus
 
 
-# One poster size shared by every grid (Home, "More", subscriptions, ...).
-CARD_WIDTH_KEY = "media_card_width_v1"
-
-
-CARD_WIDTH_MIN = 140
-
-
-CARD_WIDTH_MAX = 440
-
-
-CARD_WIDTH_DEFAULT = 224
-
-
-def saved_card_width() -> int:
-    try:
-        value = int(app_config.get_ui_value(CARD_WIDTH_KEY, CARD_WIDTH_DEFAULT) or CARD_WIDTH_DEFAULT)
-    except (TypeError, ValueError):
-        value = CARD_WIDTH_DEFAULT
-    return max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, value))
-
-
-CARD_WIDTH_STEP = 24
+from ...presentation.media.card_size import (  # noqa: F401  (re-exported for the Qt grids)
+    CARD_WIDTH_DEFAULT,
+    CARD_WIDTH_KEY,
+    CARD_WIDTH_MAX,
+    CARD_WIDTH_MIN,
+    CARD_WIDTH_STEP,
+    PANE_SCALE,
+    cover_size_label,
+    save_card_width,
+    saved_card_width,
+    stepped_card_width,
+)
 
 
 def set_card_width(width: int) -> int:
     """Save and broadcast one cover size to every grid (what the slider does)."""
 
-    width = max(CARD_WIDTH_MIN, min(CARD_WIDTH_MAX, int(width)))
-    app_config.set_ui_value(CARD_WIDTH_KEY, width)
+    width = save_card_width(width)
     signal_bus.media_card_size_changed.emit(width)
     return width
 
@@ -48,7 +36,7 @@ def set_card_width(width: int) -> int:
 def step_card_width(steps: int) -> int:
     """Make the covers larger (``steps`` > 0) or smaller by one slider notch per step."""
 
-    return set_card_width(saved_card_width() + steps * CARD_WIDTH_STEP)
+    return set_card_width(stepped_card_width(saved_card_width(), steps))
 
 
 def reset_card_width() -> int:
@@ -82,7 +70,7 @@ class CardSizeControl(QWidget):
         self._apply_timer.timeout.connect(self._apply)
         self._slider.valueChanged.connect(lambda _v: self._apply_timer.start())
         self._slider.sliderReleased.connect(app_config.sync)
-        self.setToolTip(tr("Cover size", "封面大小", "カバーサイズ"))
+        self.setToolTip(cover_size_label())
         row.addWidget(small)
         row.addWidget(self._slider)
         row.addWidget(big)
@@ -90,7 +78,7 @@ class CardSizeControl(QWidget):
 
     def _apply(self):
         value = int(self._slider.value())
-        app_config.set_ui_value(CARD_WIDTH_KEY, value, sync=False)
+        save_card_width(value, sync=False)
         signal_bus.media_card_size_changed.emit(value)
 
     def _on_broadcast(self, value: int):

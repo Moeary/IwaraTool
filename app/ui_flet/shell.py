@@ -19,6 +19,7 @@ from ..core.download.manager import download_manager
 from ..i18n import current_language
 from ..logging_setup import get_logger
 from ..presentation import clipboard_links, preferences
+from ..presentation.media import card_size
 from ..presentation.updates import release_offer
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
@@ -85,6 +86,7 @@ class Shell:
             rating=preferences.current_rating(),
             site=preferences.current_site(),
             logged_in=account.is_logged_in(download_manager),
+            cover_size=card_size.saved_card_width(),
         )
         self.navigator = ShellNavigator(self._on_navigated, start=first)
         self.bridge = EventBridge(self.loop)
@@ -223,6 +225,13 @@ class Shell:
         self.theme_override = ""
         self.state.theme_mode = preferences.set_theme_mode(mode)
         self.apply_theme()
+
+    def set_cover_size(self, width: float, *, save: bool = True) -> None:
+        """Every grid follows one cover width; a slider drag saves only when released."""
+        width = card_size.clamp_card_width(round(width))
+        self.state.cover_size = width
+        if save:
+            card_size.save_card_width(width)
 
     def toggle_theme(self) -> None:
         from .theme import resolve_mode
@@ -420,6 +429,10 @@ class Shell:
             self.cycle_destination(-1)
         elif action == "rating_cycle":
             self.cycle_rating()
+        elif action in ("card_size_up", "card_size_down"):
+            self.set_cover_size(card_size.stepped_card_width(self.state.cover_size, 1 if action == "card_size_up" else -1))
+        elif action == "card_size_reset":
+            self.set_cover_size(card_size.CARD_WIDTH_DEFAULT)
         elif action == "toggle_site":
             self.toggle_site()
         elif action == "toggle_theme":

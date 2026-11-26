@@ -30,7 +30,7 @@ from qfluentwidgets import (
 )
 
 from ...i18n import tr
-from ..media.card_size import CARD_WIDTH_MIN, CardSizeControl, saved_card_width
+from ..media.card_size import CARD_WIDTH_MIN, PANE_SCALE, CardSizeControl, saved_card_width
 from .components import (
     ResponsiveCoverList,
     _CONTROL_HEIGHT,
@@ -262,7 +262,7 @@ class SubscriptionItemPanelLayoutMixin:
         # Same cover-size slider as Home, Search and the overview.
         self._item_card_size = CardSizeControl(self)
         self._item_card_size.size_changed.connect(self._on_item_card_size_changed)
-        self._item_card_min_width = max(CARD_WIDTH_MIN, int(saved_card_width() * 0.8))
+        self._item_card_min_width = max(CARD_WIDTH_MIN, int(saved_card_width() * PANE_SCALE))
         item_filter_row.addWidget(self._item_card_size)
 
         self._item_columns_btn = ToolButton(FluentIcon.SETTING, self)

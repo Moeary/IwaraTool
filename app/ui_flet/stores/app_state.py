@@ -29,6 +29,7 @@ class AppState:
     active_downloads: int = 0
     staged_downloads: int = 0
     account_open: bool = False
+    cover_size: int = 224  # the shared cover width (presentation/media/card_size.py)
 
 
 # Provides the ``Shell`` controller (state + actions) to every component below the root.
