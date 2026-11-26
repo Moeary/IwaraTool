@@ -151,6 +151,10 @@ async def main(page: ft.Page) -> None:
     await shell.tasks.reload()
     if services:
         page.run_task(shell.restore_login)
+    if services and not ARGS.demo and shell.caps.desktop:
+        from app.ui_flet.services.classic_import import offer_classic_import
+
+        page.run_task(offer_classic_import, page)  # once: the Classic build's data was found
     if ARGS.demo and ARGS.bench:
         import flet_bench  # scripts/tools, on sys.path in demo runs
 

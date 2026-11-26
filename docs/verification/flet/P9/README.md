@@ -108,5 +108,19 @@ Before the switch is made in a release (the maintainer's call, since it changes 
    job; its first run caught a start-up crash, since fixed) and the back key leaves the app
    from the home page; the P8 real-device round (browse → download → play on each device class) is still open.
 
-The plan for the release: publish the Flet builds as `IwaraTool-*` (main) and keep the PySide6
-builds one more release as `IwaraTool-Classic-*`, then remove `app/ui/` and this file's hard rules.
+**Release decision (maintainer, 2026-11-26):** from v1.3.0 the Flet builds are the main
+`IwaraTool-*` downloads and the PySide6 builds ship one more release as `IwaraTool-Classic-*`;
+afterwards `app/ui/` and the porting rules go.  Prepared on this branch:
+
+- `build.yml`: tags also build the Flet desktop apps and the APK; the release waits for them
+  and for the emulator smoke test, then `scripts/tools/release_names.sh` renames the files
+  (PySide6 → `IwaraTool-Classic-*`, Flet → `IwaraTool-*`).  The in-app update check only opens
+  the release page, so renaming breaks nothing for existing users.
+- Data: the two builds keep separate data folders, so users coming from Classic would start
+  empty.  Settings → System → Backup gains "Import from Classic…" (`core/classic_import.py`:
+  a backup of the Classic folder staged as a restore; found automatically on macOS, picked
+  on Windows / Linux), and a desktop start offers it once when Classic data is found.
+  Credentials are not copied (log in again), as with any backup.
+
+Still open before tagging: the real-device round (P8), clicking through tray and log-in by hand,
+bumping `app/version.py` to 1.3.0 and writing `docs/releases/v1.3.0.md`.

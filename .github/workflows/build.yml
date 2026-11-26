@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: Which interface to build (Flet builds never enter a release)
+        description: Which interface to build (a tag builds both for the release)
         type: choice
         options: [legacy, flet, all]
         default: legacy
@@ -155,10 +155,10 @@ jobs:
             dist/*
           if-no-files-found: error
 
-  # Flet interface (v1.3.0 trial), on demand only. Its artifacts are named
-  # flet-* so the release job's IwaraTool-* pattern never picks them up.
+  # Flet interface: the main desktop build from v1.3.0 (docs/verification/flet/P9).
+  # Built for tags and on demand; artifacts are flet-*, renamed by the release job.
   build-flet:
-    if: github.event_name == 'workflow_dispatch' && inputs.target != 'legacy'
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
     strategy:
       fail-fast: false
       matrix:
@@ -213,7 +213,7 @@ jobs:
   # ships the Android SDK; flet build installs Flutter. No smoke test: an APK
   # needs a device, so real-device checks stay manual.
   build-flet-android:
-    if: github.event_name == 'workflow_dispatch' && inputs.target != 'legacy'
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
     runs-on: ubuntu-latest
 
     steps:
@@ -310,8 +310,10 @@ jobs:
           path: emulator-out/
           if-no-files-found: warn
 
+  # From v1.3.0 the Flet builds are IwaraTool-* and the PySide6 builds IwaraTool-Classic-*
+  # (kept for one more release).  The APK ships only if it started on every emulator.
   release:
-    needs: build
+    needs: [build, build-flet, build-flet-android, android-emulator]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -324,6 +326,17 @@ jobs:
           pattern: IwaraTool-*
           merge-multiple: true
           path: dist
+
+      - name: Download Flet artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: flet-*
+          merge-multiple: true
+          path: dist
+
+      - name: Name the builds (Flet main, PySide6 classic)
+        shell: bash
+        run: bash scripts/tools/release_names.sh dist
 
       - name: Select release notes
         shell: bash
