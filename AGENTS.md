@@ -31,12 +31,12 @@
 | 用途 | 命令 |
 | --- | --- |
 | 旧界面运行 / 测试 | `pixi run start` / `pixi run test` |
-| Flet 运行（独立数据目录 `data-flet/`） | `pixi run -e flet start-flet` |
+| Flet 运行（与旧界面共用数据目录；macOS 即真实的 `~/Library/Application Support/IwaraTool`，试验用 `--demo` 或设 `IWARATOOL_DATA_DIR`） | `pixi run -e flet start-flet` |
 | Flet 测试（core + flet_ui） | `pixi run -e flet test-flet` |
 | 主题样张 | `pixi run -e flet theme-gallery` |
-| Flet 打包（本机桌面平台，含审计与冒烟） | `pixi run -e flet build-flet`；macOS 加 `--install` 替换**唯一**的测试副本 `/Applications/IwaraTool Flet.app`（不要再把测试版复制到 `tmp/` 等别处，正式版 `/Applications/IwaraTool.app` 不动） |
+| Flet 打包（本机桌面平台，含审计与冒烟；打标签发版只构建 Flet） | `pixi run -e flet build-flet`；macOS 加 `--install` 替换**唯一**的测试副本 `/Applications/IwaraTool Flet.app`（不要再把测试版复制到 `tmp/` 等别处，正式版 `/Applications/IwaraTool.app` 不动） |
 | 尺寸验收截图（9.2 清单，临时数据目录） | `pixi run -e flet python scripts/tools/flet_viewports.py --out tmp/flet_viewports/x [--route /search] [--theme dark] [--lang en] [--account] [--only 360x800]` |
-| 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板；修复路由用 `IWARATOOL_DEMO_STEP=options|preview|done` 推进步骤；工具路由用 `IWARATOOL_DEMO_VIDEO=<视频>`（`IWARATOOL_DEMO_TOOL=covers` 封面预览，`IWARATOOL_DEMO_STEP=run` 开始压缩）；资料库路由用 `IWARATOOL_DEMO_STEP=viewer|tags|filters|play`（`play` 需配 `IWARATOOL_DEMO_PLAY`）；`--drawer` 打开手机导航抽屉；`IWARATOOL_DEMO_LOGIN=1` 以虚构账号（含头像）登录 |
+| 离线虚构数据运行（首页、搜索、详情、下载可用） | `pixi run -e flet start-flet --demo [--route /search]`（`flet_viewports.py` 也接受 `--demo --wait 4`）；`IWARATOOL_DEMO_PLAY=<mp4>` 在详情页播放本地片段，`IWARATOOL_DEMO_MENU=1` 在搜索页打开首个结果的动作面板；修复路由用 `IWARATOOL_DEMO_STEP=options|preview|done` 推进步骤；工具路由用 `IWARATOOL_DEMO_VIDEO=<视频>`（`IWARATOOL_DEMO_TOOL=covers` 封面预览，`IWARATOOL_DEMO_STEP=run` 开始压缩）；资料库路由用 `IWARATOOL_DEMO_STEP=viewer|tags|filters|play|choose`（`choose` 打开长按播放选择）（`play` 需配 `IWARATOOL_DEMO_PLAY`）；`--drawer` 打开手机导航抽屉；`IWARATOOL_DEMO_LOGIN=1` 以虚构账号（含头像）登录 |
 | 单次指定尺寸启动 / 截图 | `pixi run -e flet start-flet --viewport 360x800 [--route ...] [--shot 绝对路径.png]` |
 | 按手机能力运行（隐藏修复 / 工具 / 文件夹等） | `start-flet --platform android`；`flet_viewports.py --platform android` |
 | 新旧界面性能对比（P9；需桌面会话，两边各开窗口 3 次） | `pixi run -e flet python scripts/tools/compare_frontends.py --out tmp/compare [--runs 3] [--records 10000]` |
@@ -44,7 +44,8 @@
 
 - pixi 分 `qt`（default 环境，Python 3.11，PySide6 + Nuitka）与 `flet`（Python 3.12，Flet 1.1.3，不含 PySide6）两个 feature。旧界面暂不能升 3.12（Nuitka 包导入 shiboken6 6.6.2 段错误，见方案 2.3）。
 - 测试目录：`scripts/tests/core`（不依赖 Qt，两个环境都跑）、`qt`（需要 PySide6 或 `app/ui`）、`flet_ui`（Flet 界面；依赖 Flet 的用例 `skipUnless(HAS_FLET)`）。新测试放进对应目录；不能用 `flet` 作目录名。
-- 源码运行的数据目录是 `data-flet/`，打包后是 Flet 提供的 `FLET_APP_STORAGE_DATA`，都不与旧界面共用。入口先调用 `runner.prepare_environment()` 再导入 `app.config`。
+- 数据目录与旧界面相同（维护者决定，2026-11-26）：macOS `~/Library/Application Support/IwaraTool`；Windows / Linux 为程序旁的 `data`、`download`（打包版取宿主可执行文件所在目录，源码运行取项目根目录）；手机用 Flet 的 `FLET_APP_STORAGE_DATA`。入口先调用 `runner.prepare_environment()` 再导入 `app.config`。只有新界面需要的默认值用 `AppConfig.use_defaults`（如内置下载器连接数 4）。
+- `history.db` 的表结构改动一律加迁移步骤：`app/core/db/migrations/vNNNN_*.py`（`VERSION`、`NAME`、`upgrade(conn)`，只做一小步、不提交事务），追加到 `migrations.STEPS` 并在 `scripts/tests/core/test_db_migrations.py` 补测试；版本记在 `PRAGMA user_version`，v1 是 v1.2.3 基线，已发布的步骤不再修改。
 - Flet 入口一律用 `app/ui_flet/runner.py` 的 `run(main)` 启动，不直接 `ft.run`：`flet_desktop` 会优先启动 `<当前目录>/build/macos/*.app`、`build/windows/*.exe`，而这里放的是 Nuitka 构建的旧版应用；`run` 会切到中立工作目录（相对的 `IWARATOOL_DATA_DIR` 等先转为绝对路径）。
 - Flet 首次启动会从 GitHub 下载桌面客户端（`~/.flet/client`）。本机 Python 内下载可能卡住时，先用 curl 下载 `https://github.com/flet-dev/flet/releases/download/v1.1.3/flet-macos.tar.gz`（Windows 为 `flet-windows.zip`），再设 `FLET_CLIENT_URL=file:///<路径>` 运行一次。
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
+from app.ui_flet import runner
 from app.ui_flet.runner import absolutize_path_variables, foreign_client_folder, prepare_environment
 
 
@@ -47,14 +49,32 @@ class PathVariableTests(unittest.TestCase):
 
 
 class PrepareEnvironmentTests(unittest.TestCase):
-    def test_source_checkout_uses_data_flet(self):
-        env: dict[str, str] = {}
-        prepare_environment(Path("/repo"), env)
-        self.assertEqual(env["IWARATOOL_NO_QT"], "1")
-        self.assertEqual(env["IWARATOOL_DATA_DIR"], str(Path("/repo") / "data-flet"))
+    """The data folder is Classic's (app/paths.py), except on phones."""
 
-    def test_packaged_app_uses_flet_storage(self):
+    def test_source_checkout_shares_the_classic_folder(self):
+        env: dict[str, str] = {}
+        with mock.patch.object(runner.sys, "platform", "win32"):
+            prepare_environment(Path("/repo"), env)
+        self.assertEqual(env["IWARATOOL_NO_QT"], "1")
+        self.assertEqual(env["IWARATOOL_DATA_DIR"], str(Path("/repo") / "data"))
+        self.assertEqual(env["IWARATOOL_DOWNLOAD_DIR"], str(Path("/repo") / "download"))
+
+    def test_macos_leaves_the_folder_to_paths(self):
         env = {"FLET_PLATFORM": "macos", "FLET_APP_STORAGE_DATA": "/store"}
+        with mock.patch.object(runner.sys, "platform", "darwin"):
+            prepare_environment(Path("/bundle"), env)
+        self.assertNotIn("IWARATOOL_DATA_DIR", env)  # ~/Library/Application Support/IwaraTool
+
+    def test_packaged_windows_app_keeps_data_beside_the_program(self):
+        env = {"FLET_PLATFORM": "windows", "FLET_APP_STORAGE_DATA": "C:/store"}
+        with mock.patch.object(runner.sys, "platform", "win32"), \
+                mock.patch.object(runner, "host_executable", return_value=Path("D:/Tools/IwaraTool/IwaraTool.exe")):
+            prepare_environment(Path("C:/bundle/app"), env)
+        self.assertEqual(env["IWARATOOL_DATA_DIR"], str(Path("D:/Tools/IwaraTool") / "data"))
+        self.assertEqual(env["IWARATOOL_DOWNLOAD_DIR"], str(Path("D:/Tools/IwaraTool") / "download"))
+
+    def test_phones_use_flet_storage(self):
+        env = {"FLET_PLATFORM": "android", "FLET_APP_STORAGE_DATA": "/store"}
         prepare_environment(Path("/bundle"), env)
         self.assertEqual(env["IWARATOOL_DATA_DIR"], str(Path("/store") / "IwaraTool"))
 

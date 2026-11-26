@@ -1,9 +1,15 @@
 """Prepare the environment and start the Flet app.
 
 ``prepare_environment`` runs before anything else from ``app`` is imported:
-the core must not pick its Qt event backend, and the Flet interface keeps its
-data apart from the PySide6 interface (``data-flet/`` in a source checkout,
-the app storage folder Flet provides in a packaged build).
+the core must not pick its Qt event backend, and the data folder must be the
+one the PySide6 ("Classic") interface uses (``app/paths.py``), so both builds
+share settings, history, queue and subscriptions:
+
+- macOS: ``~/Library/Application Support/IwaraTool`` (``paths.py`` decides);
+- Windows / Linux: ``data`` and ``download`` beside the program, i.e. the
+  packaged app's executable (Python's own ``sys.argv[0]`` points inside the
+  bundle there) or the project folder for a source run;
+- phones: the app storage folder Flet provides (there is no Classic build).
 
 The second concern is the desktop client in development.
 
@@ -41,19 +47,43 @@ def is_packaged(environ=os.environ) -> bool:
     return bool(environ.get("FLET_PLATFORM"))
 
 
+def host_executable() -> Path | None:
+    """The packaged app's own executable on Windows / Linux (the program folder holds its data)."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            buffer = ctypes.create_unicode_buffer(32768)
+            if ctypes.windll.kernel32.GetModuleFileNameW(None, buffer, len(buffer)):
+                return Path(buffer.value)
+        elif sys.platform.startswith("linux"):
+            return Path(os.readlink("/proc/self/exe"))
+    except (OSError, AttributeError, ValueError):
+        _log.warning("Could not find the program folder", exc_info=True)
+    return None
+
+
+MOBILE_PLATFORMS = ("android", "ios")
+
+
 def prepare_environment(project_root: Path, environ=os.environ) -> None:
     """Set the variables the core reads at import time; call before importing ``app.config``."""
 
     environ["IWARATOOL_NO_QT"] = "1"
     if environ.get("IWARATOOL_DATA_DIR"):
         return
-    if is_packaged(environ):
-        # Kept across app updates; never the PySide6 interface's folder.
+    platform = environ.get("FLET_PLATFORM", "").strip().lower()
+    if platform in MOBILE_PLATFORMS:
         storage = environ.get("FLET_APP_STORAGE_DATA", "").strip()
         if storage:
             environ["IWARATOOL_DATA_DIR"] = str(Path(storage) / "IwaraTool")
-    else:
-        environ["IWARATOOL_DATA_DIR"] = str(project_root / "data-flet")
+        return
+    if sys.platform == "darwin":
+        return  # app/paths.py: ~/Library/Application Support/IwaraTool, as Classic
+    program = host_executable() if platform else None
+    folder = program.parent if program else project_root
+    environ["IWARATOOL_DATA_DIR"] = str(folder / "data")
+    environ.setdefault("IWARATOOL_DOWNLOAD_DIR", str(folder / "download"))
 
 
 def loaded_qt_modules() -> list[str]:

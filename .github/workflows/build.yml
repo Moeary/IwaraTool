@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: Which interface to build (a tag builds both for the release)
+        description: Which interface to build (a tag builds and releases only Flet)
         type: choice
         options: [legacy, flet, all]
-        default: legacy
+        default: flet
   push:
     tags:
       - 'v*'
@@ -16,8 +16,9 @@ permissions:
   contents: write
 
 jobs:
+  # PySide6 ("Classic"): on demand only; from v1.3.0 releases ship the Flet build alone.
   build:
-    if: github.event_name != 'workflow_dispatch' || inputs.target != 'flet'
+    if: github.event_name == 'workflow_dispatch' && inputs.target != 'flet'
     strategy:
       fail-fast: false
       matrix:
@@ -310,22 +311,15 @@ jobs:
           path: emulator-out/
           if-no-files-found: warn
 
-  # From v1.3.0 the Flet builds are IwaraTool-* and the PySide6 builds IwaraTool-Classic-*
-  # (kept for one more release).  The APK ships only if it started on every emulator.
+  # From v1.3.0 a release holds only the Flet builds, named IwaraTool-*.
+  # The APK ships only if it started on every emulator.
   release:
-    needs: [build, build-flet, build-flet-android, android-emulator]
+    needs: [build-flet, build-flet-android, android-emulator]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: IwaraTool-*
-          merge-multiple: true
-          path: dist
 
       - name: Download Flet artifacts
         uses: actions/download-artifact@v4
@@ -334,7 +328,7 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Name the builds (Flet main, PySide6 classic)
+      - name: Name the builds (IwaraTool-Flet-* -> IwaraTool-*)
         shell: bash
         run: bash scripts/tools/release_names.sh dist
 

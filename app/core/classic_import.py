@@ -30,12 +30,18 @@ def _has_data(folder: Path) -> bool:
     return (folder / MARKER).is_file()
 
 
-def classic_data_dir(*, platform: str | None = None, home: Path | None = None) -> str:
-    """The Classic data folder when it can be found without asking, else ""."""
+def classic_data_dir(*, platform: str | None = None, home: Path | None = None, own: str = "") -> str:
+    """The Classic data folder when it can be found without asking, else "".
+
+    ``own``: this build's data folder.  Since v1.3.0 the Flet build uses the
+    Classic folder itself, so that folder is nothing to import.
+    """
     platform = platform or sys.platform
     if platform != "darwin":
         return ""
     folder = (home or Path.home()) / "Library" / "Application Support" / "IwaraTool"
+    if own and os.path.realpath(folder) == os.path.realpath(own):
+        return ""
     return str(folder) if _has_data(folder) else ""
 
 

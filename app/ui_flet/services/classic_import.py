@@ -25,7 +25,7 @@ OFFERED_KEY = "classic_import_offered"
 
 async def import_classic(page: ft.Page, source: str = "") -> bool:
     """Stage the Classic data as a restore; True when staged (a restart applies it)."""
-    source = source or await asyncio.to_thread(classic_import.classic_data_dir)
+    source = source or await asyncio.to_thread(classic_import.classic_data_dir, own=app_config.app_data_dir)
     if not source:
         chosen = await ft.FilePicker().get_directory_path(dialog_title=stext("choose_classic_folder"))
         if not chosen:
@@ -53,7 +53,7 @@ async def offer_classic_import(page: ft.Page) -> None:
     if app_config.get_ui_value(OFFERED_KEY, False) in (True, "true", "1"):
         return
     data_dir = app_config.app_data_dir
-    source = await asyncio.to_thread(classic_import.classic_data_dir)
+    source = await asyncio.to_thread(classic_import.classic_data_dir, own=data_dir)
     if not source or await asyncio.to_thread(backup.has_pending_restore, data_dir):
         return
     app_config.set_ui_value(OFFERED_KEY, True)
