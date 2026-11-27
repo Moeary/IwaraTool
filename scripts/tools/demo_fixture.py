@@ -14,12 +14,14 @@ Nothing leaves the machine.
 """
 from __future__ import annotations
 
+import atexit
 import hashlib
 import io
 import json
 import math
 import os
 import random
+import shutil
 import tempfile
 import threading
 import time
@@ -191,7 +193,8 @@ def api_answer(method: str, url: str, headers) -> tuple[int, object]:
     if path.startswith("/user/") and path.endswith("/followers"):
         return 200, _page([], query)
     if path in ("/user", "/user/me"):
-        return 200, {"user": {"id": "user-demo", "username": "demo_user", "name": "Demo User", "premium": False}}
+        return 200, {"user": {"id": "user-demo", "username": "demo_user", "name": "Demo User", "premium": False,
+                              "avatar": {"id": "avatar-demo_user", "name": "avatar.png", "mime": "image/png"}}}
     if path == "/playlists":
         return 200, _page([], query)
     if path.startswith("/playlist/"):
@@ -245,51 +248,49 @@ def artwork(key: str, *, avatar: bool = False) -> bytes:
         cached = _IMAGE_CACHE.get(key)
     if cached is not None:
         return cached
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
-    from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QRadialGradient
-
-    rng = _rng("art", key)
-    width, height = (160, 160) if avatar else (640, 360)
-    top, bottom = _PALETTES[rng.randrange(len(_PALETTES))]
-    image = QImage(width, height, QImage.Format.Format_RGB32)
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    gradient = QLinearGradient(0, 0, width, height)
-    gradient.setColorAt(0, QColor(top))
-    gradient.setColorAt(1, QColor(bottom))
-    painter.fillRect(QRectF(0, 0, width, height), gradient)
-    for _ in range(3 if avatar else 6):
-        r = rng.uniform(0.12, 0.45) * height
-        center = QPointF(rng.uniform(0, width), rng.uniform(0, height))
-        glow = QRadialGradient(center, r)
-        glow.setColorAt(0, QColor(255, 255, 255, rng.randint(70, 140)))
-        glow.setColorAt(1, QColor(255, 255, 255, 0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(glow)
-        painter.drawEllipse(center, r, r)
-    if not avatar:
-        wave = QPainterPath(QPointF(0, height * 0.72))
-        phase = rng.uniform(0, math.tau)
-        for x in range(0, width + 8, 8):
-            wave.lineTo(x, height * 0.72 + math.sin(x / width * math.tau * 1.5 + phase) * height * 0.06)
-        wave.lineTo(width, height)
-        wave.lineTo(0, height)
-        wave.closeSubpath()
-        painter.setBrush(QColor(255, 255, 255, 60))
-        painter.drawPath(wave)
-    else:
-        painter.setBrush(QColor(255, 255, 255, 170))
-        painter.drawEllipse(QPointF(width / 2, height * 0.42), width * 0.17, width * 0.17)
-        painter.drawEllipse(QRectF(width * 0.24, height * 0.66, width * 0.52, height * 0.5))
-    painter.end()
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "JPEG" if not avatar else "PNG", 88)
-    payload = bytes(data.data())
+    payload = _artwork_pillow(key, avatar=avatar)
     with _IMAGE_LOCK:
         _IMAGE_CACHE[key] = payload
     return payload
+
+
+def _artwork_pillow(key: str, *, avatar: bool = False) -> bytes:
+    from PIL import Image, ImageDraw, ImageFilter
+
+    rng = _rng("art", key)
+    width, height = (160, 160) if avatar else (640, 360)
+    top, bottom = (tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in _PALETTES[rng.randrange(len(_PALETTES))])
+    # Diagonal gradient from a small image scaled up (fast, smooth).
+    small = Image.new("RGB", (16, 16))
+    for y in range(16):
+        for x in range(16):
+            t = (x + y) / 30
+            small.putpixel((x, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    image = small.resize((width, height), Image.BICUBIC).convert("RGBA")
+    glow = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(glow)
+    for _ in range(3 if avatar else 6):
+        r = rng.uniform(0.12, 0.45) * height
+        cx, cy = rng.uniform(0, width), rng.uniform(0, height)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, rng.randint(50, 100)))
+    image = Image.alpha_composite(image, glow.filter(ImageFilter.GaussianBlur(height / 12)))
+    shapes = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(shapes)
+    if not avatar:
+        phase = rng.uniform(0, math.tau)
+        points = [(x, height * 0.72 + math.sin(x / width * math.tau * 1.5 + phase) * height * 0.06) for x in range(0, width + 8, 8)]
+        draw.polygon([*points, (width, height), (0, height)], fill=(255, 255, 255, 60))
+    else:
+        r = width * 0.17
+        draw.ellipse((width / 2 - r, height * 0.42 - r, width / 2 + r, height * 0.42 + r), fill=(255, 255, 255, 170))
+        draw.ellipse((width * 0.24, height * 0.66, width * 0.76, height * 1.16), fill=(255, 255, 255, 170))
+    image = Image.alpha_composite(image, shapes)
+    out = io.BytesIO()
+    if avatar:
+        image.save(out, "PNG")
+    else:
+        image.convert("RGB").save(out, "JPEG", quality=88)
+    return out.getvalue()
 
 
 # ── transport ───────────────────────────────────────────────────────────────
@@ -332,11 +333,12 @@ class FakeAdapter(BaseAdapter):
         host = urlparse(url).netloc
         status, headers, body = 200, {}, b""
         raw = None
-        if "/image/" in urlparse(url).path:
+        api = host.startswith("api.") or host.startswith("apiq.")
+        if "/image/" in urlparse(url).path and not api:
             avatar = "/avatar/" in url or "avatar-" in url
             body = artwork(urlparse(url).path, avatar=avatar)
             headers["Content-Type"] = "image/png" if avatar else "image/jpeg"
-        elif host.startswith("api.") or host.startswith("apiq."):
+        elif api:
             status, data = api_answer(request.method, url, request.headers)
             headers["Content-Type"] = "application/json"
             body = json.dumps(data).encode()
@@ -344,17 +346,19 @@ class FakeAdapter(BaseAdapter):
             headers["Content-Type"] = "application/json"
             body = json.dumps(file_sources(url)).encode()
         elif host.startswith("demo-cdn."):
-            start = 0
+            start, end = 0, VIDEO_BYTES - 1
             range_header = request.headers.get("Range", "")
             if range_header.startswith("bytes="):
-                start = int(range_header[6:].split("-")[0] or 0)
-                status = 206
-                headers["Content-Range"] = f"bytes {start}-{VIDEO_BYTES - 1}/{VIDEO_BYTES}"
+                first, _, last = range_header[6:].partition("-")
+                start = int(first or 0)
+                end = min(int(last), VIDEO_BYTES - 1) if last.strip() else VIDEO_BYTES - 1
+                status = 206  # one segment, as a real server answers the multi-connection downloader
+                headers["Content-Range"] = f"bytes {start}-{end}/{VIDEO_BYTES}"
             headers["Content-Type"] = "video/mp4"
-            headers["Content-Length"] = str(VIDEO_BYTES - start)
+            headers["Content-Length"] = str(end + 1 - start)
             headers["Accept-Ranges"] = "bytes"
             if request.method != "HEAD":
-                raw = _SlowBody(VIDEO_BYTES, start)
+                raw = _SlowBody(end + 1, start)
         elif host.startswith("i.") or "iwara" in host:
             avatar = "/avatar/" in url or "avatar-" in url
             body = artwork(urlparse(url).path, avatar=avatar)
@@ -390,13 +394,33 @@ def fake_session(*_args, **_kwargs) -> requests.Session:
 # ── environment ─────────────────────────────────────────────────────────────
 
 
+ROOT: Path | None = None  # the throw-away folder of the running demo
+STALE_ROOT_SECONDS = 6 * 3600
+
+
+def _remove_old_roots(base: Path) -> None:
+    """Earlier demos' folders (IwaraTool-xxxxxxxx with data/ inside) older than a few hours."""
+    cutoff = time.time() - STALE_ROOT_SECONDS
+    for folder in base.glob("IwaraTool-" + "?" * 8):
+        try:
+            if (folder / "data").is_dir() and folder.stat().st_mtime < cutoff:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def install(language: str = "en", theme: str = "light") -> Path:
     """Isolate the app's folders and network; returns the throw-away data folder."""
 
     import cloudscraper
 
     # A short folder, since its path shows in the log, the history page and settings.
-    root = Path(tempfile.mkdtemp(prefix="IwaraTool-", dir=None if os.name == "nt" else "/tmp"))
+    base = None if os.name == "nt" else "/tmp"
+    _remove_old_roots(Path(base or tempfile.gettempdir()))
+    root = Path(tempfile.mkdtemp(prefix="IwaraTool-", dir=base))
+    atexit.register(shutil.rmtree, root, True)  # screenshot runs end with os._exit: _remove_old_roots catches those
+    global ROOT
+    ROOT = root
     data, downloads = root / "data", root / "Downloads"
     data.mkdir()
     downloads.mkdir()
@@ -428,3 +452,37 @@ def install(language: str = "en", theme: str = "light") -> Path:
     }.items():
         setattr(app_config, key, value)
     return root
+
+
+def seed(root: Path, *, refresh: bool = True):
+    """History records with files on disk, and subscriptions filled by a (fake) refresh."""
+
+    from app.core.download.manager import download_manager
+
+    downloads = root / "Downloads"
+    for index in range(30, 52):
+        post = video(index)
+        author = post["user"]["username"]
+        folder = downloads / author
+        folder.mkdir(parents=True, exist_ok=True)
+        file_path = folder / f"{post['createdAt'][:10]}_{post['title']}_{post['id']}.mp4"
+        file_path.write_bytes(b"\0" * 1024)
+        thumb = folder / f"{file_path.stem}.jpg"
+        thumb.write_bytes(artwork(f"/image/original/file-{post['id']}/thumbnail.jpg"))
+        if index % 2 == 0:  # an NFO beside every other copy: the library reads its tags, people and plot
+            genres = "".join(f"<genre>{tag['id']}</genre>" for tag in post["tags"]) + "<tag>favorite</tag>"
+            (folder / f"{file_path.stem}.nfo").write_text(
+                f"<movie><title>{post['title']}</title><plot>A demo description of {post['title']}.</plot>"
+                f"{genres}<director>{author}</director></movie>", encoding="utf-8")
+        download_manager.history.upsert_downloaded({
+            "video_id": post["id"], "title": post["title"], "author": author,
+            "published_at": post["createdAt"], "likes": post["numLikes"], "views": post["numViews"],
+            "duration": post["file"]["duration"], "comments": post["numComments"], "rating": "general",
+            "tags_json": json.dumps([tag["id"] for tag in post["tags"]]), "raw_json": json.dumps(post),
+            "source_url": f"https://www.iwara.tv/video/{post['id']}", "file_path": str(file_path),
+            "thumbnail_path": str(thumb), "quality": "Source",
+        })
+    for username, name in AUTHORS[:6]:
+        download_manager.add_author_subscription(username, title=name, remote_id=f"user-{username}")
+    if refresh:
+        download_manager.refresh_all_subscriptions()

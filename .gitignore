@@ -22,3 +22,6 @@ agents.md
 # logs and macOS Finder metadata
 *.log
 .DS_Store
+
+# local scratch (screenshots, probes)
+tmp/*

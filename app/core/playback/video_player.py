@@ -24,10 +24,26 @@ MODE_CUSTOM = "custom"
 MODES = (MODE_SYSTEM, MODE_BUILTIN, MODE_CUSTOM)
 FILE_PLACEHOLDER = "{file}"
 
+# Phones have no system or custom player to hand a file to; the UI turns this
+# off there so every "play" stays in the built-in player whatever Settings say.
+_external_available = True
+
+
+def set_external_available(available: bool) -> None:
+    global _external_available
+    _external_available = bool(available)
+
 
 def player_mode() -> str:
+    if not _external_available:
+        return MODE_BUILTIN
     mode = str(app_config.preview_player_mode or MODE_SYSTEM).strip().lower()
     return mode if mode in MODES else MODE_SYSTEM
+
+
+def external_mode() -> str:
+    """How "play in external player" opens a file: the custom command when set up, else the system player."""
+    return MODE_CUSTOM if player_mode() == MODE_CUSTOM else MODE_SYSTEM
 
 
 def split_command(command: str, *, windows: bool | None = None) -> list[str]:
@@ -85,6 +101,15 @@ def playable_video_target(video_id: str, history=None) -> str:
     return video_location(video_id, history).stream_url
 
 
+def downloaded_copy(video_id: str, manager) -> str:
+    """``playable_video_target``, else a finished temporary copy (search / detail downloads keep no history row)."""
+    target = playable_video_target(video_id, manager.history)
+    if target:
+        return target
+    find = getattr(manager, "temporary_copy_path", None)
+    return find(video_id) if callable(find) else ""
+
+
 def opens_externally(target: str, mode: str | None = None) -> bool:
     """True when ``target`` goes to an external player; False means the built-in window plays it.
 
@@ -92,7 +117,7 @@ def opens_externally(target: str, mode: str | None = None) -> bool:
     URL only goes out when a custom player command is set.
     """
     mode = mode or player_mode()
-    if mode == MODE_BUILTIN:
+    if mode == MODE_BUILTIN or not _external_available:
         return False
     if is_url(target):
         return mode == MODE_CUSTOM

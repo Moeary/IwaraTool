@@ -1,14 +1,10 @@
-"""Application configuration in ``config.ini``.
-
-The file is read through QSettings on the desktop and through a compatible
-pure-Python store where Qt is not available (see ``app.settings_store``).
-"""
+"""Application configuration in ``config.ini`` (read and written by ``app.settings_store``)."""
 import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from .paths import app_data_dir, app_root_dir, default_download_dir
-from .settings_store import legacy_settings, open_settings
+from .settings_store import open_settings
 
 
 DEFAULT_FILENAME_TEMPLATE = "{author}/{YYYY-MM-DD}_{title}_{id}.mp4"
@@ -130,6 +126,8 @@ class AppConfig:
         "subscription_auto_enqueue_confirm": False,  # automation also waits for confirmation
         "global_speed_limit_enabled": False,
         "global_speed_limit_kib": 0,
+        # Built-in downloader connections per file (core/download/segmented.py); 1 keeps a single stream.
+        "native_download_connections": 4,
         "download_schedule_enabled": False,
         "download_schedule_start": "00:00",
         "download_schedule_end": "00:00",
@@ -150,9 +148,6 @@ class AppConfig:
         "ffmpeg_path": "",  # empty: find ffmpeg on PATH / usual install folders, see core/tools/ffmpeg
     }
 
-    # Never copied out of the old registry-based store.
-    _LEGACY_UNMIGRATED_KEYS = frozenset({"auth_enabled", "username", "password"})
-
     def __init__(self):
         self._data_dir = _app_data_dir()
         self._config_path = os.path.join(self._data_dir, "config.ini")
@@ -164,43 +159,12 @@ class AppConfig:
         self._lock = threading.RLock()
         self._defer = 0
         self._pending_sync = False
-        self._migrate_legacy_settings_if_needed()
-        self._purge_legacy_qsettings()
         self._migrate_download_dir_if_needed()
         self._migrate_split_proxy_settings()
         self._migrate_filename_template_if_needed()
 
         # Ensure default download directory exists
         os.makedirs(self.download_dir, exist_ok=True)
-
-    def _migrate_legacy_settings_if_needed(self):
-        """One-time migration from old platform-default QSettings location.
-
-        Only migrate non-sensitive preferences. Credentials are intentionally
-        not migrated to avoid unexpected password resurrection.
-        """
-        if os.path.exists(self._config_path):
-            return
-        legacy = legacy_settings()
-        if legacy is None:
-            return
-        safe_keys = set(self._DEFAULTS) - self._LEGACY_UNMIGRATED_KEYS
-        for key, default in self._DEFAULTS.items():
-            if key not in safe_keys:
-                continue
-            if legacy.contains(key):
-                self._qs.setValue(key, legacy.value(key, default))
-        self._qs.sync()
-
-    def _purge_legacy_qsettings(self):
-        """Remove all values from old registry-based QSettings store.
-
-        We now persist only to portable data/config.ini.
-        """
-        legacy = legacy_settings()
-        if legacy is not None and legacy.allKeys():
-            legacy.clear()
-            legacy.sync()
 
     def _migrate_download_dir_if_needed(self):
         """Normalize old local folder name 'downloads' to new default './download'."""
@@ -325,6 +289,10 @@ class AppConfig:
     def get_ui_value(self, key: str, default=""):
         with self._lock:
             return self._qs.value(f"ui/{key}", default)
+
+    def get_ui_flag(self, key: str, default: bool = False) -> bool:
+        """A saved on/off value: the INI file gives back ``'false'`` / ``'true'``, which ``bool()`` reads as True."""
+        return self._coerce_bool(self.get_ui_value(key, default))
 
     def set_ui_value(self, key: str, value, *, sync: bool = True):
         with self._lock:
@@ -599,6 +567,22 @@ class AppConfig:
     @global_speed_limit_kib.setter
     def global_speed_limit_kib(self, v: int):
         self._set("global_speed_limit_kib", max(0, min(10 * 1024 * 1024, int(v))))
+
+    @property
+    def native_download_connections(self) -> int:
+        return max(1, min(16, int(self._get("native_download_connections") or 1)))
+
+    @native_download_connections.setter
+    def native_download_connections(self, v: int):
+        self._set("native_download_connections", max(1, min(16, int(v))))
+
+    @classmethod
+    def use_defaults(cls, **values) -> None:
+        """Other defaults for settings never saved (tools and tests)."""
+        unknown = set(values) - set(cls._DEFAULTS)
+        if unknown:
+            raise KeyError(f"unknown settings: {sorted(unknown)}")
+        cls._DEFAULTS.update(values)
 
     download_schedule_enabled = _Setting()
 

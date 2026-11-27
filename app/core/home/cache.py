@@ -10,6 +10,7 @@ videos and the hot images cache and expire independently.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -22,6 +23,14 @@ HOME_CACHE_MINUTES_KEY = "home_cache_minutes_v1"  # re-check a row after this lo
 DEFAULT_CACHE_MINUTES = 15
 MAX_ENTRIES = 80
 ACCOUNT_PREFIX = "acct:"  # entries that belong to the signed-in account
+# Which login the account entries belong to: a hash, kept in this file (not in
+# config.ini, which backups carry), so a cache saved by another login is never shown.
+OWNER_KEY = ACCOUNT_PREFIX + "owner"
+
+
+def owner_id(login: str) -> str:
+    login = str(login or "").strip().lower()
+    return hashlib.sha256(login.encode("utf-8")).hexdigest()[:16] if login else ""
 
 
 @dataclass(frozen=True)
@@ -91,8 +100,12 @@ class HomeFeedCache:
     def _save(self) -> None:
         entries = self._load()
         if len(entries) > MAX_ENTRIES:
-            newest = sorted(entries, key=lambda k: float(entries[k].get("saved_at", 0) or 0), reverse=True)
+            owner = entries.get(OWNER_KEY)
+            rows = [k for k in entries if k != OWNER_KEY]
+            newest = sorted(rows, key=lambda k: float(entries[k].get("saved_at", 0) or 0), reverse=True)
             self._entries = entries = {key: entries[key] for key in newest[:MAX_ENTRIES]}
+            if owner is not None:
+                entries[OWNER_KEY] = owner
         path = self._resolve_path()
         tmp = f"{path}.tmp"
         try:
@@ -142,12 +155,26 @@ class HomeFeedCache:
     def clear(self, *, account_only: bool = False) -> int:
         with self._lock:
             entries = self._load()
-            doomed = [k for k in entries if not account_only or k.startswith(ACCOUNT_PREFIX)]
+            doomed = [k for k in entries if k != OWNER_KEY and (not account_only or k.startswith(ACCOUNT_PREFIX))]
             for key in doomed:
                 del entries[key]
             if doomed:
                 self._save()
             return len(doomed)
+
+    def claim_account(self, owner: str) -> bool:
+        """Account entries now belong to ``owner`` (``owner_id``); entries saved by any
+        other login, or by an unknown one, are dropped.  True when something was dropped."""
+        with self._lock:
+            entries = self._load()
+            if str((entries.get(OWNER_KEY) or {}).get("owner", "")) == owner and owner:
+                return False
+            doomed = [k for k in entries if k.startswith(ACCOUNT_PREFIX)]
+            for key in doomed:
+                del entries[key]
+            entries[OWNER_KEY] = {"rows": [], "owner": owner}
+            self._save()
+            return bool([k for k in doomed if k != OWNER_KEY])
 
     def __len__(self) -> int:
         with self._lock:

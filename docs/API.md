@@ -4,7 +4,7 @@
 
 This document describes the Iwara REST API as IwaraTool uses it, and which feature sends which request. Iwara has no official public API: everything below was read off the live site, the project's own tests, and the open-source clients [LoveIwara](https://github.com/FoxSensei001/LoveIwara) and [gallery-dl](https://github.com/mikf/gallery-dl/blob/master/gallery_dl/extractor/iwara.py). Each endpoint is marked **verified** (exercised against the live API by this project) or **reference** (taken from another client's source and not exercised with a real account here).
 
-Contents: [1 Conventions and authentication](#1-conventions-and-authentication) · [2 Read endpoints](#2-read-endpoints) · [3 Account actions](#3-account-actions) · [4 Which feature sends which request](#4-which-feature-sends-which-request) · [5 Search download](#5-search-download) · [6 Fluent search page](#6-fluent-search-page) · [7 NFO generation](#7-nfo-generation-and-media-center-compatibility) · [8 Filters](#8-filters) · [9 Input URL types](#9-input-url-types-supported-by-ui) · [10 Tag crawl script](#10-tag-crawl-script-and-local-translation-cache)
+Contents: [1 Conventions and authentication](#1-conventions-and-authentication) · [2 Read endpoints](#2-read-endpoints) · [3 Account actions](#3-account-actions) · [4 Which feature sends which request](#4-which-feature-sends-which-request) · [5 Search download](#5-search-download) · [6 Search page](#6-search-page) · [7 NFO generation](#7-nfo-generation-and-media-center-compatibility) · [8 Filters](#8-filters) · [9 Input URL types](#9-input-url-types-supported-by-ui) · [10 Tag crawl script](#10-tag-crawl-script-and-local-translation-cache)
 
 ## 1. Conventions and authentication
 
@@ -122,9 +122,9 @@ The web route and the JSON endpoint both use the plural `tags` (verified 2026-10
 - If enabled, only the first `N` videos from the search results are enqueued
 - If the URL also includes `limit`, the effective cap is `min(url limit, setting limit)`
 
-## 6. Fluent search page
+## 6. Search page
 
-The sidebar's Search page is an online browsing and batch-enqueue UI, separate from "search URL enqueue" in the download hub. The default source is Oreno3D online search; it can be switched to the Iwara live API. It does not build a local mirror of either site.
+The sidebar's Search page is an online browsing and batch-enqueue UI, separate from pasting a search URL on the Downloads page. The default source is Oreno3D online search; it can be switched to the Iwara live API. It does not build a local mirror of either site.
 
 ### Search types
 - **Keyword** — Iwara with a non-empty keyword: `GET /search?type=videos&query=…&sort=…&page=0`, quoted phrases kept verbatim; empty keyword browses `/videos`. Oreno3D: `GET https://oreno3d.com/search?keyword=…&sort=latest&page=1`; opening a result resolves it to its Iwara page.
@@ -139,7 +139,7 @@ The sidebar's Search page is an online browsing and batch-enqueue UI, separate f
 - Iwara keyword sorts: `date`, `relevance`, `views`, `likes`; video lists and tags: `date`, `trending`, `popularity`, `views`, `likes`. The selector follows the mode.
 - Iwara results keep the server order: no re-sorting of a page, no local substring filtering that would drop valid matches found in descriptions. "Next page" reuses the same query and sort; edits not yet submitted restart from page one.
 - For `/videos`, `count` may be the "offset + page size + 1" next-page marker; the true total of `/search` is handled separately. When the server uses another page size, only a confirmable next page is kept. HTTP errors and malformed results show their reason instead of looking like zero results.
-- The page does not duplicate the Download Hub's advanced filters; its "download rule" picker reuses the existing rules. Choosing a rule applies its metadata filters, naming template, cover/NFO and download behaviour immediately and makes it the default.
+- The page does not duplicate the download rules' advanced filters; downloading picks an existing rule in the download sheet. Choosing a rule applies its metadata filters, naming template, cover/NFO and download behaviour immediately and makes it the default.
 - With SFW / NSFW selected, `/search` results are requested 100 at a time and filtered locally, reading up to 4 more pages until about 24 rows match.
 
 ### Iwara search verification (2026-10-03)
@@ -228,5 +228,5 @@ The global filter switch applies during the resolve stage.
 Local translation cache:
 - Project-generated offline index: `data/iwara_tags.json`; LoveIwara MIT cache: `data/tag_translations/loveiwara_iwara_tags_localized.json`.
 - The search page loads the LoveIwara cache first and falls back to `data/iwara_tags.json`. "Update Tags" downloads on demand; startup needs no network.
-- Bundled sources: `app/data/tag_translations/loveiwara_iwara_tags_localized.json` and the Oreno3D/Iwara label map `app/data/oreno3d_iwara_map.json`; Nuitka and GitHub Actions include both explicitly.
+- Bundled sources: `app/data/tag_translations/loveiwara_iwara_tags_localized.json` and the Oreno3D/Iwara label map `app/data/oreno3d_iwara_map.json`; both ship with `app/data` in the `flet build` package.
 - On first run the bundled dictionary is expanded to `data/tag_translations/` beside the executable only when the runtime cache is missing; existing user caches are never replaced.

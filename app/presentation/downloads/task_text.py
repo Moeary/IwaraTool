@@ -1,0 +1,146 @@
+"""Text shown for a task: sizes, progress, priority, tooltips and search text."""
+
+from __future__ import annotations
+
+from ...core.models import DownloadTask, TaskStatus, status_label
+from ...i18n import tr
+from ...core import site as sites
+
+
+def _fmt_bytes(n: int) -> str:
+    if n >= 1024 ** 3:
+        return f"{n / 1024 ** 3:.1f} GB"
+    if n >= 1024 ** 2:
+        return f"{n / 1024 ** 2:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n} B"
+
+
+def _video_url(video_id: str) -> str:
+    return sites.video_url(str(video_id or "").strip())
+
+
+def _task_url(task) -> str:
+    """The task's own link (it knows its site), else one on the current site."""
+
+    url = str(getattr(task, "url", "") or "")
+    return url if sites.site_of_url(url) else _video_url(task.video_id)
+
+
+def task_search_text(task: DownloadTask) -> str:
+    return "\n".join(
+        [
+            status_label(task.status),
+            task.title,
+            task.author,
+            task.username,
+            task.video_id,
+            _task_url(task),
+            task.quality,
+            task.error_msg,
+            task.file_path,
+            task.remote_path,
+        ]
+    ).lower()
+
+
+def priority_text(priority: int) -> str:
+    if priority > 0:
+        return tr("High", "高", "高")
+    if priority < 0:
+        return tr("Low", "低", "低")
+    return tr("Normal", "普通", "通常")
+
+
+def progress_ratio(task: DownloadTask) -> float:
+    if task.status == TaskStatus.COMPLETED:
+        return 1.0
+    if task.total_bytes > 0:
+        return max(0.0, min(1.0, task.downloaded_bytes / task.total_bytes))
+    return 0.0
+
+
+def progress_text(task: DownloadTask) -> str:
+    if task.status == TaskStatus.COMPLETED:
+        return "100%"
+    if task.status == TaskStatus.RESOLVING:
+        return tr("Resolving", "解析中", "解析中")
+    if task.status == TaskStatus.QUEUED_META:
+        return tr("Queued", "排队中", "待機中")
+    if task.status == TaskStatus.QUEUED_DOWNLOAD:
+        return tr("Waiting", "待下载", "待機")
+    if task.status == TaskStatus.CANCELLING:
+        return tr("Cancelling", "中断中", "中断中")
+    if task.status == TaskStatus.FAILED and task.error_msg:
+        return task.error_msg
+    if task.total_bytes > 0:
+        return f"{progress_ratio(task) * 100:.1f}%"
+    return ""
+
+
+def size_text(task: DownloadTask) -> str:
+    if task.total_bytes > 0:
+        return f"{_fmt_bytes(task.downloaded_bytes)} / {_fmt_bytes(task.total_bytes)}"
+    if task.downloaded_bytes > 0:
+        return _fmt_bytes(task.downloaded_bytes)
+    return ""
+
+
+class TaskTextMixin:
+    """Text shown for a task in the PySide6 table (the functions above, plus cell tooltips)."""
+
+    def _task_search_text(self, task: DownloadTask) -> str:
+        return task_search_text(task)
+
+    def _cell_tooltip(self, task: DownloadTask, column: int, value: str) -> str:
+        if column == self._COL_STATE and task.error_msg:
+            return f"{value}\n{task.error_msg}"
+        if column == self._COL_PROGRESS and task.error_msg:
+            return task.error_msg
+        return value
+
+    @staticmethod
+    def _priority_text(priority: int) -> str:
+        return priority_text(priority)
+
+    def _progress_ratio(self, task: DownloadTask) -> float:
+        return progress_ratio(task)
+
+    def _progress_text(self, task: DownloadTask) -> str:
+        return progress_text(task)
+
+    def _size_text(self, task: DownloadTask) -> str:
+        return size_text(task)
+
+
+def task_url(task) -> str:
+    """The task's own link, else one on the current site."""
+    return _task_url(task)
+
+
+def task_meta_text(task: DownloadTask) -> str:
+    """Second line of a task row: author · size · speed (whatever is known)."""
+    parts = [task.author or task.username, size_text(task)]
+    if task.status == TaskStatus.DOWNLOADING and task.speed_str:
+        parts.append(task.speed_str)
+    if task.status in (TaskStatus.FAILED, TaskStatus.SKIPPED) and task.error_msg:
+        parts.append(task.error_msg)
+    return " · ".join(part for part in parts if part)
+
+
+def task_cover_url(task: DownloadTask) -> str:
+    """The task's cover: its own thumbnail URL, else the small rendition once resolving found the file."""
+
+    from urllib.parse import quote, urlparse
+
+    from ...core.search.normalize import small_cover_url
+
+    if task.thumbnail_url:
+        return small_cover_url(task.thumbnail_url)
+    if not task.file_id:
+        return ""
+    # Images live on i.<site>, not on the file host the download URL names.
+    host = "i.iwara.ai" if urlparse(str(task.file_url or "")).netloc.endswith("iwara.ai") else "i.iwara.tv"
+    index = max(0, int(task.thumbnail_index or 0))
+    return f"https://{host}/image/thumbnail/{quote(task.file_id)}/thumbnail-{index:02d}.jpg"

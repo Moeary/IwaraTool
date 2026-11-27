@@ -1,57 +1,33 @@
 [workspace]
+name = "IwaraTool"
+version = "1.3.0"
+description = "Iwara browser and batch downloader (Flet: Windows, macOS, Android)"
 authors = ["Moeary"]
 channels = ["conda-forge"]
-name = "IwaraTool"
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
-version = "1.2.3"
+
+[dependencies]
+python = "3.12.*"
+requests = ">=2.32.5,<3"
+
+[pypi-dependencies]
+cloudscraper = ">=1.2.71"
+flet = { version = "==1.1.3", extras = ["desktop", "cli"] }
+flet-video = "==1.1.3"
 
 [tasks]
-start = "python main.py"
-crawl = "python scripts/tools/crawl_iwara_tags.py"
-test = "python -X faulthandler -m unittest discover -s scripts/tests -p \"test_*.py\""
-build = "nuitka --standalone --onefile --enable-plugin=pyside6 --include-qt-plugins=multimedia --windows-console-mode=disable --include-package-data=cloudscraper --windows-icon-from-ico=app/icon.ico --include-data-file=app/icon.ico=app/icon.ico --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json --output-filename=IwaraTool.exe --output-dir=dist --remove-output main.py"
-
-[target.win-64.tasks]
-build = "python scripts/tools/build_windows.py"
+start = { cmd = "python main.py", description = "运行程序" }
+demo = { cmd = "python main.py --demo", description = "离线演示（虚构数据，不碰真实数据）" }
+test = { cmd = "python -X faulthandler -m unittest discover -s scripts/tests -t scripts/tests -p \"test_*.py\"", description = "运行全部测试" }
+build = { cmd = "python scripts/tools/build.py", description = "打包当前系统的桌面版到 dist/" }
+apk = { cmd = "python scripts/tools/build.py --platform apk", description = "打包 Android APK（需要 Android SDK，平时由 CI 构建）" }
+screenshots = { cmd = "python scripts/tools/viewports.py --demo --out tmp/viewports", description = "用演示数据按各种窗口尺寸截图到 tmp/viewports" }
+theme-gallery = { cmd = "python scripts/tools/theme_gallery.py", description = "设计令牌与组件样张" }
+i18n = { cmd = "python scripts/tools/i18n_extract.py", description = "汇总界面文本，检查中英日翻译" }
+crawl = { cmd = "python scripts/tools/crawl_iwara_tags.py", description = "抓取标签数据（更新 docs/iwara_tags.md）" }
 
 # conda-forge 的 openssl 激活脚本会把 SSL_CERT_DIR 指向空的 Library\ssl\certs，
 # 在已激活的终端里再执行 pixi 会警告 “ignoring SSL_CERT_DIR: no certificates found”。
 # 激活后清掉它即可：OpenSSL 仍通过 SSL_CERT_FILE（cacert.pem）找到根证书。
 [target.win-64.activation.env]
 SSL_CERT_DIR = ""
-
-# 测试文件默认 QT_QPA_PLATFORM=offscreen；macOS 上 qframelesswindow 会把
-# offscreen 的 winId 当成 NSView 交给 PyObjC，创建主窗口时直接段错误，
-# 因此 macOS 的测试与 CI 一样固定使用 cocoa。
-[target.osx-arm64.tasks]
-build = "python scripts/tools/build_macos.py"
-test = { cmd = "python -X faulthandler -m unittest discover -s scripts/tests -p \"test_*.py\"", env = { QT_QPA_PLATFORM = "cocoa" } }
-
-[target.osx-64.tasks]
-build = "python scripts/tools/build_macos.py"
-test = { cmd = "python -X faulthandler -m unittest discover -s scripts/tests -p \"test_*.py\"", env = { QT_QPA_PLATFORM = "cocoa" } }
-
-[target.osx-arm64.pypi-dependencies]
-pyside6 = "==6.6.2"
-dmgbuild = ">=1.6"
-
-[target.osx-64.pypi-dependencies]
-pyside6 = "==6.6.2"
-dmgbuild = ">=1.6"
-
-[target.win-64.dependencies]
-pyside6 = "==6.6.2"
-
-[target.linux-64.dependencies]
-pyside6 = "==6.6.2"
-
-[dependencies]
-python = "3.11.*"
-requests = ">=2.32.5,<3"
-#下面是编译要用的 Following are for build dependencies
-zstandard = ">=0.25.0,<0.26" 
-nuitka = ">=2.8.9,<3"
-
-[pypi-dependencies]
-pyside6-fluent-widgets = ">=1.10.2, <2"
-cloudscraper = ">=1.2.71"

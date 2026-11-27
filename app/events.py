@@ -1,6 +1,6 @@
-"""Pure-Python stand-in for Qt signals, used when PySide6 is not available.
+"""Pure-Python signals for ``app.signal_bus``.
 
-It mirrors the part of the Qt API the app uses: a class attribute
+They keep the shape of the Qt signals the app used up to v1.2: a class attribute
 ``name = Signal(str, int)`` gives each instance a signal with ``connect``,
 ``disconnect`` and ``emit``. Unlike a Qt signal, ``emit`` calls the slots
 right away on the emitting thread. A front end that has a UI thread hands

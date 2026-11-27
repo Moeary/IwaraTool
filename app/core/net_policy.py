@@ -5,9 +5,10 @@ Adds three things the bare cloudscraper session lacks:
 * a minimum interval between requests to the same host (cheap rate limiting),
 * exponential back-off retries for transient failures,
 * ``Retry-After`` handling for HTTP 429/503, and
-* cancellation: a request made from a QThread whose interruption was
-  requested (a page closing, the app exiting) gives up before its next
-  attempt, and its back-off wait ends early, instead of sleeping on.
+* cancellation: a request whose ``CancelToken`` was cancelled, or made from
+  a QThread whose interruption was requested (a page closing, the app
+  exiting), gives up before its next attempt, and its back-off wait ends
+  early, instead of sleeping on.
 
 Streaming downloads are deliberately not routed through here.
 """
@@ -20,7 +21,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from ..logging_setup import get_logger
-from ..qt_support import qt_available
+from .cancellation import token_cancelled
 
 logger = get_logger(__name__)
 
@@ -35,16 +36,12 @@ class RequestCancelled(Exception):
 
 
 def cancellation_requested() -> bool:
-    """Whether the calling QThread was asked to stop (False on plain threads)."""
-    if not qt_available():
-        return False
-    try:
-        from PySide6.QtCore import QThread
+    """Whether the current work was asked to stop.
 
-        thread = QThread.currentThread()
-        return bool(thread is not None and thread.isInterruptionRequested())
-    except Exception:  # pragma: no cover - Qt missing or shutting down
-        return False
+    True when the context's ``CancelToken`` (see ``cancellation.cancel_scope``)
+    was cancelled.
+    """
+    return token_cancelled()
 
 
 def _raise_if_cancelled(method: str, host: str) -> None:

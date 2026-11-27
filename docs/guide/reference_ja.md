@@ -6,12 +6,12 @@
 
 ## プラットフォームの注意
 
-- **Windows**：[Releases](https://github.com/Moeary/IwaraTool/releases) から `.exe` を取得して実行します。ログイン時の自動起動とワンクリック更新（SHA-256 検証付き）は Windows のみ対応しています。
-- **Linux**：バイナリは GitHub の `ubuntu-latest` ランナーでビルドされるため、古い glibc の環境はサポート対象外です。古いディストリビューションではソースを取得してローカルでビルドしてください。
-- **macOS**：Apple シリコン（ARM64）と Intel（x86_64）の DMG（同内容の ZIP も同梱）を提供します。開いて `IwaraTool.app` を「アプリケーション」にドラッグしてください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。初回起動時のブロックへの対処、アーキテクチャの選び方、プロキシ設定は [インストールと基本の使い方](./install_ja.md) を参照してください。
-  - パッケージ時に、ビルド環境の Python を指したままのライブラリ参照をバンドル内のパスへ書き換えてアドホック署名し直し、CI ですべての Mach-O の参照を検査したうえで `.app` とマウントした DMG の両方から起動を確認します。
+- **Windows**：[Releases](https://github.com/Moeary/IwaraTool/releases) から `IwaraTool-Windows-AMD64-<バージョン>.zip` を取得し、展開して `IwaraTool.exe` を実行します。データはプログラム横の `data/` に保存されるため、旧バージョンのフォルダーに展開すればそのデータを引き継げます。トレイアイコンとログイン時の自動起動に対応しています。
+- **macOS**：Apple シリコン（ARM64）向けの ZIP に `IwaraTool.app` が入っています。「アプリケーション」にドラッグしてください。CI は macOS 15 で検証し、旧バージョンは未検証です。Developer ID 署名・公証はありません。初回起動時のブロックへの対処とプロキシ設定は [インストールと基本の使い方](./install_ja.md) を参照してください。
   - データは `~/Library/Application Support/IwaraTool/`、既定の保存先は `~/Downloads/IwaraTool/` です。
   - 更新時は `.app` を置き換えてください。データは保持されます。
+- **Android**：`IwaraTool-Android-<バージョン>.apk`。すべてのリリースを同じ長期署名鍵で署名しているため、新しい APK を上書きインストールしてそのまま更新でき、データも残ります。
+- **Linux / macOS Intel**：ビルド済みパッケージは現在ありません。ソースから実行してください（下記）。
 
 ## 対応 URL
 
@@ -60,10 +60,15 @@ https://api.iwara.tv/videos?tags=2d&sort=date
 
 ```shell
 pixi install
-pixi run start  # プログラムを実行
-pixi run build  # アプリをビルド
-pixi run crawl  # タグデータを取得（docs/iwara_tags.md を更新）
-pixi run test   # テストを実行
+pixi run start        # プログラムを実行
+pixi run demo         # オフラインデモ：架空のデータで、実データには触れません
+pixi run test         # テストを実行
+pixi run build        # このシステムのデスクトップ版を dist/ にパッケージ（macOS は --install でテスト版をインストール）
+pixi run apk          # Android APK をビルド（Android SDK が必要）
+pixi run screenshots  # デモデータで各ウィンドウサイズのスクリーンショット
+pixi run i18n         # UI テキストを集計して翻訳を確認
+pixi run crawl        # タグデータを取得（docs/iwara_tags.md を更新）
+pixi task list        # すべてのタスクを表示
 ```
 
-Windows ビルドにはバージョン情報が埋め込まれます。環境変数 `WINDOWS_SIGN_PFX`（.pfx のパス。CI では `WINDOWS_SIGN_PFX_BASE64`）と `WINDOWS_SIGN_PFX_PASSWORD` を設定すると、`pixi run build` がタイムスタンプ付きの Authenticode 署名も行います（Windows SDK があれば signtool、なければ PowerShell）。既存ファイルのみ署名するには `python scripts/tools/build_windows.py --sign-only <exe>` を使います。
+`pixi run build` は `flet build` でこのシステム向けのデスクトップ版をパッケージします（`--platform apk` は Android。Android SDK が必要で、通常は CI でビルドします）。Android のリリースは 1 つの長期署名鍵で署名します。`FLET_ANDROID_SIGNING_KEY_STORE`（.jks のパス）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD`、`FLET_ANDROID_SIGNING_KEY_ALIAS` を設定してビルドすると、スクリプトが APK の証明書を `scripts/tools/build.py` の `RELEASE_CERT_SHA256` と照合します。CI はリポジトリの secrets `ANDROID_KEYSTORE_BASE64`・`ANDROID_KEYSTORE_PASSWORD`・`ANDROID_KEY_ALIAS` を使い、タグでのリリース時に鍵がなければ失敗します。
