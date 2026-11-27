@@ -197,6 +197,9 @@ class CacheOwnerTests(unittest.TestCase):
         self.assertIsNotNone(cache.get("hot_videos|trending|all"))
         stored = HomeFeedCache(cache._resolve_path())._load()[OWNER_KEY]["owner"]
         self.assertNotIn("bob", stored)  # a hash, never the login itself
+        cache.put("acct:subscriptions|videos|all", rows("b", 1))
+        self.assertEqual(cache.clear(), 2)  # Settings → clear: rows only, the owner stays
+        self.assertFalse(cache.claim_account(owner_id("bob")))
 
 
 if __name__ == "__main__":

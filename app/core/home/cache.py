@@ -155,7 +155,7 @@ class HomeFeedCache:
     def clear(self, *, account_only: bool = False) -> int:
         with self._lock:
             entries = self._load()
-            doomed = [k for k in entries if not account_only or k.startswith(ACCOUNT_PREFIX)]
+            doomed = [k for k in entries if k != OWNER_KEY and (not account_only or k.startswith(ACCOUNT_PREFIX))]
             for key in doomed:
                 del entries[key]
             if doomed:
