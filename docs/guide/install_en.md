@@ -12,7 +12,7 @@ Download the file for your system from [Releases](https://github.com/Moeary/Iwar
 | --- | --- | --- |
 | Windows 10 / 11 (64-bit) | `IwaraTool-Windows-AMD64-v<version>.zip` | Extract and run `IwaraTool.exe` |
 | macOS · Apple Silicon (M-series chips) | `IwaraTool-macOS-AppleSilicon-ARM64-v<version>.zip` | Extract to get `IwaraTool.app` |
-| Android | `IwaraTool-Android-v<version>.apk` | Allow "install unknown apps" when asked |
+| Android | `IwaraTool-Android-arm64-v8a-v<version>.apk` (recommended) | Pick by processor, see below; allow "install unknown apps" when asked |
 
 Linux and Intel Macs have no prebuilt package for now: run from source (see [Reference](./reference_en.md#run--build-from-source)) or keep using v1.2.3.
 
@@ -34,7 +34,14 @@ The Windows build is not code-signed: on first run SmartScreen may say "Windows 
 
 ## Android: install and update
 
-Allow "install unknown apps" when installing the `.apk`. Every release carries the same signature, so a newer `.apk` installs over the old one as an update and keeps your data.
+Android comes in one smaller APK per processor type:
+
+- `arm64-v8a`: nearly every phone and tablet of recent years, **the first choice**;
+- `armeabi-v7a`: older 32-bit ARM devices;
+- `x86_64`: emulators and some Chromebooks;
+- `universal`: all of them in one larger file, for when you are not sure.
+
+When the app finds a new version it downloads the APK for your device directly. Allow "install unknown apps" when installing the `.apk`. Every release carries the same signature, so a newer `.apk` installs over the old one as an update and keeps your data.
 
 ## macOS: the first-launch security prompt
 

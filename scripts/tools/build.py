@@ -27,8 +27,9 @@ Steps:
    without them Flet signs with the machine's debug key).  The certificate's
    SHA-256 must match ``RELEASE_CERT_SHA256``; ``--require-signing``
    (tags in CI) also refuses a build without the release key.
-7. Zip it as dist/IwaraTool-<Platform>-<arch>-<label>.zip (an APK is
-   copied as dist/IwaraTool-Android-<label>.apk).
+7. Zip it as dist/IwaraTool-<Platform>-<arch>-<label>.zip.  Android is built
+   twice: one APK per ABI (--split-per-abi) and a universal one, copied as
+   dist/IwaraTool-Android-<arm64-v8a|armeabi-v7a|x86_64|universal>-<label>.apk.
 8. macOS: forget the build's own bundles in Launch Services (so Spotlight, Launchpad
    and "Open With" do not list a copy per build folder) and, with --install, replace
    the single test copy at /Applications/IwaraTool Dev.app (the release IwaraTool.app
@@ -112,6 +113,9 @@ extract_packages = ["cloudscraper"]
 usesCleartextTraffic = true
 requestLegacyExternalStorage = true
 """
+# An APK per ABI keeps the download small (Python and its libraries are native
+# code); the universal one holds them all, for when the device's ABI is unknown.
+ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
 DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
 TEST_INSTALL = Path("/Applications/IwaraTool Dev.app")  # the one test copy on this Mac
@@ -167,8 +171,8 @@ def stage(version: str) -> None:
     print(f"Staged {len(staged)} files in {STAGE.relative_to(ROOT)}")
 
 
-def flet_build(target: str, version: str, verbose: bool) -> Path:
-    out = OUTPUT / target
+def flet_build(target: str, version: str, verbose: bool, extra: tuple[str, ...] = (), name: str = "") -> Path:
+    out = OUTPUT / (name or target)
     if out.exists():
         shutil.rmtree(out)
     command = [
@@ -179,6 +183,7 @@ def flet_build(target: str, version: str, verbose: bool) -> Path:
         "--build-number", str(build_number(version)),
         "--output", str(out),
     ]
+    command += extra
     if verbose:
         command.append("-v")
     print("Running:", " ".join(command[2:]))
@@ -358,15 +363,19 @@ def verify_apk_signature(out: Path, require: bool) -> None:
                              "(RELEASE_CERT_SHA256); installed copies could not update to it")
 
 
+def apk_abi(apk: Path) -> str:
+    """The ABI in a split APK's name (``app-arm64-v8a-release.apk``), else ``universal``."""
+    return next((abi for abi in ANDROID_ABIS if abi in apk.name), "universal")
+
+
 def package(target: str, out: Path, label: str) -> Path:
     DIST.mkdir(exist_ok=True)
     if target == "apk":
         apks = sorted(out.rglob("*.apk"))
         if not apks:
             raise SystemExit(f"no .apk in {out}")
-        for apk in apks:  # one universal APK, or one per ABI with split_per_abi
-            suffix = "" if len(apks) == 1 else "-" + apk.stem.replace("app-", "").replace("-release", "")
-            target_path = DIST / f"IwaraTool-Android{suffix}-{label}.apk"
+        for apk in apks:  # one per ABI (--split-per-abi), or the universal one
+            target_path = DIST / f"IwaraTool-Android-{apk_abi(apk)}-{label}.apk"
             shutil.copy2(apk, target_path)
             print(f"Artifact: {target_path.relative_to(ROOT)} ({target_path.stat().st_size / 1e6:.1f} MB)")
         return target_path
@@ -421,13 +430,24 @@ def main() -> None:
         check_signing(args.require_signing)
     version = app_version()
     stage(version)
-    out = flet_build(args.platform, version, args.verbose)
-    audit(out)
+    outs = [flet_build(args.platform, version, args.verbose)]
     if args.platform == "apk":
-        verify_apk_signature(out, args.require_signing)
+        outs.append(flet_build("apk", version, args.verbose, ("--split-per-abi",), name="apk-split"))
+    for out in outs:
+        audit(out)
+        if args.platform == "apk":
+            verify_apk_signature(out, args.require_signing)
+    out = outs[0]
     if not args.no_smoke and args.platform in DESKTOP_TARGETS:
         smoke(find_executable(args.platform, out), out)
-    package(args.platform, out, args.label or f"v{version}")
+    label = args.label or f"v{version}"
+    for built in outs:
+        package(args.platform, built, label)
+    if args.platform == "apk":
+        missing = [abi for abi in (*ANDROID_ABIS, "universal")
+                   if not (DIST / f"IwaraTool-Android-{abi}-{label}.apk").is_file()]
+        if missing:
+            raise SystemExit(f"missing APKs for {', '.join(missing)}")
     if args.platform == "macos":
         forget_build_bundles(out)
         if args.install:
