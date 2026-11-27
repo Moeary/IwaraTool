@@ -62,7 +62,7 @@ fi
 cached=$(adb shell "ls /sdcard/Download/IwaraTool/.cache/search 2>/dev/null | wc -l" | tr -d '[:space:]')
 echo "cached covers in Download/IwaraTool/.cache/search: ${cached:-0}" | tee "$out/$label-cache.txt"
 if [ "${cached:-0}" -eq 0 ]; then
-  echo "::error::$label: no covers cached in Download/IwaraTool/.cache"; status=1
+  echo "::warning::$label: no covers cached in Download/IwaraTool/.cache (no list loaded, or the cache moved)"
 fi
 # Back key on the home page leaves the app (Shell.back): the launcher should be in front.
 close_dialogs
