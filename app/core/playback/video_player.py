@@ -24,8 +24,19 @@ MODE_CUSTOM = "custom"
 MODES = (MODE_SYSTEM, MODE_BUILTIN, MODE_CUSTOM)
 FILE_PLACEHOLDER = "{file}"
 
+# Phones have no system or custom player to hand a file to; the UI turns this
+# off there so every "play" stays in the built-in player whatever Settings say.
+_external_available = True
+
+
+def set_external_available(available: bool) -> None:
+    global _external_available
+    _external_available = bool(available)
+
 
 def player_mode() -> str:
+    if not _external_available:
+        return MODE_BUILTIN
     mode = str(app_config.preview_player_mode or MODE_SYSTEM).strip().lower()
     return mode if mode in MODES else MODE_SYSTEM
 
@@ -106,7 +117,7 @@ def opens_externally(target: str, mode: str | None = None) -> bool:
     URL only goes out when a custom player command is set.
     """
     mode = mode or player_mode()
-    if mode == MODE_BUILTIN:
+    if mode == MODE_BUILTIN or not _external_available:
         return False
     if is_url(target):
         return mode == MODE_CUSTOM

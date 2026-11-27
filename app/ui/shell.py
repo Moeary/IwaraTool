@@ -17,6 +17,7 @@ import flet as ft
 from ..config import app_config
 from ..core import account
 from ..core.download.manager import download_manager
+from ..core.playback import video_player
 from ..i18n import current_language
 from ..logging_setup import get_logger
 from ..presentation import clipboard_links, preferences
@@ -26,7 +27,7 @@ from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
 from .services.system_notices import SystemNotices
-from .platform.capabilities import MOBILE_PLATFORMS, capabilities, platform_override
+from .platform.capabilities import MOBILE_PLATFORMS, Capabilities, capabilities, platform_override
 from .services.dialogs import confirm
 from .services.downloads import DownloadService
 from .services.events import EventBridge
@@ -76,6 +77,7 @@ class Shell:
         self.loop = asyncio.get_running_loop()
         self.theme_override = theme_override  # dev/screenshot runs: not saved
         desktop = platform_name(page) not in MOBILE_PLATFORMS
+        video_player.set_external_available(Capabilities(platform_name(page)).external_player)
         first = start or routes.startup_destination(app_config.startup_page, desktop=desktop)
         if not routes.allowed(first, desktop=desktop):
             first = routes.HOME  # --route /repair on a phone
@@ -399,6 +401,7 @@ class Shell:
         self.state.logged_in = bool(logged_in)
         self.state.profile = {}
         self._profile_asked = False
+        self.home.on_login_changed()
         if logged_in:
             self.page.run_task(self.load_profile)
 
@@ -414,7 +417,6 @@ class Shell:
             return
         if profile and self.state.logged_in:
             self.state.profile = profile
-        self.home.on_login_changed()
 
     def _on_site_changed(self, _key: str) -> None:
         self.state.site = preferences.current_site()

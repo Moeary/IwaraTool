@@ -6,9 +6,13 @@ only this row.
 """
 from __future__ import annotations
 
+import asyncio
+
 import flet as ft
 
+from ...config import app_config
 from ...core.models import DownloadTask, TaskStatus, status_label
+from ...core.playback import video_player
 from ...i18n import tr
 from ...presentation.downloads.task_statuses import _ACTIVE_STATUSES
 from ...presentation.downloads.task_text import priority_text, progress_ratio, task_cover_url, task_meta_text, task_url
@@ -42,6 +46,18 @@ async def _open_output(shell, task: DownloadTask, open_file: bool | None = None)
     """Completed task: the folder or the player (``None`` follows the setting); phones show the library record."""
     if not shell.caps.open_folder:
         shell.open(routes.route(routes.LIBRARY, task.video_id))
+        return
+    if open_file is None:
+        open_file = str(app_config.completed_task_click_action or "folder").lower() == "player"
+    if open_file and video_player.player_mode() == video_player.MODE_BUILTIN and task.video_id:
+        # The built-in player lives in the library (or, for a download kept out of
+        # the history such as a temporary one, on the video's page).
+        recorded = await asyncio.to_thread(shell.manager.history.get_record, task.video_id)
+        if recorded:
+            shell.library.play(task.video_id)
+            shell.open(routes.route(routes.LIBRARY, task.video_id))
+        else:
+            shell.open(routes.route(routes.DETAIL, "video", task.video_id))
         return
     ok, message = await shell.downloads.run("open_task_output", task.task_id, open_file=open_file)
     if not ok and message:

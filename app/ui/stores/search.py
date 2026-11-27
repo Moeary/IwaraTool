@@ -68,6 +68,7 @@ class SearchStore:
         self.cards: list[CardView] = []
         self.statuses: dict[str, SearchDownloadStatus] = {}
         self._token = CancelToken()
+        self._page_starts: list[int] = []  # where each earlier screen of the pager started
         self._generation = 0
         self._request: tuple[SearchFilters, str, str] | None = None
         self._source_pinned = False
@@ -210,6 +211,7 @@ class SearchStore:
         state.selecting = False
         state.searched = True
         state.revision += 1
+        self._page_starts = []
         await self._run_page(0, replace=True)
 
     async def rerun(self) -> None:
@@ -228,6 +230,25 @@ class SearchStore:
         self._restart()
         self.state.selected = frozenset()
         await self._run_page(max(0, page), replace=True)
+
+    async def next_page(self) -> None:
+        """Pager: continue where the last page stopped.  A filtered keyword search
+        (SFW / NSFW) may scan several server pages for one screen, so the next
+        start comes from the result, not ``current + 1``."""
+        if self._request is None or self.state.loading or not self.state.has_next:
+            return
+        target = self.results.next_page
+        if target is None:
+            target = self.results.current_page + 1
+        self._page_starts.append(self.results.current_page)
+        await self.go_page(target)
+
+    async def previous_page(self) -> None:
+        if self._request is None or self.state.loading:
+            return
+        target = self._page_starts.pop() if self._page_starts else self.results.current_page - 1
+        if target >= 0:
+            await self.go_page(target)
 
     async def load_more(self) -> None:
         if self._request is None or self.state.loading or not self.state.has_next:

@@ -219,8 +219,21 @@ class HomeStore:
         self.run(self.reload_all)
 
     def on_login_changed(self) -> None:
-        if any(row.feed.tab.needs_login for row in self.rows):
-            self.run(self.reload_all)
+        """Sign-in, sign-out or another account: rows of the old account must not stay.
+
+        Cached account rows are dropped and those rows fetched again; a fetch
+        still running for the old account loses to the new one's token.
+        """
+        self.cache.clear(account_only=True)
+        rows = [row for row in self.rows if row.feed.tab.needs_login]
+        for row in rows:
+            row._clear()
+            row.state.selected = frozenset()
+        if rows:
+            self.run(self._reload_rows, rows)
+
+    async def _reload_rows(self, rows: list[HomeRow]) -> None:
+        await asyncio.gather(*(row.reload(True) for row in rows), return_exceptions=True)
 
     def fold_all(self, folded: bool) -> None:
         for row in self.rows:

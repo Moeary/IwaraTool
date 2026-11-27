@@ -51,6 +51,19 @@ class PlayerCommandTests(unittest.TestCase):
         finally:
             app_config.preview_player_mode = saved
 
+    def test_phones_always_use_the_built_in_player(self):
+        saved = app_config.preview_player_mode
+        try:
+            app_config.preview_player_mode = "system"
+            video_player.set_external_available(False)
+            self.assertEqual(video_player.player_mode(), video_player.MODE_BUILTIN)
+            self.assertFalse(video_player.opens_externally("/v/a.mp4"))
+            self.assertFalse(video_player.opens_externally("/v/a.mp4", video_player.MODE_CUSTOM))
+        finally:
+            video_player.set_external_available(True)
+            app_config.preview_player_mode = saved
+        self.assertTrue(video_player.opens_externally("/v/a.mp4", video_player.MODE_SYSTEM))
+
 
 class LocalFileTests(unittest.TestCase):
     def test_local_path_requires_existing_file(self):

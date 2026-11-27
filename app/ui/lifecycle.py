@@ -97,10 +97,11 @@ async def shutdown(page: ft.Page) -> None:
     shell = mounted_shell()
     if shell is not None:
         try:
-            # Library removals still waiting for Undo were promised: write them before the process ends.
-            shell.library.flush()  # on the loop: it cancels the Undo timer (a loop handle); one short write
+            # Cancels repair, compression and cover work and writes library removals still
+            # waiting for Undo (on the loop: it cancels the Undo timer; one short write).
+            shell.close()
         except Exception:
-            logger.exception("Writing pending library removals failed")
+            logger.exception("Closing the interface's background work failed")
     try:
         await asyncio.to_thread(bootstrap.stop, wait=True)
     except Exception:  # never keep the window open because saving failed

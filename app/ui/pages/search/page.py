@@ -205,12 +205,12 @@ def _pager(shell) -> ft.Control:
         controls=[
             ft.IconButton(icon=AppIcon.CHEVRON_LEFT, tooltip=tr("Previous page", "上一页", "前のページ"),
                           disabled=state.loading or state.current_page <= 0,
-                          on_click=lambda _e: shell.page.run_task(store.go_page, state.current_page - 1)),
+                          on_click=lambda _e: shell.page.run_task(store.previous_page)),
             ft.Text(tr(f"Page {page_number}{last}", f"第 {page_number}{last} 页", f"{page_number}{last} ページ"),
                     style=text_style(TYPE.meta)),
             ft.IconButton(icon=AppIcon.CHEVRON_RIGHT, tooltip=tr("Next page", "下一页", "次のページ"),
                           disabled=state.loading or not state.has_next,
-                          on_click=lambda _e: shell.page.run_task(store.go_page, state.current_page + 1)),
+                          on_click=lambda _e: shell.page.run_task(store.next_page)),
         ],
     )
 

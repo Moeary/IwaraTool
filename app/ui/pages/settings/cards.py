@@ -970,7 +970,7 @@ def PlaybackCard():
         row(page, stext("player_for_downloaded_videos"), dropdown(
             mode, [(k, t) for k, t in sv.player_modes() if shell.caps.player_command or k != video_player.MODE_CUSTOM],
             lambda v: put("preview_player_mode", v)), compact=_compact(shell)),
-    ]
+    ] if shell.caps.external_player else []  # phones always use the built-in player
     if mode == video_player.MODE_CUSTOM and shell.caps.player_command:
         rows += [
             ft.Row(controls=[

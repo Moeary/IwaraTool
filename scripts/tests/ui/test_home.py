@@ -136,6 +136,28 @@ class HomeStoreTests(unittest.TestCase):
         row.toggle(row.state.cards[1])
         self.assertEqual([video.video_id for video in row.queueable()], ["v1"])
 
+    def test_another_account_never_sees_the_old_subscriptions(self):
+        store = self.make(logged_in=True)
+        row = store.row("subscriptions")
+        calls = []
+
+        def fake(manager, kind, params, page, limit, **kwargs):
+            calls.append(kind)
+            return feed_result(kwargs["token"], prefix="a" if len(calls) == 1 else "b")
+
+        async def scenario():
+            with mock.patch("app.ui.stores.home.load_feed_page", side_effect=fake):
+                await row.reload()
+                self.assertEqual(row.state.cards[0].key, "video:a0")
+                store.on_login_changed()  # sign out and in as someone else
+                self.assertEqual(row.state.cards, [])
+                await asyncio.gather(*store.shell.page.tasks)
+
+        asyncio.run(scenario())
+        self.assertEqual(len(calls), 2)  # the fresh cache of account A was not reused
+        self.assertEqual([card.key for card in row.state.cards], ["video:b0", "video:b1", "video:b2"])
+        self.assertFalse(any(key.startswith("acct:") and "a0" in str(value) for key, value in self.cache._load().items()))
+
 
 if __name__ == "__main__":
     unittest.main()
