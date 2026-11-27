@@ -89,6 +89,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          # Gradle's dependency cache: the two APK builds otherwise download the
+          # same plugins again, and Maven Central rate-limits shared runners (429).
+          cache: gradle
+          cache-dependency-path: pixi.lock
 
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.8.1

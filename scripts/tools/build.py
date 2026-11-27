@@ -121,6 +121,8 @@ DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
 TEST_INSTALL = Path("/Applications/IwaraTool Dev.app")  # the one test copy on this Mac
 OLD_TEST_INSTALLS = (Path("/Applications/IwaraTool Flet.app"),)  # earlier names of that copy, removed on install
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+BUILD_ATTEMPTS = 2
+BUILD_RETRY_WAIT = 90
 SMOKE_TIMEOUT = 240  # start-up plus the desktop check (each of its steps is capped)
 
 
@@ -187,7 +189,16 @@ def flet_build(target: str, version: str, verbose: bool, extra: tuple[str, ...] 
     if verbose:
         command.append("-v")
     print("Running:", " ".join(command[2:]))
-    subprocess.run(command, cwd=STAGE, check=True)
+    for attempt in range(1, BUILD_ATTEMPTS + 1):
+        try:
+            subprocess.run(command, cwd=STAGE, check=True)
+            return out
+        except subprocess.CalledProcessError:
+            if attempt == BUILD_ATTEMPTS:
+                raise
+            # Gradle and pip fetch from servers that drop or rate-limit CI runners now and then.
+            print(f"flet build failed (attempt {attempt}); retrying in {BUILD_RETRY_WAIT} s")
+            time.sleep(BUILD_RETRY_WAIT)
     return out
 
 
