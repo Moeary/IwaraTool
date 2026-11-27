@@ -52,7 +52,12 @@ jobs:
       # result in smoke-test mode and zips it into dist/.
       - name: Build, audit and smoke-test
         shell: bash
-        run: pixi run build --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+        # A tag names the files by its version alone (IwaraTool-Windows-AMD64-v1.3.0.zip);
+        # other runs add the commit so artifacts of different commits stay apart.
+        run: |
+          label="${GITHUB_REF_NAME//\//-}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || label="$label-${GITHUB_SHA::7}"
+          pixi run build --label "$label"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -102,7 +107,9 @@ jobs:
           FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'upload' }}
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          args=(--platform apk --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}")
+          label="${GITHUB_REF_NAME//\//-}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || label="$label-${GITHUB_SHA::7}"
+          args=(--platform apk --label "$label")
           keystore="$RUNNER_TEMP/iwaratool-release.jks"
           trap 'rm -f "$keystore"' EXIT
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
