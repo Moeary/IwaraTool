@@ -120,6 +120,7 @@ class Shell:
         self._last_tool = "rules"  # the Tools entry reopens the tool used last (presentation/tools/hub.py keys)
         self._return_to = routes.HOME  # where Back leaves a phone's secondary page (settings, rules…)
         self._pending_size: tuple[float, float] | None = None
+        self._video_fullscreen = False  # the layout holds still meanwhile (see set_video_fullscreen)
 
     # ── layout ───────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ class Shell:
 
     def _apply_size(self) -> None:
         self._resize_handle = None
-        if self._pending_size is None:
+        if self._pending_size is None or self._video_fullscreen:
             return
         width, height = self._pending_size
         self._pending_size = None
@@ -147,6 +148,32 @@ class Shell:
         if (current.width, current.height) != (width, height):
             self.state.layout = self._layout(width, height)
             self._sync_notice_frame()
+
+    def set_video_fullscreen(self, on: bool) -> None:
+        """A video entered or left fullscreen.
+
+        Fullscreen turns a phone to landscape and hides the system bars; a new
+        layout for that size would rebuild the page under the player, which
+        drops the video out of fullscreen.  The size is applied on the way out.
+        """
+        if on == self._video_fullscreen:
+            return
+        self._video_fullscreen = on
+        if on:
+            if self._resize_handle is not None:
+                self._resize_handle.cancel()
+                self._resize_handle = None
+        elif self._pending_size is not None and self._resize_handle is None:
+            self._resize_handle = self.loop.call_later(RESIZE_SETTLE, self._apply_size)
+        if self.caps.mobile:
+            self.page.run_task(self._allow_orientations, on)
+
+    async def _allow_orientations(self, landscape: bool) -> None:
+        orientations = [ft.DeviceOrientation.LANDSCAPE_LEFT, ft.DeviceOrientation.LANDSCAPE_RIGHT] if landscape else []
+        try:
+            await self.page.set_allowed_device_orientations(orientations)
+        except Exception:
+            logger.debug("Could not change the allowed orientations", exc_info=True)
 
     def _sync_notice_frame(self) -> None:
         from .services.notify import set_frame

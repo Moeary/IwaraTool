@@ -31,14 +31,14 @@ class DownloadArtifactsMixin:
         if not re.match(r"^\.[a-z0-9]{1,8}$", ext):
             ext = ".jpg"
         fingerprint = hashlib.sha1(thumbnail_url.encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
+        img_dir = os.path.join(app_config.image_cache_dir, "sub")
         return os.path.join(img_dir, f"video_{video_id}_{fingerprint}{ext}")
 
     def _cached_video_cover(self, video_id: str) -> str:
         """Any cover already in the image cache for ``video_id``, whatever URL it came from."""
 
         video_id = self._sanitize_path_segment(str(video_id or "").strip())
-        img_dir = os.path.join(app_config.app_data_dir, "img", "sub")
+        img_dir = os.path.join(app_config.image_cache_dir, "sub")
         if not video_id or not os.path.isdir(img_dir):
             return ""
         prefix = f"video_{video_id}_"
@@ -166,7 +166,7 @@ class DownloadArtifactsMixin:
         if len(parts) >= 2:
             avatar_id = self._sanitize_path_segment(parts[-2])
         suffix = avatar_id or hashlib.sha1(str(avatar_url or source_key).encode("utf-8")).hexdigest()[:12]
-        img_dir = os.path.join(app_config.app_data_dir, "img", "avatar")
+        img_dir = os.path.join(app_config.image_cache_dir, "avatar")
         # The username is deliberately the first segment so the directory is
         # understandable without opening the database. No legacy ``avatar_``
         # prefix is used for new files.

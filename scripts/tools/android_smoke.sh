@@ -36,6 +36,8 @@ case "$setup" in
   fold) adb emu fold || adb shell cmd device_state state 0; sleep 3 ;;
 esac
 adb install -r -g "$apk" || exit 1
+# -g grants the runtime permissions; All files access is an app op (else the first start asks).
+adb shell appops set "$package" MANAGE_EXTERNAL_STORAGE allow || true
 adb logcat -c
 { adb shell wm size; adb shell cmd device_state print-state 2>/dev/null || true; } > "$out/$label-size.txt"
 adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 >/dev/null
@@ -55,6 +57,12 @@ if grep -E "Traceback \(most recent call last\)|FATAL EXCEPTION" "$out/$label-lo
   echo "::error::$label: Python traceback or fatal exception in logcat"
   grep -n -A25 -E "Traceback \(most recent call last\)|FATAL EXCEPTION" "$out/$label-logcat.txt" | head -80
   status=1
+fi
+# Downloads and the picture cache go to the shared Download/IwaraTool (app/ui/platform/storage.py).
+cached=$(adb shell "ls /sdcard/Download/IwaraTool/.cache/search 2>/dev/null | wc -l" | tr -d '[:space:]')
+echo "cached covers in Download/IwaraTool/.cache/search: ${cached:-0}" | tee "$out/$label-cache.txt"
+if [ "${cached:-0}" -eq 0 ]; then
+  echo "::error::$label: no covers cached in Download/IwaraTool/.cache"; status=1
 fi
 # Back key on the home page leaves the app (Shell.back): the launcher should be in front.
 close_dialogs

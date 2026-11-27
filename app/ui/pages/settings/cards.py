@@ -1047,6 +1047,17 @@ def MaintenanceCard():
         os.makedirs(directory, exist_ok=True)
         await _open_folder(directory)
 
+    async def save_logs() -> None:
+        from ...platform.storage import export_logs
+
+        try:
+            saved = await asyncio.to_thread(export_logs, Path(app_config.download_dir or log_dir()))
+        except OSError as exc:
+            notice(page, "error", stext("failed"), str(exc), duration_ms=6000)
+            return
+        notice(page, "success", stext("done"), tr(f"Logs saved to {saved}", f"日志已保存到 {saved}", f"ログを {saved} に保存しました"),
+               duration_ms=6000)
+
     return card(page, stext("backup_logs"), [
         buttons(
             ft.OutlinedButton(content=stext("back_up"), icon=AppIcon.SAVE, on_click=lambda _e: page.run_task(back_up)),
@@ -1055,7 +1066,9 @@ def MaintenanceCard():
                               on_click=lambda _e: page.run_task(import_classic, page))
             if shell.caps.desktop else None,
             ft.OutlinedButton(content=stext("open_log_folder"), icon=AppIcon.FOLDER_OPEN, on_click=lambda _e: page.run_task(logs))
-            if shell.caps.open_folder else None,
+            if shell.caps.open_folder else
+            ft.OutlinedButton(content=tr("Save logs to the download folder", "保存日志到下载文件夹", "ログをダウンロードフォルダーに保存"),
+                              icon=AppIcon.SAVE, on_click=lambda _e: page.run_task(save_logs)),
         ),
     ], description=stext("backups_include_settings_history_subscriptions_r"))
 

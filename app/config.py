@@ -152,6 +152,7 @@ class AppConfig:
         self._data_dir = _app_data_dir()
         self._config_path = os.path.join(self._data_dir, "config.ini")
         self._history_db_path = os.path.join(self._data_dir, "history.db")
+        self._image_cache_dir = ""
 
         self._qs = open_settings(self._config_path)
         # QSettings is reentrant, not thread-safe: the download watchdog and
@@ -371,6 +372,15 @@ class AppConfig:
     @property
     def app_data_dir(self) -> str:
         return self._data_dir
+
+    @property
+    def image_cache_dir(self) -> str:
+        """Covers, thumbnails and avatars: ``<data>/img`` unless the phone moved them (not saved)."""
+        return self._image_cache_dir or os.path.join(self._data_dir, "img")
+
+    @image_cache_dir.setter
+    def image_cache_dir(self, path: str) -> None:
+        self._image_cache_dir = str(path or "")
 
     @property
     def config_path(self) -> str:

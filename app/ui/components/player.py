@@ -64,6 +64,7 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
     def cleanup() -> None:
         release(held.current)
         held.current = ""
+        shell.set_video_fullscreen(False)  # closed while fullscreen: let the layout follow again
 
     ft.use_effect(prepare, [video_id], cleanup=cleanup)
 
@@ -111,6 +112,8 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
             expand=True,
             on_error=lambda e: set_source({"url": "", "error": str(e.data or "")}),
             on_complete=completed if on_complete is not None else None,
+            on_enter_fullscreen=lambda _e: shell.set_video_fullscreen(True),
+            on_exit_fullscreen=lambda _e: shell.set_video_fullscreen(False),
         )
     stack: list[ft.Control] = [ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=content)]
     if on_close is not None:
