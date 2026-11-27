@@ -37,15 +37,26 @@ ASKED_KEY = "android_storage_permission_asked"
 DEFAULT_SHARED_ROOT = Path("/storage/emulated/0")
 
 
-def is_app_specific(path: str) -> bool:
-    """A folder inside ``Android/data/<package>`` (v1.3 betas put downloads there)."""
-    return "/android/data/" in str(path or "").replace("\\", "/").casefold()
+AUTO_KEY = "android_auto_download_dir"  # the folder this module chose last (not one the user picked)
+
+
+def is_beta_default(path: str) -> bool:
+    """``Android/data/<package>/files/Downloads``, where the v1.3 beta put downloads by itself."""
+    folded = str(path or "").replace("\\", "/").rstrip("/").casefold()
+    return "/android/data/" in folded and folded.endswith("/files/" + DOWNLOAD_FOLDER.casefold())
+
+
+def _same(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
 def using_default_folder() -> bool:
+    """The download folder is still one the app chose, so it may move."""
     current = str(app_config.download_dir or "").strip()
-    return not current or is_app_specific(current) or os.path.normcase(os.path.abspath(current)) == os.path.normcase(
-        os.path.abspath(str(default_download_dir())))
+    if not current or is_beta_default(current) or _same(current, str(default_download_dir())):
+        return True
+    chosen = str(app_config.get_ui_value(AUTO_KEY, "") or "")
+    return bool(chosen) and _same(current, chosen)
 
 
 def shared_root(external: str | None) -> Path:
@@ -124,6 +135,16 @@ async def _request(handler, permission) -> bool:
         return False
 
 
+async def android_sdk(page: ft.Page) -> int:
+    """The Android API level (30 = Android 11); 30 when unknown, the stricter case."""
+    try:
+        info = await page.get_device_info()
+        return int(info.version.sdk)
+    except Exception:
+        logger.debug("Android version unknown", exc_info=True)
+        return 30
+
+
 async def storage_access(page: ft.Page) -> bool:
     """Full access to shared storage; asks once (the first start), later only checks."""
     try:
@@ -131,8 +152,10 @@ async def storage_access(page: ft.Page) -> bool:
     except ImportError:
         return False
     handler = PermissionHandler()
-    # Android 11+: All files access; up to 10 (and 11–12 for reading pictures): the storage permission.
-    wanted = (Permission.MANAGE_EXTERNAL_STORAGE, Permission.STORAGE)
+    # Android 11+: All files access; up to 10: the storage permission.
+    # (On 11–12 the storage permission only reads media, which cannot reuse an earlier install's cache.)
+    wanted = (Permission.MANAGE_EXTERNAL_STORAGE,) if await android_sdk(page) >= 30 else (
+        Permission.MANAGE_EXTERNAL_STORAGE, Permission.STORAGE)
     for permission in wanted:
         if await _granted(handler, permission):
             return True
@@ -188,6 +211,7 @@ async def prepare_phone_storage(page: ft.Page) -> None:
     except OSError:
         logger.exception("Cannot create %s", target)
         return
+    app_config.set_ui_value(AUTO_KEY, str(target))
     if str(app_config.download_dir or "") == str(target):
         return
     app_config.download_dir = str(target)

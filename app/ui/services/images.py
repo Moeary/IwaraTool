@@ -5,7 +5,8 @@ proxy and cache would be bypassed.  ``ImageService`` runs the core's
 ``cache_search_image`` on a bounded pool (desktop 6–16 workers from Settings,
 each with its own API client) and remembers results.  Only mounted controls
 ask, and lists build on demand, so what is on screen loads first.  When the
-core cannot fetch an image, the control falls back to the remote address.
+core cannot fetch an image (and no proxy is configured), the control falls back
+to the remote address.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from typing import Any
 
 import flet as ft
 
+from ...config import app_config
 from ...core.search.limits import configured_cover_concurrency
 from ...logging_setup import get_logger
 
@@ -99,9 +101,10 @@ def use_cached_image(service: ImageService, kind: str, key: str, url: str, local
         if path or not key or not url and kind not in RESOLVES_WITHOUT_URL:
             return
         found = await service.get(kind, key, url)
-        if not found and url.startswith(("http://", "https://")):
+        if not found and url.startswith(("http://", "https://")) and not app_config.api_proxy_enabled:
             # The core's session could not fetch it (a phone's network may block
-            # that route): let the client try the address itself.
+            # that route): let the client try the address itself.  Not with a
+            # configured proxy, which the client would bypass.
             found = url
         if found:
             set_path(found)

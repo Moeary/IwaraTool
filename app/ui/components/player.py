@@ -77,6 +77,10 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
         if done and on_complete is not None:
             on_complete()
 
+    def failed(message: str) -> None:
+        shell.set_video_fullscreen(False)  # the error replaces the video, whose exit event never comes
+        set_source({"url": "", "error": message})
+
     height = width * 9 / 16
     if source["error"]:
         content: ft.Control = ft.Column(
@@ -110,7 +114,7 @@ def InlinePlayer(video_id: str, title: str, site: str, width: float, on_close=No
             aspect_ratio=16 / 9,
             fill_color=palette.scrim,
             expand=True,
-            on_error=lambda e: set_source({"url": "", "error": str(e.data or "")}),
+            on_error=lambda e: failed(str(e.data or "")),
             on_complete=completed if on_complete is not None else None,
             on_enter_fullscreen=lambda _e: shell.set_video_fullscreen(True),
             on_exit_fullscreen=lambda _e: shell.set_video_fullscreen(False),

@@ -191,6 +191,20 @@ class DrawerTests(unittest.TestCase):
         self.assertEqual(drawer_width(1000), MAX_WIDTH)
 
 
+class FakeConfig(SimpleNamespace):
+    """Never the real settings file."""
+
+    def __init__(self, **values):
+        super().__init__(image_cache_dir="", **values)
+        self.ui: dict = {}
+
+    def get_ui_value(self, key, default=""):
+        return self.ui.get(key, default)
+
+    def set_ui_value(self, key, value):
+        self.ui[key] = value
+
+
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class PhoneStorageTests(unittest.TestCase):
     def test_shared_download_folder(self):
@@ -208,8 +222,9 @@ class PhoneStorageTests(unittest.TestCase):
         from app.ui.platform import storage
 
         for folder, default in (("", True), ("/storage/emulated/0/Android/data/x/files/Downloads", True),
+                                ("/storage/emulated/0/Android/data/x/files/Movies", False),
                                 ("/storage/emulated/0/Movies/mine", False)):
-            with mock.patch.object(storage, "app_config", SimpleNamespace(download_dir=folder)):
+            with mock.patch.object(storage, "app_config", FakeConfig(download_dir=folder)):
                 self.assertEqual(storage.using_default_folder(), default, folder)
 
     def _prepare(self, platform, config, *, access: bool, public, external="/storage/emulated/0/Android/data/x/files"):
@@ -239,7 +254,7 @@ class PhoneStorageTests(unittest.TestCase):
         import flet as ft
 
         public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
-        config = SimpleNamespace(download_dir="", image_cache_dir="")  # never the real settings file
+        config = FakeConfig(download_dir="")
         self._prepare(ft.PagePlatform.MACOS, config, access=True, public=public)
         self.assertEqual((config.download_dir, config.image_cache_dir), ("", ""))
         self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public)
@@ -254,7 +269,7 @@ class PhoneStorageTests(unittest.TestCase):
         import flet as ft
 
         public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
-        config = SimpleNamespace(download_dir="/storage/emulated/0/Android/data/x/files/Downloads", image_cache_dir="")
+        config = FakeConfig(download_dir="/storage/emulated/0/Android/data/x/files/Downloads")
         self._prepare(ft.PagePlatform.ANDROID, config, access=False, public=public)
         self.assertEqual((config.download_dir, config.image_cache_dir), (str(public), ""))
 
@@ -265,7 +280,7 @@ class PhoneStorageTests(unittest.TestCase):
         import flet as ft
 
         public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
-        config = SimpleNamespace(download_dir="/storage/emulated/0/Movies/mine", image_cache_dir="")
+        config = FakeConfig(download_dir="/storage/emulated/0/Movies/mine")
         self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public)
         self.assertEqual(config.download_dir, "/storage/emulated/0/Movies/mine")
         self.assertEqual(config.image_cache_dir, str(public / ".cache"))
@@ -281,10 +296,29 @@ class PhoneStorageTests(unittest.TestCase):
         external = tempfile.mkdtemp()
         blocker = Path(tempfile.mkdtemp()) / "file"
         blocker.write_text("")
-        config = SimpleNamespace(download_dir="", image_cache_dir="")
+        config = FakeConfig(download_dir="")
         self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=blocker / "IwaraTool", external=external)
         self.assertEqual(config.download_dir, str(storage.phone_download_dir(external)))
         self.assertEqual(config.image_cache_dir, "")
+
+    def test_an_auto_chosen_folder_moves_when_it_stops_working(self):
+        import tempfile
+        from pathlib import Path
+
+        import flet as ft
+
+        from app.ui.platform import storage
+
+        external = tempfile.mkdtemp()
+        public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
+        config = FakeConfig(download_dir="")
+        self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public, external=external)
+        self.assertEqual(config.download_dir, str(public))
+        blocker = Path(tempfile.mkdtemp()) / "file"
+        blocker.write_text("")  # access revoked: the shared folder cannot be written any more
+        config.image_cache_dir = ""
+        self._prepare(ft.PagePlatform.ANDROID, config, access=False, public=blocker / "IwaraTool", external=external)
+        self.assertEqual(config.download_dir, str(storage.phone_download_dir(external)))
 
 
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
@@ -309,8 +343,9 @@ class VideoFullscreenTests(unittest.TestCase):
         self.assertEqual(applied, [])
         Shell.set_video_fullscreen(shell, False)
         self.assertEqual(len(later), 1)
+        shell._pending_size = (400, 800)  # the size after the exit arrives before the settle delay
         later.pop()()
-        self.assertEqual(applied, [(800, 400)])
+        self.assertEqual(applied, [], "the layout never left portrait")
 
 
 class ImageCacheRootTests(unittest.TestCase):

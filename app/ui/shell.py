@@ -51,6 +51,7 @@ logger = get_logger(__name__)
 RAIL_EXTENDED_KEY = "flet_rail_extended"
 RAIL_WIDTH_KEY = "flet_rail_width"
 RESIZE_SETTLE = 0.016  # one frame: dragging the window edge does not rebuild on every pixel
+FULLSCREEN_EXIT_SETTLE = 0.6  # leaving a fullscreen video: the turn back to portrait reports its size meanwhile
 
 _NAV_SHORTCUTS = {
     "nav_home": routes.HOME,
@@ -163,8 +164,12 @@ class Shell:
             if self._resize_handle is not None:
                 self._resize_handle.cancel()
                 self._resize_handle = None
-        elif self._pending_size is not None and self._resize_handle is None:
-            self._resize_handle = self.loop.call_later(RESIZE_SETTLE, self._apply_size)
+        elif self._pending_size is not None:
+            # The size seen so far may still be the fullscreen one: give the turn
+            # back and the system bars time to report the size after the exit.
+            if self._resize_handle is not None:
+                self._resize_handle.cancel()
+            self._resize_handle = self.loop.call_later(FULLSCREEN_EXIT_SETTLE, self._apply_size)
         if self.caps.mobile:
             self.page.run_task(self._allow_orientations, on)
 
