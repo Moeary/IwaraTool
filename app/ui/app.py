@@ -1,4 +1,4 @@
-"""Root of the Flet interface: the adaptive shell around the current page (docs/flet_ui_plan.md 6.3).
+"""Root of the Flet interface: the adaptive shell around the current page.
 
 ``mount(page)`` creates the window's ``Shell``, wires page events and renders
 ``App``.  The navigation follows ``LayoutState.nav_mode``: bottom bar on

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the Flet APK on the running emulator, start it, and check it stays up
-# without a Python traceback (docs/flet_ui_plan.md P8). Used by build.yml.
+# without a Python traceback. Used by build.yml.
 #   android_smoke.sh <apk> <out-dir> <label> [setup]
 # setup: "size:WxH" overrides the screen (e.g. a 21:9 phone), "fold" closes a foldable
 # so the app runs on the outer screen.

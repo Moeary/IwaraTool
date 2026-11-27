@@ -2,7 +2,7 @@
 
     pixi run start
 
-Development options (docs/flet_ui_plan.md 9.2):
+Development options:
 
     --viewport WxH     start with this window size (simulates phones and tablets)
     --route PATH       open this route first (``/settings/account``)

@@ -1,4 +1,4 @@
-"""Settings categories (docs/flet_ui_plan.md 7.11): what each one holds and is called.
+"""Settings categories: what each one holds and is called.
 
 Both interfaces list these in order; icons are each interface's own.  The
 cards of a category are keys the interfaces build; the keyboard shortcut

@@ -1,4 +1,4 @@
-"""The panel shown before anything is queued (docs/flet_ui_plan.md 7.0 ``DownloadSheet``).
+"""The panel shown before anything is queued.
 
 Replaces the rule selector every PySide6 page kept on screen: what will be
 downloaded, which rule (the page's rule preselected), and whether to keep

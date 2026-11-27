@@ -1,4 +1,4 @@
-"""Download rules (docs/flet_ui_plan.md 7.8): the list, the rule being edited and its form.
+"""Download rules: the list, the rule being edited and its form.
 
 The form is ``rule_editing``'s flat dict; saving, deleting and making a rule
 the default go through ``presentation.rule_editing`` (which applies and

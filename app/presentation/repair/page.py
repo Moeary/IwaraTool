@@ -1,4 +1,4 @@
-"""Repair Center (docs/flet_ui_plan.md 7.9): options, row states, summaries and log lines.
+"""Repair Center: options, row states, summaries and log lines.
 
 Both interfaces build their options, saved state, row labels and messages
 here; colours are role names (``accent``, ``success``, ``warning``,

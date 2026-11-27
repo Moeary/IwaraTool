@@ -1,4 +1,4 @@
-"""Subscriptions (docs/flet_ui_plan.md 7.4).
+"""Subscriptions.
 
 Phones and medium windows: the overview, one card per source with a shelf of
 its latest works; a card opens ``/subscriptions/<id>``.  Wide windows: a

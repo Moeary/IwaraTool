@@ -1,9 +1,8 @@
 """Account and app-wide preferences in one panel (replaces the old avatar menu idea).
 
-docs/flet_ui_plan.md 6.3 puts sign-in, site, content rating, theme and
-"about" behind the avatar.  A popup menu cannot hold radio groups, so this is
-a panel of segmented buttons: a dialog on wide windows, a bottom sheet on
-phones.  Destinations the navigation has no room for are listed here too.
+Sign-in, site, content rating, theme and "about" sit behind the avatar.  A
+popup menu cannot hold radio groups, so this is a panel of segmented buttons:
+a dialog on wide windows, a bottom sheet on phones.  Destinations the navigation has no room for are listed here too.
 """
 from __future__ import annotations
 

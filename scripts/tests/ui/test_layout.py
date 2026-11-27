@@ -1,4 +1,4 @@
-"""LayoutState and grid maths over the size checklist of docs/flet_ui_plan.md 9.2."""
+"""LayoutState and grid maths over the size checklist (phones, tablets, foldables, desktops)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Search (docs/flet_ui_plan.md 7.2): source, keyword, scope and sort over one cover grid.
+"""Search: source, keyword, scope and sort over one cover grid.
 
 Phones read the next page when the grid reaches its end; wider windows page
 with buttons.  Selecting cards shows the action bar with "Add to downloads".

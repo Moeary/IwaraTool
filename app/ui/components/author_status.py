@@ -1,4 +1,4 @@
-"""Author status (docs/flet_ui_plan.md 7.5): subscribed in this app? followed on Iwara?
+"""Author status: subscribed in this app? followed on Iwara?
 
 Two chips and the buttons that change them, shared by the author page, the
 subscription pane and the post detail page.  Texts and the profile parsing

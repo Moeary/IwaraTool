@@ -1,4 +1,4 @@
-"""What a result card shows, from any source (docs/flet_ui_plan.md 7.0 ``VideoCard``).
+"""What a result card shows, from any source.
 
 One shape for search, home, subscriptions, author pages and the library's
 cover view, so every card reads the same: cover with duration, title (two

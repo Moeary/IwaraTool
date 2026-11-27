@@ -1,6 +1,6 @@
 """A copied Iwara link, offered when a phone app comes back to the foreground.
 
-Flet 1.1.3 cannot receive Android share intents (docs/flet_ui_plan.md 11.8),
+Flet 1.1.3 cannot receive Android share intents,
 so the phone build looks at the clipboard instead: copy a link in the browser,
 switch to IwaraTool, and it offers to open it.
 """

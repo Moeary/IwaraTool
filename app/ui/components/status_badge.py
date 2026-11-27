@@ -1,7 +1,6 @@
 """One badge for a video's state, the same on covers, list rows and detail pages.
 
-``docs/flet_ui_plan.md`` §5.5: a badge appears only when the state is worth
-noticing; "not downloaded" shows nothing.
+A badge appears only when the state is worth noticing; "not downloaded" shows nothing.
 """
 
 from __future__ import annotations

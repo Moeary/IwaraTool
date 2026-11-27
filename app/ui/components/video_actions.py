@@ -1,4 +1,4 @@
-"""``VideoActions`` (docs/flet_ui_plan.md 7.0): the unified action list as a menu or an action sheet.
+"""``VideoActions``: the unified action list as a menu or an action sheet.
 
 Entries come from ``presentation.media.video_actions`` (same order as the old
 right-click menus).  Where the downloaded copy is takes a history lookup, so

@@ -1,4 +1,4 @@
-"""``VideoCard`` (docs/flet_ui_plan.md 7.0): cover with duration and state, two-line title, author, one meta line.
+"""``VideoCard``: cover with duration and state, two-line title, author, one meta line.
 
 The same card for videos, image posts, authors (round avatar) and playlists.
 A tick appears top-right while selecting, or on hover with a mouse; a long

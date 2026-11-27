@@ -1,4 +1,4 @@
-"""Cover preview (docs/flet_ui_plan.md 7.10): the 16 candidates' texts, cropping and keyboard moves."""
+"""Cover preview: the 16 candidates' texts, cropping and keyboard moves."""
 from __future__ import annotations
 
 from pathlib import Path

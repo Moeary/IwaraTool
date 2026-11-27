@@ -1,4 +1,4 @@
-"""The settings cards (docs/flet_ui_plan.md 7.11), keyed like the old page's cards.
+"""The settings cards, keyed like the old page's cards.
 
 Texts, choices, clamping and side effects come from
 ``presentation.settings`` (shared with the PySide6 page); each card reads

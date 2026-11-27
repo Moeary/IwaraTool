@@ -1,4 +1,4 @@
-"""``VideoGrid`` (docs/flet_ui_plan.md 7.0, 6.6): the cover grid with selection and load-on-scroll.
+"""``VideoGrid``: the cover grid with selection and load-on-scroll.
 
 Columns and tile size come from ``layout.grid_metrics``; the grid builds only
 the visible tiles.  Reaching the last screen calls ``on_end_reached`` once per

@@ -1,4 +1,4 @@
-"""Repair Center (docs/flet_ui_plan.md 7.9, desktop): a step flow instead of one dense form.
+"""Repair Center (desktop): a step flow instead of one dense form.
 
 ① folder and mode → ② rule and options → ③ scan and preview (original →
 target, conflicts marked and skipped) → ④ repair with progress and log →

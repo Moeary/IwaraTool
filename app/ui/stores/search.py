@@ -1,4 +1,4 @@
-"""The search page's state and its work (docs/flet_ui_plan.md 7.2).
+"""The search page's state and its work.
 
 ``SearchStore`` lives on the shell, so a search survives switching away and
 back.  Each new search cancels the previous one's token; every blocking call

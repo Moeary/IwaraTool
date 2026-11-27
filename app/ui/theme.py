@@ -57,7 +57,7 @@ def text_style(
 
 
 def _text_theme(fallback: list[str], family: str | None, color: str) -> ft.TextTheme:
-    """Material text roles, sized from §5.3.
+    """Material text roles, sized from the type scale in tokens.py.
 
     Material widgets read these roles directly (buttons use label_large,
     inputs and list titles body_large, dialogs headline_small, app bars

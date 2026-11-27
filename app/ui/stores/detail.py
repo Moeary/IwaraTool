@@ -1,4 +1,4 @@
-"""A post's detail page (docs/flet_ui_plan.md 7.3): the record, related posts, comments, likes.
+"""A post's detail page: the record, related posts, comments, likes.
 
 ``DetailStore`` keeps the last few posts on the shell, so Back to a post
 repaints from the answers already fetched (no new request, comments and

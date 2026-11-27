@@ -1,4 +1,4 @@
-"""Tools page state (docs/flet_ui_plan.md 7.10): the ffmpeg lookup, the compressor and the cover preview.
+"""Tools page state: the ffmpeg lookup, the compressor and the cover preview.
 
 ffmpeg, ffprobe and every frame grab run in worker threads; the compressor
 is cancelled through ``Compressor.cancel`` (it ends ffmpeg), the cover grabs

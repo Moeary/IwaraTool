@@ -1,4 +1,4 @@
-"""``FilterSheet`` (docs/flet_ui_plan.md 7.0): the post-search filter form.
+"""``FilterSheet``: the post-search filter form.
 
 A bottom sheet on phones, a dialog elsewhere.  Fields start from the current
 filter; Apply validates the ranges and hands back a new ``PostFilter``.

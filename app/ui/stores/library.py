@@ -1,4 +1,4 @@
-"""The library (docs/flet_ui_plan.md 7.7): downloaded records, filtered, sorted and acted on.
+"""The library: downloaded records, filtered, sorted and acted on.
 
 Reading the database and checking every file on disk run off the loop; the
 filters, sorting and counts come from ``presentation.history.library`` and

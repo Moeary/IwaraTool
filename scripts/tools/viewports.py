@@ -1,4 +1,4 @@
-"""Screenshot the Flet interface at the sizes of docs/flet_ui_plan.md 9.2.
+"""Screenshot the Flet interface at the checklist sizes (phones, tablets, foldables, desktops).
 
     pixi run python scripts/tools/viewports.py --out tmp/viewports
     pixi run python scripts/tools/viewports.py --route /settings --theme dark --only 360x800,1440x900
@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before each screenshot")
     parser.add_argument("--only", default="", help="comma-separated sizes (default: all of 9.2)")
     parser.add_argument("--prefix", default="", help="file name prefix")
-    parser.add_argument("--platform", choices=("android", "ios"), default="", help="behave as a phone platform (8.3)")
+    parser.add_argument("--platform", choices=("android", "ios"), default="", help="behave as a phone platform")
     args = parser.parse_args()
     sizes = [s.strip() for s in args.only.split(",") if s.strip()] or list(SIZES)
     args.out.mkdir(parents=True, exist_ok=True)

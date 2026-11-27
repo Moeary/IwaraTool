@@ -1,4 +1,4 @@
-"""Rail and bottom bar of the shell (docs/flet_ui_plan.md 6.3).
+"""Rail and bottom bar of the shell.
 
 Plain builders called while the shell renders; they read the ``Shell`` and
 call back into it.  Destinations missing from a bar (secondary ones on

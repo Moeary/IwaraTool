@@ -1,4 +1,4 @@
-"""Settings (docs/flet_ui_plan.md 7.11): groups by purpose, and the cards of the chosen one.
+"""Settings: groups by purpose, and the cards of the chosen one.
 
 Wide windows show the group list beside the cards ("About" at its foot);
 phones list the groups and open ``/settings/<group>``.  The groups are the new

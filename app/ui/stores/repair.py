@@ -1,4 +1,4 @@
-"""Repair Center state (docs/flet_ui_plan.md 7.9): the form, the scanned items, the run and its log.
+"""Repair Center state: the form, the scanned items, the run and its log.
 
 Runs go through ``core.repair.runs`` in a worker thread with a
 ``CancelToken``; batches of finished rows come back with

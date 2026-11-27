@@ -1,4 +1,4 @@
-"""Home (docs/flet_ui_plan.md 7.1): rows of covers, each with its own tabs, age and refresh.
+"""Home: rows of covers, each with its own tabs, age and refresh.
 
 Phones get a horizontal shelf per row (a third card peeks out to show it
 scrolls); wider windows show two rows of the cover grid.  "More ›" opens the

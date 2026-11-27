@@ -248,54 +248,7 @@ def artwork(key: str, *, avatar: bool = False) -> bytes:
         cached = _IMAGE_CACHE.get(key)
     if cached is not None:
         return cached
-    try:
-        from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt
-        from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QRadialGradient
-    except ImportError:  # the Flet environment has no Qt: the same kind of picture with Pillow
-        payload = _artwork_pillow(key, avatar=avatar)
-        with _IMAGE_LOCK:
-            _IMAGE_CACHE[key] = payload
-        return payload
-
-    rng = _rng("art", key)
-    width, height = (160, 160) if avatar else (640, 360)
-    top, bottom = _PALETTES[rng.randrange(len(_PALETTES))]
-    image = QImage(width, height, QImage.Format.Format_RGB32)
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    gradient = QLinearGradient(0, 0, width, height)
-    gradient.setColorAt(0, QColor(top))
-    gradient.setColorAt(1, QColor(bottom))
-    painter.fillRect(QRectF(0, 0, width, height), gradient)
-    for _ in range(3 if avatar else 6):
-        r = rng.uniform(0.12, 0.45) * height
-        center = QPointF(rng.uniform(0, width), rng.uniform(0, height))
-        glow = QRadialGradient(center, r)
-        glow.setColorAt(0, QColor(255, 255, 255, rng.randint(70, 140)))
-        glow.setColorAt(1, QColor(255, 255, 255, 0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(glow)
-        painter.drawEllipse(center, r, r)
-    if not avatar:
-        wave = QPainterPath(QPointF(0, height * 0.72))
-        phase = rng.uniform(0, math.tau)
-        for x in range(0, width + 8, 8):
-            wave.lineTo(x, height * 0.72 + math.sin(x / width * math.tau * 1.5 + phase) * height * 0.06)
-        wave.lineTo(width, height)
-        wave.lineTo(0, height)
-        wave.closeSubpath()
-        painter.setBrush(QColor(255, 255, 255, 60))
-        painter.drawPath(wave)
-    else:
-        painter.setBrush(QColor(255, 255, 255, 170))
-        painter.drawEllipse(QPointF(width / 2, height * 0.42), width * 0.17, width * 0.17)
-        painter.drawEllipse(QRectF(width * 0.24, height * 0.66, width * 0.52, height * 0.5))
-    painter.end()
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "JPEG" if not avatar else "PNG", 88)
-    payload = bytes(data.data())
+    payload = _artwork_pillow(key, avatar=avatar)
     with _IMAGE_LOCK:
         _IMAGE_CACHE[key] = payload
     return payload

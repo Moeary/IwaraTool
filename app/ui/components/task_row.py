@@ -1,4 +1,4 @@
-"""One download task: cover, title, progress, state and its actions (docs/flet_ui_plan.md 7.6).
+"""One download task: cover, title, progress, state and its actions.
 
 Replaces the PySide6 wide table.  Two lines on phones, one line from medium
 widths on.  The row subscribes to its own ``TaskItem``, so progress redraws

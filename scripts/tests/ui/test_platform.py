@@ -1,4 +1,4 @@
-"""Platform capabilities (docs/flet_ui_plan.md 8.3): what phones hide, and the dev override."""
+"""Platform capabilities: what phones hide, and the dev override."""
 
 from __future__ import annotations
 

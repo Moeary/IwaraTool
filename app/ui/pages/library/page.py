@@ -1,4 +1,4 @@
-"""The library (docs/flet_ui_plan.md 7.7): downloaded works.
+"""The library: downloaded works.
 
 Phones: list rows (thumbnail, title, "author · date · quality"); a row opens
 ``/library/<id>``.  Wider windows: a table with sortable columns (a ``ListView``

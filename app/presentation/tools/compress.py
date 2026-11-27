@@ -1,4 +1,4 @@
-"""Upload compressor (docs/flet_ui_plan.md 7.10): options, the verdict on a file, progress texts.
+"""Upload compressor: options, the verdict on a file, progress texts.
 
 ``CompressForm`` is what the option controls hold (saved as JSON under
 ``OPTIONS_KEY``); ``verdict`` turns a probed file and its plan into the

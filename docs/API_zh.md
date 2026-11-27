@@ -4,7 +4,7 @@
 
 本文档说明 IwaraTool 使用的 Iwara REST API，以及每个功能会发出哪些请求。Iwara 没有官方公开 API：以下内容来自对线上站点的实测、本项目的测试，以及开源客户端 [LoveIwara](https://github.com/FoxSensei001/LoveIwara) 与 [gallery-dl](https://github.com/mikf/gallery-dl/blob/master/gallery_dl/extractor/iwara.py) 的实现。每个接口标注 **已验证**（本项目对线上接口实测过）或 **参考**（取自其他客户端源码，本项目未用真实账号实测）。
 
-目录：[1 约定与认证](#1-约定与认证) · [2 读取接口](#2-读取接口) · [3 账号操作](#3-账号操作) · [4 功能与请求对照](#4-功能与请求对照) · [5 搜索下载](#5-搜索下载) · [6 Fluent 搜索页](#6-fluent-搜索页) · [7 筛选](#7-筛选) · [8 UI 支持的输入 URL 类型](#8-ui-支持的输入-url-类型) · [9 标签抓取脚本](#9-标签抓取脚本为后续一键标签筛选做准备) · [10 NFO 生成与 Emby 兼容](#10-nfo-生成与-emby-兼容)
+目录：[1 约定与认证](#1-约定与认证) · [2 读取接口](#2-读取接口) · [3 账号操作](#3-账号操作) · [4 功能与请求对照](#4-功能与请求对照) · [5 搜索下载](#5-搜索下载) · [6 搜索页](#6-搜索页) · [7 筛选](#7-筛选) · [8 UI 支持的输入 URL 类型](#8-ui-支持的输入-url-类型) · [9 标签抓取脚本](#9-标签抓取脚本为后续一键标签筛选做准备) · [10 NFO 生成与 Emby 兼容](#10-nfo-生成与-emby-兼容)
 
 ## 1. 约定与认证
 
@@ -17,7 +17,7 @@
 ### 请求节奏与重试
 - 同一主机的请求至少间隔 `request_min_interval_ms`（默认 200 毫秒）。
 - `429`、`502`、`503`、`504` 与临时网络错误最多重试 `request_max_retries` 次（默认 2），指数退避（1 秒、2 秒、4 秒…最长 30 秒）；若响应带 `Retry-After`，最多按 30 秒等待。
-- 这两项在“应用设置 → 系统与维护 → 请求节奏”。后台任务（首页栏目、封面、订阅刷新）每个工作线程使用独立的 HTTP 会话，沿用相同的 token 与代理，互不排队。
+- 这两项在“设置 → 账号与网络 → 请求节奏”。后台任务（首页栏目、封面、订阅刷新）每个工作线程使用独立的 HTTP 会话，沿用相同的 token 与代理，互不排队。
 
 ### 登录 — 已验证
 - `POST /user/login`，请求体 `{"email": "<用户名或邮箱>", "password": "<密码>"}`；成功返回 `{"token": "<jwt>"}`。
@@ -36,7 +36,7 @@
 
 ### 下载源 — 已验证
 - 输入：视频详情中的 `fileUrl`。携带 `Authorization`（已登录时）和 `X-Version` 请求头对它发 `GET`，返回 `{name, src: {view, download}}` 列表。
-- `X-Version = sha1("{文件 uuid}_{expires}_{salt}")`，uuid 是 `/file/` 之后的路径段，`expires` 来自 URL 查询串。站点会不定期更换 salt，所以客户端依次尝试内置 salt 与用户补充的 salt（应用设置，或 `data/x_version_salts.json`）。
+- `X-Version = sha1("{文件 uuid}_{expires}_{salt}")`，uuid 是 `/file/` 之后的路径段，`expires` 来自 URL 查询串。站点会不定期更换 salt，所以客户端依次尝试内置 salt 与用户补充的 salt（设置，或 `data/x_version_salts.json`）。
 - 画质回退：从偏好画质起 `Source → 540 → 360`。`fileUrl` 缺失表示私有视频（`errors.privateVideo`）、外站嵌入或作品不可用。
 
 ### 列表：`/videos` 与 `/images` — 已验证
@@ -93,7 +93,7 @@
 | 首页 — 标签栏 | `/videos?tags=<解析后的 ID>&sort=…[&rating]`（名称先经本地标签词典） |
 | 首页 — 关键词栏 | `/search?type=videos\|images&query=…&sort=…` |
 | 首页 — 作者栏、作者页 | 每个会话先 `/profile/{username}` 取一次 ID，再 `/videos?user={id}&sort=date` / `/images?…` |
-| 首页 — 条数与缓存 | 每栏取 24 条（第 0 页）。每栏、每个标签页、每种分级各存一份在 `data/home_feed_cache.json`；缓存的“签名”是按顺序排列的作品 ID，所以重新检查得到相同的 ID 时不会动卡片。重新检查的间隔：应用设置 → 首页（默认 15 分钟，0 = 仅手动）。 |
+| 首页 — 条数与缓存 | 每栏取 24 条（第 0 页）。每栏、每个标签页、每种分级各存一份在 `data/home_feed_cache.json`；缓存的“签名”是按顺序排列的作品 ID，所以重新检查得到相同的 ID 时不会动卡片。重新检查的间隔：设置 → 存储 → 首页缓存（默认 15 分钟，0 = 仅手动）。 |
 | “在搜索页查看更多” | 对应的搜索页查询（类型、标签或关键词、排序）；作者栏打开程序内作者页 |
 | 作品详情 | `/video/{id}` 或 `/image/{id}`，然后 `/related`、`/comments`；点赞 → `POST|DELETE …/like` |
 | 作者页 / 状态栏 | `/profile/{username}`（关注状态）+ `/videos?user=…`；关注 → `POST|DELETE /user/{id}/followers` |
@@ -128,9 +128,9 @@
 - 启用后只会入队前 `N` 条搜索结果
 - 若 URL 自带 `limit`，最终上限为 `min(url limit, setting limit)`
 
-## 6. Fluent 搜索页
+## 6. 搜索页
 
-主窗口侧栏中的“搜索”页是面向浏览和批量入队的 Fluent 搜索界面，和下载工作台里的“搜索 URL 入队”互不替代。数据源默认是 Oreno3D 在线搜索，也可以切换为 Iwara 实时 API。
+侧栏中的“搜索”页面向浏览和批量入队，和在“下载”页粘贴搜索 URL 入队互不替代。数据源默认是 Oreno3D 在线搜索，也可以切换为 Iwara 实时 API。
 
 ### 搜索类型
 
@@ -146,7 +146,7 @@
 - Iwara 关键词排序支持 `date`、`relevance`、`views`、`likes`；视频列表及标签支持 `date`、`trending`、`popularity`、`views`、`likes`。界面随模式更新选项。
 - Iwara 结果保留服务端顺序，不对单页重新按日期或热度排序，也不使用本地关键词子串匹配删去简介命中等有效结果。下一页沿用相同查询与排序；尚未提交的新条件在翻页时从第一页开始。
 - `/videos` 的 `count` 可能是“页偏移 + 页容量 + 1”的下页标记；`/search` 的真实总数独立处理。服务器采用不同页容量时，仅保留可确认的下一页导航。HTTP 错误或无效结果结构显示失败原因，不伪装成零结果。
-- 搜索页不再复制下载工作台的高级筛选字段；页面内的“下载规则”选择器直接复用现有规则。
+- 搜索页不重复下载规则里的高级筛选字段；下载时在下载面板中选择现有规则。
 - 选中规则后会立即应用项目已有的元数据筛选、命名模板、封面/NFO 和下载行为，并同步为默认规则。
 
 ### Iwara 搜索核验（2026-10-03）
@@ -214,8 +214,8 @@
 - 点击候选后会保留输入焦点和分隔符，可继续编辑多个 Oreno3D 搜索关键词。
 - 标签词典默认使用项目已有的 `data/iwara_tags.json` 离线回退；点击“更新标签”后，会将 LoveIwara 的 MIT 授权词典缓存到 `data/tag_translations/`，启动时不会强制联网。
 - 完整缓存文件为 `data/tag_translations/loveiwara_iwara_tags_localized.json`；项目生成的备用索引为 `data/iwara_tags.json`。
-- 随包源文件为 `app/data/tag_translations/loveiwara_iwara_tags_localized.json`，Nuitka 与 GitHub Actions 会显式将其加入编译产物。
-- 随包的 Oreno3D/Iwara 标签映射为 `app/data/oreno3d_iwara_map.json`，Nuitka 与 GitHub Actions 会显式将其加入编译产物。
+- 随包源文件为 `app/data/tag_translations/loveiwara_iwara_tags_localized.json`，随 `app/data` 一起由 `flet build` 打包。
+- 随包的 Oreno3D/Iwara 标签映射为 `app/data/oreno3d_iwara_map.json`，随 `app/data` 一起由 `flet build` 打包。
 - 首次运行且可执行文件旁的 `data/tag_translations/` 缺少缓存时，程序会自动展开内置词典；已有用户缓存不会被覆盖。开发机 `data/` 中的其他运行时文件仍需自行保留。
 - 第三方来源及许可证见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 

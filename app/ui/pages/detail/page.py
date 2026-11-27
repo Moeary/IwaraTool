@@ -1,4 +1,4 @@
-"""A post (docs/flet_ui_plan.md 7.3): ``/detail/video/<id>`` and ``/detail/image/<id>``.
+"""A post: ``/detail/video/<id>`` and ``/detail/image/<id>``.
 
 Wide windows put the related posts in a side column (``detail_metrics``);
 narrower ones list them under the comments.  The cover turns into the player

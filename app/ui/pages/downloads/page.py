@@ -1,4 +1,4 @@
-"""Downloads (docs/flet_ui_plan.md 7.6): links in, the waiting list, task tabs and rows, the log.
+"""Downloads: links in, the waiting list, task tabs and rows, the log.
 
 ``/downloads`` is the workbench; ``/downloads/log`` the log (its own route so
 it gets the whole window on phones).

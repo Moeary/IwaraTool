@@ -1,4 +1,4 @@
-"""Home rows (docs/flet_ui_plan.md 7.1): each row paints from the cache, re-checks when stale.
+"""Home rows: each row paints from the cache, re-checks when stale.
 
 The decisions are ``presentation.home.section_feed.SectionFeed``'s; a
 ``HomeRow`` runs the loads off the loop and keeps an observable ``RowState``

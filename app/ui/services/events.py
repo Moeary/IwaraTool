@@ -29,7 +29,7 @@ from ...logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_FLUSH_INTERVAL = 0.15  # seconds between coalesced deliveries (docs/flet_ui_plan.md C6)
+DEFAULT_FLUSH_INTERVAL = 0.15  # seconds between coalesced deliveries
 
 Handler = Callable[..., Any]
 

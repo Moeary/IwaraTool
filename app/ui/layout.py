@@ -1,4 +1,4 @@
-"""Window size classes, shell layout and cover-grid maths (docs/flet_ui_plan.md 6.2, 6.3, 6.6).
+"""Window size classes, shell layout and cover-grid maths.
 
 Framework-neutral: no Flet import, so it is unit-tested directly.  The shell
 feeds it the page size and platform; components read only ``LayoutState``

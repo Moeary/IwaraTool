@@ -1,4 +1,4 @@
-"""Subscriptions (docs/flet_ui_plan.md 7.4): sources, their recent works, one source's items.
+"""Subscriptions: sources, their recent works, one source's items.
 
 ``SubscriptionStore`` lives on the shell.  Every database read and every
 network refresh runs off the loop; refresh progress comes back through

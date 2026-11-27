@@ -4,8 +4,6 @@ Every color, size, radius and duration a page uses comes from here; pages
 never write hex values or pixel sizes of their own.  ``theme.py`` turns these
 tokens into a Flet ``Theme``.  This module imports no UI framework so the
 tokens can be unit tested (contrast, scale) in any environment.
-
-Design reference: ``docs/flet_ui_plan.md`` §5.
 """
 
 from __future__ import annotations
@@ -208,7 +206,7 @@ class TypeRole:
 
 @dataclass(frozen=True)
 class TypeScale:
-    """Text roles from §5.3, mapped onto Material roles in ``theme.py``.
+    """Text roles, mapped onto Material roles in ``theme.py``.
 
     Page and section titles shrink on compact widths; pick the ``*_compact``
     role there through ``LayoutState``, never by measuring the page.

@@ -1,4 +1,4 @@
-"""An author (docs/flet_ui_plan.md 7.5): ``/author/<username>``.
+"""An author: ``/author/<username>``.
 
 The header card has the avatar, the name and the two status chips with their
 buttons (``AuthorStatus``); below, "Videos / Images" tabs over a paged grid

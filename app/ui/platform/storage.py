@@ -1,4 +1,4 @@
-"""Where a phone keeps downloads (docs/flet_ui_plan.md 8.2).
+"""Where a phone keeps downloads.
 
 The core's default download folder sits next to the program, which on
 Android is the unpacked app (replaced on update and invisible to the user).

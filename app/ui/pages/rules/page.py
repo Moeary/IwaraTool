@@ -1,4 +1,4 @@
-"""Download rules (docs/flet_ui_plan.md 7.8).
+"""Download rules.
 
 Wide windows: the rule list on the left (● marks the default, "used by"
 lists the pages), the editor on the right.  Phones: the list, and a rule

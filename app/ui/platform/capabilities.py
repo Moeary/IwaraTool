@@ -1,4 +1,4 @@
-"""What this platform can do (docs/flet_ui_plan.md 8.3), in one place.
+"""What this platform can do, in one place.
 
 Features a platform lacks are hidden, not shown and then refused.  The
 interface asks ``capabilities(shell.state.layout)`` instead of testing the

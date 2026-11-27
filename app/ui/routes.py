@@ -1,4 +1,4 @@
-"""Destinations and routes of the Flet interface (docs/flet_ui_plan.md 4.4, 6.3).
+"""Destinations and routes of the Flet interface.
 
 Framework-neutral.  A route is ``/<destination>[/<rest>]``; each destination
 is one page of the shell with its own back stack (``presentation.navigation``).
@@ -6,7 +6,7 @@ Primary destinations sit in the bottom bar / upper rail.  On the desktop the
 rail's foot holds two entries, Tools and Settings; Tools stands for rules,
 repair and the upload tools (``TOOL_GROUP``, listed side by side in the Tools hub).
 Phones show rules and settings in the account panel.  Repair and Tools are
-desktop only (8.3).
+desktop only.
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def available(destinations: tuple[str, ...], *, desktop: bool) -> tuple[str, ...
 
 
 def allowed(path: str, *, desktop: bool) -> bool:
-    """False for a desktop-only destination (or a path inside one) on a phone (8.3)."""
+    """False for a desktop-only destination (or a path inside one) on a phone."""
     return desktop or parse(path, fallback=HOME).destination not in DESKTOP_ONLY
 
 

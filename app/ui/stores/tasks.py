@@ -1,4 +1,4 @@
-"""Download tasks as the Downloads page shows them (docs/flet_ui_plan.md 7.6).
+"""Download tasks as the Downloads page shows them.
 
 Two levels so a progress tick re-renders one row, not the list:
 

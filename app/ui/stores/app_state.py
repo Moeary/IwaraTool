@@ -1,4 +1,4 @@
-"""App-wide state the shell and every page read (docs/flet_ui_plan.md 4.2).
+"""App-wide state the shell and every page read.
 
 An observable dataclass: assigning a field re-renders the components that
 read it.  Only the event loop writes it (``services/events.py`` hops

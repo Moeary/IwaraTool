@@ -1,4 +1,4 @@
-"""Tools (docs/flet_ui_plan.md 7.10, desktop): upload compressor and cover preview.
+"""Tools (desktop): upload compressor and cover preview.
 
 Wide windows list the tools beside the chosen one (a single column of at most
 ``MAX_WIDTH_FORM``, labels beside their controls); narrow ones list the tools

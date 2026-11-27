@@ -4,7 +4,7 @@ Pages and components never write ``ft.Icons.X`` themselves (a test enforces
 it): they ask for an icon by meaning, so one action shows the same glyph on
 every page and a restyle is a change to this file alone.
 
-Style rules (``docs/flet_ui_plan.md`` §5.6):
+Style rules:
 
 * One icon set: Material Icons as bundled with Flet.  No Cupertino icons, no
   other icon fonts, no images standing in for icons.

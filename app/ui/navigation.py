@@ -1,4 +1,4 @@
-"""Where the Flet shell is, and how Back gets out of it (docs/flet_ui_plan.md 4.4).
+"""Where the Flet shell is, and how Back gets out of it.
 
 No Flet import.  Every shell destination has a ``Destination`` handle that
 remembers the route it shows (detail and author routes open *over* the

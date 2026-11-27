@@ -1,4 +1,4 @@
-"""Covers and avatars through the core's image cache (docs/flet_ui_plan.md 4.3).
+"""Covers and avatars through the core's image cache.
 
 The Flet client could load remote URLs itself, but then the app's session,
 proxy and cache would be bypassed.  ``ImageService`` runs the core's

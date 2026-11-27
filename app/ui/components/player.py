@@ -1,4 +1,4 @@
-"""The built-in player (docs/flet_ui_plan.md 7.3): flet-video over the local copy or the loopback stream.
+"""The built-in player: flet-video over the local copy or the loopback stream.
 
 A downloaded copy (or its NAS URL) plays directly; otherwise the Iwara file
 is signed and served through ``core.playback`` 's loopback proxy, which adds
