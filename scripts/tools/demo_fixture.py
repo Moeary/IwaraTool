@@ -393,17 +393,19 @@ class FakeAdapter(BaseAdapter):
             headers["Content-Type"] = "application/json"
             body = json.dumps(file_sources(url)).encode()
         elif host.startswith("demo-cdn."):
-            start = 0
+            start, end = 0, VIDEO_BYTES - 1
             range_header = request.headers.get("Range", "")
             if range_header.startswith("bytes="):
-                start = int(range_header[6:].split("-")[0] or 0)
-                status = 206
-                headers["Content-Range"] = f"bytes {start}-{VIDEO_BYTES - 1}/{VIDEO_BYTES}"
+                first, _, last = range_header[6:].partition("-")
+                start = int(first or 0)
+                end = min(int(last), VIDEO_BYTES - 1) if last.strip() else VIDEO_BYTES - 1
+                status = 206  # one segment, as a real server answers the multi-connection downloader
+                headers["Content-Range"] = f"bytes {start}-{end}/{VIDEO_BYTES}"
             headers["Content-Type"] = "video/mp4"
-            headers["Content-Length"] = str(VIDEO_BYTES - start)
+            headers["Content-Length"] = str(end + 1 - start)
             headers["Accept-Ranges"] = "bytes"
             if request.method != "HEAD":
-                raw = _SlowBody(VIDEO_BYTES, start)
+                raw = _SlowBody(end + 1, start)
         elif host.startswith("i.") or "iwara" in host:
             avatar = "/avatar/" in url or "avatar-" in url
             body = artwork(urlparse(url).path, avatar=avatar)

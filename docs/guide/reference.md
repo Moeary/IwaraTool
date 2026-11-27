@@ -6,12 +6,12 @@
 
 ## 平台说明
 
-- **Windows**：从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载 `.exe` 直接运行。登录自启动与一键更新（SHA-256 校验）仅支持 Windows。
-- **Linux**：预编译包基于 GitHub 的 `ubuntu-latest` 构建，不支持 glibc 较老的系统；老版本发行版建议下载源码后在本机编译。
-- **macOS**：提供 Apple Silicon（ARM64）和 Intel（x86_64）的 DMG（另附同内容的 ZIP），打开后将 `IwaraTool.app` 拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；首次启动被拦截时的处理、架构选择与代理配置见 [安装与上手](./install.md)。
-  - 打包时会把仍指向构建机 Python 环境的动态库引用改写为包内路径、重新签名（ad-hoc），并在 CI 中检查每个 Mach-O 文件的引用、从 `.app` 与挂载后的 DMG 各启动一次进行验证。
+- **Windows**：从 [Releases](https://github.com/Moeary/IwaraTool/releases) 下载 `IwaraTool-Windows-AMD64-<版本>.zip`，解压后运行 `IwaraTool.exe`；数据保存在程序旁的 `data/`，解压到旧版所在文件夹即可沿用旧数据。支持托盘图标与开机自启。
+- **macOS**：提供 Apple Silicon（ARM64）的 ZIP，解压得到 `IwaraTool.app` 后拖入“应用程序”。CI 在 macOS 15 验证，更旧版本尚未验证。应用未使用 Developer ID 签名与公证；首次启动被拦截时的处理与代理配置见 [安装与上手](./install.md)。
   - 数据保存在 `~/Library/Application Support/IwaraTool/`，默认下载至 `~/Downloads/IwaraTool/`。
-  - 更新请下载并替换 `.app`，数据会保留。
+  - 更新请替换 `.app`，数据会保留。
+- **Android**：`IwaraTool-Android-<版本>.apk`。所有版本使用同一把长期签名密钥，新版可直接覆盖安装升级，数据保留。
+- **Linux / macOS Intel**：暂无预编译包，可从源码运行（见下文）。
 
 ## 支持的 URL 类型
 
@@ -66,4 +66,4 @@ pixi run crawl  # 抓取标签数据（更新 docs/iwara_tags.md）
 pixi run test   # 运行测试
 ```
 
-Windows 构建会写入版本信息；设置环境变量 `WINDOWS_SIGN_PFX`（.pfx 路径，或 CI 中用 `WINDOWS_SIGN_PFX_BASE64`）与 `WINDOWS_SIGN_PFX_PASSWORD` 后，`pixi run build` 会自动做 Authenticode 签名并加时间戳（有 Windows SDK 时用 signtool，否则用 PowerShell）。也可用 `python scripts/tools/build_windows.py --sign-only <exe>` 只签名已有文件。
+`pixi run build` 用 `flet build` 打包当前系统的桌面版（`--platform apk` 打包 Android，需要 Android SDK，平时由 CI 构建）。Android 发布版用同一把长期密钥签名：设置 `FLET_ANDROID_SIGNING_KEY_STORE`（.jks 路径）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD` 与 `FLET_ANDROID_SIGNING_KEY_ALIAS` 后构建，脚本会核对 APK 证书与 `packaging/app/android_cert_sha256.txt` 一致；CI 从仓库 secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 读取，打标签发版时缺少密钥会直接失败。

@@ -1,11 +1,10 @@
-"""The settings file behind ``app.config``: QSettings, or a pure-Python twin.
+"""The settings file behind ``app.config``: ``config.ini`` in QSettings' INI format.
 
-The desktop app keeps ``QSettings`` in INI format. Without PySide6 (see
-``app.qt_support``) :class:`IniSettingsStore` reads and writes the same
-``config.ini``, with the same layout and the same subset of the API
-(``value``, ``setValue``, ``contains``, ``remove``, ``allKeys``, ``clear``,
-``sync``), so one file works with either backend and ``app.core.backup``
-can keep treating it as INI text.
+Versions up to v1.2 wrote the file with Qt's ``QSettings``.
+:class:`IniSettingsStore` reads and writes the same ``config.ini`` with the
+same layout and the subset of the QSettings API the app uses (``value``,
+``setValue``, ``contains``, ``remove``, ``allKeys``, ``clear``, ``sync``), so
+older files keep working and ``app.core.backup`` can treat it as INI text.
 
 Compatibility covers what the app stores: strings, ints, floats, bools and
 ``None``. Read back from disk they come out as strings, as they do from
@@ -23,7 +22,6 @@ import threading
 import weakref
 from typing import Any
 
-from .qt_support import qt_available
 
 GENERAL = "General"
 _KEY_SAFE = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
@@ -319,21 +317,7 @@ atexit.register(sync_all_open_stores)
 _flush_open_stores = sync_all_open_stores  # the old private name
 
 
-def open_settings(path: str):
-    """The settings store for ``path``: QSettings with Qt, else :class:`IniSettingsStore`."""
+def open_settings(path: str) -> "IniSettingsStore":
+    """The settings store for ``path``."""
 
-    if qt_available():
-        from PySide6.QtCore import QSettings
-
-        return QSettings(path, QSettings.Format.IniFormat)
     return IniSettingsStore(path)
-
-
-def legacy_settings():
-    """The old platform-default QSettings store (registry / plist); None without Qt."""
-
-    if not qt_available():
-        return None
-    from PySide6.QtCore import QSettings
-
-    return QSettings("IwaraTool", "IwaraTool")

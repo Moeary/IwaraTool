@@ -1,4 +1,4 @@
-"""Start and stop the app's services; shared by the PySide6 and Flet interfaces.
+"""Start and stop the app's services.
 
 Order matters:
 
@@ -7,7 +7,7 @@ Order matters:
    is opened.
 2. ``prepare(frontend=...)``: logging, proxy and request settings, the cached
    login, the temporary download rule.  The interface may then build its
-   window (the PySide6 window reads state the managers loaded).
+   window.
 3. ``start_services()``: restored download tasks resume, the background
    service (timed subscription refreshes, update checks) starts.
 4. ``stop(wait=...)`` when the app closes: background service, download

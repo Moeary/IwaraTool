@@ -1,16 +1,13 @@
-"""Launch at login for the Flet build (Windows, macOS, Linux).
+"""Launch at login (Windows, macOS, Linux).
 
-The classic Nuitka build keeps ``core/autostart.py`` (its own ``IwaraTool``
-Run value); this module uses separate names so the two builds never replace
-each other's entry:
-
-- Windows: ``HKCU\\...\\Run`` value ``IwaraTool-Flet``;
-- macOS: ``~/Library/LaunchAgents/io.github.moeary.iwaratool.flet.plist``
+- Windows: ``HKCU\\...\\Run`` value ``IwaraTool``, the value v1.2 and earlier
+  wrote, so switching the option also replaces or removes an older version's entry;
+- macOS: ``~/Library/LaunchAgents/io.github.moeary.iwaratool.plist``
   (launchd loads it at the next login);
-- Linux: ``~/.config/autostart/iwaratool-flet.desktop``.
+- Linux: ``~/.config/autostart/iwaratool.desktop``.
 
 The packaged app starts itself; a run from source starts the interpreter on
-``main_flet.py``.
+``main.py``.
 """
 from __future__ import annotations
 
@@ -20,10 +17,10 @@ import sys
 from pathlib import Path, PurePosixPath
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE_NAME = "IwaraTool-Flet"
-AGENT_LABEL = "io.github.moeary.iwaratool.flet"
-DESKTOP_NAME = "iwaratool-flet.desktop"
-SCRIPT = Path(__file__).resolve().parents[2] / "main_flet.py"
+VALUE_NAME = "IwaraTool"
+AGENT_LABEL = "io.github.moeary.iwaratool"
+DESKTOP_NAME = "iwaratool.desktop"
+SCRIPT = Path(__file__).resolve().parents[2] / "main.py"
 
 
 def is_supported(platform: str = sys.platform) -> bool:
@@ -35,7 +32,7 @@ def _packaged() -> bool:
 
 
 def process_executable() -> str:
-    """The running program's own file (in a packaged Flet app: the app's binary, not a Python)."""
+    """The running program's own file (in a packaged app: the app's binary, not a Python)."""
     try:
         import ctypes
 
@@ -113,6 +110,49 @@ def is_enabled(*, home: Path | None = None, platform: str = sys.platform) -> boo
     if platform == "darwin":
         return agent_path(home).is_file()
     return desktop_path(home).is_file()
+
+
+def _stored(home: Path | None, platform: str) -> str | bytes | None:
+    """The entry as the system keeps it (the command line, plist or desktop file); None when absent."""
+    if platform == "win32":
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+                return str(winreg.QueryValueEx(key, VALUE_NAME)[0])
+        except OSError:
+            return None
+    target = agent_path(home) if platform == "darwin" else desktop_path(home)
+    try:
+        return target.read_bytes() if platform == "darwin" else target.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _expected(args: list[str], platform: str) -> str | bytes:
+    if platform == "win32":
+        return _quote_windows(args)
+    return agent_plist(args) if platform == "darwin" else desktop_entry(args)
+
+
+def follow_program(*, home: Path | None = None, platform: str = sys.platform,
+                   args: list[str] | None = None) -> bool:
+    """Point an existing entry at this program; True when it was rewritten.
+
+    A packaged app calls this at start: an entry left by v1.2 (its own
+    ``IwaraTool-Windows-AMD64-<version>.exe``) or by a copy that has moved
+    would otherwise start another program, or none, at login.
+    """
+    if not is_supported(platform):
+        return False
+    stored = _stored(home, platform)
+    if stored is None:
+        return False
+    args = args or launch_arguments(platform=platform)
+    if stored == _expected(args, platform):
+        return False
+    set_enabled(True, home=home, platform=platform, args=args)
+    return True
 
 
 def set_enabled(enabled: bool, *, home: Path | None = None, platform: str = sys.platform,

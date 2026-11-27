@@ -1,15 +1,10 @@
 """Centralized signal bus for cross-module UI↔backend communication.
 
-With PySide6 (the desktop app) these are Qt signals, delivered to each slot on
-its own thread. Without it they are ``app.events`` signals with the same
-``connect`` / ``disconnect`` / ``emit`` API, called on the emitting thread.
+These are ``app.events`` signals (``connect`` / ``disconnect`` / ``emit``),
+called on the emitting thread; the interface's ``EventBridge``
+(``app/ui/services/events.py``) hands them to its event loop.
 """
-from .qt_support import qt_available
-
-if qt_available():
-    from PySide6.QtCore import QObject as _SignalHost, Signal
-else:
-    from .events import Signal, SignalHost as _SignalHost
+from .events import Signal, SignalHost as _SignalHost
 
 
 class TaskSignalBus(_SignalHost):

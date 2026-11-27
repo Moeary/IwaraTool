@@ -21,7 +21,6 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from ..logging_setup import get_logger
-from ..qt_support import qt_available
 from .cancellation import token_cancelled
 
 logger = get_logger(__name__)
@@ -40,19 +39,9 @@ def cancellation_requested() -> bool:
     """Whether the current work was asked to stop.
 
     True when the context's ``CancelToken`` (see ``cancellation.cancel_scope``)
-    was cancelled, or when the calling QThread's interruption was requested.
+    was cancelled.
     """
-    if token_cancelled():
-        return True
-    if not qt_available():
-        return False
-    try:
-        from PySide6.QtCore import QThread
-
-        thread = QThread.currentThread()
-        return bool(thread is not None and thread.isInterruptionRequested())
-    except Exception:  # pragma: no cover - Qt missing or shutting down
-        return False
+    return token_cancelled()
 
 
 def _raise_if_cancelled(method: str, host: str) -> None:

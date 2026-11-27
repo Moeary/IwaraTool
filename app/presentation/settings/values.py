@@ -367,17 +367,6 @@ def set_ffmpeg_path(path: str) -> bool:
     return True
 
 
-def set_autostart(enabled: bool) -> str:
-    """Launch at login; returns the error text ("" when it worked)."""
-    from ...core import autostart
-
-    try:
-        autostart.set_enabled(bool(enabled))
-    except OSError as exc:
-        return str(exc)
-    return ""
-
-
 def backup_saved_text(count: int, path: str) -> str:
     return tr(f"Saved {count} files to {path}", f"已保存 {count} 个文件到 {path}", f"{count} 件を {path} に保存しました")
 

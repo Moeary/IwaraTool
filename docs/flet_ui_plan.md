@@ -2,6 +2,8 @@
 
 编写日期：2026-11-22。本文是 Flet 前端的执行依据，面向实际动手改造的开发者或代理。可行性结论见 [`flet_migration.md`](./flet_migration.md)，本文不重复。
 
+> **2026-11-27 起移植完成，Flet 版取代 PySide6 版。** 旧界面（`app/ui` 的 PySide6 代码、Nuitka 构建、`scripts/tests/qt` 与对应 CI）已删除；下文中的新路径已统一改名：`app/ui_flet` → `app/ui`、`main_flet.py` → `main.py`、`scripts/tests/flet_ui` → `scripts/tests/ui`、`packaging/flet` → `packaging/app`、`scripts/tools/build_flet.py` → `build.py`（`flet_theme_gallery.py` → `theme_gallery.py`、`flet_viewports.py` → `viewports.py`、`flet_demo.py` → `demo_play.py`）；pixi 只剩一个环境（Python 3.12 + Flet），任务为 `start` / `test` / `build` / `theme-gallery`。本文其余部分保留为设计记录，提到“旧界面”“经典版”时指 v1.2.3 及更早版本。Android 发布版改用长期签名密钥，见 `scripts/tools/build.py` 与 `packaging/app/android_cert_sha256.txt`。
+
 - 第 1 节记录 2026-11-22 对仓库分层和构建流程的核查结论。
 - 第 2、3 节是动手写界面前必须完成的工程与核心层整理。
 - 第 4～8 节是新界面的架构、设计语言、响应式体系和逐页方案。

@@ -4,7 +4,7 @@ Each interface feeds the finger travel of one gesture (``begin`` then
 ``move``); ``move`` is True once, when the fingers have travelled far enough
 and mostly sideways.  How the gesture arrives is the interface's business:
 phased wheel events in Qt (``ui/window/swipe_back.py``), a trackpad drag in
-Flet (``ui_flet/components/swipe_back.py``).  No Qt, no Flet here.
+Flet (``ui/components/swipe_back.py``).  No Qt, no Flet here.
 """
 from __future__ import annotations
 

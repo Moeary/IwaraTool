@@ -1,4 +1,4 @@
-"""Importing the PySide6 (Classic) build's data into the Flet build (core/classic_import.py)."""
+"""Importing the data of v1.2 or earlier (the Classic build; core/classic_import.py)."""
 from __future__ import annotations
 
 import os

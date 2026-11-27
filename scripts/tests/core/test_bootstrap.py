@@ -1,4 +1,4 @@
-"""app.bootstrap without Qt: one start/stop cycle in a temporary data folder writes the settings."""
+"""app.bootstrap: one start/stop cycle in a temporary data folder writes the settings."""
 
 from __future__ import annotations
 
@@ -17,14 +17,11 @@ SCRIPT = textwrap.dedent(
     from app import bootstrap
     bootstrap.restore_pending_backup()
     from app.config import app_config
-    from app.qt_support import qt_available
-    assert not qt_available()
     bootstrap.start(frontend="test")
     app_config.ui_font_family = "Bootstrap Test Font"
     bootstrap.stop(wait=True)
     bootstrap.stop(wait=True)  # a second stop is a no-op
-    import sys
-    print("qt:", sorted(n for n in sys.modules if n.split(".")[0] in {"PySide6", "shiboken6"}))
+    print("stopped")
     """
 )
 
@@ -32,13 +29,13 @@ SCRIPT = textwrap.dedent(
 class BootstrapTests(unittest.TestCase):
     def test_start_and_stop_write_the_settings_file(self):
         with tempfile.TemporaryDirectory() as data:
-            env = dict(os.environ, IWARATOOL_NO_QT="1", IWARATOOL_DATA_DIR=data, IWARATOOL_DOWNLOAD_DIR=str(Path(data) / "dl"))
+            env = dict(os.environ, IWARATOOL_DATA_DIR=data, IWARATOOL_DOWNLOAD_DIR=str(Path(data) / "dl"))
             env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
             done = subprocess.run(
                 [sys.executable, "-c", SCRIPT], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
-            self.assertIn("qt: []", done.stdout)
+            self.assertIn("stopped", done.stdout)
             config = Path(data) / "config.ini"
             self.assertTrue(config.is_file())
             self.assertIn("Bootstrap Test Font", config.read_text(encoding="utf-8"))

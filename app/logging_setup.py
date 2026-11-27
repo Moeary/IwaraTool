@@ -84,36 +84,6 @@ def _install_crash_hooks(logger: logging.Logger) -> None:
     sys.excepthook = _excepthook
     threading.excepthook = _thread_hook
 
-    from .qt_support import qt_available
-
-    if not qt_available():  # IWARATOOL_NO_QT, or PySide6 missing: no Qt messages to route
-        return
-    try:
-        from PySide6.QtCore import QtMsgType, qInstallMessageHandler
-
-        levels = {
-            QtMsgType.QtDebugMsg: logging.DEBUG,
-            QtMsgType.QtInfoMsg: logging.INFO,
-            QtMsgType.QtWarningMsg: logging.WARNING,
-            QtMsgType.QtCriticalMsg: logging.ERROR,
-            QtMsgType.QtFatalMsg: logging.CRITICAL,
-        }
-
-        def _qt_handler(msg_type, _context, message):
-            # Called by Qt from any thread; an exception escaping into C++ here
-            # would take the process down, so it must never raise.
-            try:
-                logger.log(levels.get(msg_type, logging.WARNING), "Qt: %s", message)
-            except Exception:
-                pass
-
-        # Keep the callable alive for as long as Qt may call it.
-        global _qt_message_handler
-        _qt_message_handler = _qt_handler
-        qInstallMessageHandler(_qt_handler)
-    except Exception:  # pragma: no cover - Qt unavailable
-        logger.debug("Qt message handler not installed", exc_info=True)
-
 
 def get_logger(name: str) -> logging.Logger:
     """Child logger under the ``iwaratool`` namespace."""

@@ -1,138 +1,168 @@
-"""IwaraTool — entry point."""
+"""IwaraTool — entry point.
+
+    pixi run start
+
+Development options (docs/flet_ui_plan.md 9.2):
+
+    --viewport WxH     start with this window size (simulates phones and tablets)
+    --route PATH       open this route first (``/settings/account``)
+    --theme MODE       auto / light / dark for this run only
+    --lang LANG        zh / en / ja (saved: point IWARATOOL_DATA_DIR elsewhere for checks)
+    --shot FILE.png    save a screenshot after start-up and quit
+    --account          open the account panel (for screenshots)
+    --drawer           open the phone navigation drawer (for screenshots)
+    --demo             offline made-up Iwara in a throw-away data folder (scripts/tools/demo_fixture.py)
+    --platform NAME    behave as android / ios (the phone build's pages and settings, 8.3)
+"""
+import argparse
+import asyncio
+import json
+import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
+from app.ui.runner import prepare_environment, run
 
+# Before the rest of ``app`` is imported (the core reads these at import time).
+prepare_environment(Path(__file__).resolve().parent)
 
-def smoke_test():
-    """Check packaged Qt and assets before opening databases or network jobs."""
-    import time
-    from PySide6.QtCore import QCoreApplication, QEvent, QUrl
-    from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
-    from PySide6.QtMultimediaWidgets import QVideoWidget
-    from app.qt_runtime import ensure_multimedia_plugins
-    from app.version import __version__
+if "--platform" in sys.argv[:-1]:
+    # Dev runs only: app/ui/platform/capabilities.py reads this.
+    os.environ["IWARATOOL_PLATFORM"] = sys.argv[sys.argv.index("--platform") + 1].lower()
 
-    # Native extension modules pull in libssl, libcrypto, libsqlite and friends;
-    # importing them here makes a packaged build prove those libraries load.
-    import hashlib
-    import sqlite3
-    import ssl
+if "--demo" in sys.argv:
+    # Made-up offline Iwara and a throw-away data folder (scripts/tools/demo_fixture.py).
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "tools"))
+    import demo_fixture  # noqa: E402
 
-    import cloudscraper  # noqa: F401
-    import requests  # noqa: F401
+    _lang = sys.argv[sys.argv.index("--lang") + 1] if "--lang" in sys.argv else "zh"
+    demo_fixture.install(language={"zh": "zh_CN", "ja": "ja_JP"}.get(_lang, "en_US"))
 
-    ssl.create_default_context()
-    hashlib.sha256(b"IwaraTool").hexdigest()
-    sqlite3.connect(":memory:").close()
+from app import bootstrap  # noqa: E402
 
-    app = QApplication(sys.argv)
-    ensure_multimedia_plugins()
-    player = QMediaPlayer(app)
-    widget = QVideoWidget()
-    player.setVideoOutput(widget)
-    if not player.isAvailable():
-        raise RuntimeError("Qt multimedia backend is unavailable")
-    root = Path(__file__).resolve().parent
-    for relative in (
-        "app/icon.ico",
-        "app/data/tag_translations/loveiwara_iwara_tags_localized.json",
-        "app/data/oreno3d_iwara_map.json",
-    ):
-        if not (root / relative).is_file():
-            raise RuntimeError(f"Missing bundled resource: {relative}")
-    app.processEvents()
-    if "--smoke-media" in sys.argv:
-        media_index = sys.argv.index("--smoke-media") + 1
-        media = Path(sys.argv[media_index]).resolve()
-        decoded = []
-        sink = QVideoSink(app)
-        sink.videoFrameChanged.connect(lambda frame: decoded.append(True) if frame.isValid() else None)
-        player.setVideoOutput(sink)
-        player.setSource(QUrl.fromLocalFile(str(media)))
-        player.play()
-        deadline = time.monotonic() + 15
-        while not decoded and time.monotonic() < deadline:
-            app.processEvents()
-            if player.error() != QMediaPlayer.Error.NoError:
-                raise RuntimeError(f"Smoke video playback failed: {player.errorString()}")
-            time.sleep(0.01)
-        if not decoded:
-            raise RuntimeError("Smoke video did not produce a decoded frame")
-        player.stop()
-        print("H.264/MP4 video decode OK", flush=True)
-    print(f"IwaraTool {__version__}: Qt multimedia and bundled resources OK", flush=True)
-    player.setVideoOutput(None)
-    player.deleteLater()
-    widget.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-
-
-if __name__ == "__main__" and "--smoke-test" in sys.argv:
-    smoke_test()
-    raise SystemExit(0)
-
-from app import bootstrap
-
-# A restore staged from the settings page must land before any database or
-# settings file is opened, which happens as soon as app.config is imported.
+# A restore staged in Settings must land before app.config opens any file: importing it reads config.ini.
 bootstrap.restore_pending_backup()
 
-from app.config import app_config  # noqa: E402
-from app.logging_setup import get_logger, setup_logging
-from app.qt_runtime import install_console_interrupt
-from app.signal_bus import signal_bus
-from app.ui.style.fonts import apply_app_font
-from app.ui.main_window import MainWindow
-from app.ui.common import mask_dialogs
-from app.ui.style.theme import apply_theme_mode
+import flet as ft  # noqa: E402
+
+from app.paths import app_data_dir  # noqa: E402
+from app.ui import routes  # noqa: E402
+from app.ui.app import mount  # noqa: E402
+from app.ui.lifecycle import shutdown, start_app  # noqa: E402
+from app.version import __version__  # noqa: E402
+
+# Smoke test: ``--smoke-test`` or IWARATOOL_SMOKE_TEST=1 (packaged apps may not
+# pass arguments). With IWARATOOL_SMOKE_REPORT set, a JSON report is written there.
+SMOKE_TEST = "--smoke-test" in sys.argv or os.environ.get("IWARATOOL_SMOKE_TEST") == "1"
 
 
-def main():
-    setup_logging()
-    # Mirror the in-app log panel into data/logs so packaged builds stay debuggable.
-    ui_logger = get_logger("ui")
-    signal_bus.log_message.connect(lambda message: ui_logger.info("%s", message))
+def write_smoke_report(page: ft.Page, extra: dict | None = None) -> None:
+    target = os.environ.get("IWARATOOL_SMOKE_REPORT")
+    if not target:
+        return
+    report = {
+        "version": __version__,
+        "python": sys.version.split()[0],
+        "platform": str(page.platform.value if page.platform else ""),
+        "packaged": bool(os.environ.get("FLET_PLATFORM")),
+        "data_dir": str(app_data_dir()),
+        "flet_storage": os.environ.get("FLET_APP_STORAGE_DATA", ""),
+        "bootstrap": "prepared",
+        **(extra or {}),
+    }
+    Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    # Allow high-DPI scaling
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
 
-    app = QApplication(sys.argv)
-    app.setApplicationName("IwaraTool")
-    app.setOrganizationName("IwaraTool")
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--viewport", default="")
+    parser.add_argument("--route", default="")
+    parser.add_argument("--theme", choices=("auto", "light", "dark"), default="")
+    parser.add_argument("--lang", choices=("zh", "en", "ja"), default="")
+    parser.add_argument("--shot", type=Path)
+    parser.add_argument("--account", action="store_true")
+    parser.add_argument("--drawer", action="store_true")
+    parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--platform", choices=("android", "ios", "macos", "windows", "linux"), default="")
+    parser.add_argument("--wait", type=float, default=1.5, help="seconds before --shot")
+    args, _unknown = parser.parse_known_args(argv)  # packaged runs may add their own
+    if args.shot:
+        args.shot = args.shot.resolve()  # the runner changes the working directory
+    return args
 
-    icon_path = Path(__file__).resolve().parent / "app" / "icon.ico"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
 
-    # Mask dialogs must stay clickable once a video makes the window's views native.
-    mask_dialogs.install()
+ARGS = parse_args(sys.argv[1:])
 
-    # Fonts first: qfluentwidgets reads them when widgets build their styles.
-    apply_app_font(app)
 
-    # Apply the saved theme mode; "auto" follows the system dark/light mode.
-    apply_theme_mode(app_config.theme_mode)
+def viewport(text: str) -> tuple[int, int] | None:
+    try:
+        width, height = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        return None
+    return width, height
 
-    # Proxy, cached login and the temporary rule; services start once the
-    # window exists.
-    bootstrap.prepare(frontend="pyside6")
 
-    window = MainWindow()
-    bootstrap.start_services()
-    app.aboutToQuit.connect(lambda: bootstrap.stop(wait=False))
-    if icon_path.exists():
-        window.setWindowIcon(QIcon(str(icon_path)))
-    window.show()
-    install_console_interrupt(window.quit_from_console, app)
+async def take_shot(page: ft.Page, target: Path) -> None:
+    await asyncio.sleep(ARGS.wait)  # let fonts, layout, the first resize (and demo work) settle
+    data = await page.take_screenshot(pixel_ratio=1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    print(f"saved {target}", flush=True)
+    await shutdown(page)
 
-    sys.exit(app.exec())
+
+async def main(page: ft.Page) -> None:
+    page.title = "IwaraTool"
+    page.padding = 0
+    page.window.min_width, page.window.min_height = 320, 560
+    size = viewport(ARGS.viewport) or (1280, 800)
+    page.window.min_width = min(page.window.min_width, size[0])
+    page.window.min_height = min(page.window.min_height, size[1])
+    page.window.width, page.window.height = size
+    page.enable_screenshots = bool(ARGS.shot)
+    if ARGS.lang:
+        from app.presentation.preferences import set_language
+
+        set_language(ARGS.lang)
+    shell = mount(page, theme_override=ARGS.theme)
+    if ARGS.route:
+        route = routes.parse(ARGS.route)
+        if route.is_root:
+            shell.select(route.destination)  # a start page, not a step Back returns from
+        else:
+            shell.open(ARGS.route)
+    if ARGS.account:
+        shell.open_account()
+    if ARGS.drawer:
+        shell.open_drawer()
+    # The smoke test only prepares (no task resume, no timed network checks).
+    services = not (SMOKE_TEST or ARGS.shot) or ARGS.demo
+    await start_app(page, services=services)
+    if SMOKE_TEST:
+        extra = None
+        if os.environ.get("IWARATOOL_SMOKE_DESKTOP") == "1" and shell.caps.desktop:
+            from app.ui import desktop_check
+
+            extra = {"desktop": await desktop_check.run(page)}
+        write_smoke_report(page, extra)
+        await shutdown(page)
+        return
+    await shell.refresh_badges()
+    await shell.tasks.reload()
+    if services:
+        page.run_task(shell.restore_login)
+    if services and not ARGS.demo and shell.caps.desktop:
+        from app.ui.services.classic_import import offer_classic_import
+
+        page.run_task(offer_classic_import, page)  # once: data of v1.2 or earlier was found elsewhere
+    if ARGS.demo:
+        import demo_play  # scripts/tools, on sys.path in demo runs
+
+        await demo_play.play(shell, ARGS.route)
+    if ARGS.shot:
+        await take_shot(page, ARGS.shot)
 
 
 if __name__ == "__main__":
-    main()
+    run(main)

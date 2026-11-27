@@ -6,12 +6,12 @@ Details that most users never need. The README keeps only what helps you get sta
 
 ## Platform notes
 
-- **Windows**: download the `.exe` from [Releases](https://github.com/Moeary/IwaraTool/releases) and run it. Launch at login and one-click updates (SHA-256 verified) are Windows-only.
-- **Linux**: binaries are built on GitHub's `ubuntu-latest` runner and do not support older glibc-based systems. On older distributions, download the source and build locally.
-- **macOS**: DMGs are provided for Apple Silicon (ARM64) and Intel (x86_64), plus ZIPs with the same app. Open one and drag `IwaraTool.app` into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; see [Installation and First Steps](./install_en.md) for the first-launch prompt, choosing the architecture and the proxy.
-  - Packaging rewrites library references that still point at the build machine's Python environment to paths inside the bundle, re-signs ad-hoc, and CI checks every Mach-O file and launches the app both from the `.app` and from the mounted DMG.
+- **Windows**: download `IwaraTool-Windows-AMD64-<version>.zip` from [Releases](https://github.com/Moeary/IwaraTool/releases), extract it and run `IwaraTool.exe`. Data lives in `data/` beside the program, so extracting into the folder of an older version keeps its data. A tray icon and launch at login are available.
+- **macOS**: a ZIP for Apple Silicon (ARM64) holds `IwaraTool.app`; drag it into Applications. CI runs on macOS 15; older versions are unverified. The app has no Developer ID signature or notarization; see [Installation and First Steps](./install_en.md) for the first-launch prompt and the proxy.
   - Data lives in `~/Library/Application Support/IwaraTool/`; downloads default to `~/Downloads/IwaraTool/`.
   - Update by replacing the `.app`; your data is kept.
+- **Android**: `IwaraTool-Android-<version>.apk`. Every release is signed with the same long-lived key, so a new APK installs over the old one as an update and keeps the data.
+- **Linux / macOS Intel**: no prebuilt package for now; run from source (below).
 
 ## Supported URL types
 
@@ -66,4 +66,4 @@ pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
 pixi run test   # Run the test suite
 ```
 
-The Windows build embeds version information. Set `WINDOWS_SIGN_PFX` (a `.pfx` path, or `WINDOWS_SIGN_PFX_BASE64` in CI) and `WINDOWS_SIGN_PFX_PASSWORD` and `pixi run build` also applies a timestamped Authenticode signature (signtool when the Windows SDK is present, otherwise PowerShell). `python scripts/tools/build_windows.py --sign-only <exe>` signs an existing file.
+`pixi run build` packages the desktop app for this system with `flet build` (`--platform apk` builds Android; it needs the Android SDK and normally runs in CI). Android releases are signed with one long-lived key: set `FLET_ANDROID_SIGNING_KEY_STORE` (the .jks path), `FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD` and `FLET_ANDROID_SIGNING_KEY_ALIAS` before building, and the script checks the APK's certificate against `packaging/app/android_cert_sha256.txt`. CI reads the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`; a tagged release fails without them.

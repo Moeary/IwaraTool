@@ -1,13 +1,7 @@
-name: Build Desktop Binaries
+name: Build
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: Which interface to build (a tag builds and releases only Flet)
-        type: choice
-        options: [legacy, flet, all]
-        default: flet
   push:
     tags:
       - 'v*'
@@ -16,150 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  # PySide6 ("Classic"): on demand only; from v1.3.0 releases ship the Flet build alone.
+  # Desktop builds, for tags and on demand.
   build:
-    if: github.event_name == 'workflow_dispatch' && inputs.target != 'flet'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-15, macos-15-intel]
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Linux build deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y patchelf libegl1 libgl1 libopengl0 libxkbcommon0 libdbus-1-3 libfontconfig1
-
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
-        with:
-          cache: true
-          locked: true
-
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: pixi run test
-
-      - name: Run tests (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: pixi run test
-
-      - name: Run tests (macOS)
-        if: runner.os == 'macOS'
-        env:
-          QT_QPA_PLATFORM: cocoa
-        run: pixi run test
-
-      # Version resources always; Authenticode signing when the repository has a
-      # code-signing certificate in the WINDOWS_SIGN_PFX_BASE64 / _PASSWORD secrets.
-      - name: Build and sign (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          WINDOWS_SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
-          WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
-          pixi run python scripts/tools/build_windows.py --output-filename="IwaraTool-Windows-AMD64-${VERSION}.exe"
-
-      # SignPath Foundation signing for tagged releases. Skipped until the
-      # repository variable SIGNPATH_ORGANIZATION_ID and the secret
-      # SIGNPATH_API_TOKEN are set; every request waits for manual approval in SignPath.
-      - name: Upload unsigned exe for SignPath (Windows)
-        id: upload-unsigned
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-windows-exe  # outside the release's IwaraTool-* pattern
-          path: dist/IwaraTool-Windows-*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Sign with SignPath (Windows)
-        if: steps.upload-unsigned.outcome == 'success'
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'IwaraTool' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 3600
-          output-artifact-directory: dist-signed
-
-      - name: Use the signed exe (Windows)
-        if: steps.upload-unsigned.outcome == 'success'
-        shell: pwsh
-        run: |
-          $signed = Get-ChildItem dist-signed -Recurse -Filter 'IwaraTool-Windows-*.exe'
-          if (-not $signed) { throw 'SignPath returned no exe' }
-          foreach ($file in $signed) {
-            $status = (Get-AuthenticodeSignature $file.FullName).Status
-            if ($status -ne 'Valid') { throw "Signature of $($file.Name) is $status" }
-            Copy-Item $file.FullName (Join-Path dist $file.Name) -Force
-          }
-
-      - name: Build (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          [ "$VERSION" == "$GITHUB_REF" ] && VERSION="latest"
-          pixi run python -m nuitka \
-            --assume-yes-for-downloads \
-            --standalone \
-            --onefile \
-            --static-libpython=no \
-            --enable-plugin=pyside6 \
-            --include-qt-plugins=multimedia \
-            --include-package-data=cloudscraper \
-            --include-data-file=app/icon.ico=app/icon.ico \
-            --include-data-file=app/data/tag_translations/loveiwara_iwara_tags_localized.json=app/data/tag_translations/loveiwara_iwara_tags_localized.json \
-            --include-data-file=app/data/oreno3d_iwara_map.json=app/data/oreno3d_iwara_map.json \
-            --output-filename="IwaraTool-Linux-AMD64-${VERSION}" \
-            --output-dir=dist \
-            --remove-output \
-            main.py
-
-      # scripts/tools/build_macos.py rewrites library references that still point at
-      # this runner's pixi environment, re-signs (ad-hoc), audits every Mach-O,
-      # launches the bundle with DYLD_PRINT_LIBRARIES, builds the DMG and
-      # launches again from the mounted DMG; any failure stops the release.
-      - name: Build, repair and verify (macOS)
-        if: runner.os == 'macOS'
-        run: pixi run build
-
-      - name: Verify DMG image (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          for dmg in dist/IwaraTool-macOS-*.dmg; do
-            hdiutil verify "$dmg"
-          done
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: IwaraTool-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            dist/*
-          if-no-files-found: error
-
-  # Flet interface: the main desktop build from v1.3.0 (docs/verification/flet/P9).
-  # Built for tags and on demand; artifacts are flet-*, renamed by the release job.
-  build-flet:
-    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
     strategy:
       fail-fast: false
       matrix:
@@ -176,10 +28,9 @@ jobs:
         with:
           cache: true
           locked: true
-          environments: flet
 
-      - name: Run Flet tests
-        run: pixi run -e flet test-flet
+      - name: Run tests
+        run: pixi run test
 
       # Flet's Flutter plugins (connectivity_plus 7.3+) use macOS 26 SDK APIs
       # such as NWPath.isUltraConstrained; the runner's default Xcode 16 lacks them.
@@ -197,24 +48,31 @@ jobs:
           major=$(sed -nE '1s/^Xcode ([0-9]+).*/\1/p' <<<"$version")
           if [ "$major" -lt 26 ]; then echo "::error::Flet's macOS build needs Xcode 26 or newer, the runner has $major"; exit 1; fi
 
-      # Stages a clean copy, runs flet build, audits for Qt/app/ui, launches the
+      # Stages a clean copy, runs flet build, audits for Qt, launches the
       # result in smoke-test mode and zips it into dist/.
       - name: Build, audit and smoke-test
         shell: bash
-        run: pixi run -e flet build-flet --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+        run: pixi run build --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: flet-${{ runner.os }}-${{ runner.arch }}
-          path: dist/IwaraTool-Flet-*.zip
+          name: build-${{ runner.os }}-${{ runner.arch }}
+          path: dist/IwaraTool-*.zip
           if-no-files-found: error
 
-  # Android APK of the Flet interface (docs/flet_ui_plan.md 8). The Ubuntu image
-  # ships the Android SDK; flet build installs Flutter. No smoke test: an APK
-  # needs a device, so real-device checks stay manual.
-  build-flet-android:
-    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target != 'legacy')
+  # Android APK (docs/flet_ui_plan.md 8). The Ubuntu image ships the Android
+  # SDK; flet build installs Flutter. No smoke test: an APK needs a device, so
+  # real-device checks stay manual.
+  #
+  # Signing: Android installs an update only over a copy signed with the same
+  # certificate, so every release is signed with one long-lived key from the
+  # secrets ANDROID_KEYSTORE_BASE64 (the .jks, base64), ANDROID_KEYSTORE_PASSWORD
+  # and ANDROID_KEY_ALIAS (default "upload"). build.py checks the APK's
+  # certificate against packaging/app/android_cert_sha256.txt; a tag refuses to
+  # build without the key. Builds on demand without the secrets fall back to a
+  # debug key (installable, but not as an update of a release).
+  build-android:
     runs-on: ubuntu-latest
 
     steps:
@@ -232,29 +90,42 @@ jobs:
         with:
           cache: true
           locked: true
-          environments: flet
 
-      - name: Run Flet tests
-        run: pixi run -e flet test-flet
+      - name: Run tests
+        run: pixi run test
 
-      - name: Build and audit the APK
+      - name: Build, sign and audit the APK
         shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'upload' }}
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          pixi run -e flet build-flet --platform apk --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+          args=(--platform apk --label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}")
+          keystore="$RUNNER_TEMP/iwaratool-release.jks"
+          trap 'rm -f "$keystore"' EXIT
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            base64 --decode <<<"$ANDROID_KEYSTORE_BASE64" > "$keystore"
+            export FLET_ANDROID_SIGNING_KEY_STORE="$keystore"
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            args+=(--require-signing)
+          fi
+          pixi run build "${args[@]}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: flet-Android
-          path: dist/IwaraTool-Flet-Android*.apk
+          name: build-Android
+          path: dist/IwaraTool-Android*.apk
           if-no-files-found: error
 
   # Start the APK on emulators shaped like a phone, a foldable and a tablet:
   # it must keep running for 90 s with no Python traceback; screenshots are kept.
   # Real devices stay a manual check (docs/flet_ui_plan.md P8).
   android-emulator:
-    needs: build-flet-android
+    needs: build-android
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -283,7 +154,7 @@ jobs:
       - name: Download the APK
         uses: actions/download-artifact@v4
         with:
-          name: flet-Android
+          name: build-Android
           path: apk
 
       - name: Enable KVM
@@ -311,26 +182,21 @@ jobs:
           path: emulator-out/
           if-no-files-found: warn
 
-  # From v1.3.0 a release holds only the Flet builds, named IwaraTool-*.
   # The APK ships only if it started on every emulator.
   release:
-    needs: [build-flet, build-flet-android, android-emulator]
+    needs: [build, build-android, android-emulator]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download Flet artifacts
+      - name: Download the builds
         uses: actions/download-artifact@v4
         with:
-          pattern: flet-*
+          pattern: build-*
           merge-multiple: true
           path: dist
-
-      - name: Name the builds (IwaraTool-Flet-* -> IwaraTool-*)
-        shell: bash
-        run: bash scripts/tools/release_names.sh dist
 
       - name: Select release notes
         shell: bash

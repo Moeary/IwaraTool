@@ -1,7 +1,8 @@
-"""Bring the PySide6 ("Classic") build's data into the Flet build.
+"""Bring the data of IwaraTool v1.2 or earlier (the PySide6 "Classic" build) over.
 
-The two builds keep separate data folders.  Importing makes a backup of the
-Classic folder (``core.backup``: settings, history, queue, rules, subscriptions;
+Since v1.3.0 the app uses the same data folder as those versions, so this is
+only needed when it runs from another place (on Windows / Linux, a program
+folder other than the old one).  Importing makes a backup of the old folder (``core.backup``: settings, history, queue, rules, subscriptions;
 never credentials or caches) and stages it as a restore, applied at the next
 start exactly like restoring a backup file (the current files are kept under
 ``backup_before_restore``).
@@ -33,8 +34,8 @@ def _has_data(folder: Path) -> bool:
 def classic_data_dir(*, platform: str | None = None, home: Path | None = None, own: str = "") -> str:
     """The Classic data folder when it can be found without asking, else "".
 
-    ``own``: this build's data folder.  Since v1.3.0 the Flet build uses the
-    Classic folder itself, so that folder is nothing to import.
+    ``own``: the app's data folder.  Since v1.3.0 that is the Classic folder
+    itself, so there is nothing to import from it.
     """
     platform = platform or sys.platform
     if platform != "darwin":

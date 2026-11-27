@@ -93,10 +93,25 @@ class LoginItemTests(unittest.TestCase):
         login_items.set_enabled(False, home=home, platform="linux")
         self.assertFalse(login_items.is_enabled(home=home, platform="linux"))
 
-    def test_separate_from_the_classic_entry(self):
-        from app.core import autostart, login_items
+    def test_takes_over_the_entry_of_older_versions(self):
+        from app.core import login_items
 
-        self.assertNotEqual(login_items.VALUE_NAME, autostart._VALUE_NAME)
+        self.assertEqual(login_items.VALUE_NAME, "IwaraTool")  # the Run value v1.2 and earlier wrote
+
+    def test_an_existing_entry_follows_the_program(self):
+        from app.core import login_items
+
+        home = Path(tempfile.mkdtemp())
+        for platform in ("darwin", "linux"):
+            new = ["/Applications/IwaraTool.app/Contents/MacOS/IwaraTool"]
+            self.assertFalse(login_items.follow_program(home=home, platform=platform, args=new))  # nothing to follow
+            self.assertFalse(login_items.is_enabled(home=home, platform=platform))
+            login_items.set_enabled(True, home=home, platform=platform, args=["/old/IwaraTool"])
+            self.assertTrue(login_items.follow_program(home=home, platform=platform, args=new))
+            self.assertFalse(login_items.follow_program(home=home, platform=platform, args=new))  # already current
+            self.assertTrue(login_items.is_enabled(home=home, platform=platform))
+        self.assertEqual(plistlib.loads(login_items.agent_path(home).read_bytes())["ProgramArguments"], new)
+        self.assertIn(f"Exec={new[0]}", login_items.desktop_path(home).read_text(encoding="utf-8"))
 
     @unittest.skipUnless(sys.platform == "win32", "Windows registry")
     def test_windows_run_value(self):
