@@ -226,7 +226,8 @@ def StatusRow(inline: bool = False):
         ft.Text(state.status, style=text_style(TYPE.meta, color=palette.on_surface_variant), expand=not inline,
                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
     ]
-    if state.searched and paged and shell.search.cards:
+    # By paging state, not visible cards: filters may hide a whole page while more pages follow.
+    if state.searched and paged and (shell.search.cards or state.has_next or state.current_page > 0):
         controls.append(_pager(shell))
     return ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=inline, controls=controls)
 

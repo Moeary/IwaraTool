@@ -14,6 +14,7 @@ from typing import Any
 
 import flet as ft
 
+from ...config import app_config
 from ...core.home.cache import shared_cache
 from ...core.home.feed import HOME_PAGE_LIMIT, FeedSection, home_sections, load_specs
 from ...core.home.loading import FeedResult, load_feed_page
@@ -24,6 +25,8 @@ from ...presentation.home import section_feed as rules
 from ...presentation.media.cards import CardView, video_card
 
 logger = get_logger(__name__)
+
+_CACHE_OWNER_KEY = "home_cache_account_v1"  # login whose rows the cache's account entries hold
 
 
 @ft.observable
@@ -221,19 +224,27 @@ class HomeStore:
     def on_login_changed(self) -> None:
         """Sign-in, sign-out or another account: rows of the old account must not stay.
 
-        Cached account rows are dropped and those rows fetched again; a fetch
-        still running for the old account loses to the new one's token.
+        The account rows drop what they show and any fetch still running (its
+        token no longer matches).  Cached account rows are kept only for the
+        account that saved them, so restoring the same login at start-up still
+        paints from the cache, while another account starts empty.
         """
-        self.cache.clear(account_only=True)
         rows = [row for row in self.rows if row.feed.tab.needs_login]
         for row in rows:
+            row.feed.token += 1
             row._clear()
             row.state.selected = frozenset()
+            row.state.loading = row.state.busy = False
+        if self.logged_in():
+            owner = str(app_config.username or "").strip().lower()
+            if str(app_config.get_ui_value(_CACHE_OWNER_KEY, "") or "") != owner:
+                self.cache.clear(account_only=True)
+                app_config.set_ui_value(_CACHE_OWNER_KEY, owner)
         if rows:
             self.run(self._reload_rows, rows)
 
     async def _reload_rows(self, rows: list[HomeRow]) -> None:
-        await asyncio.gather(*(row.reload(True) for row in rows), return_exceptions=True)
+        await asyncio.gather(*(row.reload() for row in rows), return_exceptions=True)
 
     def fold_all(self, folded: bool) -> None:
         for row in self.rows:

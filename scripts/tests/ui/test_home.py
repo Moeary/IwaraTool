@@ -146,17 +146,38 @@ class HomeStoreTests(unittest.TestCase):
             return feed_result(kwargs["token"], prefix="a" if len(calls) == 1 else "b")
 
         async def scenario():
-            with mock.patch("app.ui.stores.home.load_feed_page", side_effect=fake):
-                await row.reload()
+            with mock.patch("app.ui.stores.home.load_feed_page", side_effect=fake), \
+                    mock.patch.object(type(app_config), "username", "alice"):
+                store.on_login_changed()  # start-up restores alice
+                await asyncio.gather(*store.shell.page.tasks)
                 self.assertEqual(row.state.cards[0].key, "video:a0")
-                store.on_login_changed()  # sign out and in as someone else
+                store.on_login_changed()  # alice again (restore): the fresh cache is reused
+                await asyncio.gather(*store.shell.page.tasks)
+                self.assertEqual(len(calls), 1)
+            with mock.patch("app.ui.stores.home.load_feed_page", side_effect=fake), \
+                    mock.patch.object(type(app_config), "username", "bob"):
+                store.on_login_changed()  # bob signs in
                 self.assertEqual(row.state.cards, [])
                 await asyncio.gather(*store.shell.page.tasks)
 
         asyncio.run(scenario())
-        self.assertEqual(len(calls), 2)  # the fresh cache of account A was not reused
+        self.assertEqual(len(calls), 2)
         self.assertEqual([card.key for card in row.state.cards], ["video:b0", "video:b1", "video:b2"])
-        self.assertFalse(any(key.startswith("acct:") and "a0" in str(value) for key, value in self.cache._load().items()))
+
+    def test_a_fetch_from_before_sign_out_is_dropped(self):
+        store = self.make(logged_in=True)
+        row = store.row("subscriptions")
+        token, _tab, _params = row.feed.begin_fetch()
+
+        async def scenario():
+            store.shell.state.logged_in = False
+            store.on_login_changed()
+            await asyncio.gather(*store.shell.page.tasks)
+            row._apply(feed_result(token, prefix="old"))  # the request alice started before signing out
+
+        asyncio.run(scenario())
+        self.assertEqual(row.state.cards, [])
+        self.assertTrue(row.state.login_required)
 
 
 if __name__ == "__main__":
