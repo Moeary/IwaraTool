@@ -66,4 +66,4 @@ pixi run crawl  # 抓取标签数据（更新 docs/iwara_tags.md）
 pixi run test   # 运行测试
 ```
 
-`pixi run build` 用 `flet build` 打包当前系统的桌面版（`--platform apk` 打包 Android，需要 Android SDK，平时由 CI 构建）。Android 发布版用同一把长期密钥签名：设置 `FLET_ANDROID_SIGNING_KEY_STORE`（.jks 路径）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD` 与 `FLET_ANDROID_SIGNING_KEY_ALIAS` 后构建，脚本会核对 APK 证书与 `packaging/app/android_cert_sha256.txt` 一致；CI 从仓库 secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 读取，打标签发版时缺少密钥会直接失败。
+`pixi run build` 用 `flet build` 打包当前系统的桌面版（`--platform apk` 打包 Android，需要 Android SDK，平时由 CI 构建）。Android 发布版用同一把长期密钥签名：设置 `FLET_ANDROID_SIGNING_KEY_STORE`（.jks 路径）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD` 与 `FLET_ANDROID_SIGNING_KEY_ALIAS` 后构建，脚本会核对 APK 证书与 `scripts/tools/build.py` 的 `RELEASE_CERT_SHA256` 一致；CI 从仓库 secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 读取，打标签发版时缺少密钥会直接失败。

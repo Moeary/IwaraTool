@@ -61,7 +61,7 @@ jobs:
           path: dist/IwaraTool-*.zip
           if-no-files-found: error
 
-  # Android APK (docs/flet_ui_plan.md 8). The Ubuntu image ships the Android
+  # Android APK. The Ubuntu image ships the Android
   # SDK; flet build installs Flutter. No smoke test: an APK needs a device, so
   # real-device checks stay manual.
   #
@@ -69,7 +69,7 @@ jobs:
   # certificate, so every release is signed with one long-lived key from the
   # secrets ANDROID_KEYSTORE_BASE64 (the .jks, base64), ANDROID_KEYSTORE_PASSWORD
   # and ANDROID_KEY_ALIAS (default "upload"). build.py checks the APK's
-  # certificate against packaging/app/android_cert_sha256.txt; a tag refuses to
+  # certificate against RELEASE_CERT_SHA256 in scripts/tools/build.py; a tag refuses to
   # build without the key. Builds on demand without the secrets fall back to a
   # debug key (installable, but not as an update of a release).
   build-android:
@@ -123,7 +123,7 @@ jobs:
 
   # Start the APK on emulators shaped like a phone, a foldable and a tablet:
   # it must keep running for 90 s with no Python traceback; screenshots are kept.
-  # Real devices stay a manual check (docs/flet_ui_plan.md P8).
+  # Real devices stay a manual check.
   android-emulator:
     needs: build-android
     runs-on: ubuntu-latest

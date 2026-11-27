@@ -66,4 +66,4 @@ pixi run crawl  # タグデータを取得（docs/iwara_tags.md を更新）
 pixi run test   # テストを実行
 ```
 
-`pixi run build` は `flet build` でこのシステム向けのデスクトップ版をパッケージします（`--platform apk` は Android。Android SDK が必要で、通常は CI でビルドします）。Android のリリースは 1 つの長期署名鍵で署名します。`FLET_ANDROID_SIGNING_KEY_STORE`（.jks のパス）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD`、`FLET_ANDROID_SIGNING_KEY_ALIAS` を設定してビルドすると、スクリプトが APK の証明書を `packaging/app/android_cert_sha256.txt` と照合します。CI はリポジトリの secrets `ANDROID_KEYSTORE_BASE64`・`ANDROID_KEYSTORE_PASSWORD`・`ANDROID_KEY_ALIAS` を使い、タグでのリリース時に鍵がなければ失敗します。
+`pixi run build` は `flet build` でこのシステム向けのデスクトップ版をパッケージします（`--platform apk` は Android。Android SDK が必要で、通常は CI でビルドします）。Android のリリースは 1 つの長期署名鍵で署名します。`FLET_ANDROID_SIGNING_KEY_STORE`（.jks のパス）、`FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD`、`FLET_ANDROID_SIGNING_KEY_ALIAS` を設定してビルドすると、スクリプトが APK の証明書を `scripts/tools/build.py` の `RELEASE_CERT_SHA256` と照合します。CI はリポジトリの secrets `ANDROID_KEYSTORE_BASE64`・`ANDROID_KEYSTORE_PASSWORD`・`ANDROID_KEY_ALIAS` を使い、タグでのリリース時に鍵がなければ失敗します。

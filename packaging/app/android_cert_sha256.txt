@@ -1,6 +1,0 @@
-# SHA-256 of the certificate every release APK is signed with (keytool -list -v,
-# apksigner verify --print-certs). Android installs an update only over a copy
-# signed by the same certificate, so this never changes; build.py refuses an APK
-# signed by another key. The key itself is kept out of the repository (CI secrets
-# ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS).
-F2:AE:98:97:8F:4F:29:A5:EA:F7:41:1A:EE:5A:9B:35:66:0F:48:7A:43:E6:7A:7D:AA:D2:05:89:C8:B7:65:8E

@@ -9,9 +9,9 @@
 Steps:
 
 1. Stage only what the app needs in build/flet-src: main.py, the top-level
-   app modules, app/core, app/presentation, app/ui, app/data and the
-   packaging files.
-2. Write app/version.py into the staged pyproject.toml.
+   app modules, app/core, app/presentation, app/ui, app/data, and the icon
+   (app/icon.png) as assets/icon.png.
+2. Write pyproject.toml there from ``PYPROJECT`` with app/version.py's version.
 3. Run ``flet build <platform>`` there.  Flet keeps its Flutter project in
    build/flet-src/build.
 4. Fail if the result contains PySide6, shiboken6, qfluentwidgets or
@@ -25,7 +25,7 @@ Steps:
    signed with one long-lived key (``FLET_ANDROID_SIGNING_KEY_STORE``,
    ``FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD``, ``FLET_ANDROID_SIGNING_KEY_ALIAS``;
    without them Flet signs with the machine's debug key).  The certificate's
-   SHA-256 must match packaging/app/android_cert_sha256.txt; ``--require-signing``
+   SHA-256 must match ``RELEASE_CERT_SHA256``; ``--require-signing``
    (tags in CI) also refuses a build without the release key.
 7. Zip it as dist/IwaraTool-<Platform>-<arch>-<label>.zip (an APK is
    copied as dist/IwaraTool-Android-<label>.apk).
@@ -54,11 +54,54 @@ ROOT = Path(__file__).resolve().parents[2]
 STAGE = ROOT / "build" / "flet-src"
 OUTPUT = ROOT / "build" / "flet-out"
 DIST = ROOT / "dist"
-PACKAGING = ROOT / "packaging" / "app"
+ICON = ROOT / "app" / "icon.png"  # 1024 px; flet build derives every platform's icon from it
 
 APP_PACKAGES = ("core", "presentation", "ui", "data")
 FORBIDDEN = re.compile(r"(^|[/\\])(PySide6|shiboken6|qfluentwidgets|qframelesswindow)([/\\.]|$)")
-CERT_PIN = PACKAGING / "android_cert_sha256.txt"
+# SHA-256 of the certificate every release APK is signed with (keytool -list -v,
+# apksigner verify --print-certs).  Android installs an update only over a copy
+# signed by the same certificate, so this never changes; an APK signed by another
+# key is refused.  The key itself stays out of the repository (CI secrets
+# ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS).
+RELEASE_CERT_SHA256 = "F2:AE:98:97:8F:4F:29:A5:EA:F7:41:1A:EE:5A:9B:35:66:0F:48:7A:43:E6:7A:7D:AA:D2:05:89:C8:B7:65:8E"
+
+# Packaging metadata for ``flet build`` only, written into the staging folder;
+# development uses pixi.  ``flet build`` fetches the dependencies from PyPI for
+# the target platform.
+PYPROJECT = """\
+[project]
+name = "iwaratool"
+version = "{version}"
+description = "Iwara browser and downloader"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "flet==1.1.3",
+  "flet-video==1.1.3",
+  "requests>=2.32.5,<3",
+  "cloudscraper>=1.2.71",
+]
+
+[tool.flet]
+product = "IwaraTool"
+artifact = "IwaraTool"
+org = "io.github.moeary"
+company = "Moeary"
+copyright = "Copyright (c) 2026 Moeary. MIT License."
+
+[tool.flet.app]
+path = "."
+module = "main"
+
+# Pure-Python packages ship inside a zip on Android; cloudscraper opens its
+# user_agent/browsers.json by file path, so it must be unpacked.
+[tool.flet.android]
+extract_packages = ["cloudscraper"]
+
+# Remote videos play through the loopback stream proxy at http://127.0.0.1,
+# which Android refuses unless cleartext traffic is allowed.
+[tool.flet.android.manifest_application]
+usesCleartextTraffic = true
+"""
 PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
 DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})
 TEST_INSTALL = Path("/Applications/IwaraTool Dev.app")  # the one test copy on this Mac
@@ -104,12 +147,9 @@ def stage(version: str) -> None:
     shutil.copy2(ROOT / "app" / "icon.ico", STAGE / "app" / "icon.ico")
     for package in APP_PACKAGES:
         shutil.copytree(ROOT / "app" / package, STAGE / "app" / package, ignore=_ignore)
-    shutil.copytree(PACKAGING / "assets", STAGE / "assets")
-    pyproject = (PACKAGING / "pyproject.toml").read_text(encoding="utf-8")
-    pyproject, count = re.subn(r'(?m)^version = "[^"]*"', f'version = "{version}"', pyproject, count=1)
-    if count != 1:
-        raise SystemExit("packaging/app/pyproject.toml has no version line")
-    (STAGE / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    (STAGE / "assets").mkdir()
+    shutil.copy2(ICON, STAGE / "assets" / "icon.png")
+    (STAGE / "pyproject.toml").write_text(PYPROJECT.format(version=version), encoding="utf-8")
     staged = [p for p in STAGE.rglob("*") if p.is_file()]
     bad = [p for p in staged if FORBIDDEN.search(p.relative_to(STAGE).as_posix())]
     if bad:
@@ -257,10 +297,7 @@ def check_signing(require: bool) -> None:
 
 
 def pinned_certificate() -> str:
-    if not CERT_PIN.is_file():
-        return ""
-    lines = [line.strip() for line in CERT_PIN.read_text(encoding="utf-8").splitlines()]
-    return next((normalize_digest(line) for line in lines if line and not line.startswith("#")), "")
+    return normalize_digest(RELEASE_CERT_SHA256)
 
 
 def normalize_digest(text: str) -> str:
@@ -305,10 +342,10 @@ def verify_apk_signature(out: Path, require: bool) -> None:
         if not signing_configured():
             continue  # a debug build: nothing to compare
         if not pin:
-            raise SystemExit(f"no certificate pinned in {CERT_PIN.relative_to(ROOT)}; add {digests[0]}")
+            raise SystemExit(f"RELEASE_CERT_SHA256 in scripts/tools/build.py is empty; set it to {digests[0]}")
         if digests != [pin]:
             raise SystemExit(f"{apk.name} is signed by {digests}, not the release certificate {pin} "
-                             f"({CERT_PIN.relative_to(ROOT)}); installed copies could not update to it")
+                             "(RELEASE_CERT_SHA256); installed copies could not update to it")
 
 
 def package(target: str, out: Path, label: str) -> Path:
@@ -364,7 +401,7 @@ def main() -> None:
     parser.add_argument("--no-smoke", action="store_true", help="do not launch the built app")
     parser.add_argument("--install", action="store_true", help=f"macOS: replace the test copy at {TEST_INSTALL}")
     parser.add_argument("--require-signing", action="store_true",
-                        help="apk: fail unless the APK is signed with the release key in packaging/app/android_cert_sha256.txt")
+                        help="apk: fail unless the APK is signed with the release key (RELEASE_CERT_SHA256)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     if args.platform in DESKTOP_TARGETS and args.platform != host_platform():
