@@ -180,5 +180,24 @@ class HomeStoreTests(unittest.TestCase):
         self.assertTrue(row.state.login_required)
 
 
+
+class CacheOwnerTests(unittest.TestCase):
+    def test_account_entries_follow_their_login(self):
+        from app.core.home.cache import OWNER_KEY, owner_id
+
+        cache = HomeFeedCache(os.path.join(tempfile.mkdtemp(), "home_cache.json"))
+        cache.put("acct:subscriptions|videos|all", rows("a", 2))
+        cache.put("hot_videos|trending|all", rows("h", 2))
+        self.assertTrue(cache.claim_account(owner_id("Alice@example.com")))  # unknown owner: not trusted
+        cache.put("acct:subscriptions|videos|all", rows("a", 2))
+        self.assertFalse(cache.claim_account(owner_id("alice@example.com")))  # same login
+        self.assertIsNotNone(cache.get("acct:subscriptions|videos|all"))
+        self.assertTrue(cache.claim_account(owner_id("bob")))
+        self.assertIsNone(cache.get("acct:subscriptions|videos|all"))
+        self.assertIsNotNone(cache.get("hot_videos|trending|all"))
+        stored = HomeFeedCache(cache._resolve_path())._load()[OWNER_KEY]["owner"]
+        self.assertNotIn("bob", stored)  # a hash, never the login itself
+
+
 if __name__ == "__main__":
     unittest.main()

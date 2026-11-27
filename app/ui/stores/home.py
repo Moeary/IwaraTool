@@ -15,7 +15,7 @@ from typing import Any
 import flet as ft
 
 from ...config import app_config
-from ...core.home.cache import shared_cache
+from ...core.home.cache import owner_id, shared_cache
 from ...core.home.feed import HOME_PAGE_LIMIT, FeedSection, home_sections, load_specs
 from ...core.home.loading import FeedResult, load_feed_page
 from ...core.search.models import SearchVideo
@@ -25,8 +25,6 @@ from ...presentation.home import section_feed as rules
 from ...presentation.media.cards import CardView, video_card
 
 logger = get_logger(__name__)
-
-_CACHE_OWNER_KEY = "home_cache_account_v1"  # login whose rows the cache's account entries hold
 
 
 @ft.observable
@@ -232,14 +230,12 @@ class HomeStore:
         rows = [row for row in self.rows if row.feed.tab.needs_login]
         for row in rows:
             row.feed.token += 1
+            row.feed.invalidate()  # a dropped re-check must not hold back the next one
             row._clear()
             row.state.selected = frozenset()
             row.state.loading = row.state.busy = False
         if self.logged_in():
-            owner = str(app_config.username or "").strip().lower()
-            if str(app_config.get_ui_value(_CACHE_OWNER_KEY, "") or "") != owner:
-                self.cache.clear(account_only=True)
-                app_config.set_ui_value(_CACHE_OWNER_KEY, owner)
+            self.cache.claim_account(owner_id(app_config.username))
         if rows:
             self.run(self._reload_rows, rows)
 
