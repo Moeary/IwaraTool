@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | Windows 10 / 11（64 位） | `IwaraTool-Windows-AMD64-v<版本>.zip` | 解压后运行 `IwaraTool.exe` |
 | macOS · Apple Silicon（M 系列芯片） | `IwaraTool-macOS-AppleSilicon-ARM64-v<版本>.zip` | 解压得到 `IwaraTool.app` |
-| Android | `IwaraTool-Android-v<版本>.apk` | 安装时需允许“安装未知应用” |
+| Android | `IwaraTool-Android-arm64-v8a-v<版本>.apk`（推荐） | 按设备架构选择，见下文；安装时需允许“安装未知应用” |
 
 Linux 与 Intel 芯片的 Mac 暂无预编译包，可从源码运行（见 [参考文档](./reference.md#从源码运行--构建)），或继续使用 v1.2.3。
 
@@ -34,7 +34,14 @@ Windows 版没有代码签名，首次运行时 SmartScreen 可能提示“Windo
 
 ## Android：安装与更新
 
-安装 `.apk` 时按提示允许“安装未知应用”。所有版本使用同一个签名，之后下载新版 `.apk` 直接安装即可覆盖升级，数据保留。
+Android 按处理器架构分包，体积更小：
+
+- `arm64-v8a`：近几年的绝大多数手机和平板，**首选**；
+- `armeabi-v7a`：较老的 32 位 ARM 设备；
+- `x86_64`：模拟器、部分 Chromebook；
+- `universal`：包含全部架构、体积最大，不确定设备架构时使用。
+
+应用内检查到新版本时会直接下载适合本机的 APK。安装 `.apk` 时按提示允许“安装未知应用”。所有版本使用同一个签名，之后下载新版 `.apk` 直接安装即可覆盖升级，数据保留。
 
 ## macOS：首次启动的安全提示
 

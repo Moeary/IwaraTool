@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import cloudscraper
@@ -44,6 +44,7 @@ class ReleaseCheckResult:
     notes: str = ""
     published_at: str = ""
     error: str = ""
+    apks: dict[str, str] = field(default_factory=dict)  # APK file name -> download address
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -89,6 +90,12 @@ class GitHubReleaseChecker:
                 url=url,
                 notes=str(payload.get("body", "") or ""),
                 published_at=str(payload.get("published_at", "") or ""),
+                apks={
+                    str(asset.get("name", "")): str(asset.get("browser_download_url", ""))
+                    for asset in payload.get("assets") or []
+                    if isinstance(asset, dict) and str(asset.get("name", "")).endswith(".apk")
+                    and asset.get("browser_download_url")
+                },
             )
         except Exception as exc:
             return ReleaseCheckResult(

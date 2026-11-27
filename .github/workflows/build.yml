@@ -179,7 +179,7 @@ jobs:
           profile: ${{ matrix.profile }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash scripts/tools/android_smoke.sh "$(ls apk/*.apk | head -1)" emulator-out ${{ matrix.label }} "${{ matrix.setup }}"
+          script: bash scripts/tools/android_smoke.sh "$(ls apk/*-x86_64-*.apk)" emulator-out ${{ matrix.label }} "${{ matrix.setup }}"
 
       - name: Upload screenshots and logs
         if: always()

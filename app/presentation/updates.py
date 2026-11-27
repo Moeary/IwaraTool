@@ -33,6 +33,16 @@ class ReleaseOffer:
         )
 
 
+def apk_for(apks: dict, abis: list[str]) -> str:
+    """The release APK for a device that runs ``abis`` (best first), else the universal one."""
+    names = {str(name): str(url) for name, url in (apks or {}).items() if url}
+    for abi in abis or []:
+        for name, url in names.items():
+            if f"-{abi}-" in name:
+                return url
+    return next((url for name, url in names.items() if "-universal-" in name), "")
+
+
 def release_offer(release: dict) -> ReleaseOffer | None:
     """The offer for ``release_update_available``, or None (incomplete, or already offered automatically)."""
     version = str(release.get("version", "") or "")

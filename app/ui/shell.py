@@ -18,11 +18,11 @@ from ..config import app_config
 from ..core import account
 from ..core.download.manager import download_manager
 from ..core.playback import video_player
-from ..i18n import current_language
+from ..i18n import current_language, tr
 from ..logging_setup import get_logger
 from ..presentation import clipboard_links, preferences
 from ..presentation.media import card_size
-from ..presentation.updates import release_offer
+from ..presentation.updates import apk_for, release_offer
 from ..presentation.downloads.task_statuses import badge_counts
 from . import layout, routes
 from .navigation import ShellNavigator
@@ -419,10 +419,27 @@ class Shell:
 
         async def ask() -> None:
             title, message, informative, open_label, _later = offer.question
+            url = offer.url
+            if self.page.platform == ft.PagePlatform.ANDROID:
+                # Straight to the APK built for this phone's processor (the universal one otherwise).
+                apk = apk_for(release.get("apks") or {}, await self._device_abis())
+                if apk:
+                    url = apk
+                    informative = tr("Download the APK for this device now?", "是否立即下载适合本机的 APK？",
+                                     "この端末向けの APK を今すぐダウンロードしますか？")
+                    open_label = tr("Download", "下载", "ダウンロード")
             if await confirm(self.page, title, message, confirm_label=open_label, informative=informative):
-                await ft.UrlLauncher().launch_url(offer.url)
+                await ft.UrlLauncher().launch_url(url)
 
         self.page.run_task(ask)
+
+    async def _device_abis(self) -> list[str]:
+        try:
+            info = await self.page.get_device_info()
+            return [str(abi) for abi in (getattr(info, "supported_abis", None) or [])]
+        except Exception:
+            logger.debug("Device ABIs unknown", exc_info=True)
+            return []
 
     def _on_rating_changed(self, _rating: str) -> None:
         self.state.rating = preferences.current_rating()
