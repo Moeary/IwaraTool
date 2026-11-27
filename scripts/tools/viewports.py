@@ -32,7 +32,7 @@ def main() -> int:
     parser.add_argument("--drawer", action="store_true", help="open the phone navigation drawer")
     parser.add_argument("--demo", action="store_true", help="offline made-up data (demo_fixture)")
     parser.add_argument("--wait", type=float, default=1.5, help="seconds before each screenshot")
-    parser.add_argument("--only", default="", help="comma-separated sizes (default: all of 9.2)")
+    parser.add_argument("--only", default="", help="comma-separated sizes (default: all checklist sizes)")
     parser.add_argument("--prefix", default="", help="file name prefix")
     parser.add_argument("--platform", choices=("android", "ios"), default="", help="behave as a phone platform")
     args = parser.parse_args()

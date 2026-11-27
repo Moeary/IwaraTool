@@ -1,9 +1,19 @@
+# IwaraTool 开发环境。装好 pixi 后：
+#
+#   pixi run start      运行程序（数据在本机真实数据目录）
+#   pixi run demo       离线演示：虚构数据、临时目录，不碰真实数据
+#   pixi run test       运行全部测试
+#   pixi run build      打包当前系统的桌面版到 dist/（加 --install 在 macOS 装到 /Applications/IwaraTool Dev.app）
+#
+# `pixi task list` 列出全部任务；任务后面的参数会原样传给脚本，如 `pixi run start --platform android`。
+
 [workspace]
+name = "IwaraTool"
+version = "1.3.0"
+description = "Iwara browser and batch downloader (Flet: Windows, macOS, Android)"
 authors = ["Moeary"]
 channels = ["conda-forge"]
-name = "IwaraTool"
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
-version = "1.3.0"
 
 [dependencies]
 python = "3.12.*"
@@ -15,11 +25,15 @@ flet = { version = "==1.1.3", extras = ["desktop", "cli"] }
 flet-video = "==1.1.3"
 
 [tasks]
-start = "python main.py"
-test = "python -X faulthandler -m unittest discover -s scripts/tests -t scripts/tests -p \"test_*.py\""
-theme-gallery = "python scripts/tools/theme_gallery.py"
-build = "python scripts/tools/build.py"
-crawl = "python scripts/tools/crawl_iwara_tags.py"
+start = { cmd = "python main.py", description = "运行程序" }
+demo = { cmd = "python main.py --demo", description = "离线演示（虚构数据，不碰真实数据）" }
+test = { cmd = "python -X faulthandler -m unittest discover -s scripts/tests -t scripts/tests -p \"test_*.py\"", description = "运行全部测试" }
+build = { cmd = "python scripts/tools/build.py", description = "打包当前系统的桌面版到 dist/" }
+apk = { cmd = "python scripts/tools/build.py --platform apk", description = "打包 Android APK（需要 Android SDK，平时由 CI 构建）" }
+screenshots = { cmd = "python scripts/tools/viewports.py --demo --out tmp/viewports", description = "用演示数据按各种窗口尺寸截图到 tmp/viewports" }
+theme-gallery = { cmd = "python scripts/tools/theme_gallery.py", description = "设计令牌与组件样张" }
+i18n = { cmd = "python scripts/tools/i18n_extract.py", description = "汇总界面文本，检查中英日翻译" }
+crawl = { cmd = "python scripts/tools/crawl_iwara_tags.py", description = "抓取标签数据（更新 docs/iwara_tags.md）" }
 
 # conda-forge 的 openssl 激活脚本会把 SSL_CERT_DIR 指向空的 Library\ssl\certs，
 # 在已激活的终端里再执行 pixi 会警告 “ignoring SSL_CERT_DIR: no certificates found”。

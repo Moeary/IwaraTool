@@ -30,6 +30,8 @@ To update, replace the old `IwaraTool.app` with the new one. Settings, history a
 
 Extract the archive into any folder and run `IwaraTool.exe`. Settings and history live in the `data/` folder beside the program: to update, extract the new version into the same folder. Coming from v1.2 or earlier, extract it into the folder of the old `.exe` as well (elsewhere, use Settings → Storage → Backup & Logs → Import from an older version…).
 
+The Windows build is not code-signed: on first run SmartScreen may say "Windows protected your PC"; click More info → Run anyway. Some antivirus programs may also flag it by mistake; allow the program's folder if so. Releases are built from this repository's source by GitHub Actions, so you can check it or run from source.
+
 ## Android: install and update
 
 Allow "install unknown apps" when installing the `.apk`. Every release carries the same signature, so a newer `.apk` installs over the old one as an update and keeps your data.

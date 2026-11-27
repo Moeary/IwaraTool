@@ -61,10 +61,6 @@
 非常欢迎大家提 PR！
 请将改动提交到 `dev` 分支，保持英文、简体中文和日文界面文本同步，并在提交前运行完整测试（构建与测试命令见 [参考文档](../guide/reference.md#从源码运行--构建)）。涉及界面变化时，建议附上截图或短视频。
 
-## 代码签名策略（Code signing policy）
-
-发布版本由 GitHub Actions 从本仓库构建。新版 Windows 构建的 SignPath 签名正在接入，启用后每个版本经人工批准才签名。Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)。团队角色与隐私政策见英文说明的 [Code signing policy](../../readme.md#code-signing-policy)。
-
 ## 许可证
 
 MIT License。

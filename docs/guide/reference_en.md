@@ -60,10 +60,15 @@ Dependencies are managed by [pixi](https://pixi.prefix.dev/latest/).
 
 ```shell
 pixi install
-pixi run start  # Run the application
-pixi run build  # Build the application
-pixi run crawl  # Crawl tag data (updates docs/iwara_tags.md)
-pixi run test   # Run the test suite
+pixi run start        # Run the application
+pixi run demo         # Offline demo: made-up data, your real data untouched
+pixi run test         # Run the test suite
+pixi run build        # Package this system's desktop app into dist/ (macOS: --install adds the test copy)
+pixi run apk          # Build the Android APK (needs the Android SDK)
+pixi run screenshots  # Screenshot every window size with demo data
+pixi run i18n         # Collect the UI texts and check the translations
+pixi run crawl        # Crawl tag data (updates docs/iwara_tags.md)
+pixi task list        # List every task
 ```
 
 `pixi run build` packages the desktop app for this system with `flet build` (`--platform apk` builds Android; it needs the Android SDK and normally runs in CI). Android releases are signed with one long-lived key: set `FLET_ANDROID_SIGNING_KEY_STORE` (the .jks path), `FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD` and `FLET_ANDROID_SIGNING_KEY_ALIAS` before building, and the script checks the APK's certificate against `RELEASE_CERT_SHA256` in `scripts/tools/build.py`. CI reads the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`; a tagged release fails without them.

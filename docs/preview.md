@@ -2,7 +2,7 @@
 
 [README (English)](../readme.md) | [README（简体中文）](./readme/readme_zh.md) | [README（日本語）](./readme/readme_ja.md)
 
-All screenshots use the English interface with made-up sample data from the offline demo (`pixi run start --demo`); the covers are generated placeholder art.<br>
+All screenshots use the English interface with made-up sample data from the offline demo (`pixi run demo`); the covers are generated placeholder art.<br>
 截图均为英文界面，数据来自离线演示模式的虚构示例，封面是生成的占位图。<br>
 スクリーンショットは英語 UI で、オフラインのデモモードの架空のデータを使っています。カバーは生成したプレースホルダー画像です。
 
