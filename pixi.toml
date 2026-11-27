@@ -1,12 +1,3 @@
-# IwaraTool 开发环境。装好 pixi 后：
-#
-#   pixi run start      运行程序（数据在本机真实数据目录）
-#   pixi run demo       离线演示：虚构数据、临时目录，不碰真实数据
-#   pixi run test       运行全部测试
-#   pixi run build      打包当前系统的桌面版到 dist/（加 --install 在 macOS 装到 /Applications/IwaraTool Dev.app）
-#
-# `pixi task list` 列出全部任务；任务后面的参数会原样传给脚本，如 `pixi run start --platform android`。
-
 [workspace]
 name = "IwaraTool"
 version = "1.3.0"
