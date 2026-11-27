@@ -10,23 +10,29 @@ Download the file for your system from [Releases](https://github.com/Moeary/Iwar
 
 | System | File | Notes |
 | --- | --- | --- |
-| Windows 10 / 11 (64-bit) | `IwaraTool-Windows-AMD64-<version>.exe` | Single file, double-click to run |
-| Linux (x86_64) | `IwaraTool-Linux-AMD64-<version>` | Built on `ubuntu-latest`; run from source on distributions with an older glibc |
-| macOS · Apple Silicon (M-series chips) | `IwaraTool-macOS-AppleSilicon-ARM64-v<version>.dmg` | Recommended |
-| macOS · Intel processors | `IwaraTool-macOS-Intel-x86_64-v<version>.dmg` | Recommended |
+| Windows 10 / 11 (64-bit) | `IwaraTool-Windows-AMD64-v<version>.zip` | Extract and run `IwaraTool.exe` |
+| macOS · Apple Silicon (M-series chips) | `IwaraTool-macOS-AppleSilicon-ARM64-v<version>.zip` | Extract to get `IwaraTool.app` |
+| Android | `IwaraTool-Android-v<version>.apk` | Allow "install unknown apps" when asked |
 
-Each macOS build also ships a `.zip` with the same app for people who prefer extracting it.
+Linux and Intel Macs have no prebuilt package for now: run from source (see [Reference](./reference_en.md#run--build-from-source)) or keep using v1.2.3.
 
-**Which chip does my Mac have?** Click  in the top-left corner → About This Mac. If **Chip** says **Apple M1 / M2 / M3 / M4…**, take AppleSilicon-ARM64; if it says "Processor … Intel Core …", take Intel-x86_64. Apple Silicon Macs can run the Intel build through Rosetta, only slower; Intel Macs cannot run the ARM64 build. CI verifies on macOS 15; older macOS versions are unverified.
+**Which chip does my Mac have?** Click  in the top-left corner → About This Mac. If **Chip** says **Apple M1 / M2 / M3 / M4…**, it is Apple Silicon. CI verifies on macOS 15; older macOS versions are unverified.
 
-## macOS: install from the DMG
+## macOS: install
 
-1. Double-click the downloaded `.dmg` to open the installer window.
-2. Drag the **IwaraTool** icon onto the **Applications** folder, following the arrow.
-3. Eject the "IwaraTool" disk from the Finder sidebar; the `.dmg` can then be deleted.
-4. Open IwaraTool from Applications or Launchpad. Do not run it from the DMG window: the image is read-only and cannot be replaced by an update.
+1. Double-click the downloaded `.zip` to extract `IwaraTool.app`.
+2. Drag `IwaraTool.app` into the Applications folder.
+3. Open IwaraTool from Applications or Launchpad.
 
-To update, repeat these steps and choose Replace. Settings, history and subscriptions live in `~/Library/Application Support/IwaraTool/` and survive replacing the app.
+To update, replace the old `IwaraTool.app` with the new one. Settings, history and subscriptions live in `~/Library/Application Support/IwaraTool/` and survive replacing the app.
+
+## Windows: install and update
+
+Extract the archive into any folder and run `IwaraTool.exe`. Settings and history live in the `data/` folder beside the program: to update, extract the new version into the same folder. Coming from v1.2 or earlier, extract it into the folder of the old `.exe` as well (elsewhere, use Settings → Storage → Backup & Logs → Import from an older version…).
+
+## Android: install and update
+
+Allow "install unknown apps" when installing the `.apk`. Every release carries the same signature, so a newer `.apk` installs over the old one as an update and keeps your data.
 
 ## macOS: the first-launch security prompt
 
@@ -54,7 +60,7 @@ Then open the app again.
 Reaching Iwara usually needs a proxy. IwaraTool's **login / parsing proxy** and **video download proxy** are both **off by default**; while they are off, requests follow the system proxy or TUN:
 
 - Your proxy client has **System Proxy** or **TUN mode** on: nothing to configure.
-- Neither is on: open Settings → Proxy, enable "Login / parsing proxy", enter the client's local HTTP / mixed port and click Apply.
+- Neither is on: open Settings → Account and network → Proxy, enable "Login / parsing proxy", enter the client's local HTTP / mixed port and click Apply.
 
 | Proxy client | Usual default address |
 | --- | --- |
@@ -66,9 +72,9 @@ The video download proxy only affects the video files themselves (and aria2's `a
 
 ## Basic workflow
 
-1. **Log in (optional)** under Settings → Account Login. Needed for private videos, "My subscriptions" on Home, and importing followed authors.
-2. **Download**: paste an author, playlist, search or video URL on the Download Workbench, pick a download rule and submit. Unfinished tasks resume the next time you open the app.
-3. **Search**: choose a source and scope on the Search page and enter keywords. Iwara's search API cannot restrict likes, duration and the like up front, so click **Filter** once results are in and set the conditions and a new order in the popup (see the [Usage Guide](./usage_en.md#post-search-filter)). Select results and click "Add selected" to download them.
+1. **Sign in (optional)** from the account entry at the foot of the sidebar (the avatar at the top right on phones) or in Settings → Account and network. Needed for private videos, "My subscriptions" on Home, and importing followed authors.
+2. **Download**: paste an author, playlist, search or video URL on the Downloads page and click Download; the sheet that opens shows what will be queued and with which rule. Unfinished tasks resume the next time you open the app, and finished videos are listed and played in the Library.
+3. **Search**: choose a source and scope on the Search page and enter keywords. Iwara's search API cannot restrict likes, duration and the like up front, so click **Filter** once results are in and set the conditions and a new order in the sheet (see the [Usage Guide](./usage_en.md#filtering-after-a-search)). Click a cover for its details and player; select several results and click "Download N" to download them together.
 4. **Subscribe** to authors or playlists from search results or an author page, then check the Subscriptions page for new works and download only what is new.
 
 More in the [Usage Guide](./usage_en.md) and the [Reference](./reference_en.md).
@@ -81,4 +87,4 @@ More in the [Usage Guide](./usage_en.md) and the [Reference](./reference_en.md).
 
 **Where is my data, and how do I uninstall?** On macOS settings and caches live in `~/Library/Application Support/IwaraTool/`, and videos go to `~/Downloads/IwaraTool/` by default. To uninstall, move IwaraTool from Applications to the Trash, and delete the data folder too if you no longer need it. The Windows and Linux builds keep their data in the `data/` folder next to the program. See [Local Data and Cache](./data_en.md).
 
-**How do I update?** Settings → GitHub Release Updates checks for a new version; download it from Releases and replace the old program. Your data stays.
+**How do I update?** Settings → About checks for a new version; download it from Releases and replace the old program. Your data stays (on Android, install the new APK over the old one).

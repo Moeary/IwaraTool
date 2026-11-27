@@ -10,23 +10,29 @@
 
 | 系统 | 文件 | 说明 |
 | --- | --- | --- |
-| Windows 10 / 11（64 位） | `IwaraTool-Windows-AMD64-<版本>.exe` | 单文件，双击运行 |
-| Linux（x86_64） | `IwaraTool-Linux-AMD64-<版本>` | 基于 `ubuntu-latest` 构建，glibc 较老的发行版请从源码运行 |
-| macOS · Apple Silicon（M 系列芯片） | `IwaraTool-macOS-AppleSilicon-ARM64-v<版本>.dmg` | 推荐 |
-| macOS · Intel 处理器 | `IwaraTool-macOS-Intel-x86_64-v<版本>.dmg` | 推荐 |
+| Windows 10 / 11（64 位） | `IwaraTool-Windows-AMD64-v<版本>.zip` | 解压后运行 `IwaraTool.exe` |
+| macOS · Apple Silicon（M 系列芯片） | `IwaraTool-macOS-AppleSilicon-ARM64-v<版本>.zip` | 解压得到 `IwaraTool.app` |
+| Android | `IwaraTool-Android-v<版本>.apk` | 安装时需允许“安装未知应用” |
 
-每个 macOS 版本另附同名 `.zip`，内容与 DMG 相同，供习惯解压安装的用户使用。
+Linux 与 Intel 芯片的 Mac 暂无预编译包，可从源码运行（见 [参考文档](./reference.md#从源码运行--构建)），或继续使用 v1.2.3。
 
-**如何确认 Mac 的芯片**：点击屏幕左上角  →“关于本机”。“芯片”一栏写着 **Apple M1 / M2 / M3 / M4…** 时选 AppleSilicon-ARM64；写着“处理器 … Intel Core …”时选 Intel-x86_64。Apple Silicon 的 Mac 也能借助 Rosetta 运行 Intel 版，但速度较慢；Intel Mac 无法运行 ARM64 版。CI 在 macOS 15 上验证，更旧的系统版本尚未验证。
+**如何确认 Mac 的芯片**：点击屏幕左上角  →“关于本机”。“芯片”一栏写着 **Apple M1 / M2 / M3 / M4…** 即为 Apple Silicon。CI 在 macOS 15 上验证，更旧的系统版本尚未验证。
 
-## macOS：用 DMG 安装
+## macOS：安装
 
-1. 双击下载的 `.dmg`，打开安装窗口。
-2. 按窗口中的箭头，把 **IwaraTool** 图标拖到右侧的 **Applications** 文件夹。
-3. 拖动完成后，在访达侧栏点击推出按钮卸下“IwaraTool”磁盘，之后可以删除 `.dmg`。
-4. 从“应用程序”文件夹或启动台打开 IwaraTool。不要直接在 DMG 窗口里运行——DMG 是只读的，更新时也无法替换。
+1. 双击下载的 `.zip`，解压得到 `IwaraTool.app`。
+2. 把 `IwaraTool.app` 拖到“应用程序”文件夹。
+3. 从“应用程序”文件夹或启动台打开 IwaraTool。
 
-更新时重复以上步骤，选择“替换”即可；设置、历史记录和订阅都保存在 `~/Library/Application Support/IwaraTool/`，不会因替换应用而丢失。
+更新时用新的 `IwaraTool.app` 替换旧的即可；设置、历史记录和订阅都保存在 `~/Library/Application Support/IwaraTool/`，不会因替换应用而丢失。
+
+## Windows：安装与更新
+
+把压缩包解压到任意文件夹并运行 `IwaraTool.exe`。设置与历史保存在程序旁的 `data/` 文件夹：更新时把新版解压到同一文件夹覆盖即可；从 v1.2 及更早版本升级时，也解压到旧版 `.exe` 所在的文件夹（放在别处时，可在“设置 → 存储 → 备份与日志 → 从旧版导入…”中导入）。
+
+## Android：安装与更新
+
+安装 `.apk` 时按提示允许“安装未知应用”。所有版本使用同一个签名，之后下载新版 `.apk` 直接安装即可覆盖升级，数据保留。
 
 ## macOS：首次启动的安全提示
 
@@ -54,7 +60,7 @@ xattr -dr com.apple.quarantine /Applications/IwaraTool.app
 访问 Iwara 通常需要代理。IwaraTool 的“登录/解析代理”和“视频下载代理”**默认都处于关闭状态**，此时请求跟随系统代理或 TUN：
 
 - 代理软件已开启 **系统代理** 或 **TUN 模式**：无需任何设置。
-- 两者都没开：打开“应用设置 → 代理设置”，启用“登录/解析代理”，填写代理软件的本地 HTTP / 混合端口，然后点“应用”。
+- 两者都没开：打开“设置 → 账号与网络 → 代理”，启用“登录/解析代理”，填写代理软件的本地 HTTP / 混合端口，然后点“应用”。
 
 | 代理软件 | 常见默认地址 |
 | --- | --- |
@@ -66,10 +72,10 @@ xattr -dr com.apple.quarantine /Applications/IwaraTool.app
 
 ## 基本使用流程
 
-1. **登录（可选）**：在“应用设置 → 账号登录”中登录。下载私有视频、查看“我的订阅”或导入关注的作者时需要登录。
-2. **下载**：在“下载工作台”粘贴作者、播放列表、搜索页或单个视频的链接，选择下载规则后提交。未完成的任务下次打开时会继续。
-3. **搜索**：在“搜索”页选择数据源与类型并输入关键词。Iwara 的搜索接口无法预先限定点赞、时长等条件，可在结果出来后点“筛选”按钮，在弹窗中设置条件并重新排序（详见 [使用指南](./usage.md#搜索后筛选)）。勾选结果后点“加入选中项”即可下载。
-4. **订阅**：在搜索结果或作者页订阅作者 / 播放列表，之后在“订阅页”查看新作品并只下载新增部分。
+1. **登录（可选）**：点侧栏底部的账号入口（手机为右上角头像），或在“设置 → 账号与网络”中登录。下载私有视频、查看“我的订阅”或导入关注的作者时需要登录。
+2. **下载**：在“下载”页粘贴作者、播放列表、搜索页或单个视频的链接并点“下载”，在弹出的面板中确认内容和下载规则。未完成的任务下次打开时会继续；下载好的视频在“资料库”中查看和播放。
+3. **搜索**：在“搜索”页选择数据源与类型并输入关键词。Iwara 的搜索接口无法预先限定点赞、时长等条件，可在结果出来后点“筛选”按钮，在面板中设置条件并重新排序（详见 [使用指南](./usage.md#搜索后筛选)）。点击封面查看详情和播放；勾选多个结果后点“下载 N 项”即可批量下载。
+4. **订阅**：在搜索结果或作者页订阅作者 / 播放列表，之后在“订阅”页查看新作品并只下载新增部分。
 
 更多细节见 [使用指南](./usage.md) 与 [参考文档](./reference.md)。
 
@@ -81,4 +87,4 @@ xattr -dr com.apple.quarantine /Applications/IwaraTool.app
 
 **数据保存在哪里、如何卸载**：macOS 的设置与缓存位于 `~/Library/Application Support/IwaraTool/`，视频默认下载到 `~/Downloads/IwaraTool/`。卸载时把“应用程序”中的 IwaraTool 移到废纸篓；若不再需要数据，再删除上述数据目录。Windows / Linux 版的数据位于程序旁的 `data/` 文件夹。详见 [本地数据与缓存](./data.md)。
 
-**如何更新**：可在“应用设置 → GitHub Release 更新”中检查是否有新版本；从 Releases 下载新版本替换旧程序即可，数据会保留。
+**如何更新**：可在“设置 → 关于”中检查是否有新版本；从 Releases 下载新版本替换旧程序即可，数据会保留（Android 直接安装新版 APK 覆盖升级）。
