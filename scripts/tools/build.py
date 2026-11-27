@@ -77,6 +77,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "flet==1.1.3",
   "flet-video==1.1.3",
+  "flet-permission-handler==1.1.3",
   "requests>=2.32.5,<3",
   "cloudscraper>=1.2.71",
 ]
@@ -97,10 +98,19 @@ module = "main"
 [tool.flet.android]
 extract_packages = ["cloudscraper"]
 
+# Downloads and the picture cache live in the shared Download/IwaraTool folder
+# (app/ui/platform/storage.py): All files access on Android 11+, the storage
+# permissions before that (legacy storage on Android 10).
+[tool.flet.android.permission]
+"android.permission.MANAGE_EXTERNAL_STORAGE" = true
+"android.permission.READ_EXTERNAL_STORAGE" = {{ maxSdkVersion = "32" }}
+"android.permission.WRITE_EXTERNAL_STORAGE" = {{ maxSdkVersion = "29" }}
+
 # Remote videos play through the loopback stream proxy at http://127.0.0.1,
 # which Android refuses unless cleartext traffic is allowed.
 [tool.flet.android.manifest_application]
 usesCleartextTraffic = true
+requestLegacyExternalStorage = true
 """
 PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "apk": "Android"}
 DESKTOP_TARGETS = frozenset({"macos", "windows", "linux"})

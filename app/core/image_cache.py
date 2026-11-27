@@ -12,23 +12,50 @@ from ..logging_setup import get_logger
 
 logger = get_logger(__name__)
 
+# The first failures are logged as warnings with their reason (a phone whose
+# network blocks the image host otherwise only shows placeholders); the rest at
+# debug level so a bad connection cannot flood the log.
+WARN_FAILURES = 10
+_failures = 0
+_failures_lock = threading.Lock()
+
+
+def _log_failure(image_url: str, reason: str, exc_info: bool = False) -> None:
+    global _failures
+    with _failures_lock:
+        _failures += 1
+        warn = _failures <= WARN_FAILURES
+    host = urlparse(image_url).netloc
+    if warn:
+        logger.warning("Image from %s could not be cached: %s", host, reason, exc_info=exc_info)
+    else:
+        logger.debug("Image fetch failed: %s (%s)", image_url, reason)
+
 
 class SearchImageCache:
-    """Cache remote search images under ``data/img/search``.
+    """Cache remote search images under ``<image cache>/search`` (``data/img/search``).
 
     Files are written to a temporary sibling and atomically renamed.  This is
     important for the UI: a card never observes a partially downloaded image.
     """
 
-    def __init__(self, root: str | None = None):
-        if root is None:
-            # Import lazily so this small utility stays easy to use in isolated
-            # tests and does not make the config module import this package.
-            from ..config import app_config
+    FOLDER = "search"
 
-            root = os.path.join(app_config.app_data_dir, "img", "search")
-        self.root = os.path.abspath(root)
+    def __init__(self, root: str | None = None):
+        # Without ``root`` the folder follows ``app_config.image_cache_dir``,
+        # which a phone moves to shared storage after start-up.
+        self._root = os.path.abspath(root) if root else ""
         self._lock = threading.RLock()
+
+    @property
+    def root(self) -> str:
+        if self._root:
+            return self._root
+        # Import lazily so this small utility stays easy to use in isolated
+        # tests and does not make the config module import this package.
+        from ..config import app_config
+
+        return os.path.abspath(os.path.join(app_config.image_cache_dir, self.FOLDER))
 
     @staticmethod
     def _safe_segment(value: str, fallback: str = "item") -> str:
@@ -109,9 +136,13 @@ class SearchImageCache:
                 stream=True,
                 timeout=30,
             )
-            return self._store_response(response, temp_path, path)
-        except Exception:
-            logger.debug("Image fetch failed: %s", image_url, exc_info=True)
+            stored = self._store_response(response, temp_path, path)
+            if not stored:
+                content_type = getattr(response, "headers", {}).get("content-type", "")
+                _log_failure(image_url, f"HTTP {getattr(response, 'status_code', '?')} {content_type}".strip())
+            return stored
+        except Exception as exc:
+            _log_failure(image_url, f"{type(exc).__name__}: {exc}")
             return ""
         finally:
             close = getattr(response, "close", None)
@@ -165,11 +196,9 @@ class SubscriptionImageCache(SearchImageCache):
     be mistaken for a cover produced by a download rule.
     """
 
-    def __init__(self, root: str | None = None):
-        if root is None:
-            from ..config import app_config
+    FOLDER = "sub"
 
-            root = os.path.join(app_config.app_data_dir, "img", "sub")
+    def __init__(self, root: str | None = None):
         super().__init__(root)
         # Keep the subscription cache directory visible even before the first
         # successful image request.  This also makes the configured storage

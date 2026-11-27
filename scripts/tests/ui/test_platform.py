@@ -191,44 +191,180 @@ class DrawerTests(unittest.TestCase):
         self.assertEqual(drawer_width(1000), MAX_WIDTH)
 
 
+class FakeConfig(SimpleNamespace):
+    """Never the real settings file."""
+
+    def __init__(self, **values):
+        super().__init__(image_cache_dir="", **values)
+        self.ui: dict = {}
+
+    def get_ui_value(self, key, default=""):
+        return self.ui.get(key, default)
+
+    def set_ui_value(self, key, value):
+        self.ui[key] = value
+
+
 @unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
 class PhoneStorageTests(unittest.TestCase):
-    def test_external_directory_preferred(self):
+    def test_shared_download_folder(self):
         from pathlib import Path
 
         from app.ui.platform import storage
 
+        self.assertEqual(storage.public_download_dir("/storage/emulated/0/Android/data/x/files"),
+                         Path("/storage/emulated/0/Download/IwaraTool"))
+        self.assertEqual(storage.public_download_dir(None), storage.DEFAULT_SHARED_ROOT / "Download" / "IwaraTool")
         self.assertEqual(storage.phone_download_dir("/sdcard/Android/data/x/files"),
                          Path("/sdcard/Android/data/x/files") / storage.DOWNLOAD_FOLDER)
-        self.assertEqual(storage.phone_download_dir(None).name, storage.DOWNLOAD_FOLDER)
 
-    def test_only_the_untouched_default_moves(self):
+    def test_the_old_app_specific_folder_counts_as_default(self):
+        from app.ui.platform import storage
+
+        for folder, default in (("", True), ("/storage/emulated/0/Android/data/x/files/Downloads", True),
+                                ("/storage/emulated/0/Android/data/x/files/Movies", False),
+                                ("/storage/emulated/0/Movies/mine", False)):
+            with mock.patch.object(storage, "app_config", FakeConfig(download_dir=folder)):
+                self.assertEqual(storage.using_default_folder(), default, folder)
+
+    def _prepare(self, platform, config, *, access: bool, public, external="/storage/emulated/0/Android/data/x/files"):
         import asyncio
+
+        import flet as ft
+
+        from app.ui.platform import storage
+
+        class Paths:
+            async def get_external_storage_directory(self):
+                return external
+
+        async def granted(_page):
+            return access
+
+        with mock.patch.object(ft, "StoragePaths", Paths), mock.patch.object(storage, "app_config", config), \
+                mock.patch.object(storage, "storage_access", granted), \
+                mock.patch.object(storage, "public_download_dir", lambda _external: public), \
+                mock.patch("app.core.download.manager.download_manager.apply_config"):
+            asyncio.run(storage.prepare_phone_storage(SimpleNamespace(platform=platform)))
+
+    def test_downloads_and_cache_move_to_the_shared_folder(self):
         import tempfile
+        from pathlib import Path
+
+        import flet as ft
+
+        public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
+        config = FakeConfig(download_dir="")
+        self._prepare(ft.PagePlatform.MACOS, config, access=True, public=public)
+        self.assertEqual((config.download_dir, config.image_cache_dir), ("", ""))
+        self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public)
+        self.assertEqual(config.download_dir, str(public))
+        self.assertEqual(config.image_cache_dir, str(public / ".cache"))
+        self.assertTrue((public / ".cache" / ".nomedia").is_file())
+
+    def test_without_access_only_the_cache_stays_private(self):
+        import tempfile
+        from pathlib import Path
+
+        import flet as ft
+
+        public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
+        config = FakeConfig(download_dir="/storage/emulated/0/Android/data/x/files/Downloads")
+        self._prepare(ft.PagePlatform.ANDROID, config, access=False, public=public)
+        self.assertEqual((config.download_dir, config.image_cache_dir), (str(public), ""))
+
+    def test_a_chosen_folder_stays(self):
+        import tempfile
+        from pathlib import Path
+
+        import flet as ft
+
+        public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
+        config = FakeConfig(download_dir="/storage/emulated/0/Movies/mine")
+        self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public)
+        self.assertEqual(config.download_dir, "/storage/emulated/0/Movies/mine")
+        self.assertEqual(config.image_cache_dir, str(public / ".cache"))
+
+    def test_unwritable_shared_folder_falls_back_to_the_app_folder(self):
+        import tempfile
+        from pathlib import Path
 
         import flet as ft
 
         from app.ui.platform import storage
 
         external = tempfile.mkdtemp()
-        config = SimpleNamespace(download_dir="/chosen/by/user")  # never the real settings file
+        blocker = Path(tempfile.mkdtemp()) / "file"
+        blocker.write_text("")
+        config = FakeConfig(download_dir="")
+        self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=blocker / "IwaraTool", external=external)
+        self.assertEqual(config.download_dir, str(storage.phone_download_dir(external)))
+        self.assertEqual(config.image_cache_dir, "")
 
-        class Paths:
-            async def get_external_storage_directory(self):
-                return external
+    def test_an_auto_chosen_folder_moves_when_it_stops_working(self):
+        import tempfile
+        from pathlib import Path
 
-        def run(platform):
-            asyncio.run(storage.prepare_phone_storage(SimpleNamespace(platform=platform)))
+        import flet as ft
 
-        with mock.patch.object(ft, "StoragePaths", Paths), mock.patch.object(storage, "app_config", config), \
-                mock.patch("app.core.download.manager.download_manager.apply_config"):
-            run(ft.PagePlatform.ANDROID)
-            self.assertEqual(config.download_dir, "/chosen/by/user")
-            with mock.patch.object(storage, "using_default_folder", lambda: True):
-                run(ft.PagePlatform.MACOS)
-                self.assertEqual(config.download_dir, "/chosen/by/user")
-                run(ft.PagePlatform.ANDROID)
-            self.assertEqual(config.download_dir, str(storage.phone_download_dir(external)))
+        from app.ui.platform import storage
+
+        external = tempfile.mkdtemp()
+        public = Path(tempfile.mkdtemp()) / "Download" / "IwaraTool"
+        config = FakeConfig(download_dir="")
+        self._prepare(ft.PagePlatform.ANDROID, config, access=True, public=public, external=external)
+        self.assertEqual(config.download_dir, str(public))
+        blocker = Path(tempfile.mkdtemp()) / "file"
+        blocker.write_text("")  # access revoked: the shared folder cannot be written any more
+        config.image_cache_dir = ""
+        self._prepare(ft.PagePlatform.ANDROID, config, access=False, public=blocker / "IwaraTool", external=external)
+        self.assertEqual(config.download_dir, str(storage.phone_download_dir(external)))
+
+
+@unittest.skipUnless(HAS_FLET, "Flet is not installed in this environment")
+class VideoFullscreenTests(unittest.TestCase):
+    def test_layout_holds_still_while_a_video_is_fullscreen(self):
+        from app.ui.shell import Shell
+
+        applied: list[tuple[float, float]] = []
+        later: list = []
+        shell = SimpleNamespace(
+            _video_fullscreen=False, _resize_handle=None, _pending_size=None,
+            caps=SimpleNamespace(mobile=False),
+            loop=SimpleNamespace(call_later=lambda _delay, callback: later.append(callback) or SimpleNamespace(cancel=lambda: None)),
+        )
+        shell.state = SimpleNamespace(layout=SimpleNamespace(width=400, height=800))
+        shell._layout = lambda w, h: applied.append((w, h)) or SimpleNamespace(width=w, height=h)
+        shell._sync_notice_frame = lambda: None
+        shell._apply_size = lambda: Shell._apply_size(shell)
+        Shell.set_video_fullscreen(shell, True)
+        shell._pending_size = (800, 400)  # the phone turned
+        Shell._apply_size(shell)
+        self.assertEqual(applied, [])
+        Shell.set_video_fullscreen(shell, False)
+        self.assertEqual(len(later), 1)
+        shell._pending_size = (400, 800)  # the size after the exit arrives before the settle delay
+        later.pop()()
+        self.assertEqual(applied, [], "the layout never left portrait")
+
+
+class ImageCacheRootTests(unittest.TestCase):
+    def test_root_follows_the_configured_cache_folder(self):
+        import tempfile
+
+        from app.config import app_config
+        from app.core.image_cache import SearchImageCache, SubscriptionImageCache
+
+        folder = tempfile.mkdtemp()
+        cache, sub = SearchImageCache(), SubscriptionImageCache()
+        app_config.image_cache_dir = folder
+        try:
+            self.assertEqual(cache.root, os.path.join(folder, "search"))
+            self.assertEqual(sub.root, os.path.join(folder, "sub"))
+        finally:
+            app_config.image_cache_dir = ""
+        self.assertEqual(SearchImageCache("/x/y").root, os.path.abspath("/x/y"))
+
 
 if __name__ == "__main__":
     unittest.main()
